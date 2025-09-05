@@ -1,0 +1,25 @@
+# Generated files
+dataconnect-generated/
+dataconnect/
+
+# Build outputs
+.next/
+out/
+build/
+dist/
+
+# Dependencies
+node_modules/
+
+# Environment files
+.env*
+!.env.example
+
+# Package files
+package-lock.json
+
+# TypeScript declaration files
+*.d.ts
+
+# Generated GraphQL files
+*.gql
