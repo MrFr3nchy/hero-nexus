@@ -1,209 +1,156 @@
 'use client';
 
-import { characterService } from '@/@creator/services';
-import { Button, Card, CardBody, CardHeader, Spinner } from '@heroui/react';
-import { useEffect, useState } from 'react';
+import { Button, Chip, Link } from '@heroui/react';
+import { useCallback, useEffect, useState } from 'react';
 
-interface Character {
-  id: string;
-  characterName: string;
-  class: string;
-  species: string;
-  level: number;
-  background: string;
-  createdAt: unknown;
-  updatedAt: unknown;
+import {
+  DiceSpinner,
+  EmptyState,
+  PageHeader,
+  PageShell,
+  SectionCard,
+} from '@/@shared/components/ui';
+import type { CharacterRow } from '@/server/characters';
+import { deleteCharacterAction, listCharactersAction } from '../actions';
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return 'Unknown';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? 'Unknown' : d.toLocaleDateString();
 }
 
-export function CharactersList() {
-  const [characters, setCharacters] = useState<Character[]>([]);
+function CharacterGrid({
+  characters,
+  onDelete,
+}: {
+  characters: CharacterRow[];
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {characters.map(c => (
+        <div
+          key={c.id}
+          className="flex flex-col rounded-[var(--radius-card)] border border-line bg-surface p-4"
+        >
+          <div className="mb-3">
+            <h3 className="font-display text-lg text-ink">
+              {c.name || 'Unnamed character'}
+            </h3>
+            <p className="text-sm text-ink-muted">
+              Level {c.level} {c.class || '—'}
+              {c.species ? ` · ${c.species}` : ''}
+            </p>
+          </div>
+          <div className="mb-4 flex flex-wrap gap-1.5 text-xs">
+            {c.background && (
+              <Chip size="sm" variant="flat" className="bg-surface-2">
+                {c.background}
+              </Chip>
+            )}
+            <Chip size="sm" variant="flat" className="bg-surface-2">
+              Updated {formatDate(c.updatedAt)}
+            </Chip>
+          </div>
+          <div className="mt-auto flex gap-2">
+            <Button
+              as={Link}
+              href={`/creator/character?id=${c.id}`}
+              size="sm"
+              variant="flat"
+              className="flex-1"
+            >
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              variant="light"
+              className="text-ink-muted data-[hover=true]:text-danger"
+              onPress={() => onDelete(c.id)}
+            >
+              Delete
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function CharactersList({ embedded = false }: { embedded?: boolean }) {
+  const [characters, setCharacters] = useState<CharacterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadCharacters();
-  }, []);
-
-  const loadCharacters = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const charactersData = await characterService.getCharacters();
-      setCharacters(charactersData as unknown as Character[]);
+      setCharacters(await listCharactersAction());
     } catch (err) {
       console.error('Error loading characters:', err);
       setError('Failed to load characters');
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this character? This cannot be undone.')) return;
+    try {
+      await deleteCharacterAction(id);
+      setCharacters(prev => prev.filter(c => c.id !== id));
+    } catch (err) {
+      console.error('Error deleting character:', err);
+      setError('Failed to delete character');
+    }
   };
 
-  const handleDeleteCharacter = async (characterId: string) => {
-    if (confirm('Are you sure you want to delete this character?')) {
-      try {
-        await characterService.deleteCharacter(characterId);
-        setCharacters(prev => prev.filter(char => char.id !== characterId));
-        alert('Character deleted successfully!');
-      } catch (err) {
-        console.error('Error deleting character:', err);
-        alert('Failed to delete character');
+  const body = loading ? (
+    <div className="flex justify-center py-12">
+      <DiceSpinner label="Gathering your heroes…" />
+    </div>
+  ) : error ? (
+    <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
+      <span>{error}</span>
+      <Button size="sm" variant="light" onPress={load}>
+        Retry
+      </Button>
+    </div>
+  ) : characters.length === 0 ? (
+    <EmptyState
+      icon="🗡️"
+      title="No characters yet"
+      description="Create your first character to get started."
+      action={
+        <Button as={Link} href="/creator/character" color="primary">
+          Create a character
+        </Button>
       }
-    }
-  };
+    />
+  ) : (
+    <CharacterGrid characters={characters} onDelete={handleDelete} />
+  );
 
-  const formatDate = (timestamp: unknown) => {
-    if (!timestamp) return 'Unknown';
-    if (
-      typeof timestamp === 'object' &&
-      timestamp !== null &&
-      'toDate' in timestamp
-    ) {
-      return (timestamp as { toDate: () => Date })
-        .toDate()
-        .toLocaleDateString();
-    }
-    return new Date(timestamp as string | number).toLocaleDateString();
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <Spinner size="lg" className="mb-4" />
-          <p className="text-white text-lg">Loading characters...</p>
-        </div>
-      </div>
-    );
-  }
+  if (embedded) return body;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-4">
-            🗡️ Your Characters
-          </h1>
-          <p className="text-xl text-gray-300 max-w-3xl mx-auto">
-            Manage and view all your created characters
-          </p>
-        </div>
-
-        {/* Error State */}
-        {error && (
-          <Card className="bg-red-900/50 backdrop-blur-sm border-red-600/30 mb-8">
-            <CardBody>
-              <p className="text-red-200">{error}</p>
-              <Button
-                color="danger"
-                variant="light"
-                onPress={loadCharacters}
-                className="mt-2"
-              >
-                Try Again
-              </Button>
-            </CardBody>
-          </Card>
-        )}
-
-        {/* Characters Grid */}
-        {characters.length === 0 ? (
-          <Card className="bg-slate-800/50 backdrop-blur-sm border-amber-600/30">
-            <CardBody className="text-center py-12">
-              <h3 className="text-2xl font-bold text-amber-300 mb-4">
-                No Characters Yet
-              </h3>
-              <p className="text-gray-300 mb-6">
-                Create your first character to get started!
-              </p>
-              <Button
-                color="primary"
-                size="lg"
-                className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500"
-                onPress={() => (window.location.href = '/creator/character')}
-              >
-                Create Character
-              </Button>
-            </CardBody>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {characters.map(character => (
-              <Card
-                key={character.id}
-                className="bg-slate-800/50 backdrop-blur-sm border-amber-600/30 hover:border-amber-500/50 transition-colors"
-              >
-                <CardHeader>
-                  <div className="flex justify-between items-start w-full">
-                    <div>
-                      <h3 className="text-xl font-bold text-amber-300">
-                        {character.characterName || 'Unnamed Character'}
-                      </h3>
-                      <p className="text-gray-400">
-                        Level {character.level} {character.class}
-                      </p>
-                    </div>
-                    <div className="text-right text-sm text-gray-400">
-                      <p>Created: {formatDate(character.createdAt)}</p>
-                      <p>Updated: {formatDate(character.updatedAt)}</p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardBody>
-                  <div className="space-y-2 mb-4">
-                    <p className="text-gray-300">
-                      <span className="text-amber-200 font-semibold">
-                        Species:
-                      </span>{' '}
-                      {character.species || 'Unknown'}
-                    </p>
-                    <p className="text-gray-300">
-                      <span className="text-amber-200 font-semibold">
-                        Background:
-                      </span>{' '}
-                      {character.background || 'Unknown'}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      color="primary"
-                      variant="flat"
-                      size="sm"
-                      className="flex-1"
-                      onPress={() => {
-                        // TODO: Implement edit functionality
-                        alert('Edit functionality coming soon!');
-                      }}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      color="danger"
-                      variant="flat"
-                      size="sm"
-                      onPress={() => handleDeleteCharacter(character.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </CardBody>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        {/* Refresh Button */}
-        <div className="flex justify-center mt-8">
-          <Button
-            color="primary"
-            variant="bordered"
-            onPress={loadCharacters}
-            className="border-amber-600 text-amber-300 hover:bg-amber-600/10"
-          >
-            Refresh List
+    <PageShell width="full">
+      <PageHeader
+        eyebrow="Roster"
+        title="Your characters"
+        description="Every hero you've built."
+        actions={
+          <Button as={Link} href="/creator/character" color="primary" size="sm">
+            New character
           </Button>
-        </div>
-      </div>
-    </div>
+        }
+      />
+      <SectionCard>{body}</SectionCard>
+    </PageShell>
   );
 }

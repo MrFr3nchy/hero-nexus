@@ -4,27 +4,183 @@
 @source '../../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
 @custom-variant dark (&:is(.dark *));
 
+/* ------------------------------------------------------------------ *
+ * Parchment & Ink — design tokens
+ * Keep these in sync with the HeroUI palette in `src/app/hero.ts`.
+ * ------------------------------------------------------------------ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #faf6ef;
+  --surface: #ffffff;
+  --surface-2: #f3ede1;
+  --ink: #2b2620;
+  --ink-muted: #6b6459;
+  --ink-subtle: #9a9184;
+  --line: #e4dccb;
+  --gold: #b4894a;
+  --gold-strong: #7a5c2e;
+  --arcane: #6b4d8a;
+  --success: #3f7d55;
+  --warning: #b07d33;
+  --danger: #a23b34;
+  --info: #4a6076;
+
+  --radius: 0.625rem;
+  --shadow-card:
+    0 1px 2px rgb(43 38 32 / 0.04), 0 8px 24px -12px rgb(43 38 32 / 0.12);
+  --heading-glow: none;
+}
+
+:root.dark {
+  /* Candlelight — warm brown-black, not blue-black. */
+  --bg: #16130f;
+  --surface: #1e1a14;
+  --surface-2: #262019;
+  --ink: #ede7da;
+  --ink-muted: #a89f8d;
+  --ink-subtle: #7a7060;
+  --line: #33291d;
+  --gold: #d9b061;
+  --gold-strong: #e8c988;
+  --arcane: #a988cf;
+  --success: #6bbf8a;
+  --warning: #d6a253;
+  --danger: #d9756c;
+  --info: #8aa4bd;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35), 0 14px 34px -14px rgb(0 0 0 / 0.6);
+  --heading-glow: 0 0 18px color-mix(in srgb, var(--gold) 20%, transparent);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+  --color-line: var(--line);
+  --color-gold: var(--gold);
+  --color-gold-strong: var(--gold-strong);
+  --color-arcane: var(--arcane);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+
+  --radius-card: var(--radius);
+  --shadow-card: var(--shadow-card);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+  --font-display-alt: var(--font-cinzel), 'Trajan Pro', ui-serif, Georgia, serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--line);
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- Texture --------------------------------------------------------- *
+ * `.grain` on <body> adds a subtle material overlay. Remove the class to
+ * disable. Light: warm mottled parchment. Dark: sparse embers + a warm
+ * candlelight glow from top-centre.
+ * ------------------------------------------------------------------- */
+
+body.grain::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: multiply;
+  background:
+    radial-gradient(
+      120% 60% at 50% 0%,
+      transparent 55%,
+      rgb(43 38 32 / 0.06) 100%
+    ),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.55  0 0 0 0 0.44  0 0 0 0 0.30  0 0 0 0.08 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E");
+  background-size:
+    100% 100%,
+    180px 180px;
+}
+
+:root.dark body.grain::before {
+  opacity: 1;
+  mix-blend-mode: screen;
+  background:
+    radial-gradient(
+      90% 45% at 50% -5%,
+      color-mix(in srgb, var(--gold) 12%, transparent) 0%,
+      transparent 60%
+    ),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='e'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.85  0 0 0 0 0.69  0 0 0 0 0.38  0 0 0 12 -10'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23e)'/%3E%3C/svg%3E");
+  background-size:
+    100% 100%,
+    240px 240px;
+}
+
+body.grain > * {
+  position: relative;
+  z-index: 1;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  text-shadow: var(--heading-glow);
+}
+
+.font-display-alt {
+  font-family: var(--font-display-alt);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ---- Ornament keyframes ------------------------------------------- */
+
+@keyframes fleuron-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes d20-tumble {
+  0% {
+    transform: rotate3d(1, 1, 0, 0deg);
+  }
+  100% {
+    transform: rotate3d(1, 1, 0, 360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fleuron-rule,
+  .d20-spin {
+    animation: none !important;
+  }
 }

@@ -1,19 +1,12 @@
 'use client';
 
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  Divider,
-  Input,
-} from '@heroui/react';
-import Link from 'next/link';
+import { Button, Input, Link } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+
+import { DeckledEdge, SectionCard } from '@/@shared/components/ui';
 import { useAuth } from '../context';
-import { FirebaseError } from '../types';
-import { AUTH_ERRORS, AuthErrorCode } from '../types/constants';
+import { AuthError } from '../types';
 
 export default function LoginForm() {
   const [email, setEmail] = useState('');
@@ -27,104 +20,76 @@ export default function LoginForm() {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
       await login(email, password);
-      router.push('/');
-    } catch (error: unknown) {
-      const firebaseError = error as FirebaseError;
-      const errorCode = firebaseError.code as AuthErrorCode;
-      setError(AUTH_ERRORS[errorCode] || 'Failed to log in. Please try again.');
+      router.push('/dashboard');
+      router.refresh();
+    } catch (err: unknown) {
+      setError(
+        (err as AuthError).message || 'Failed to sign in. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-amber-900 to-slate-900 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div className="text-center">
-          <h2 className="mt-6 text-3xl font-extrabold text-amber-100">
-            Sign in to your account
-          </h2>
-          <p className="mt-2 text-sm text-amber-200">
-            Or{' '}
-            <Link
-              href="/register"
-              className="font-medium text-yellow-300 hover:text-yellow-200 transition-colors"
-            >
-              create a new account
+    <div className="flex min-h-screen items-center justify-center bg-bg px-4 py-12">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 text-center">
+          <h1 className="font-display text-2xl text-ink">Welcome back</h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            New here?{' '}
+            <Link href="/register" size="sm" className="text-gold">
+              Create an account
             </Link>
           </p>
         </div>
-        <Card className="bg-slate-800/50 backdrop-blur-sm border-amber-600 border-2 shadow-2xl">
-          <CardHeader className="pb-0">
-            <div className="text-center w-full">
-              <h3 className="text-2xl font-bold text-amber-100">
-                Welcome Back
-              </h3>
-              <p className="text-amber-200 mt-2">
-                Enter your credentials to continue
-              </p>
-            </div>
-          </CardHeader>
-          <CardBody className="pt-6">
-            <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="relative">
+          <SectionCard>
+            <form onSubmit={handleSubmit} className="space-y-4">
               <Input
                 type="email"
-                label="Email address"
-                placeholder="Enter your email"
+                label="Email"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                className="text-amber-100"
-                classNames={{
-                  input: 'text-amber-100',
-                  inputWrapper: 'bg-slate-700/50 border-amber-600',
-                  label: 'text-amber-200',
-                }}
+                onValueChange={setEmail}
+                isRequired
+                autoComplete="email"
               />
               <Input
                 type="password"
                 label="Password"
-                placeholder="Enter your password"
                 value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                className="text-amber-100"
-                classNames={{
-                  input: 'text-amber-100',
-                  inputWrapper: 'bg-slate-700/50 border-amber-600',
-                  label: 'text-amber-200',
-                }}
+                onValueChange={setPassword}
+                isRequired
+                autoComplete="current-password"
               />
               {error && (
-                <div className="text-red-400 text-sm text-center bg-red-900/20 p-3 rounded-lg border border-red-600">
+                <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
                   {error}
-                </div>
+                </p>
               )}
               <Button
                 type="submit"
                 color="primary"
-                size="lg"
-                className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold"
+                className="w-full"
                 isLoading={loading}
-                disabled={loading}
               >
-                {loading ? 'Signing in...' : 'Sign In'}
+                Sign in
               </Button>
             </form>
-            <Divider className="my-6 bg-amber-600" />
-            <div className="text-center">
+            <p className="mt-4 text-center text-sm">
               <Link
                 href="/forgot-password"
-                className="text-sm text-yellow-300 hover:text-yellow-200 transition-colors"
+                size="sm"
+                className="text-ink-muted"
               >
                 Forgot your password?
               </Link>
-            </div>
-          </CardBody>
-        </Card>
+            </p>
+          </SectionCard>
+          <DeckledEdge />
+        </div>
       </div>
     </div>
   );

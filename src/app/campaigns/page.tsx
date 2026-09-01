@@ -4,7 +4,7 @@ import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 export default function CampaignsPage() {
   return (
     <ProtectedRoute>
-      <CampaignDashboard _userId="current-user" isGM={true} />
+      <CampaignDashboard />
     </ProtectedRoute>
   );
 }

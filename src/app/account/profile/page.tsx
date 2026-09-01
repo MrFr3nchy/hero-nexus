@@ -1,8 +1,7 @@
 'use client';
 
 import { useAuth } from '@/@auth/context';
-import { FirebaseError } from '@/@auth/types';
-import { AUTH_ERRORS, AuthErrorCode } from '@/@auth/types/constants';
+import { AuthError } from '@/@auth/types';
 import {
   Avatar,
   Button,
@@ -25,8 +24,8 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (currentUser) {
-      setDisplayName(currentUser.displayName || '');
-      setPhotoURL(currentUser.photoURL || '');
+      setDisplayName(currentUser.name || '');
+      setPhotoURL(currentUser.image || '');
     }
   }, [currentUser]);
 
@@ -39,14 +38,13 @@ export default function ProfilePage() {
     try {
       await updateProfile({
         displayName: displayName.trim() || undefined,
-        photoURL: photoURL.trim() || undefined,
+        image: photoURL.trim() || undefined,
       });
       setMessage('Profile updated successfully!');
     } catch (error: unknown) {
-      const firebaseError = error as FirebaseError;
-      const errorCode = firebaseError.code as AuthErrorCode;
+      const authError = error as AuthError;
       setError(
-        AUTH_ERRORS[errorCode] || 'Failed to update profile. Please try again.'
+        authError.message || 'Failed to update profile. Please try again.'
       );
     } finally {
       setLoading(false);
@@ -55,17 +53,12 @@ export default function ProfilePage() {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-amber-900 to-slate-900">
+      <div className="min-h-screen flex items-center justify-center bg-bg">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-amber-100 mb-4">
+          <h1 className="text-2xl font-bold text-ink mb-4">
             Please log in to view your profile
           </h1>
-          <Button
-            as="a"
-            href="/login"
-            color="primary"
-            className="bg-gradient-to-r from-amber-600 to-orange-600"
-          >
+          <Button as="a" href="/login" color="primary" className="">
             Go to Login
           </Button>
         </div>
@@ -74,24 +67,22 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-amber-900 to-slate-900 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-bg py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-amber-100 mb-2">
-            Profile Settings
-          </h1>
-          <p className="text-amber-200">
+          <h1 className="text-4xl font-bold text-ink mb-2">Profile Settings</h1>
+          <p className="text-ink-muted">
             Manage your personal information and preferences
           </p>
         </div>
 
-        <Card className="bg-slate-800/50 backdrop-blur-sm border-amber-600 border-2 shadow-2xl">
+        <Card className=" border-line shadow-2xl">
           <CardHeader className="pb-0">
             <div className="text-center w-full">
-              <h2 className="text-2xl font-bold text-amber-100">
+              <h2 className="text-2xl font-bold text-ink">
                 Personal Information
               </h2>
-              <p className="text-amber-200 mt-2">
+              <p className="text-ink-muted mt-2">
                 Update your display name and profile picture
               </p>
             </div>
@@ -99,25 +90,23 @@ export default function ProfilePage() {
           <CardBody className="pt-6">
             <div className="flex flex-col items-center mb-6">
               <Avatar
-                src={currentUser.photoURL || undefined}
+                src={currentUser.image || undefined}
                 name={
-                  currentUser.displayName ||
-                  currentUser.email?.split('@')[0] ||
-                  'User'
+                  currentUser.name || currentUser.email?.split('@')[0] || 'User'
                 }
                 className="w-24 h-24 text-large mb-4"
                 classNames={{
-                  base: 'bg-gradient-to-r from-amber-600 to-orange-600',
-                  name: 'text-white font-bold text-2xl',
+                  base: '',
+                  name: 'font-bold text-2xl',
                 }}
               />
               <User
-                name={currentUser.displayName || 'No display name set'}
+                name={currentUser.name || 'No display name set'}
                 description={currentUser.email}
                 className="text-center"
                 classNames={{
-                  name: 'text-amber-100 text-lg font-semibold',
-                  description: 'text-amber-200',
+                  name: 'text-ink text-lg font-semibold',
+                  description: 'text-ink-muted',
                 }}
               />
             </div>
@@ -129,11 +118,11 @@ export default function ProfilePage() {
                 placeholder="Enter your display name"
                 value={displayName}
                 onChange={e => setDisplayName(e.target.value)}
-                className="text-amber-100"
+                className="text-ink"
                 classNames={{
-                  input: 'text-amber-100',
-                  inputWrapper: 'bg-slate-700/50 border-amber-600',
-                  label: 'text-amber-200',
+                  input: 'text-ink',
+                  inputWrapper: 'bg-surface-2 border-line',
+                  label: 'text-ink-muted',
                 }}
               />
               <Input
@@ -142,22 +131,22 @@ export default function ProfilePage() {
                 placeholder="Enter URL for your profile picture"
                 value={photoURL}
                 onChange={e => setPhotoURL(e.target.value)}
-                className="text-amber-100"
+                className="text-ink"
                 classNames={{
-                  input: 'text-amber-100',
-                  inputWrapper: 'bg-slate-700/50 border-amber-600',
-                  label: 'text-amber-200',
+                  input: 'text-ink',
+                  inputWrapper: 'bg-surface-2 border-line',
+                  label: 'text-ink-muted',
                 }}
               />
 
               {error && (
-                <div className="text-red-400 text-sm text-center bg-red-900/20 p-3 rounded-lg border border-red-600">
+                <div className="text-danger text-sm text-center bg-danger/10 p-3 rounded-lg border border-danger/40">
                   {error}
                 </div>
               )}
 
               {message && (
-                <div className="text-green-400 text-sm text-center bg-green-900/20 p-3 rounded-lg border border-green-600">
+                <div className="text-success text-sm text-center bg-success/10 p-3 rounded-lg border border-success/40">
                   {message}
                 </div>
               )}
@@ -166,7 +155,7 @@ export default function ProfilePage() {
                 type="submit"
                 color="primary"
                 size="lg"
-                className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold"
+                className="w-full"
                 isLoading={loading}
                 disabled={loading}
               >
@@ -174,32 +163,19 @@ export default function ProfilePage() {
               </Button>
             </form>
 
-            <Divider className="my-6 bg-amber-600" />
+            <Divider className="my-6" />
 
             <div className="text-center">
-              <h3 className="text-lg font-semibold text-amber-100 mb-2">
+              <h3 className="text-lg font-semibold text-ink mb-2">
                 Account Information
               </h3>
-              <div className="space-y-2 text-sm text-amber-200">
+              <div className="space-y-2 text-sm text-ink-muted">
                 <p>
                   <span className="font-medium">Email:</span>{' '}
                   {currentUser.email}
                 </p>
                 <p>
-                  <span className="font-medium">User ID:</span>{' '}
-                  {currentUser.uid}
-                </p>
-                <p>
-                  <span className="font-medium">Email Verified:</span>{' '}
-                  {currentUser.emailVerified ? 'Yes' : 'No'}
-                </p>
-                <p>
-                  <span className="font-medium">Account Created:</span>{' '}
-                  {currentUser.metadata.creationTime}
-                </p>
-                <p>
-                  <span className="font-medium">Last Sign In:</span>{' '}
-                  {currentUser.metadata.lastSignInTime}
+                  <span className="font-medium">User ID:</span> {currentUser.id}
                 </p>
               </div>
             </div>

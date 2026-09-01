@@ -1,14 +1,11 @@
-// Character services
-export { CharacterService, characterService } from '../character/services';
+// Character
+export { characterService } from '../character/services';
+export type { CharacterService } from '../character/services';
 
-// Spell services
-export { SpellService, spellService } from '../spell/services';
+// Homebrew (replaces the old identical class / item / spell services)
+export { homebrewService } from '../homebrew/services';
+export type { HomebrewService } from '../homebrew/services';
 
-// Class services
-export { ClassService, classService } from '../class/services';
-
-// Item services
-export { ItemService, itemService } from '../item/services';
-
-// Campaign services
-export { CampaignService, campaignService } from '../campaign/services';
+// Campaign
+export { campaignService } from '../campaign/services';
+export type { CampaignService } from '../campaign/services';

@@ -1,12 +1,34 @@
-import { ConditionalLayout } from '@/@shared/components/ConditionalLayout';
 import type { Metadata } from 'next';
+import { Cinzel, Fraunces, Inter } from 'next/font/google';
+
+import { ConditionalLayout } from '@/@shared/components/ConditionalLayout';
 import './globals.css';
 import { Providers } from './providers';
 
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+});
+
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  variable: '--font-fraunces',
+  display: 'swap',
+  axes: ['SOFT', 'opsz'],
+});
+
+const cinzel = Cinzel({
+  subsets: ['latin'],
+  variable: '--font-cinzel',
+  display: 'swap',
+  weight: ['500', '600'],
+});
+
 export const metadata: Metadata = {
-  title: 'Hero Nexus - Tabletop RPG Character Creator',
+  title: 'Hero Nexus',
   description:
-    'Create epic characters for your tabletop adventures. Choose from powerful classes, craft unique abilities, and embark on legendary quests with your custom hero.',
+    'A self-hosted campaign tool for tabletop RPG players and game masters — build characters, design homebrew, and run your table.',
 };
 
 export default function RootLayout({
@@ -15,8 +37,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="antialiased">
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${inter.variable} ${fraunces.variable} ${cinzel.variable}`}
+    >
+      <body className="grain">
         <Providers>
           <ConditionalLayout>{children}</ConditionalLayout>
         </Providers>

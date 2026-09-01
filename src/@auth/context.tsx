@@ -1,19 +1,14 @@
 'use client';
 
-import { auth } from '@/lib/firebase';
+import { SessionProvider, signIn, signOut, useSession } from 'next-auth/react';
+import React, { createContext, useContext, useMemo } from 'react';
+
 import {
-  User,
-  createUserWithEmailAndPassword,
-  onAuthStateChanged,
-  sendPasswordResetEmail as sendFirebasePasswordResetEmail,
-  signInWithEmailAndPassword,
-  signOut,
-  updateEmail as updateFirebaseEmail,
-  updatePassword as updateFirebasePassword,
-  updateProfile as updateFirebaseProfile,
-} from 'firebase/auth';
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { AuthContextType, FirebaseError } from './types';
+  updateEmailAction,
+  updatePasswordAction,
+  updateProfileAction,
+} from './actions';
+import { AuthContextType, AuthError, SessionUser } from './types';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -25,105 +20,108 @@ export const useAuth = () => {
   return context;
 };
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
+function toAuthError(
+  err: unknown,
+  fallback = 'Something went wrong.'
+): AuthError {
+  if (err && typeof err === 'object' && 'message' in err) {
+    return err as AuthError;
+  }
+  return { message: fallback };
+}
+
+const InnerAuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: session, status, update } = useSession();
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, user => {
-      setCurrentUser(user);
-      setLoading(false);
-    });
+  const value = useMemo<AuthContextType>(() => {
+    const currentUser: SessionUser | null = session?.user
+      ? {
+          id: session.user.id,
+          name: session.user.name ?? null,
+          email: session.user.email ?? null,
+          image: session.user.image ?? null,
+        }
+      : null;
 
-    return unsubscribe;
-  }, []);
+    return {
+      currentUser,
+      loading: status === 'loading',
 
-  const login = async (email: string, password: string) => {
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (error: unknown) {
-      throw error as FirebaseError;
-    }
-  };
+      async login(email, password) {
+        const res = await signIn('credentials', {
+          email,
+          password,
+          redirect: false,
+        });
+        if (!res || res.error) {
+          throw {
+            code: 'invalid-credentials',
+            message: 'Incorrect email or password.',
+          } satisfies AuthError;
+        }
+        await update();
+      },
 
-  const register = async (
-    email: string,
-    password: string,
-    displayName?: string
-  ) => {
-    try {
-      const result = await createUserWithEmailAndPassword(
-        auth,
-        email,
-        password
-      );
-      if (displayName && result.user) {
-        await updateFirebaseProfile(result.user, { displayName });
-      }
-    } catch (error: unknown) {
-      throw error as FirebaseError;
-    }
-  };
+      async register(email, password, displayName) {
+        const res = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, displayName }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw {
+            code: res.status === 409 ? 'email-in-use' : 'unknown',
+            message: data.error ?? 'Failed to create account.',
+          } satisfies AuthError;
+        }
+        await signIn('credentials', { email, password, redirect: false });
+        await update();
+      },
 
-  const logout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error: unknown) {
-      throw error as FirebaseError;
-    }
-  };
+      async logout() {
+        await signOut({ redirect: false });
+      },
 
-  const updateProfile = async (data: {
-    displayName?: string;
-    photoURL?: string;
-  }) => {
-    if (!currentUser) throw new Error('No user logged in');
-    try {
-      await updateFirebaseProfile(currentUser, data);
-    } catch (error: unknown) {
-      throw error as FirebaseError;
-    }
-  };
+      async updateProfile(data) {
+        try {
+          await updateProfileAction(data);
+          await update();
+        } catch (err) {
+          throw toAuthError(err, 'Failed to update profile.');
+        }
+      },
 
-  const updateEmail = async (email: string) => {
-    if (!currentUser) throw new Error('No user logged in');
-    try {
-      await updateFirebaseEmail(currentUser, email);
-    } catch (error: unknown) {
-      throw error as FirebaseError;
-    }
-  };
+      async updateEmail(email) {
+        try {
+          await updateEmailAction(email);
+          await update();
+        } catch (err) {
+          throw toAuthError(err, 'Failed to update email.');
+        }
+      },
 
-  const updatePassword = async (password: string) => {
-    if (!currentUser) throw new Error('No user logged in');
-    try {
-      await updateFirebasePassword(currentUser, password);
-    } catch (error: unknown) {
-      throw error as FirebaseError;
-    }
-  };
-
-  const sendPasswordResetEmail = async (email: string) => {
-    try {
-      await sendFirebasePasswordResetEmail(auth, email);
-    } catch (error: unknown) {
-      throw error as FirebaseError;
-    }
-  };
-
-  const value: AuthContextType = {
-    currentUser,
-    loading,
-    login,
-    register,
-    logout,
-    updateProfile,
-    updateEmail,
-    updatePassword,
-    sendPasswordResetEmail,
-  };
+      async updatePassword(currentPassword, newPassword) {
+        try {
+          await updatePasswordAction(currentPassword, newPassword);
+        } catch (err) {
+          throw toAuthError(err, 'Failed to update password.');
+        }
+      },
+    };
+  }, [session, status, update]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => (
+  <SessionProvider>
+    <InnerAuthProvider>{children}</InnerAuthProvider>
+  </SessionProvider>
+);

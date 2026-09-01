@@ -1,6 +1,8 @@
-# Generated files
+# Generated / vendored files
 dataconnect-generated/
 dataconnect/
+public/index.html
+data/
 
 # Build outputs
 .next/

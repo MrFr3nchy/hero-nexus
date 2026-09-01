@@ -1,19 +1,12 @@
 'use client';
 
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  Divider,
-  Input,
-} from '@heroui/react';
-import Link from 'next/link';
+import { Button, Input, Link } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+
+import { DeckledEdge, SectionCard } from '@/@shared/components/ui';
 import { useAuth } from '../context';
-import { FirebaseError } from '../types';
-import { AUTH_ERRORS, AuthErrorCode } from '../types/constants';
+import { AuthError } from '../types';
 
 export default function RegisterForm() {
   const [email, setEmail] = useState('');
@@ -33,22 +26,20 @@ export default function RegisterForm() {
       setError('Passwords do not match');
       return;
     }
-
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
 
     setLoading(true);
-
     try {
-      await register(email, password, displayName);
-      router.push('/');
-    } catch (error: unknown) {
-      const firebaseError = error as FirebaseError;
-      const errorCode = firebaseError.code as AuthErrorCode;
+      await register(email, password, displayName || undefined);
+      router.push('/dashboard');
+      router.refresh();
+    } catch (err: unknown) {
       setError(
-        AUTH_ERRORS[errorCode] || 'Failed to create account. Please try again.'
+        (err as AuthError).message ||
+          'Failed to create account. Please try again.'
       );
     } finally {
       setLoading(false);
@@ -56,125 +47,70 @@ export default function RegisterForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-amber-900 to-slate-900 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div className="text-center">
-          <h2 className="mt-6 text-3xl font-extrabold text-amber-100">
+    <div className="flex min-h-screen items-center justify-center bg-bg px-4 py-12">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 text-center">
+          <h1 className="font-display text-2xl text-ink">
             Create your account
-          </h2>
-          <p className="mt-2 text-sm text-amber-200">
-            Or{' '}
-            <Link
-              href="/login"
-              className="font-medium text-yellow-300 hover:text-yellow-200 transition-colors"
-            >
-              sign in to existing account
+          </h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            Already have one?{' '}
+            <Link href="/login" size="sm" className="text-gold">
+              Sign in
             </Link>
           </p>
         </div>
-        <Card className="bg-slate-800/50 backdrop-blur-sm border-amber-600 border-2 shadow-2xl">
-          <CardHeader className="pb-0">
-            <div className="text-center w-full">
-              <h3 className="text-2xl font-bold text-amber-100">
-                Join Hero Nexus
-              </h3>
-              <p className="text-amber-200 mt-2">
-                Start your epic adventure today
-              </p>
-            </div>
-          </CardHeader>
-          <CardBody className="pt-6">
-            <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="relative">
+          <SectionCard>
+            <form onSubmit={handleSubmit} className="space-y-4">
               <Input
-                type="text"
-                label="Display Name"
-                placeholder="Enter your display name"
+                label="Display name"
                 value={displayName}
-                onChange={e => setDisplayName(e.target.value)}
-                className="text-amber-100"
-                classNames={{
-                  input: 'text-amber-100',
-                  inputWrapper: 'bg-slate-700/50 border-amber-600',
-                  label: 'text-amber-200',
-                }}
+                onValueChange={setDisplayName}
+                autoComplete="nickname"
               />
               <Input
                 type="email"
-                label="Email address"
-                placeholder="Enter your email"
+                label="Email"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                className="text-amber-100"
-                classNames={{
-                  input: 'text-amber-100',
-                  inputWrapper: 'bg-slate-700/50 border-amber-600',
-                  label: 'text-amber-200',
-                }}
+                onValueChange={setEmail}
+                isRequired
+                autoComplete="email"
               />
               <Input
                 type="password"
                 label="Password"
-                placeholder="Enter your password"
+                description="At least 8 characters."
                 value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                className="text-amber-100"
-                classNames={{
-                  input: 'text-amber-100',
-                  inputWrapper: 'bg-slate-700/50 border-amber-600',
-                  label: 'text-amber-200',
-                }}
+                onValueChange={setPassword}
+                isRequired
+                autoComplete="new-password"
               />
               <Input
                 type="password"
-                label="Confirm Password"
-                placeholder="Confirm your password"
+                label="Confirm password"
                 value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
-                required
-                className="text-amber-100"
-                classNames={{
-                  input: 'text-amber-100',
-                  inputWrapper: 'bg-slate-700/50 border-amber-600',
-                  label: 'text-amber-200',
-                }}
+                onValueChange={setConfirmPassword}
+                isRequired
+                autoComplete="new-password"
               />
               {error && (
-                <div className="text-red-400 text-sm text-center bg-red-900/20 p-3 rounded-lg border border-red-600">
+                <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
                   {error}
-                </div>
+                </p>
               )}
               <Button
                 type="submit"
                 color="primary"
-                size="lg"
-                className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold"
+                className="w-full"
                 isLoading={loading}
-                disabled={loading}
               >
-                {loading ? 'Creating account...' : 'Create Account'}
+                Create account
               </Button>
             </form>
-            <Divider className="my-6 bg-amber-600" />
-            <div className="text-center text-sm text-amber-200">
-              By creating an account, you agree to our{' '}
-              <Link
-                href="/terms"
-                className="text-yellow-300 hover:text-yellow-200"
-              >
-                Terms of Service
-              </Link>{' '}
-              and{' '}
-              <Link
-                href="/privacy"
-                className="text-yellow-300 hover:text-yellow-200"
-              >
-                Privacy Policy
-              </Link>
-            </div>
-          </CardBody>
-        </Card>
+          </SectionCard>
+          <DeckledEdge />
+        </div>
       </div>
     </div>
   );
