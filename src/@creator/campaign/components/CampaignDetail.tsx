@@ -11,6 +11,7 @@ import {
 import type { CampaignRow } from '@/server/campaigns';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { MembersPanel } from './MembersPanel';
+import { SessionPanel } from './session/SessionPanel';
 
 export function CampaignDetail({
   campaign,
@@ -106,11 +107,7 @@ export function CampaignDetail({
 
         <Tab key="session" title="Session">
           <div className="pt-4">
-            <SectionCard title="Live session">
-              <p className="text-sm text-ink-muted">
-                Initiative tracker and handouts land here soon.
-              </p>
-            </SectionCard>
+            <SessionPanel campaignId={campaign.id} />
           </div>
         </Tab>
       </Tabs>
