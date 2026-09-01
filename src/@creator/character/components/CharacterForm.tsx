@@ -3,21 +3,30 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@heroui/react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { useForm, type Resolver } from 'react-hook-form';
+import { useCallback, useState } from 'react';
+import { useFieldArray, useForm, type Resolver } from 'react-hook-form';
 
 import { saveCharacterAction } from '../actions';
 import {
   characterSheetSchema,
   makeEmptySheet,
   type CharacterSheet,
+  type HomebrewKind,
 } from '../schema';
 import {
+  genUid,
+  makeProvenanceLogger,
+  reconcileProvenance,
+  type ProvenanceInput,
+} from '../lib/provenance';
+import {
   AbilityScoresSection,
+  ChangeLogSection,
   CombatSection,
   CurrencySection,
   DetailsSection,
   EquipmentSection,
+  HomebrewSection,
   IdentitySection,
   ProficienciesSection,
   type ReferenceOptions,
@@ -46,16 +55,91 @@ export function CharacterForm({
     control,
     handleSubmit,
     reset,
+    getValues,
+    setValue,
     formState: { isSubmitting, isDirty },
   } = useForm<CharacterSheet>({
     resolver: zodResolver(characterSheetSchema) as Resolver<CharacterSheet>,
     defaultValues: initialSheet ?? makeEmptySheet(),
   });
 
+  const { append: appendEntry, remove: removeEntry } = useFieldArray({
+    control,
+    name: 'homebrew.entries',
+  });
+
+  const log = useCallback(
+    (input: ProvenanceInput) =>
+      makeProvenanceLogger(
+        () => getValues('provenance') ?? [],
+        next => setValue('provenance', next, { shouldDirty: true })
+      )(input),
+    [getValues, setValue]
+  );
+
+  const dropHomebrewLog = useCallback(
+    (field: string) => {
+      const list = getValues('provenance') ?? [];
+      const next = list.filter(
+        p => !(p.kind === 'homebrew' && p.label === field)
+      );
+      if (next.length !== list.length)
+        setValue('provenance', next, { shouldDirty: true });
+    },
+    [getValues, setValue]
+  );
+
+  const handleCustomField = useCallback(
+    (field: string, kind: HomebrewKind, value: string, isCustom: boolean) => {
+      const entries = getValues('homebrew.entries') ?? [];
+      const idx = entries.findIndex(e => e.field === field);
+      const trimmed = value.trim();
+
+      if (isCustom && trimmed) {
+        if (idx < 0) {
+          appendEntry({
+            id: genUid(),
+            kind,
+            name: trimmed,
+            field,
+            traits: [],
+          });
+        } else if (entries[idx].name !== trimmed) {
+          setValue(`homebrew.entries.${idx}.name`, trimmed, {
+            shouldDirty: true,
+          });
+        }
+        setValue('homebrew.isHomebrew', true, { shouldDirty: true });
+        log({
+          kind: 'homebrew',
+          label: field,
+          detail: `Custom ${kind}: "${trimmed}"`,
+        });
+      } else if (idx >= 0) {
+        removeEntry(idx);
+        dropHomebrewLog(field);
+        const left = (getValues('homebrew.entries') ?? []).filter(
+          (_, i) => i !== idx
+        );
+        setValue('homebrew.isHomebrew', left.length > 0, { shouldDirty: true });
+      }
+    },
+    [appendEntry, removeEntry, getValues, setValue, log, dropHomebrewLog]
+  );
+
   const onSubmit = handleSubmit(
     async values => {
       setBanner(null);
-      const result = await saveCharacterAction(values, characterId);
+      const payload: CharacterSheet = {
+        ...values,
+        homebrew: {
+          ...values.homebrew,
+          isHomebrew:
+            values.homebrew.isHomebrew || values.homebrew.entries.length > 0,
+        },
+        provenance: reconcileProvenance(values),
+      };
+      const result = await saveCharacterAction(payload, characterId);
       if (result.ok) {
         setBanner({ kind: 'success', text: 'Inscribed.' });
         router.push('/characters');
@@ -91,12 +175,21 @@ export function CharacterForm({
 
       <div className="relative grid grid-cols-1 gap-6 rounded-[var(--radius-card)] border border-gold/25 p-4 shadow-[inset_0_0_0_1px_var(--line)] lg:grid-cols-2 lg:p-6">
         <div className="space-y-6">
-          <IdentitySection control={control} reference={reference} />
-          <AbilityScoresSection control={control} />
+          <IdentitySection
+            control={control}
+            reference={reference}
+            onCustomField={handleCustomField}
+          />
+          <AbilityScoresSection
+            control={control}
+            setValue={setValue}
+            log={log}
+          />
           <CombatSection control={control} />
           <SkillsSection control={control} />
         </div>
         <div className="space-y-6">
+          <HomebrewSection control={control} setValue={setValue} />
           <SpellcastingSection control={control} />
           <ProficienciesSection control={control} />
           <DetailsSection control={control} />
@@ -104,6 +197,8 @@ export function CharacterForm({
           <CurrencySection control={control} />
         </div>
       </div>
+
+      <ChangeLogSection control={control} />
 
       <div className="flex flex-wrap justify-center gap-4">
         <Button

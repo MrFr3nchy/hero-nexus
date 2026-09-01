@@ -7,6 +7,7 @@ export interface Character {
   level: number;
   background: string;
   rpgSystem: string;
+  hasHomebrew: boolean;
   createdAt: string;
   updatedAt: string;
 }

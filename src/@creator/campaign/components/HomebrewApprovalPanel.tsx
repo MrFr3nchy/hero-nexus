@@ -16,7 +16,27 @@ const typeIcon: Record<string, string> = {
   class: '⚔️',
   spell: '🔮',
   item: '🛡️',
+  species: '🧬',
+  subclass: '🎓',
+  background: '📜',
+  feat: '⭐',
 };
+
+interface HomebrewTraitView {
+  name: string;
+  description?: string;
+  mechanic?: string;
+}
+
+function readTraits(data: unknown): HomebrewTraitView[] {
+  if (!data || typeof data !== 'object') return [];
+  const traits = (data as { traits?: unknown }).traits;
+  if (!Array.isArray(traits)) return [];
+  return traits.filter(
+    (t): t is HomebrewTraitView =>
+      Boolean(t) && typeof (t as HomebrewTraitView).name === 'string'
+  );
+}
 
 function ApprovalCard({
   approval,
@@ -30,6 +50,7 @@ function ApprovalCard({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const traits = readTraits(approval.homebrewData);
 
   const decide = async (status: 'approved' | 'denied') => {
     setBusy(true);
@@ -63,10 +84,33 @@ function ApprovalCard({
         <Seal variant={approval.status} />
       </div>
 
-      {approval.homebrewDescription && (
-        <p className="mt-3 whitespace-pre-wrap text-sm text-ink-muted">
-          {approval.homebrewDescription}
-        </p>
+      {traits.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {traits.map((t, i) => (
+            <li
+              key={i}
+              className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm"
+            >
+              <p className="font-medium text-ink">{t.name}</p>
+              {t.description && (
+                <p className="mt-0.5 whitespace-pre-wrap text-ink-muted">
+                  {t.description}
+                </p>
+              )}
+              {t.mechanic && (
+                <p className="mt-1 text-xs italic text-ink-subtle">
+                  {t.mechanic}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        approval.homebrewDescription && (
+          <p className="mt-3 whitespace-pre-wrap text-sm text-ink-muted">
+            {approval.homebrewDescription}
+          </p>
+        )
       )}
 
       {approval.status !== 'pending' && approval.reviewNotes && (

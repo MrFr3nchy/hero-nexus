@@ -97,6 +97,10 @@ export const characters = sqliteTable(
     level: integer('level').notNull().default(1),
     background: text('background').notNull().default(''),
     rpgSystem: text('rpg_system').notNull().default('dnd5e2024'),
+    /** True when the sheet carries custom (homebrew) species/class/etc. */
+    hasHomebrew: integer('has_homebrew', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     /** Full character sheet, JSON-encoded. Schema owned by
      *  `src/@creator/character/schema.ts`. */
     sheet: text('sheet', { mode: 'json' }).notNull(),
@@ -106,6 +110,64 @@ export const characters = sqliteTable(
   t => [index('characters_owner_id_idx').on(t.ownerId)]
 );
 
+/** Homebrew rows spawned by a character's custom identity fields. */
+export const characterHomebrew = sqliteTable(
+  'character_homebrew',
+  {
+    id: uuid(),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    homebrewId: text('homebrew_id')
+      .notNull()
+      .references(() => homebrew.id, { onDelete: 'cascade' }),
+    entryId: text('entry_id').notNull(),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('character_homebrew_char_entry_idx').on(
+      t.characterId,
+      t.entryId
+    ),
+    index('character_homebrew_homebrew_idx').on(t.homebrewId),
+  ]
+);
+
+/** Provenance trail: every custom value / manual stat / dice roll a player made. */
+export const characterAuditLog = sqliteTable(
+  'character_audit_log',
+  {
+    id: uuid(),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    entryId: text('entry_id').notNull(),
+    kind: text('kind', {
+      enum: [
+        'field',
+        'stat-manual',
+        'stat-roll',
+        'stat-pointbuy',
+        'stat-standard',
+        'method',
+        'homebrew',
+      ],
+    }).notNull(),
+    label: text('label').notNull().default(''),
+    detail: text('detail').notNull().default(''),
+    rolls: text('rolls'),
+    occurredAt: text('occurred_at').notNull(),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('character_audit_log_char_entry_idx').on(
+      t.characterId,
+      t.entryId
+    ),
+    index('character_audit_log_char_idx').on(t.characterId),
+  ]
+);
+
 export const homebrew = sqliteTable(
   'homebrew',
   {
@@ -113,7 +175,17 @@ export const homebrew = sqliteTable(
     ownerId: text('owner_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    type: text('type', { enum: ['class', 'spell', 'item'] }).notNull(),
+    type: text('type', {
+      enum: [
+        'class',
+        'spell',
+        'item',
+        'species',
+        'subclass',
+        'background',
+        'feat',
+      ],
+    }).notNull(),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     data: text('data', { mode: 'json' })

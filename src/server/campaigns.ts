@@ -8,7 +8,9 @@ import {
   campaignInvites,
   campaignMembers,
   campaigns,
+  characterHomebrew,
   characters,
+  homebrewApprovals,
   users,
 } from '@/db/schema';
 
@@ -448,6 +450,43 @@ export async function setMemberCharacter(
     )
     .returning({ id: campaignMembers.id });
   if (result.length === 0) throw new Error('NOT_A_MEMBER');
+
+  if (characterId) {
+    await submitCharacterHomebrewForApproval(campaignId, characterId, userId);
+  }
+}
+
+/**
+ * When a character with homebrew content joins a campaign, queue each of its
+ * custom entries for the DM to approve or reject. Idempotent.
+ */
+async function submitCharacterHomebrewForApproval(
+  campaignId: string,
+  characterId: string,
+  userId: string
+): Promise<void> {
+  const links = await db
+    .select({ homebrewId: characterHomebrew.homebrewId })
+    .from(characterHomebrew)
+    .where(eq(characterHomebrew.characterId, characterId));
+  if (links.length === 0) return;
+
+  const existing = await db
+    .select({ homebrewId: homebrewApprovals.homebrewId })
+    .from(homebrewApprovals)
+    .where(eq(homebrewApprovals.campaignId, campaignId));
+  const already = new Set(existing.map(r => r.homebrewId));
+
+  const fresh = links.filter(l => !already.has(l.homebrewId));
+  if (fresh.length === 0) return;
+
+  await db.insert(homebrewApprovals).values(
+    fresh.map(l => ({
+      campaignId,
+      homebrewId: l.homebrewId,
+      requestedByUserId: userId,
+    }))
+  );
 }
 
 /* --- Invites ----------------------------------------------------------- */
