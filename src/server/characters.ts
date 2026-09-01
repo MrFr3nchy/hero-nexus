@@ -4,7 +4,8 @@ import { and, desc, eq } from 'drizzle-orm';
 
 import { auth } from '@/auth';
 import { db } from '@/db';
-import { characters } from '@/db/schema';
+import { campaignMembers, characters } from '@/db/schema';
+import { requireCampaignRole } from '@/server/campaigns';
 import {
   characterSheetSchema,
   type CharacterSheet,
@@ -62,6 +63,44 @@ export async function getCharacter(
     where: and(eq(characters.id, id), eq(characters.ownerId, userId)),
   });
   if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    class: row.class,
+    species: row.species,
+    level: row.level,
+    background: row.background,
+    rpgSystem: row.rpgSystem,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    sheet: characterSheetSchema.parse(row.sheet),
+  };
+}
+
+/**
+ * DM / co-DM read-only access to a member's linked character sheet.
+ * The caller must be gm/co-gm of the campaign AND the character must be the
+ * linked character of one of that campaign's members.
+ */
+export async function getCharacterForCampaign(
+  campaignId: string,
+  characterId: string
+): Promise<CharacterWithSheet | null> {
+  await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+
+  const link = await db.query.campaignMembers.findFirst({
+    where: and(
+      eq(campaignMembers.campaignId, campaignId),
+      eq(campaignMembers.characterId, characterId)
+    ),
+  });
+  if (!link) return null;
+
+  const row = await db.query.characters.findFirst({
+    where: eq(characters.id, characterId),
+  });
+  if (!row) return null;
+
   return {
     id: row.id,
     name: row.name,
