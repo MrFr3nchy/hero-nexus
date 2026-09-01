@@ -39,7 +39,11 @@ Drizzle does not generate or verify the SQL for us. When you add a column:
 1. Write an `ALTER TABLE` in a new `migrations/NNNN_*.sql`.
 2. Add the matching column to `schema.ts`.
 
-## Not yet implemented (Phase 2)
+## Real-time
 
-Real-time updates (initiative tracker, image/note push) have no SQLite equivalent of
-Firestore's `onSnapshot`. Plan: an SSE endpoint per campaign, or short polling.
+Live views (initiative tracker, handouts) use **short polling** —
+`src/@shared/hooks/useCampaignLive.ts` re-fetches `getLiveState(campaignId)` every
+~3s while the view is mounted and the tab is visible. To move to Server-Sent
+Events later, swap that hook's internals (open an `EventStream` to a
+`/api/campaigns/[id]/live` route that pushes on writes); consumers of the hook
+don't change.
