@@ -1,11 +1,16 @@
 'use client';
 
-import { Button, Card, CardBody, CardHeader, Spinner } from '@heroui/react';
-import Link from 'next/link';
+import { Button, Chip, Link, Spinner } from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { deleteCharacterAction, listCharactersAction } from '../actions';
+import {
+  EmptyState,
+  PageHeader,
+  PageShell,
+  SectionCard,
+} from '@/@shared/components/ui';
 import type { CharacterRow } from '@/server/characters';
+import { deleteCharacterAction, listCharactersAction } from '../actions';
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return 'Unknown';
@@ -13,7 +18,65 @@ function formatDate(value: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? 'Unknown' : d.toLocaleDateString();
 }
 
-export function CharactersList() {
+function CharacterGrid({
+  characters,
+  onDelete,
+}: {
+  characters: CharacterRow[];
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {characters.map(c => (
+        <div
+          key={c.id}
+          className="flex flex-col rounded-[var(--radius-card)] border border-line bg-surface p-4"
+        >
+          <div className="mb-3">
+            <h3 className="font-display text-lg text-ink">
+              {c.name || 'Unnamed character'}
+            </h3>
+            <p className="text-sm text-ink-muted">
+              Level {c.level} {c.class || '—'}
+              {c.species ? ` · ${c.species}` : ''}
+            </p>
+          </div>
+          <div className="mb-4 flex flex-wrap gap-1.5 text-xs">
+            {c.background && (
+              <Chip size="sm" variant="flat" className="bg-surface-2">
+                {c.background}
+              </Chip>
+            )}
+            <Chip size="sm" variant="flat" className="bg-surface-2">
+              Updated {formatDate(c.updatedAt)}
+            </Chip>
+          </div>
+          <div className="mt-auto flex gap-2">
+            <Button
+              as={Link}
+              href={`/creator/character?id=${c.id}`}
+              size="sm"
+              variant="flat"
+              className="flex-1"
+            >
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              variant="light"
+              className="text-ink-muted data-[hover=true]:text-danger"
+              onPress={() => onDelete(c.id)}
+            >
+              Delete
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function CharactersList({ embedded = false }: { embedded?: boolean }) {
   const [characters, setCharacters] = useState<CharacterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,120 +109,47 @@ export function CharactersList() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <div className="text-center">
-          <Spinner size="lg" color="warning" className="mb-4" />
-          <p className="text-amber-200">Loading characters…</p>
-        </div>
-      </div>
-    );
-  }
+  const body = loading ? (
+    <div className="flex justify-center py-12">
+      <Spinner color="primary" label="Loading characters…" />
+    </div>
+  ) : error ? (
+    <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
+      <span>{error}</span>
+      <Button size="sm" variant="light" onPress={load}>
+        Retry
+      </Button>
+    </div>
+  ) : characters.length === 0 ? (
+    <EmptyState
+      icon="🗡️"
+      title="No characters yet"
+      description="Create your first character to get started."
+      action={
+        <Button as={Link} href="/creator/character" color="primary">
+          Create a character
+        </Button>
+      }
+    />
+  ) : (
+    <CharacterGrid characters={characters} onDelete={handleDelete} />
+  );
+
+  if (embedded) return body;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-amber-300">
-          Your Characters ({characters.length})
-        </h2>
-        <Button
-          as={Link}
-          href="/creator/character"
-          className="bg-gradient-to-r from-amber-600 to-orange-600"
-        >
-          + New Character
-        </Button>
-      </div>
-
-      {error && (
-        <Card className="border-red-600/30 bg-red-900/40">
-          <CardBody className="flex flex-row items-center justify-between">
-            <p className="text-red-200">{error}</p>
-            <Button color="danger" variant="light" onPress={load}>
-              Retry
-            </Button>
-          </CardBody>
-        </Card>
-      )}
-
-      {characters.length === 0 ? (
-        <Card className="border-amber-600/30 bg-slate-800/50">
-          <CardBody className="py-12 text-center">
-            <h3 className="mb-2 text-xl font-bold text-amber-300">
-              No characters yet
-            </h3>
-            <p className="mb-6 text-gray-300">
-              Create your first character to get started.
-            </p>
-            <Button
-              as={Link}
-              href="/creator/character"
-              size="lg"
-              className="bg-gradient-to-r from-amber-600 to-orange-600"
-            >
-              Create Character
-            </Button>
-          </CardBody>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {characters.map(character => (
-            <Card
-              key={character.id}
-              className="border-amber-600/30 bg-slate-800/50 transition-colors hover:border-amber-500/50"
-            >
-              <CardHeader className="flex-col items-start">
-                <h3 className="text-xl font-bold text-amber-300">
-                  {character.name || 'Unnamed Character'}
-                </h3>
-                <p className="text-sm text-gray-400">
-                  Level {character.level} {character.class || '—'}
-                </p>
-              </CardHeader>
-              <CardBody className="space-y-3">
-                <div className="space-y-1 text-sm text-gray-300">
-                  <p>
-                    <span className="font-semibold text-amber-200">
-                      Species:
-                    </span>{' '}
-                    {character.species || 'Unknown'}
-                  </p>
-                  <p>
-                    <span className="font-semibold text-amber-200">
-                      Background:
-                    </span>{' '}
-                    {character.background || 'Unknown'}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Updated {formatDate(character.updatedAt)}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    as={Link}
-                    href={`/creator/character?id=${character.id}`}
-                    color="primary"
-                    variant="flat"
-                    size="sm"
-                    className="flex-1"
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    color="danger"
-                    variant="flat"
-                    size="sm"
-                    onPress={() => handleDelete(character.id)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </CardBody>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
+    <PageShell width="full">
+      <PageHeader
+        eyebrow="Roster"
+        title="Your characters"
+        description="Every hero you've built."
+        actions={
+          <Button as={Link} href="/creator/character" color="primary" size="sm">
+            New character
+          </Button>
+        }
+      />
+      <SectionCard>{body}</SectionCard>
+    </PageShell>
   );
 }

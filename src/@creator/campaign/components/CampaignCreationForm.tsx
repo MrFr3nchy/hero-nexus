@@ -85,23 +85,21 @@ export function CampaignCreationForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-bg py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-4">
+          <h1 className="font-display text-3xl text-ink mb-4">
             ✨ Create New Campaign
           </h1>
-          <p className="text-xl text-purple-200 max-w-3xl mx-auto">
+          <p className="text-xl text-ink-muted max-w-3xl mx-auto">
             Set up your campaign and invite players to join your adventure
           </p>
         </div>
 
-        <Card className="bg-slate-800/50 backdrop-blur-sm border-purple-600/30">
+        <Card className=" border-line">
           <CardHeader>
-            <h2 className="text-2xl font-bold text-purple-300">
-              Campaign Details
-            </h2>
+            <h2 className="text-2xl font-bold text-ink">Campaign Details</h2>
           </CardHeader>
           <CardBody>
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -114,9 +112,9 @@ export function CampaignCreationForm() {
                   onChange={e => updateField('name', e.target.value)}
                   required
                   classNames={{
-                    input: 'text-purple-100',
-                    inputWrapper: 'bg-slate-700/50 border-purple-600',
-                    label: 'text-purple-200',
+                    input: 'text-ink',
+                    inputWrapper: 'bg-surface-2 border-line',
+                    label: 'text-ink-muted',
                   }}
                 />
 
@@ -128,18 +126,16 @@ export function CampaignCreationForm() {
                   required
                   minRows={4}
                   classNames={{
-                    input: 'text-purple-100',
-                    inputWrapper: 'bg-slate-700/50 border-purple-600',
-                    label: 'text-purple-200',
+                    input: 'text-ink',
+                    inputWrapper: 'bg-surface-2 border-line',
+                    label: 'text-ink-muted',
                   }}
                 />
               </div>
 
               {/* RPG System */}
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-purple-300">
-                  RPG System
-                </h3>
+                <h3 className="text-lg font-semibold text-ink">RPG System</h3>
                 <Select
                   label="Select RPG System"
                   placeholder="Choose your RPG system"
@@ -149,16 +145,16 @@ export function CampaignCreationForm() {
                     updateSettings('rpgSystem', selected);
                   }}
                   classNames={{
-                    trigger: 'bg-slate-700/50 border-purple-600',
-                    value: 'text-purple-100',
-                    label: 'text-purple-200',
+                    trigger: 'bg-surface-2 border-line',
+                    value: 'text-ink',
+                    label: 'text-ink-muted',
                   }}
                 >
                   {RPG_SYSTEMS.map(system => (
                     <SelectItem key={system.id}>
                       <div>
                         <div className="font-semibold">{system.name}</div>
-                        <div className="text-sm text-gray-400">
+                        <div className="text-sm text-ink-subtle">
                           {system.version}
                         </div>
                       </div>
@@ -169,7 +165,7 @@ export function CampaignCreationForm() {
 
               {/* Campaign Settings */}
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-purple-300">
+                <h3 className="text-lg font-semibold text-ink">
                   Campaign Settings
                 </h3>
 
@@ -188,9 +184,9 @@ export function CampaignCreationForm() {
                     min={1}
                     max={20}
                     classNames={{
-                      input: 'text-purple-100',
-                      inputWrapper: 'bg-slate-700/50 border-purple-600',
-                      label: 'text-purple-200',
+                      input: 'text-ink',
+                      inputWrapper: 'bg-surface-2 border-line',
+                      label: 'text-ink-muted',
                     }}
                   />
                 </div>
@@ -202,9 +198,9 @@ export function CampaignCreationForm() {
                   onChange={e => updateSettings('sessionNotes', e.target.value)}
                   minRows={3}
                   classNames={{
-                    input: 'text-purple-100',
-                    inputWrapper: 'bg-slate-700/50 border-purple-600',
-                    label: 'text-purple-200',
+                    input: 'text-ink',
+                    inputWrapper: 'bg-surface-2 border-line',
+                    label: 'text-ink-muted',
                   }}
                 />
 
@@ -215,16 +211,16 @@ export function CampaignCreationForm() {
                   onChange={e => updateSettings('customRules', e.target.value)}
                   minRows={3}
                   classNames={{
-                    input: 'text-purple-100',
-                    inputWrapper: 'bg-slate-700/50 border-purple-600',
-                    label: 'text-purple-200',
+                    input: 'text-ink',
+                    inputWrapper: 'bg-surface-2 border-line',
+                    label: 'text-ink-muted',
                   }}
                 />
               </div>
 
               {/* Error Display */}
               {error && (
-                <div className="text-red-400 text-sm text-center bg-red-900/20 p-3 rounded-lg border border-red-600">
+                <div className="text-danger text-sm text-center bg-danger/10 p-3 rounded-lg border border-danger/40">
                   {error}
                 </div>
               )}
@@ -235,7 +231,7 @@ export function CampaignCreationForm() {
                   type="submit"
                   color="primary"
                   size="lg"
-                  className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-semibold py-4 px-8 text-lg transition-all duration-300 transform hover:scale-105"
+                  className=""
                   isLoading={loading}
                   disabled={loading}
                 >

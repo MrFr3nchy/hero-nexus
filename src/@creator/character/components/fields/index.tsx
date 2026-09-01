@@ -4,23 +4,16 @@ import { Checkbox, Input, Select, SelectItem, Textarea } from '@heroui/react';
 import { Control, Controller, FieldPath, FieldValues } from 'react-hook-form';
 
 /**
- * Thin react-hook-form <-> HeroUI wrappers. The shared dark-theme `classNames`
- * live here once instead of being repeated on every field.
+ * Thin react-hook-form <-> HeroUI wrappers. Styling comes from the themed
+ * HeroUI palette (`src/app/hero.ts`); only light structural tweaks live here.
  */
 
 const inputClassNames = {
-  input: 'text-amber-100',
-  inputWrapper:
-    'bg-slate-700/50 border-amber-600 data-[hover=true]:bg-slate-700',
-  label: 'text-amber-200',
-  errorMessage: 'text-red-400',
+  inputWrapper: 'bg-surface-2 border-line',
 };
 
 const selectClassNames = {
-  trigger: 'bg-slate-700/50 border-amber-600',
-  value: 'text-amber-100',
-  label: 'text-amber-200',
-  errorMessage: 'text-red-400',
+  trigger: 'bg-surface-2 border-line',
 };
 
 interface BaseProps<T extends FieldValues> {
@@ -148,7 +141,7 @@ export function SheetCheckbox<T extends FieldValues>({
         <Checkbox
           isSelected={Boolean(field.value)}
           onValueChange={field.onChange}
-          classNames={{ label: 'text-amber-200 text-sm' }}
+          classNames={{ label: 'text-sm text-ink-muted' }}
         >
           {label}
         </Checkbox>

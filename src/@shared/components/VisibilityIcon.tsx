@@ -17,7 +17,7 @@ export const VisibilityIcon = ({
     >
       <Icon
         icon={isVisible ? 'heroicons:eye-slash' : 'heroicons:eye'}
-        className="w-4 h-4 text-amber-300 hover:text-amber-400"
+        className="h-4 w-4 text-ink-muted hover:text-ink"
       />
     </Button>
   );

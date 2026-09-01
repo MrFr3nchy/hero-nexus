@@ -30,7 +30,6 @@ const privateRoutes = [
   '/marketplace',
   '/creator',
   '/account',
-  '/test-firestore',
 ];
 
 export function ConditionalLayout({ children }: ConditionalLayoutProps) {
@@ -40,11 +39,10 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
   // Show loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-6xl mb-4">✨</div>
-          <div className="text-2xl text-white">Loading your adventure...</div>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-bg">
+        <span className="animate-pulse font-display text-lg text-ink-muted">
+          Hero Nexus
+        </span>
       </div>
     );
   }
