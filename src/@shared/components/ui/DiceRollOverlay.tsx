@@ -187,7 +187,11 @@ export function DiceRollOverlay({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      // Inline position/z-index: as a direct child of <body> this element is
+      // otherwise caught by the `body.grain > *` reset in globals.css, which
+      // forces position:relative and drops it to the bottom of the page flow.
+      style={{ position: 'fixed', inset: 0, zIndex: 9999 }}
+      className="flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       aria-label={title ?? 'Rolling dice'}

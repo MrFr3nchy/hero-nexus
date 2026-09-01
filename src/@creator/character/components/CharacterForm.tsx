@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
-import { useFieldArray, useForm, type Resolver } from 'react-hook-form';
+import { useForm, type Resolver } from 'react-hook-form';
 
 import { saveCharacterAction } from '../actions';
 import {
@@ -63,11 +63,6 @@ export function CharacterForm({
     defaultValues: initialSheet ?? makeEmptySheet(),
   });
 
-  const { append: appendEntry, remove: removeEntry } = useFieldArray({
-    control,
-    name: 'homebrew.entries',
-  });
-
   const log = useCallback(
     (input: ProvenanceInput) =>
       makeProvenanceLogger(
@@ -96,17 +91,21 @@ export function CharacterForm({
       const trimmed = value.trim();
 
       if (isCustom && trimmed) {
+        let next = entries;
         if (idx < 0) {
-          appendEntry({
-            id: genUid(),
-            kind,
-            name: trimmed,
-            field,
-            traits: [],
-          });
+          next = [
+            ...entries,
+            { id: genUid(), kind, name: trimmed, field, traits: [] },
+          ];
         } else if (entries[idx].name !== trimmed) {
-          setValue(`homebrew.entries.${idx}.name`, trimmed, {
+          next = entries.map((e, i) =>
+            i === idx ? { ...e, name: trimmed } : e
+          );
+        }
+        if (next !== entries) {
+          setValue('homebrew.entries', next, {
             shouldDirty: true,
+            shouldValidate: true,
           });
         }
         setValue('homebrew.isHomebrew', true, { shouldDirty: true });
@@ -116,15 +115,16 @@ export function CharacterForm({
           detail: `Custom ${kind}: "${trimmed}"`,
         });
       } else if (idx >= 0) {
-        removeEntry(idx);
+        const next = entries.filter((_, i) => i !== idx);
+        setValue('homebrew.entries', next, {
+          shouldDirty: true,
+          shouldValidate: true,
+        });
+        setValue('homebrew.isHomebrew', next.length > 0, { shouldDirty: true });
         dropHomebrewLog(field);
-        const left = (getValues('homebrew.entries') ?? []).filter(
-          (_, i) => i !== idx
-        );
-        setValue('homebrew.isHomebrew', left.length > 0, { shouldDirty: true });
       }
     },
-    [appendEntry, removeEntry, getValues, setValue, log, dropHomebrewLog]
+    [getValues, setValue, log, dropHomebrewLog]
   );
 
   const onSubmit = handleSubmit(
