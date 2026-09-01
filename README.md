@@ -1,118 +1,67 @@
 # Hero Nexus
 
-A modern Next.js application built with TypeScript and Tailwind CSS, featuring a beautiful navigation system, home page, and login functionality.
+A self-hosted campaign tool for D&D players and DMs — create characters, design
+homebrew, and (Phase 2) run shared campaigns with an initiative tracker, handout
+push, and a DM homebrew-approval workflow.
 
-## Features
+Built with **Next.js 15** (App Router, React 19), **HeroUI** + Tailwind v4,
+**Auth.js** (credentials), and a **SQLite** database that ships with the project.
 
-- 🚀 **Next.js 15** with App Router
-- 🔷 **TypeScript** for type safety
-- 🎨 **Tailwind CSS** for modern, responsive design
-- 📱 **Responsive Design** that works on all devices
-- 🔐 **Login System** with form validation
-- 🧭 **Navigation Bar** with active state indicators
-- 🎯 **Modern UI/UX** following best practices
+## Requirements
 
-## Project Structure
+- Node.js 20+
+- No external services — the database is a local file (`data/hero-nexus.db`).
 
-```
-src/
-├── app/
-│   ├── layout.tsx          # Root layout with navigation
-│   ├── page.tsx            # Home page
-│   ├── login/
-│   │   └── page.tsx        # Login page
-│   └── globals.css         # Global styles
-├── components/
-│   ├── Navigation.tsx      # Navigation component
-│   └── LoginForm.tsx       # Login form component
-└── ...
-```
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- npm or yarn
-
-### Installation
-
-1. Clone the repository:
-
-```bash
-git clone <your-repo-url>
-cd hero-nexus
-```
-
-2. Install dependencies:
+## Setup
 
 ```bash
 npm install
+cp .env.example .env.local          # then set AUTH_SECRET (see the file)
+npm run db:migrate                  # create the SQLite database
+npm run db:seed                     # load D&D reference data from the Open5e API
+npm run dev                         # http://localhost:3000
 ```
 
-3. Run the development server:
+Migrations also run automatically on server boot (`src/instrumentation.ts`), so
+after a `git pull` you usually only need `npm run dev`.
 
-```bash
-npm run dev
-```
+## Data & database
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+- **Schema + queries:** Drizzle ORM (`src/db/schema.ts`).
+- **Migrations:** hand-written SQL in `src/db/migrations/`, applied by a custom
+  runner (`src/db/migrate.ts`) that tracks applied files in a `_migrations`
+  table — not drizzle-kit. See `src/db/README.md`.
+- **Reference data** (classes, species, spells, …) is synced from the
+  [Open5e v2 API](https://api.open5e.com/v2/) into the DB by `npm run db:seed` /
+  `npm run db:sync`. See `data/reference/README.md`.
 
-## Available Scripts
+`data/hero-nexus.db` and `data/uploads/` are gitignored; everything else under
+`data/` is committed.
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
+### Scripts
 
-## Technologies Used
+| Script                            | Purpose                                         |
+| --------------------------------- | ----------------------------------------------- |
+| `npm run dev` / `build` / `start` | Next.js                                         |
+| `npm run db:migrate`              | apply pending SQL migrations                    |
+| `npm run db:seed`                 | seed `rpg_systems` + sync Open5e reference data |
+| `npm run db:sync`                 | re-sync Open5e reference data only              |
+| `npm run db:reset`                | delete the DB file, migrate, seed               |
+| `npm run db:studio`               | drizzle-kit studio (inspection only)            |
+| `npm run check`                   | eslint + prettier                               |
 
-- **Next.js 15** - React framework with App Router
-- **React 19** - UI library
-- **TypeScript** - Type-safe JavaScript
-- **Tailwind CSS** - Utility-first CSS framework
-- **ESLint** - Code linting
+## Auth
 
-## Best Practices Implemented
+Email/password via Auth.js credentials provider, JWT sessions, argon2 hashes.
+Registration: `POST /api/register`. Password reset is not self-service on a
+self-hosted instance — change your password from **Account → Settings** while
+signed in.
 
-- ✅ **TypeScript** for type safety
-- ✅ **Component-based architecture**
-- ✅ **Responsive design** with Tailwind CSS
-- ✅ **Form validation** and error handling
-- ✅ **Accessibility** features (ARIA labels, semantic HTML)
-- ✅ **Modern React patterns** (hooks, functional components)
-- ✅ **Clean code structure** with proper separation of concerns
+## Status
 
-## Customization
+**Phase 1 (done):** SQLite foundation, Auth.js, rebuilt character creator,
+character CRUD, homebrew CRUD, campaign create/list.
 
-### Styling
-
-The application uses Tailwind CSS for styling. You can customize the design by modifying the Tailwind classes in the components.
-
-### Adding New Pages
-
-To add new pages, create a new directory in `src/app/` with a `page.tsx` file, following the App Router convention.
-
-### Components
-
-Reusable components are stored in `src/components/`. Each component is self-contained with its own logic and styling.
-
-## Deployment
-
-The application can be deployed to Vercel, Netlify, or any other hosting platform that supports Next.js.
-
-```bash
-npm run build
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## License
-
-This project is open source and available under the [MIT License](LICENSE).
+**Phase 2:** homebrew submission → DM approve/deny with message; DM view of
+player sheets; initiative tracker; image/note push to players; public homebrew
+marketplace; real-time updates.

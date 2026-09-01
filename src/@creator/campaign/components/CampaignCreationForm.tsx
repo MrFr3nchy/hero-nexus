@@ -44,20 +44,21 @@ export function CampaignCreationForm() {
     setError(null);
 
     try {
-      const campaign = {
+      const result = await campaignService.createCampaign({
         name: campaignData.name,
         description: campaignData.description,
-        gmId: currentUser.uid,
-        players: [],
         settings: campaignData.settings,
-        status: 'active' as const,
-      };
+      });
 
-      const docRef = await campaignService.createCampaign(campaign);
-      console.log('Campaign created with ID:', docRef.id);
+      if (!result.ok) {
+        setError(
+          result.error ?? 'Failed to create campaign. Please try again.'
+        );
+        return;
+      }
 
-      // Redirect to the new campaign
-      router.push(`/campaigns/${docRef.id}`);
+      router.push('/campaigns');
+      router.refresh();
     } catch (err) {
       console.error('Error creating campaign:', err);
       setError('Failed to create campaign. Please try again.');

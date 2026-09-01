@@ -12,8 +12,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from '../context';
-import { FirebaseError } from '../types';
-import { AUTH_ERRORS, AuthErrorCode } from '../types/constants';
+import { AuthError } from '../types';
 
 export default function RegisterForm() {
   const [email, setEmail] = useState('');
@@ -45,10 +44,9 @@ export default function RegisterForm() {
       await register(email, password, displayName);
       router.push('/');
     } catch (error: unknown) {
-      const firebaseError = error as FirebaseError;
-      const errorCode = firebaseError.code as AuthErrorCode;
+      const authError = error as AuthError;
       setError(
-        AUTH_ERRORS[errorCode] || 'Failed to create account. Please try again.'
+        authError.message || 'Failed to create account. Please try again.'
       );
     } finally {
       setLoading(false);

@@ -1,8 +1,7 @@
 'use client';
 
 import { useAuth } from '@/@auth/context';
-import { FirebaseError } from '@/@auth/types';
-import { AUTH_ERRORS, AuthErrorCode } from '@/@auth/types/constants';
+import { AuthError } from '@/@auth/types';
 import {
   Avatar,
   Button,
@@ -25,8 +24,8 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (currentUser) {
-      setDisplayName(currentUser.displayName || '');
-      setPhotoURL(currentUser.photoURL || '');
+      setDisplayName(currentUser.name || '');
+      setPhotoURL(currentUser.image || '');
     }
   }, [currentUser]);
 
@@ -39,14 +38,13 @@ export default function ProfilePage() {
     try {
       await updateProfile({
         displayName: displayName.trim() || undefined,
-        photoURL: photoURL.trim() || undefined,
+        image: photoURL.trim() || undefined,
       });
       setMessage('Profile updated successfully!');
     } catch (error: unknown) {
-      const firebaseError = error as FirebaseError;
-      const errorCode = firebaseError.code as AuthErrorCode;
+      const authError = error as AuthError;
       setError(
-        AUTH_ERRORS[errorCode] || 'Failed to update profile. Please try again.'
+        authError.message || 'Failed to update profile. Please try again.'
       );
     } finally {
       setLoading(false);
@@ -99,11 +97,9 @@ export default function ProfilePage() {
           <CardBody className="pt-6">
             <div className="flex flex-col items-center mb-6">
               <Avatar
-                src={currentUser.photoURL || undefined}
+                src={currentUser.image || undefined}
                 name={
-                  currentUser.displayName ||
-                  currentUser.email?.split('@')[0] ||
-                  'User'
+                  currentUser.name || currentUser.email?.split('@')[0] || 'User'
                 }
                 className="w-24 h-24 text-large mb-4"
                 classNames={{
@@ -112,7 +108,7 @@ export default function ProfilePage() {
                 }}
               />
               <User
-                name={currentUser.displayName || 'No display name set'}
+                name={currentUser.name || 'No display name set'}
                 description={currentUser.email}
                 className="text-center"
                 classNames={{
@@ -186,20 +182,7 @@ export default function ProfilePage() {
                   {currentUser.email}
                 </p>
                 <p>
-                  <span className="font-medium">User ID:</span>{' '}
-                  {currentUser.uid}
-                </p>
-                <p>
-                  <span className="font-medium">Email Verified:</span>{' '}
-                  {currentUser.emailVerified ? 'Yes' : 'No'}
-                </p>
-                <p>
-                  <span className="font-medium">Account Created:</span>{' '}
-                  {currentUser.metadata.creationTime}
-                </p>
-                <p>
-                  <span className="font-medium">Last Sign In:</span>{' '}
-                  {currentUser.metadata.lastSignInTime}
+                  <span className="font-medium">User ID:</span> {currentUser.id}
                 </p>
               </div>
             </div>

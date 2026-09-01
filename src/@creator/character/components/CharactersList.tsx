@@ -1,209 +1,165 @@
 'use client';
 
-import { characterService } from '@/@creator/services';
 import { Button, Card, CardBody, CardHeader, Spinner } from '@heroui/react';
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
 
-interface Character {
-  id: string;
-  characterName: string;
-  class: string;
-  species: string;
-  level: number;
-  background: string;
-  createdAt: unknown;
-  updatedAt: unknown;
+import { deleteCharacterAction, listCharactersAction } from '../actions';
+import type { CharacterRow } from '@/server/characters';
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return 'Unknown';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? 'Unknown' : d.toLocaleDateString();
 }
 
 export function CharactersList() {
-  const [characters, setCharacters] = useState<Character[]>([]);
+  const [characters, setCharacters] = useState<CharacterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadCharacters();
-  }, []);
-
-  const loadCharacters = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const charactersData = await characterService.getCharacters();
-      setCharacters(charactersData as unknown as Character[]);
+      setCharacters(await listCharactersAction());
     } catch (err) {
       console.error('Error loading characters:', err);
       setError('Failed to load characters');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleDeleteCharacter = async (characterId: string) => {
-    if (confirm('Are you sure you want to delete this character?')) {
-      try {
-        await characterService.deleteCharacter(characterId);
-        setCharacters(prev => prev.filter(char => char.id !== characterId));
-        alert('Character deleted successfully!');
-      } catch (err) {
-        console.error('Error deleting character:', err);
-        alert('Failed to delete character');
-      }
-    }
-  };
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const formatDate = (timestamp: unknown) => {
-    if (!timestamp) return 'Unknown';
-    if (
-      typeof timestamp === 'object' &&
-      timestamp !== null &&
-      'toDate' in timestamp
-    ) {
-      return (timestamp as { toDate: () => Date })
-        .toDate()
-        .toLocaleDateString();
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this character? This cannot be undone.')) return;
+    try {
+      await deleteCharacterAction(id);
+      setCharacters(prev => prev.filter(c => c.id !== id));
+    } catch (err) {
+      console.error('Error deleting character:', err);
+      setError('Failed to delete character');
     }
-    return new Date(timestamp as string | number).toLocaleDateString();
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+      <div className="flex items-center justify-center py-16">
         <div className="text-center">
-          <Spinner size="lg" className="mb-4" />
-          <p className="text-white text-lg">Loading characters...</p>
+          <Spinner size="lg" color="warning" className="mb-4" />
+          <p className="text-amber-200">Loading characters…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-4">
-            🗡️ Your Characters
-          </h1>
-          <p className="text-xl text-gray-300 max-w-3xl mx-auto">
-            Manage and view all your created characters
-          </p>
-        </div>
-
-        {/* Error State */}
-        {error && (
-          <Card className="bg-red-900/50 backdrop-blur-sm border-red-600/30 mb-8">
-            <CardBody>
-              <p className="text-red-200">{error}</p>
-              <Button
-                color="danger"
-                variant="light"
-                onPress={loadCharacters}
-                className="mt-2"
-              >
-                Try Again
-              </Button>
-            </CardBody>
-          </Card>
-        )}
-
-        {/* Characters Grid */}
-        {characters.length === 0 ? (
-          <Card className="bg-slate-800/50 backdrop-blur-sm border-amber-600/30">
-            <CardBody className="text-center py-12">
-              <h3 className="text-2xl font-bold text-amber-300 mb-4">
-                No Characters Yet
-              </h3>
-              <p className="text-gray-300 mb-6">
-                Create your first character to get started!
-              </p>
-              <Button
-                color="primary"
-                size="lg"
-                className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500"
-                onPress={() => (window.location.href = '/creator/character')}
-              >
-                Create Character
-              </Button>
-            </CardBody>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {characters.map(character => (
-              <Card
-                key={character.id}
-                className="bg-slate-800/50 backdrop-blur-sm border-amber-600/30 hover:border-amber-500/50 transition-colors"
-              >
-                <CardHeader>
-                  <div className="flex justify-between items-start w-full">
-                    <div>
-                      <h3 className="text-xl font-bold text-amber-300">
-                        {character.characterName || 'Unnamed Character'}
-                      </h3>
-                      <p className="text-gray-400">
-                        Level {character.level} {character.class}
-                      </p>
-                    </div>
-                    <div className="text-right text-sm text-gray-400">
-                      <p>Created: {formatDate(character.createdAt)}</p>
-                      <p>Updated: {formatDate(character.updatedAt)}</p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardBody>
-                  <div className="space-y-2 mb-4">
-                    <p className="text-gray-300">
-                      <span className="text-amber-200 font-semibold">
-                        Species:
-                      </span>{' '}
-                      {character.species || 'Unknown'}
-                    </p>
-                    <p className="text-gray-300">
-                      <span className="text-amber-200 font-semibold">
-                        Background:
-                      </span>{' '}
-                      {character.background || 'Unknown'}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      color="primary"
-                      variant="flat"
-                      size="sm"
-                      className="flex-1"
-                      onPress={() => {
-                        // TODO: Implement edit functionality
-                        alert('Edit functionality coming soon!');
-                      }}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      color="danger"
-                      variant="flat"
-                      size="sm"
-                      onPress={() => handleDeleteCharacter(character.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </CardBody>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        {/* Refresh Button */}
-        <div className="flex justify-center mt-8">
-          <Button
-            color="primary"
-            variant="bordered"
-            onPress={loadCharacters}
-            className="border-amber-600 text-amber-300 hover:bg-amber-600/10"
-          >
-            Refresh List
-          </Button>
-        </div>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-amber-300">
+          Your Characters ({characters.length})
+        </h2>
+        <Button
+          as={Link}
+          href="/creator/character"
+          className="bg-gradient-to-r from-amber-600 to-orange-600"
+        >
+          + New Character
+        </Button>
       </div>
+
+      {error && (
+        <Card className="border-red-600/30 bg-red-900/40">
+          <CardBody className="flex flex-row items-center justify-between">
+            <p className="text-red-200">{error}</p>
+            <Button color="danger" variant="light" onPress={load}>
+              Retry
+            </Button>
+          </CardBody>
+        </Card>
+      )}
+
+      {characters.length === 0 ? (
+        <Card className="border-amber-600/30 bg-slate-800/50">
+          <CardBody className="py-12 text-center">
+            <h3 className="mb-2 text-xl font-bold text-amber-300">
+              No characters yet
+            </h3>
+            <p className="mb-6 text-gray-300">
+              Create your first character to get started.
+            </p>
+            <Button
+              as={Link}
+              href="/creator/character"
+              size="lg"
+              className="bg-gradient-to-r from-amber-600 to-orange-600"
+            >
+              Create Character
+            </Button>
+          </CardBody>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {characters.map(character => (
+            <Card
+              key={character.id}
+              className="border-amber-600/30 bg-slate-800/50 transition-colors hover:border-amber-500/50"
+            >
+              <CardHeader className="flex-col items-start">
+                <h3 className="text-xl font-bold text-amber-300">
+                  {character.name || 'Unnamed Character'}
+                </h3>
+                <p className="text-sm text-gray-400">
+                  Level {character.level} {character.class || '—'}
+                </p>
+              </CardHeader>
+              <CardBody className="space-y-3">
+                <div className="space-y-1 text-sm text-gray-300">
+                  <p>
+                    <span className="font-semibold text-amber-200">
+                      Species:
+                    </span>{' '}
+                    {character.species || 'Unknown'}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-amber-200">
+                      Background:
+                    </span>{' '}
+                    {character.background || 'Unknown'}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Updated {formatDate(character.updatedAt)}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    as={Link}
+                    href={`/creator/character?id=${character.id}`}
+                    color="primary"
+                    variant="flat"
+                    size="sm"
+                    className="flex-1"
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    color="danger"
+                    variant="flat"
+                    size="sm"
+                    onPress={() => handleDelete(character.id)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </CardBody>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

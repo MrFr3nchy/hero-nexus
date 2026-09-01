@@ -1,27 +1,12 @@
 'use client';
 
 import { useAuth } from '@/@auth/context';
-import { FirebaseError } from '@/@auth/types';
-import { AUTH_ERRORS, AuthErrorCode } from '@/@auth/types/constants';
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  Divider,
-  Input,
-  Modal,
-  ModalBody,
-  ModalContent,
-  ModalFooter,
-  ModalHeader,
-  useDisclosure,
-} from '@heroui/react';
+import { AuthError } from '@/@auth/types';
+import { Button, Card, CardBody, CardHeader, Input } from '@heroui/react';
 import { useState } from 'react';
 
 export default function SettingsPage() {
-  const { currentUser, updateEmail, updatePassword, sendPasswordResetEmail } =
-    useAuth();
+  const { currentUser, updateEmail, updatePassword } = useAuth();
   const [email, setEmail] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -30,7 +15,6 @@ export default function SettingsPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'email' | 'password'>('email');
-  const { isOpen, onOpen, onClose } = useDisclosure();
 
   const handleEmailUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,10 +27,9 @@ export default function SettingsPage() {
       setMessage('Email updated successfully!');
       setEmail('');
     } catch (error: unknown) {
-      const firebaseError = error as FirebaseError;
-      const errorCode = firebaseError.code as AuthErrorCode;
+      const authError = error as AuthError;
       setError(
-        AUTH_ERRORS[errorCode] || 'Failed to update email. Please try again.'
+        authError.message || 'Failed to update email. Please try again.'
       );
     } finally {
       setLoading(false);
@@ -63,43 +46,26 @@ export default function SettingsPage() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
 
     setLoading(true);
 
     try {
-      await updatePassword(newPassword);
+      await updatePassword(currentPassword, newPassword);
       setMessage('Password updated successfully!');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (error: unknown) {
-      const firebaseError = error as FirebaseError;
-      const errorCode = firebaseError.code as AuthErrorCode;
+      const authError = error as AuthError;
       setError(
-        AUTH_ERRORS[errorCode] || 'Failed to update password. Please try again.'
+        authError.message || 'Failed to update password. Please try again.'
       );
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handlePasswordReset = async () => {
-    if (!currentUser?.email) return;
-
-    try {
-      await sendPasswordResetEmail(currentUser.email);
-      setMessage('Password reset email sent! Check your inbox.');
-      onClose();
-    } catch (error: unknown) {
-      const firebaseError = error as FirebaseError;
-      const errorCode = firebaseError.code as AuthErrorCode;
-      setError(
-        AUTH_ERRORS[errorCode] || 'Failed to send password reset email.'
-      );
     }
   };
 
@@ -188,7 +154,6 @@ export default function SettingsPage() {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   required
-                  className="text-amber-100"
                   classNames={{
                     input: 'text-amber-100',
                     inputWrapper: 'bg-slate-700/50 border-amber-600',
@@ -231,9 +196,7 @@ export default function SettingsPage() {
                 <h2 className="text-2xl font-bold text-amber-100">
                   Password Settings
                 </h2>
-                <p className="text-amber-200 mt-2">
-                  Update your password or reset it via email
-                </p>
+                <p className="text-amber-200 mt-2">Update your password</p>
               </div>
             </CardHeader>
             <CardBody className="pt-6">
@@ -244,7 +207,7 @@ export default function SettingsPage() {
                   placeholder="Enter your current password"
                   value={currentPassword}
                   onChange={e => setCurrentPassword(e.target.value)}
-                  className="text-amber-100"
+                  required
                   classNames={{
                     input: 'text-amber-100',
                     inputWrapper: 'bg-slate-700/50 border-amber-600',
@@ -258,7 +221,6 @@ export default function SettingsPage() {
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
                   required
-                  className="text-amber-100"
                   classNames={{
                     input: 'text-amber-100',
                     inputWrapper: 'bg-slate-700/50 border-amber-600',
@@ -272,7 +234,6 @@ export default function SettingsPage() {
                   value={confirmPassword}
                   onChange={e => setConfirmPassword(e.target.value)}
                   required
-                  className="text-amber-100"
                   classNames={{
                     input: 'text-amber-100',
                     inputWrapper: 'bg-slate-700/50 border-amber-600',
@@ -303,50 +264,9 @@ export default function SettingsPage() {
                   {loading ? 'Updating...' : 'Update Password'}
                 </Button>
               </form>
-
-              <Divider className="my-6 bg-amber-600" />
-
-              <div className="text-center">
-                <p className="text-amber-200 mb-4">
-                  Having trouble with your password?
-                </p>
-                <Button
-                  color="secondary"
-                  variant="bordered"
-                  onPress={onOpen}
-                  className="border-amber-600 text-amber-200 hover:bg-amber-600/20"
-                >
-                  Send Password Reset Email
-                </Button>
-              </div>
             </CardBody>
           </Card>
         )}
-
-        {/* Password Reset Modal */}
-        <Modal isOpen={isOpen} onClose={onClose}>
-          <ModalContent className="bg-slate-800 border-amber-600 border-2">
-            <ModalHeader className="text-amber-100">Password Reset</ModalHeader>
-            <ModalBody>
-              <p className="text-amber-200">
-                We&apos;ll send a password reset link to your email address:{' '}
-                <strong>{currentUser.email}</strong>
-              </p>
-            </ModalBody>
-            <ModalFooter>
-              <Button color="danger" variant="light" onPress={onClose}>
-                Cancel
-              </Button>
-              <Button
-                color="primary"
-                onPress={handlePasswordReset}
-                className="bg-gradient-to-r from-amber-600 to-orange-600"
-              >
-                Send Reset Email
-              </Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
       </div>
     </div>
   );
