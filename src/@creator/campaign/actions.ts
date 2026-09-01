@@ -4,6 +4,29 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import {
+  listApprovals,
+  reviewApproval,
+  type ApprovalRow,
+} from '@/server/approvals';
+import {
+  addEntry,
+  addPartyToEncounter,
+  advanceTurn,
+  createEncounter,
+  createNote,
+  deleteEncounter,
+  deleteHandout as deleteHandoutSrv,
+  endEncounter,
+  getLiveState,
+  removeEntry,
+  setHandoutVisibility,
+  updateEntry,
+  type EntryInput,
+  type LiveState,
+} from '@/server/session';
+import { unlink } from 'node:fs/promises';
+import { join } from 'node:path';
+import {
   acceptInvite,
   createCampaign,
   declineInvite,
@@ -89,6 +112,31 @@ export async function listInvitesAction(
 }
 export async function listMyInvitesAction(): Promise<CampaignInviteRow[]> {
   return listMyInvites();
+}
+
+export async function listApprovalsAction(
+  campaignId: string
+): Promise<ApprovalRow[]> {
+  return listApprovals(campaignId);
+}
+
+export async function reviewApprovalAction(
+  campaignId: string,
+  approvalId: string,
+  status: 'approved' | 'denied',
+  notes: string
+): Promise<Result> {
+  try {
+    await reviewApproval(approvalId, status, notes);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    const code = err instanceof Error ? err.message : '';
+    if (code === 'DENY_NEEDS_NOTE') {
+      return { ok: false, error: 'Add a note explaining the decision.' };
+    }
+    return fail(err, 'Failed to record decision.');
+  }
 }
 
 /* --- mutations ------------------------------------------------------- */
@@ -270,5 +318,85 @@ export async function revokeInviteAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Failed to revoke invite.');
+  }
+}
+
+/* --- live session -------------------------------------------------- */
+
+export async function getLiveStateAction(
+  campaignId: string
+): Promise<LiveState> {
+  return getLiveState(campaignId);
+}
+
+async function sessionAction(fn: () => Promise<unknown>): Promise<Result> {
+  try {
+    await fn();
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Session update failed.');
+  }
+}
+
+export async function createEncounterAction(
+  campaignId: string,
+  name: string
+): Promise<Result> {
+  return sessionAction(() => createEncounter(campaignId, name));
+}
+export async function endEncounterAction(id: string): Promise<Result> {
+  return sessionAction(() => endEncounter(id));
+}
+export async function deleteEncounterAction(id: string): Promise<Result> {
+  return sessionAction(() => deleteEncounter(id));
+}
+export async function advanceTurnAction(
+  id: string,
+  direction: 1 | -1
+): Promise<Result> {
+  return sessionAction(() => advanceTurn(id, direction));
+}
+export async function addEntryAction(
+  encounterId: string,
+  input: EntryInput
+): Promise<Result> {
+  return sessionAction(() => addEntry(encounterId, input));
+}
+export async function addPartyAction(encounterId: string): Promise<Result> {
+  return sessionAction(() => addPartyToEncounter(encounterId));
+}
+export async function updateEntryAction(
+  entryId: string,
+  patch: Partial<EntryInput>
+): Promise<Result> {
+  return sessionAction(() => updateEntry(entryId, patch));
+}
+export async function removeEntryAction(entryId: string): Promise<Result> {
+  return sessionAction(() => removeEntry(entryId));
+}
+export async function createNoteAction(
+  campaignId: string,
+  title: string,
+  body: string
+): Promise<Result> {
+  return sessionAction(() => createNote(campaignId, title, body));
+}
+export async function setHandoutVisibilityAction(
+  handoutId: string,
+  visibility: 'dm' | 'shared'
+): Promise<Result> {
+  return sessionAction(() => setHandoutVisibility(handoutId, visibility));
+}
+export async function deleteHandoutAction(handoutId: string): Promise<Result> {
+  try {
+    const filePath = await deleteHandoutSrv(handoutId);
+    if (filePath) {
+      await unlink(join(process.cwd(), 'data', 'uploads', filePath)).catch(
+        () => {}
+      );
+    }
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to delete handout.');
   }
 }

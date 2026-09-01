@@ -4,6 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import {
+  listMyApprovals,
+  requestApproval,
+  type ApprovalRow,
+} from '@/server/approvals';
+import {
   createHomebrew,
   deleteHomebrew,
   listHomebrew,
@@ -71,4 +76,28 @@ export async function saveHomebrewAction(
 export async function deleteHomebrewAction(id: string): Promise<void> {
   await deleteHomebrew(id);
   revalidatePath('/creator');
+}
+
+export async function listMyApprovalsAction(): Promise<ApprovalRow[]> {
+  return listMyApprovals();
+}
+
+export async function submitHomebrewToCampaignAction(
+  homebrewId: string,
+  campaignId: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requestApproval(homebrewId, campaignId);
+    revalidatePath('/creator/homebrew');
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    const code = err instanceof Error ? err.message : '';
+    const messages: Record<string, string> = {
+      NOT_YOUR_HOMEBREW: 'That homebrew is not yours.',
+      NOT_A_MEMBER: 'You are not a member of that campaign.',
+      NOT_AUTHENTICATED: 'You are not signed in.',
+    };
+    return { ok: false, error: messages[code] ?? 'Failed to submit.' };
+  }
 }

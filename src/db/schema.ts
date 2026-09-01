@@ -243,3 +243,66 @@ export const rpgSystems = sqliteTable('rpg_systems', {
   version: text('version').notNull().default(''),
   description: text('description').notNull().default(''),
 });
+
+/* --- Live session tools (0003) ---------------------------------------- */
+
+export const campaignHandouts = sqliteTable(
+  'campaign_handouts',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['image', 'note'] }).notNull(),
+    title: text('title').notNull().default(''),
+    body: text('body'),
+    filePath: text('file_path'),
+    mime: text('mime'),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_handouts_campaign_idx').on(t.campaignId)]
+);
+
+export const initiativeEncounters = sqliteTable(
+  'initiative_encounters',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    name: text('name').notNull().default('Encounter'),
+    isActive: integer('is_active', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    round: integer('round').notNull().default(1),
+    turnIndex: integer('turn_index').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('initiative_encounters_campaign_idx').on(t.campaignId)]
+);
+
+export const initiativeEntries = sqliteTable(
+  'initiative_entries',
+  {
+    id: uuid(),
+    encounterId: text('encounter_id')
+      .notNull()
+      .references(() => initiativeEncounters.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    initiative: integer('initiative').notNull().default(0),
+    hpCurrent: integer('hp_current'),
+    hpMax: integer('hp_max'),
+    conditions: text('conditions').notNull().default(''),
+    sort: integer('sort').notNull().default(0),
+  },
+  t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
+);

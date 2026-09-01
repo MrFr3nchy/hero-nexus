@@ -5,6 +5,7 @@ import {
   Button,
   Chip,
   Input,
+  Link,
   Select,
   SelectItem,
   Spinner,
@@ -146,6 +147,17 @@ export function MembersPanel({
                 <Chip size="sm" variant="flat" className="bg-surface-2">
                   {roleLabel[m.role]}
                 </Chip>
+
+                {isStaff && m.characterId && (
+                  <Button
+                    as={Link}
+                    href={`/campaigns/${campaignId}/players/${m.characterId}`}
+                    size="sm"
+                    variant="flat"
+                  >
+                    View sheet
+                  </Button>
+                )}
 
                 {isMe && m.role !== 'gm' && (
                   <Select
