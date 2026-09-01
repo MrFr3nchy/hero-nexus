@@ -1,5 +1,10 @@
 export { PageShell } from './PageShell';
 export { PageHeader } from './PageHeader';
 export { SectionCard } from './SectionCard';
-export { Stat } from './Stat';
+export { Stat, StatBlock } from './Stat';
 export { EmptyState } from './EmptyState';
+export { Fleuron } from './Fleuron';
+export { Seal } from './Seal';
+export { Ribbon } from './Ribbon';
+export { DiceSpinner } from './DiceSpinner';
+export { DeckledEdge } from './DeckledEdge';

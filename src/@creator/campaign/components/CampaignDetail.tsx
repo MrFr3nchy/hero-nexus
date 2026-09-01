@@ -1,10 +1,11 @@
 'use client';
 
-import { Button, Chip, Link, Snippet, Tab, Tabs } from '@heroui/react';
+import { Button, Link, Snippet, Tab, Tabs } from '@heroui/react';
 
 import {
   PageHeader,
   PageShell,
+  Ribbon,
   SectionCard,
   Stat,
 } from '@/@shared/components/ui';
@@ -30,13 +31,21 @@ export function CampaignDetail({
         description={campaign.description || undefined}
         actions={
           <>
-            <Chip size="sm" variant="flat" className="bg-surface-2">
+            <Ribbon
+              tone={
+                campaign.role === 'gm'
+                  ? 'gold'
+                  : campaign.role === 'co-gm'
+                    ? 'arcane'
+                    : 'neutral'
+              }
+            >
               {campaign.role === 'gm'
                 ? 'DM'
                 : campaign.role === 'co-gm'
                   ? 'Co-DM'
                   : 'Player'}
-            </Chip>
+            </Ribbon>
             {isStaff && (
               <Button
                 as={Link}

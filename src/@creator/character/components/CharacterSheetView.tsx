@@ -1,4 +1,4 @@
-import { SectionCard, Stat } from '@/@shared/components/ui';
+import { SectionCard, Stat, StatBlock } from '@/@shared/components/ui';
 import {
   abilityModifier,
   fmtBonus,
@@ -62,7 +62,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
 
   return (
     <div className="space-y-5">
-      <SectionCard title="Identity">
+      <SectionCard framed title="Identity">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           <Field label="Name" value={sheet.identity.name} />
           <Field label="Class" value={sheet.identity.class} />
@@ -76,7 +76,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
         </div>
       </SectionCard>
 
-      <SectionCard title="Combat">
+      <SectionCard framed title="Combat">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Prof. bonus" value={fmtBonus(pb)} />
           <Stat label="Initiative" value={fmtBonus(initiative(sheet))} />
@@ -95,27 +95,28 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
         </div>
       </SectionCard>
 
-      <SectionCard title="Ability scores">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <SectionCard framed title="Ability scores">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {ABILITY_KEYS.map(a => {
             const score = sheet.abilities[a].score;
             return (
-              <div
-                key={a}
-                className="flex items-center justify-between rounded-md border border-line px-3 py-2"
-              >
-                <span className="text-sm text-ink">{ABILITY_LABELS[a]}</span>
-                <span className="text-sm tabular-nums text-ink-muted">
-                  {score} · mod {fmtBonus(abilityModifier(score))} · save{' '}
-                  {fmtBonus(savingThrow(sheet, a))}
-                </span>
-              </div>
+              <StatBlock key={a} label={a.slice(0, 3)}>
+                <div className="text-center">
+                  <div className="font-display text-2xl tabular-nums text-ink">
+                    {score}
+                  </div>
+                  <div className="mt-0.5 text-xs text-ink-muted">
+                    mod {fmtBonus(abilityModifier(score))} · save{' '}
+                    {fmtBonus(savingThrow(sheet, a))}
+                  </div>
+                </div>
+              </StatBlock>
             );
           })}
         </div>
       </SectionCard>
 
-      <SectionCard title="Skills">
+      <SectionCard framed title="Skills">
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {SKILL_KEYS.map(s => (
             <div
@@ -138,7 +139,11 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
       </SectionCard>
 
       {sheet.spellcasting.ability && (
-        <SectionCard title="Spellcasting">
+        <SectionCard
+          framed
+          title="Spellcasting"
+          bodyClassName="border-t-2 border-t-arcane/50"
+        >
           <div className="mb-4 grid grid-cols-3 gap-3">
             <Stat
               label="Ability"
@@ -163,7 +168,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
         </SectionCard>
       )}
 
-      <SectionCard title="Proficiencies & languages">
+      <SectionCard framed title="Proficiencies & languages">
         <div className="space-y-3">
           <Prose label="Armor" value={sheet.proficiencies.armor} />
           <Prose label="Weapons" value={sheet.proficiencies.weapons} />
@@ -172,7 +177,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
         </div>
       </SectionCard>
 
-      <SectionCard title="Details">
+      <SectionCard framed title="Details">
         <div className="space-y-3">
           <Prose label="Appearance" value={sheet.details.appearance} />
           <Prose label="Personality" value={sheet.details.personality} />
@@ -183,7 +188,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
         </div>
       </SectionCard>
 
-      <SectionCard title="Equipment & currency">
+      <SectionCard framed title="Equipment & currency">
         <div className="space-y-3">
           <Prose label="Equipment" value={sheet.equipment.items} />
           <Prose label="Magic items" value={sheet.equipment.magicItems} />

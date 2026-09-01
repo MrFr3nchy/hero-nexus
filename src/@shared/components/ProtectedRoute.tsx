@@ -1,9 +1,9 @@
 'use client';
 
-import { Spinner } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
+import { DiceSpinner } from '@/@shared/components/ui';
 import { useAuth } from '@/@auth/context';
 
 interface ProtectedRouteProps {
@@ -23,7 +23,7 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-bg">
-        <Spinner size="lg" color="primary" label="Loading…" />
+        <DiceSpinner size={44} label="Unrolling the map…" />
       </div>
     );
   }

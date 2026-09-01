@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Fraunces, Inter } from 'next/font/google';
+import { Cinzel, Fraunces, Inter } from 'next/font/google';
 
 import { ConditionalLayout } from '@/@shared/components/ConditionalLayout';
 import './globals.css';
@@ -18,6 +18,13 @@ const fraunces = Fraunces({
   axes: ['SOFT', 'opsz'],
 });
 
+const cinzel = Cinzel({
+  subsets: ['latin'],
+  variable: '--font-cinzel',
+  display: 'swap',
+  weight: ['500', '600'],
+});
+
 export const metadata: Metadata = {
   title: 'Hero Nexus',
   description:
@@ -33,7 +40,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${fraunces.variable}`}
+      className={`${inter.variable} ${fraunces.variable} ${cinzel.variable}`}
     >
       <body className="grain">
         <Providers>

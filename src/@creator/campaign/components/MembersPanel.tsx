@@ -1,19 +1,10 @@
 'use client';
 
-import {
-  Avatar,
-  Button,
-  Chip,
-  Input,
-  Link,
-  Select,
-  SelectItem,
-  Spinner,
-} from '@heroui/react';
+import { Avatar, Button, Input, Link, Select, SelectItem } from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { listCharactersAction } from '@/@creator/character/actions';
-import { SectionCard } from '@/@shared/components/ui';
+import { DiceSpinner, Ribbon, SectionCard } from '@/@shared/components/ui';
 import type { CharacterRow } from '@/server/characters';
 import type {
   CampaignInviteRow,
@@ -101,7 +92,7 @@ export function MembersPanel({
   if (loading) {
     return (
       <div className="flex justify-center py-12">
-        <Spinner color="primary" />
+        <DiceSpinner label="Assembling the party…" />
       </div>
     );
   }
@@ -144,9 +135,17 @@ export function MembersPanel({
                   </p>
                 </div>
 
-                <Chip size="sm" variant="flat" className="bg-surface-2">
+                <Ribbon
+                  tone={
+                    m.role === 'gm'
+                      ? 'gold'
+                      : m.role === 'co-gm'
+                        ? 'arcane'
+                        : 'neutral'
+                  }
+                >
                   {roleLabel[m.role]}
-                </Chip>
+                </Ribbon>
 
                 {isStaff && m.characterId && (
                   <Button

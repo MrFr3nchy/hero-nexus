@@ -1,13 +1,15 @@
 'use client';
 
-import { Button, Chip, Link, Spinner } from '@heroui/react';
+import { Button, Link } from '@heroui/react';
 import { useEffect, useState } from 'react';
 
 import { campaignService } from '@/@creator/campaign/services';
 import {
+  DiceSpinner,
   EmptyState,
   PageHeader,
   PageShell,
+  Ribbon,
   SectionCard,
 } from '@/@shared/components/ui';
 import type { CampaignRow } from '@/server/campaigns';
@@ -18,16 +20,16 @@ function formatDate(value: string): string {
   return Number.isNaN(d.getTime()) ? 'Unknown' : d.toLocaleDateString();
 }
 
-function statusColor(status: CampaignRow['status']) {
+function statusTone(status: CampaignRow['status']) {
   switch (status) {
     case 'active':
       return 'success' as const;
     case 'paused':
       return 'warning' as const;
-    case 'completed':
-      return 'default' as const;
     case 'archived':
-      return 'secondary' as const;
+      return 'danger' as const;
+    default:
+      return 'neutral' as const;
   }
 }
 
@@ -76,7 +78,7 @@ export function CampaignDashboard() {
 
       {loading ? (
         <div className="flex justify-center py-16">
-          <Spinner color="primary" label="Loading campaigns…" />
+          <DiceSpinner label="Consulting the ledger…" />
         </div>
       ) : error ? (
         <div className="rounded-[var(--radius-card)] border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
@@ -110,9 +112,7 @@ export function CampaignDashboard() {
                     · {c.memberCount} member{c.memberCount === 1 ? '' : 's'}
                   </p>
                 </div>
-                <Chip color={statusColor(c.status)} variant="flat" size="sm">
-                  {c.status}
-                </Chip>
+                <Ribbon tone={statusTone(c.status)}>{c.status}</Ribbon>
               </div>
               <p className="mb-3 line-clamp-3 text-sm text-ink-muted">
                 {c.description || 'No description.'}

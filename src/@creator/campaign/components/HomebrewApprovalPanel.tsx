@@ -1,17 +1,16 @@
 'use client';
 
-import { Button, Chip, Spinner, Textarea } from '@heroui/react';
+import { Button, Textarea } from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { EmptyState, SectionCard } from '@/@shared/components/ui';
-import type { ApprovalRow, ApprovalStatus } from '@/server/approvals';
+import {
+  DiceSpinner,
+  EmptyState,
+  Seal,
+  SectionCard,
+} from '@/@shared/components/ui';
+import type { ApprovalRow } from '@/server/approvals';
 import { listApprovalsAction, reviewApprovalAction } from '../actions';
-
-const statusColor: Record<ApprovalStatus, 'warning' | 'success' | 'danger'> = {
-  pending: 'warning',
-  approved: 'success',
-  denied: 'danger',
-};
 
 const typeIcon: Record<string, string> = {
   class: '⚔️',
@@ -61,9 +60,7 @@ function ApprovalCard({
             {approval.requestedByName ?? 'a player'}
           </p>
         </div>
-        <Chip size="sm" variant="flat" color={statusColor[approval.status]}>
-          {approval.status}
-        </Chip>
+        <Seal variant={approval.status} />
       </div>
 
       {approval.homebrewDescription && (
@@ -155,7 +152,7 @@ export function HomebrewApprovalPanel({
   if (loading) {
     return (
       <div className="flex justify-center py-12">
-        <Spinner color="primary" />
+        <DiceSpinner label="Reviewing submissions…" />
       </div>
     );
   }

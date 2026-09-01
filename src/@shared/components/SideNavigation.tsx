@@ -47,7 +47,7 @@ export function SideNavigation() {
               height={28}
               className="h-7 w-7"
             />
-            <span className="font-display text-base font-semibold">
+            <span className="font-display-alt text-sm font-semibold tracking-wide">
               Hero Nexus
             </span>
           </Link>

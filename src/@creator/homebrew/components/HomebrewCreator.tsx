@@ -10,14 +10,18 @@ import {
   Input,
   Select,
   SelectItem,
-  Spinner,
   Switch,
   Textarea,
 } from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { listCampaignsAction } from '@/@creator/campaign/actions';
-import { EmptyState, SectionCard } from '@/@shared/components/ui';
+import {
+  DiceSpinner,
+  EmptyState,
+  Seal,
+  SectionCard,
+} from '@/@shared/components/ui';
 import type { ApprovalRow } from '@/server/approvals';
 import type { CampaignRow } from '@/server/campaigns';
 import type { HomebrewRow, HomebrewType } from '@/server/homebrew';
@@ -29,12 +33,6 @@ import {
   submitHomebrewToCampaignAction,
 } from '../actions';
 import { HOMEBREW_TYPES, homebrewSchema } from '../schema';
-
-const approvalColor = {
-  pending: 'warning',
-  approved: 'success',
-  denied: 'danger',
-} as const;
 
 export function HomebrewCreator() {
   const [items, setItems] = useState<HomebrewRow[]>([]);
@@ -182,7 +180,7 @@ export function HomebrewCreator() {
       <SectionCard title={`Your homebrew (${items.length})`}>
         {loading ? (
           <div className="flex justify-center py-8">
-            <Spinner color="primary" />
+            <DiceSpinner label="Consulting the archive…" />
           </div>
         ) : items.length === 0 ? (
           <EmptyState
@@ -215,19 +213,22 @@ export function HomebrewCreator() {
                   </p>
 
                   {itemApprovals.length > 0 && (
-                    <div className="mb-3 flex flex-wrap gap-1.5">
+                    <ul className="mb-3 space-y-1">
                       {itemApprovals.map(a => (
-                        <Chip
+                        <li
                           key={a.id}
-                          size="sm"
-                          variant="flat"
-                          color={approvalColor[a.status]}
+                          className="flex items-center gap-1.5 text-xs text-ink-muted"
                           title={a.reviewNotes ?? undefined}
                         >
-                          {a.campaignName}: {a.status}
-                        </Chip>
+                          <Seal
+                            variant={a.status}
+                            showLabel={false}
+                            size={15}
+                          />
+                          <span className="truncate">{a.campaignName}</span>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   )}
 
                   <div className="mt-auto flex gap-2">

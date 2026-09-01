@@ -57,7 +57,7 @@ export function CharacterForm({
       setBanner(null);
       const result = await saveCharacterAction(values, characterId);
       if (result.ok) {
-        setBanner({ kind: 'success', text: 'Character saved.' });
+        setBanner({ kind: 'success', text: 'Inscribed.' });
         router.push('/characters');
         router.refresh();
       } else {
@@ -89,7 +89,7 @@ export function CharacterForm({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="relative grid grid-cols-1 gap-6 rounded-[var(--radius-card)] border border-gold/25 p-4 shadow-[inset_0_0_0_1px_var(--line)] lg:grid-cols-2 lg:p-6">
         <div className="space-y-6">
           <IdentitySection control={control} reference={reference} />
           <AbilityScoresSection control={control} />

@@ -3,6 +3,8 @@
 import { Card, CardBody, CardHeader } from '@heroui/react';
 import { type ReactNode } from 'react';
 
+import { LiftCard } from '../motion';
+
 interface SectionCardProps {
   title?: ReactNode;
   description?: ReactNode;
@@ -10,6 +12,20 @@ interface SectionCardProps {
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
+  /** Add gold corner brackets — reserve for "special" surfaces. */
+  framed?: boolean;
+}
+
+function Corners() {
+  const base = 'pointer-events-none absolute h-3 w-3 border-gold/60 text-gold';
+  return (
+    <>
+      <span className={`${base} left-1.5 top-1.5 border-l border-t`} />
+      <span className={`${base} right-1.5 top-1.5 border-r border-t`} />
+      <span className={`${base} bottom-1.5 left-1.5 border-b border-l`} />
+      <span className={`${base} bottom-1.5 right-1.5 border-b border-r`} />
+    </>
+  );
 }
 
 /** Themed panel: surface background, hairline border, one soft shadow. */
@@ -20,28 +36,34 @@ export function SectionCard({
   children,
   className,
   bodyClassName,
+  framed,
 }: SectionCardProps) {
   return (
-    <Card
-      shadow="none"
-      className={`border border-line bg-surface [box-shadow:var(--shadow-card)] ${className ?? ''}`}
-    >
-      {(title || actions) && (
-        <CardHeader className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
-          <div>
-            {title && (
-              <h2 className="font-display text-lg text-ink">{title}</h2>
+    <LiftCard className={`relative ${className ?? ''}`}>
+      {framed && <Corners />}
+      <Card
+        shadow="none"
+        className="border border-line bg-surface [box-shadow:var(--shadow-card)]"
+      >
+        {(title || actions) && (
+          <CardHeader className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+            <div>
+              {title && (
+                <h2 className="font-display text-lg text-ink">{title}</h2>
+              )}
+              {description && (
+                <p className="mt-1 text-sm text-ink-muted">{description}</p>
+              )}
+            </div>
+            {actions && (
+              <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
             )}
-            {description && (
-              <p className="mt-1 text-sm text-ink-muted">{description}</p>
-            )}
-          </div>
-          {actions && <div className="flex shrink-0 gap-2">{actions}</div>}
-        </CardHeader>
-      )}
-      <CardBody className={`px-5 py-5 ${bodyClassName ?? ''}`}>
-        {children}
-      </CardBody>
-    </Card>
+          </CardHeader>
+        )}
+        <CardBody className={`px-5 py-5 ${bodyClassName ?? ''}`}>
+          {children}
+        </CardBody>
+      </Card>
+    </LiftCard>
   );
 }

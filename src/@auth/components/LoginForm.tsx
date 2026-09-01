@@ -4,7 +4,7 @@ import { Button, Input, Link } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { SectionCard } from '@/@shared/components/ui';
+import { DeckledEdge, SectionCard } from '@/@shared/components/ui';
 import { useAuth } from '../context';
 import { AuthError } from '../types';
 
@@ -45,44 +45,51 @@ export default function LoginForm() {
             </Link>
           </p>
         </div>
-        <SectionCard>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <Input
-              type="email"
-              label="Email"
-              value={email}
-              onValueChange={setEmail}
-              isRequired
-              autoComplete="email"
-            />
-            <Input
-              type="password"
-              label="Password"
-              value={password}
-              onValueChange={setPassword}
-              isRequired
-              autoComplete="current-password"
-            />
-            {error && (
-              <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-                {error}
-              </p>
-            )}
-            <Button
-              type="submit"
-              color="primary"
-              className="w-full"
-              isLoading={loading}
-            >
-              Sign in
-            </Button>
-          </form>
-          <p className="mt-4 text-center text-sm">
-            <Link href="/forgot-password" size="sm" className="text-ink-muted">
-              Forgot your password?
-            </Link>
-          </p>
-        </SectionCard>
+        <div className="relative">
+          <SectionCard>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <Input
+                type="email"
+                label="Email"
+                value={email}
+                onValueChange={setEmail}
+                isRequired
+                autoComplete="email"
+              />
+              <Input
+                type="password"
+                label="Password"
+                value={password}
+                onValueChange={setPassword}
+                isRequired
+                autoComplete="current-password"
+              />
+              {error && (
+                <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+                  {error}
+                </p>
+              )}
+              <Button
+                type="submit"
+                color="primary"
+                className="w-full"
+                isLoading={loading}
+              >
+                Sign in
+              </Button>
+            </form>
+            <p className="mt-4 text-center text-sm">
+              <Link
+                href="/forgot-password"
+                size="sm"
+                className="text-ink-muted"
+              >
+                Forgot your password?
+              </Link>
+            </p>
+          </SectionCard>
+          <DeckledEdge />
+        </div>
       </div>
     </div>
   );

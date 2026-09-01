@@ -2,7 +2,7 @@
 
 import { Control, useWatch } from 'react-hook-form';
 
-import { SectionCard } from '@/@shared/components/ui';
+import { SectionCard, StatBlock } from '@/@shared/components/ui';
 
 import {
   ABILITY_KEYS,
@@ -47,12 +47,18 @@ type C = Control<CharacterSheet>;
 function Section({
   title,
   children,
+  arcane,
 }: {
   title: string;
   children: React.ReactNode;
+  arcane?: boolean;
 }) {
   return (
-    <SectionCard title={title} bodyClassName="space-y-4">
+    <SectionCard
+      framed
+      title={title}
+      bodyClassName={`space-y-4 ${arcane ? 'border-t-2 border-t-arcane/50' : ''}`}
+    >
       {children}
     </SectionCard>
   );
@@ -152,18 +158,8 @@ export function AbilityScoresSection({ control }: { control: C }) {
             sheet?.abilities?.[ability]?.proficientSave ?? false;
           const save = proficient ? mod + pb : mod;
           return (
-            <div key={ability} className="rounded-lg border border-line p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h4 className="text-lg font-semibold text-ink">
-                  {ABILITY_LABELS[ability]}
-                </h4>
-                <SheetCheckbox
-                  control={control}
-                  name={`abilities.${ability}.proficientSave`}
-                  label="Save proficiency"
-                />
-              </div>
-              <div className="grid grid-cols-3 gap-3">
+            <StatBlock key={ability} label={ability.slice(0, 3)}>
+              <div className="grid grid-cols-3 items-end gap-3">
                 <SheetNumber
                   control={control}
                   name={`abilities.${ability}.score`}
@@ -174,7 +170,14 @@ export function AbilityScoresSection({ control }: { control: C }) {
                 <Derived label="Modifier" value={fmtBonus(mod)} />
                 <Derived label="Save" value={fmtBonus(save)} />
               </div>
-            </div>
+              <div className="mt-3">
+                <SheetCheckbox
+                  control={control}
+                  name={`abilities.${ability}.proficientSave`}
+                  label={`${ABILITY_LABELS[ability]} save proficiency`}
+                />
+              </div>
+            </StatBlock>
           );
         })}
       </div>
@@ -328,7 +331,7 @@ export function SpellcastingSection({ control }: { control: C }) {
   const atk = safe ? spellAttackBonus(safe) : null;
 
   return (
-    <Section title="Spellcasting">
+    <Section title="Spellcasting" arcane>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <SheetSelect
           control={control}

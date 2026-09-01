@@ -1,9 +1,10 @@
 'use client';
 
-import { Button, Chip, Link, Spinner } from '@heroui/react';
+import { Button, Chip, Link } from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
 import {
+  DiceSpinner,
   EmptyState,
   PageHeader,
   PageShell,
@@ -111,7 +112,7 @@ export function CharactersList({ embedded = false }: { embedded?: boolean }) {
 
   const body = loading ? (
     <div className="flex justify-center py-12">
-      <Spinner color="primary" label="Loading characters…" />
+      <DiceSpinner label="Gathering your heroes…" />
     </div>
   ) : error ? (
     <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">

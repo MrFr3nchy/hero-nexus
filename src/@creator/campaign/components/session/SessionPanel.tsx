@@ -6,13 +6,13 @@ import {
   Image as HeroImage,
   Input,
   NumberInput,
-  Spinner,
   Switch,
   Textarea,
 } from '@heroui/react';
 import { useRef, useState } from 'react';
 
-import { EmptyState, SectionCard } from '@/@shared/components/ui';
+import { motion } from '@/@shared/components/motion';
+import { DiceSpinner, EmptyState, SectionCard } from '@/@shared/components/ui';
 import { useCampaignLive } from '@/@shared/hooks/useCampaignLive';
 import type { EntryRow, HandoutRow, LiveState } from '@/server/session';
 import {
@@ -83,13 +83,15 @@ function InitiativeTracker({
             >
               Prev
             </Button>
-            <Button
-              size="sm"
-              color="primary"
-              onPress={() => act(advanceTurnAction(enc.id, 1))}
-            >
-              Next turn
-            </Button>
+            <motion.div whileTap={{ rotate: [0, -6, 6, -3, 0] }}>
+              <Button
+                size="sm"
+                color="primary"
+                onPress={() => act(advanceTurnAction(enc.id, 1))}
+              >
+                Next turn
+              </Button>
+            </motion.div>
             <Button
               size="sm"
               variant="light"
@@ -394,7 +396,7 @@ export function SessionPanel({ campaignId }: { campaignId: string }) {
   if (!state) {
     return (
       <div className="flex justify-center py-12">
-        <Spinner color="primary" />
+        <DiceSpinner label="Rolling initiative…" />
       </div>
     );
   }

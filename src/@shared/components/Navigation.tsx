@@ -47,7 +47,7 @@ export const Navigation = () => {
       isMenuOpen={isMenuOpen}
       onMenuOpenChange={setIsMenuOpen}
       maxWidth="xl"
-      className="border-b border-line bg-bg"
+      className="border-b border-line border-t-2 border-t-gold/70 bg-bg"
       classNames={{ wrapper: 'px-4 sm:px-6' }}
     >
       <NavbarContent>
@@ -61,7 +61,7 @@ export const Navigation = () => {
               height={32}
               className="h-8 w-8"
             />
-            <span className="font-display text-lg font-semibold tracking-tight">
+            <span className="font-display-alt text-base font-semibold tracking-wide">
               Hero Nexus
             </span>
           </Link>
