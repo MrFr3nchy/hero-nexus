@@ -1,9 +1,10 @@
 'use client';
 
-import { useAuth } from '@/@auth/context';
-import { Spinner } from '@heroui/spinner';
+import { Spinner } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+
+import { useAuth } from '@/@auth/context';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -21,11 +22,8 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <Spinner size="lg" color="warning" className="mb-4" />
-          <p className="text-amber-300 text-lg">Loading your realm...</p>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-bg">
+        <Spinner size="lg" color="primary" label="Loading…" />
       </div>
     );
   }

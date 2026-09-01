@@ -1,7 +1,8 @@
 'use client';
 
-import { Card, CardBody, CardHeader } from '@heroui/react';
 import { Control, useWatch } from 'react-hook-form';
+
+import { SectionCard } from '@/@shared/components/ui';
 
 import {
   ABILITY_KEYS,
@@ -51,22 +52,19 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="bg-slate-800/50 backdrop-blur-sm border-amber-600/30">
-      <CardHeader>
-        <h3 className="text-xl font-bold text-amber-300">{title}</h3>
-      </CardHeader>
-      <CardBody className="space-y-4">{children}</CardBody>
-    </Card>
+    <SectionCard title={title} bodyClassName="space-y-4">
+      {children}
+    </SectionCard>
   );
 }
 
 function Derived({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-amber-600/30 bg-slate-700/30 px-3 py-2 text-center">
-      <div className="text-xs uppercase tracking-wide text-amber-200/80">
+    <div className="rounded-[var(--radius-card)] border border-line bg-surface-2 px-3 py-2 text-center">
+      <div className="text-[0.7rem] uppercase tracking-[0.1em] text-ink-subtle">
         {label}
       </div>
-      <div className="text-lg font-semibold text-amber-100">{value}</div>
+      <div className="font-display text-lg text-ink tabular-nums">{value}</div>
     </div>
   );
 }
@@ -154,12 +152,9 @@ export function AbilityScoresSection({ control }: { control: C }) {
             sheet?.abilities?.[ability]?.proficientSave ?? false;
           const save = proficient ? mod + pb : mod;
           return (
-            <div
-              key={ability}
-              className="rounded-lg border border-amber-600/30 p-4"
-            >
+            <div key={ability} className="rounded-lg border border-line p-4">
               <div className="mb-3 flex items-center justify-between">
-                <h4 className="text-lg font-semibold text-amber-100">
+                <h4 className="text-lg font-semibold text-ink">
                   {ABILITY_LABELS[ability]}
                 </h4>
                 <SheetCheckbox
@@ -296,14 +291,14 @@ export function SkillsSection({ control }: { control: C }) {
           return (
             <div
               key={skill}
-              className="flex items-center justify-between rounded-md border border-amber-600/20 px-3 py-2"
+              className="flex items-center justify-between rounded-md border border-line px-3 py-2"
             >
               <SheetCheckbox
                 control={control}
                 name={`skills.${skill}`}
                 label={`${SKILL_LABELS[skill]} (${ability.slice(0, 3).toUpperCase()})`}
               />
-              <span className="text-sm font-semibold text-amber-100">
+              <span className="text-sm font-semibold text-ink">
                 {fmtBonus(bonus)}
               </span>
             </div>
@@ -358,7 +353,7 @@ export function SpellcastingSection({ control }: { control: C }) {
       <div className="space-y-2">
         {SPELL_LEVELS.map((lvl, i) => (
           <div key={lvl} className="grid grid-cols-3 items-center gap-3">
-            <span className="text-sm text-amber-200">Level {i + 1}</span>
+            <span className="text-sm text-ink-muted">Level {i + 1}</span>
             <SheetNumber
               control={control}
               name={`spellcasting.slots.${lvl}.total`}

@@ -71,17 +71,12 @@ export default function SettingsPage() {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-amber-900 to-slate-900">
+      <div className="min-h-screen flex items-center justify-center bg-bg">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-amber-100 mb-4">
+          <h1 className="text-2xl font-bold text-ink mb-4">
             Please log in to view your settings
           </h1>
-          <Button
-            as="a"
-            href="/login"
-            color="primary"
-            className="bg-gradient-to-r from-amber-600 to-orange-600"
-          >
+          <Button as="a" href="/login" color="primary" className="">
             Go to Login
           </Button>
         </div>
@@ -90,26 +85,24 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-amber-900 to-slate-900 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-bg py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-amber-100 mb-2">
-            Account Settings
-          </h1>
-          <p className="text-amber-200">
+          <h1 className="text-4xl font-bold text-ink mb-2">Account Settings</h1>
+          <p className="text-ink-muted">
             Manage your account security and preferences
           </p>
         </div>
 
         {/* Tab Navigation */}
         <div className="flex justify-center mb-8">
-          <div className="bg-slate-800/50 rounded-lg p-1 border border-amber-600">
+          <div className="bg-surface/50 rounded-lg p-1 border border-line">
             <button
               onClick={() => setActiveTab('email')}
               className={`px-6 py-2 rounded-md transition-colors ${
                 activeTab === 'email'
-                  ? 'bg-amber-600 text-white'
-                  : 'text-amber-200 hover:text-amber-100'
+                  ? 'bg-gold text-white'
+                  : 'text-ink-muted hover:text-ink'
               }`}
             >
               Email Settings
@@ -118,8 +111,8 @@ export default function SettingsPage() {
               onClick={() => setActiveTab('password')}
               className={`px-6 py-2 rounded-md transition-colors ${
                 activeTab === 'password'
-                  ? 'bg-amber-600 text-white'
-                  : 'text-amber-200 hover:text-amber-100'
+                  ? 'bg-gold text-white'
+                  : 'text-ink-muted hover:text-ink'
               }`}
             >
               Password Settings
@@ -129,18 +122,16 @@ export default function SettingsPage() {
 
         {/* Email Settings */}
         {activeTab === 'email' && (
-          <Card className="bg-slate-800/50 backdrop-blur-sm border-amber-600 border-2 shadow-2xl">
+          <Card className=" border-line shadow-2xl">
             <CardHeader className="pb-0">
               <div className="text-center w-full">
-                <h2 className="text-2xl font-bold text-amber-100">
-                  Email Settings
-                </h2>
-                <p className="text-amber-200 mt-2">Update your email address</p>
+                <h2 className="text-2xl font-bold text-ink">Email Settings</h2>
+                <p className="text-ink-muted mt-2">Update your email address</p>
               </div>
             </CardHeader>
             <CardBody className="pt-6">
-              <div className="mb-6 p-4 bg-slate-700/30 rounded-lg border border-amber-600/50">
-                <p className="text-amber-200 text-sm">
+              <div className="mb-6 p-4 bg-surface-2 rounded-lg border border-line/50">
+                <p className="text-ink-muted text-sm">
                   <span className="font-medium">Current Email:</span>{' '}
                   {currentUser.email}
                 </p>
@@ -155,20 +146,20 @@ export default function SettingsPage() {
                   onChange={e => setEmail(e.target.value)}
                   required
                   classNames={{
-                    input: 'text-amber-100',
-                    inputWrapper: 'bg-slate-700/50 border-amber-600',
-                    label: 'text-amber-200',
+                    input: 'text-ink',
+                    inputWrapper: 'bg-surface-2 border-line',
+                    label: 'text-ink-muted',
                   }}
                 />
 
                 {error && (
-                  <div className="text-red-400 text-sm text-center bg-red-900/20 p-3 rounded-lg border border-red-600">
+                  <div className="text-danger text-sm text-center bg-danger/10 p-3 rounded-lg border border-danger/40">
                     {error}
                   </div>
                 )}
 
                 {message && (
-                  <div className="text-green-400 text-sm text-center bg-green-900/20 p-3 rounded-lg border border-green-600">
+                  <div className="text-success text-sm text-center bg-success/10 p-3 rounded-lg border border-success/40">
                     {message}
                   </div>
                 )}
@@ -177,7 +168,7 @@ export default function SettingsPage() {
                   type="submit"
                   color="primary"
                   size="lg"
-                  className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold"
+                  className="w-full"
                   isLoading={loading}
                   disabled={loading}
                 >
@@ -190,13 +181,13 @@ export default function SettingsPage() {
 
         {/* Password Settings */}
         {activeTab === 'password' && (
-          <Card className="bg-slate-800/50 backdrop-blur-sm border-amber-600 border-2 shadow-2xl">
+          <Card className=" border-line shadow-2xl">
             <CardHeader className="pb-0">
               <div className="text-center w-full">
-                <h2 className="text-2xl font-bold text-amber-100">
+                <h2 className="text-2xl font-bold text-ink">
                   Password Settings
                 </h2>
-                <p className="text-amber-200 mt-2">Update your password</p>
+                <p className="text-ink-muted mt-2">Update your password</p>
               </div>
             </CardHeader>
             <CardBody className="pt-6">
@@ -209,9 +200,9 @@ export default function SettingsPage() {
                   onChange={e => setCurrentPassword(e.target.value)}
                   required
                   classNames={{
-                    input: 'text-amber-100',
-                    inputWrapper: 'bg-slate-700/50 border-amber-600',
-                    label: 'text-amber-200',
+                    input: 'text-ink',
+                    inputWrapper: 'bg-surface-2 border-line',
+                    label: 'text-ink-muted',
                   }}
                 />
                 <Input
@@ -222,9 +213,9 @@ export default function SettingsPage() {
                   onChange={e => setNewPassword(e.target.value)}
                   required
                   classNames={{
-                    input: 'text-amber-100',
-                    inputWrapper: 'bg-slate-700/50 border-amber-600',
-                    label: 'text-amber-200',
+                    input: 'text-ink',
+                    inputWrapper: 'bg-surface-2 border-line',
+                    label: 'text-ink-muted',
                   }}
                 />
                 <Input
@@ -235,20 +226,20 @@ export default function SettingsPage() {
                   onChange={e => setConfirmPassword(e.target.value)}
                   required
                   classNames={{
-                    input: 'text-amber-100',
-                    inputWrapper: 'bg-slate-700/50 border-amber-600',
-                    label: 'text-amber-200',
+                    input: 'text-ink',
+                    inputWrapper: 'bg-surface-2 border-line',
+                    label: 'text-ink-muted',
                   }}
                 />
 
                 {error && (
-                  <div className="text-red-400 text-sm text-center bg-red-900/20 p-3 rounded-lg border border-red-600">
+                  <div className="text-danger text-sm text-center bg-danger/10 p-3 rounded-lg border border-danger/40">
                     {error}
                   </div>
                 )}
 
                 {message && (
-                  <div className="text-green-400 text-sm text-center bg-green-900/20 p-3 rounded-lg border border-green-600">
+                  <div className="text-success text-sm text-center bg-success/10 p-3 rounded-lg border border-success/40">
                     {message}
                   </div>
                 )}
@@ -257,7 +248,7 @@ export default function SettingsPage() {
                   type="submit"
                   color="primary"
                   size="lg"
-                  className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold"
+                  className="w-full"
                   isLoading={loading}
                   disabled={loading}
                 >

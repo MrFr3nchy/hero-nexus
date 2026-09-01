@@ -2,32 +2,24 @@
 
 import {
   Button,
-  Card,
-  CardBody,
-  CardHeader,
   Chip,
+  Input,
   Select,
   SelectItem,
   Spinner,
   Switch,
   Textarea,
 } from '@heroui/react';
-import { Input } from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { EmptyState, SectionCard } from '@/@shared/components/ui';
+import type { HomebrewRow, HomebrewType } from '@/server/homebrew';
 import {
   deleteHomebrewAction,
   listHomebrewAction,
   saveHomebrewAction,
 } from '../actions';
 import { HOMEBREW_TYPES, homebrewSchema } from '../schema';
-import type { HomebrewRow, HomebrewType } from '@/server/homebrew';
-
-const inputClassNames = {
-  input: 'text-purple-100',
-  inputWrapper: 'bg-slate-700/50 border-purple-600',
-  label: 'text-purple-200',
-};
 
 export function HomebrewCreator() {
   const [items, setItems] = useState<HomebrewRow[]>([]);
@@ -93,33 +85,24 @@ export function HomebrewCreator() {
     HOMEBREW_TYPES.find(t => t.id === type) ?? HOMEBREW_TYPES[2];
 
   return (
-    <div className="space-y-8">
-      <Card className="border-purple-600/30 bg-slate-800/50">
-        <CardHeader>
-          <h2 className="text-2xl font-bold text-purple-300">
-            Create Homebrew
-          </h2>
-        </CardHeader>
-        <CardBody className="space-y-4">
+    <div className="space-y-6">
+      <SectionCard title="Create homebrew">
+        <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Input
               label="Name"
               value={form.name}
               onValueChange={v => setForm(f => ({ ...f, name: v }))}
-              classNames={inputClassNames}
             />
             <Select
               label="Type"
               selectedKeys={[form.type]}
-              onSelectionChange={keys => {
-                const type = Array.from(keys)[0] as HomebrewType;
-                setForm(f => ({ ...f, type }));
-              }}
-              classNames={{
-                trigger: 'bg-slate-700/50 border-purple-600',
-                value: 'text-purple-100',
-                label: 'text-purple-200',
-              }}
+              onSelectionChange={keys =>
+                setForm(f => ({
+                  ...f,
+                  type: Array.from(keys)[0] as HomebrewType,
+                }))
+              }
             >
               {HOMEBREW_TYPES.map(t => (
                 <SelectItem key={t.id}>
@@ -133,87 +116,81 @@ export function HomebrewCreator() {
             value={form.description}
             onValueChange={v => setForm(f => ({ ...f, description: v }))}
             minRows={4}
-            classNames={inputClassNames}
           />
           <Switch
             isSelected={form.visibility === 'public'}
             onValueChange={v =>
-              setForm(f => ({ ...f, visibility: v ? 'public' : 'private' }))
+              setForm(f => ({
+                ...f,
+                visibility: v ? 'public' : 'private',
+              }))
             }
           >
-            <span className="text-purple-200">
-              Share to public marketplace (Phase 2)
+            <span className="text-sm text-ink-muted">
+              Share to the public marketplace
             </span>
           </Switch>
 
           {error && (
-            <div className="rounded-lg border border-red-600 bg-red-900/20 p-3 text-center text-sm text-red-300">
+            <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
               {error}
-            </div>
+            </p>
           )}
 
-          <div className="flex justify-center">
-            <Button
-              size="lg"
-              isLoading={saving}
-              isDisabled={!form.name.trim()}
-              onPress={handleCreate}
-              className="bg-gradient-to-r from-purple-600 to-blue-600 px-8"
-            >
-              Create {typeMeta(form.type).name}
-            </Button>
-          </div>
-        </CardBody>
-      </Card>
+          <Button
+            color="primary"
+            isLoading={saving}
+            isDisabled={!form.name.trim()}
+            onPress={handleCreate}
+          >
+            Create {typeMeta(form.type).name.toLowerCase()}
+          </Button>
+        </div>
+      </SectionCard>
 
-      <div>
-        <h2 className="mb-4 text-2xl font-bold text-purple-300">
-          Your Homebrew ({items.length})
-        </h2>
+      <SectionCard title={`Your homebrew (${items.length})`}>
         {loading ? (
           <div className="flex justify-center py-8">
-            <Spinner color="secondary" />
+            <Spinner color="primary" />
           </div>
         ) : items.length === 0 ? (
-          <Card className="border-purple-600/30 bg-slate-800/50">
-            <CardBody className="py-8 text-center text-gray-300">
-              Nothing homebrewed yet.
-            </CardBody>
-          </Card>
+          <EmptyState
+            icon="🧪"
+            title="Nothing brewed yet"
+            description="Create a class, spell or item above."
+          />
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {items.map(item => (
-              <Card
+              <div
                 key={item.id}
-                className="border-purple-600/30 bg-slate-800/50"
+                className="flex flex-col rounded-[var(--radius-card)] border border-line bg-surface p-4"
               >
-                <CardHeader className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{typeMeta(item.type).icon}</span>
-                    <h3 className="font-bold text-purple-200">{item.name}</h3>
-                  </div>
-                  <Chip size="sm" variant="flat">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-2 font-medium text-ink">
+                    <span>{typeMeta(item.type).icon}</span>
+                    {item.name}
+                  </span>
+                  <Chip size="sm" variant="flat" className="bg-surface-2">
                     {item.visibility}
                   </Chip>
-                </CardHeader>
-                <CardBody>
-                  <p className="mb-4 line-clamp-3 text-sm text-gray-300">
-                    {item.description || 'No description.'}
-                  </p>
-                  <Button
-                    color="danger"
-                    variant="flat"
-                    size="sm"
-                    onPress={() => handleDelete(item.id)}
-                  >
-                    Delete
-                  </Button>
-                </CardBody>
-              </Card>
+                </div>
+                <p className="mb-4 line-clamp-3 text-sm text-ink-muted">
+                  {item.description || 'No description.'}
+                </p>
+                <Button
+                  size="sm"
+                  variant="light"
+                  className="mt-auto self-start text-ink-muted data-[hover=true]:text-danger"
+                  onPress={() => handleDelete(item.id)}
+                >
+                  Delete
+                </Button>
+              </div>
             ))}
           </div>
         )}
-      </div>
+      </SectionCard>
     </div>
   );
 }

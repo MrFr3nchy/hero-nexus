@@ -81,8 +81,8 @@ export function CharacterForm({
         <div
           className={`rounded-lg border p-3 text-center text-sm ${
             banner.kind === 'error'
-              ? 'border-red-600 bg-red-900/20 text-red-300'
-              : 'border-green-600 bg-green-900/20 text-green-300'
+              ? 'border-danger/40 bg-danger/10 text-danger'
+              : 'border-success/40 bg-success/10 text-success'
           }`}
         >
           {banner.text}
@@ -109,7 +109,7 @@ export function CharacterForm({
         <Button
           type="button"
           variant="bordered"
-          className="border-amber-600 text-amber-300"
+          className="border-line text-ink"
           isDisabled={isSubmitting || !isDirty}
           onPress={() => reset(initialSheet ?? makeEmptySheet())}
         >
@@ -119,7 +119,8 @@ export function CharacterForm({
           type="submit"
           size="lg"
           isLoading={isSubmitting}
-          className="bg-gradient-to-r from-amber-600 to-orange-600 px-8 hover:from-amber-500 hover:to-orange-500"
+          color="primary"
+          className="px-8"
         >
           {characterId ? 'Save Changes' : 'Create Character'}
         </Button>

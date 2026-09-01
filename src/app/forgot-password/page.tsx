@@ -1,47 +1,42 @@
-'use client';
-
 import Link from 'next/link';
 
-import { Card, CardBody, CardHeader } from '@heroui/react';
+import { SectionCard } from '@/@shared/components/ui';
 
 export default function ForgotPasswordPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-amber-900 to-slate-900 px-4 py-12 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md space-y-8">
-        <div className="text-center">
-          <h2 className="mt-6 text-3xl font-extrabold text-amber-100">
+    <div className="flex min-h-screen items-center justify-center bg-bg px-4 py-12">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 text-center">
+          <h1 className="font-display text-2xl text-ink">
             Forgot your password?
-          </h2>
+          </h1>
         </div>
-        <Card className="border-2 border-amber-600 bg-slate-800/50 shadow-2xl backdrop-blur-sm">
-          <CardHeader className="pb-0">
-            <div className="w-full text-center">
-              <h3 className="text-2xl font-bold text-amber-100">
-                Self-service reset isn&apos;t available yet
-              </h3>
-            </div>
-          </CardHeader>
-          <CardBody className="space-y-4 pt-6 text-center text-amber-200">
+        <SectionCard>
+          <div className="space-y-3 text-sm text-ink-muted">
             <p>
               Hero Nexus is self-hosted and this instance doesn&apos;t send
-              email. Contact your instance admin to reset your password, or sign
-              in and change it from{' '}
+              email, so there&apos;s no self-service reset.
+            </p>
+            <p>
+              If you&apos;re signed in, you can change your password from{' '}
               <Link
                 href="/account/settings"
-                className="text-yellow-300 hover:text-yellow-200"
+                className="text-gold hover:underline"
               >
-                Account Settings
-              </Link>{' '}
-              if you remember your current one.
+                Account settings
+              </Link>
+              . Otherwise, ask whoever runs this instance to reset it for you.
             </p>
+          </div>
+          <div className="mt-5">
             <Link
               href="/login"
-              className="inline-block text-sm text-yellow-300 hover:text-yellow-200"
+              className="text-sm text-ink-muted hover:text-ink"
             >
-              ← Back to Login
+              ← Back to sign in
             </Link>
-          </CardBody>
-        </Card>
+          </div>
+        </SectionCard>
       </div>
     </div>
   );
