@@ -11,6 +11,7 @@ import {
   SectionCard,
 } from '@/@shared/components/ui';
 import type { CampaignRow } from '@/server/campaigns';
+import { PendingInvites } from './PendingInvites';
 
 function formatDate(value: string): string {
   const d = new Date(value);
@@ -55,11 +56,23 @@ export function CampaignDashboard() {
         title="Campaigns"
         description="Run games as a DM and join your friends' tables."
         actions={
-          <Button as={Link} href="/campaigns/create" color="primary" size="sm">
-            New campaign
-          </Button>
+          <>
+            <Button as={Link} href="/campaigns/join" size="sm" variant="flat">
+              Join
+            </Button>
+            <Button
+              as={Link}
+              href="/campaigns/create"
+              color="primary"
+              size="sm"
+            >
+              New campaign
+            </Button>
+          </>
         }
       />
+
+      <PendingInvites />
 
       {loading ? (
         <div className="flex justify-center py-16">
@@ -83,12 +96,18 @@ export function CampaignDashboard() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {campaigns.map(c => (
-            <SectionCard key={c.id}>
+            <SectionCard key={c.id} bodyClassName="flex flex-col">
               <div className="mb-2 flex items-start justify-between gap-2">
                 <div>
                   <h3 className="font-display text-lg text-ink">{c.name}</h3>
                   <p className="text-sm text-ink-muted">
-                    {c.settings.rpgSystem} · {c.isGM ? 'DM' : 'Player'}
+                    {c.settings.rpgSystem} ·{' '}
+                    {c.role === 'gm'
+                      ? 'DM'
+                      : c.role === 'co-gm'
+                        ? 'Co-DM'
+                        : 'Player'}{' '}
+                    · {c.memberCount} member{c.memberCount === 1 ? '' : 's'}
                   </p>
                 </div>
                 <Chip color={statusColor(c.status)} variant="flat" size="sm">
@@ -98,9 +117,28 @@ export function CampaignDashboard() {
               <p className="mb-3 line-clamp-3 text-sm text-ink-muted">
                 {c.description || 'No description.'}
               </p>
-              <p className="text-xs text-ink-subtle">
-                Updated {formatDate(c.updatedAt)}
-              </p>
+              <div className="mt-auto flex gap-2 pt-2">
+                <Button
+                  as={Link}
+                  href={`/campaigns/${c.id}`}
+                  size="sm"
+                  variant="flat"
+                  className="flex-1"
+                >
+                  Open
+                </Button>
+                {(c.role === 'gm' || c.role === 'co-gm') && (
+                  <Button
+                    as={Link}
+                    href={`/campaigns/${c.id}/manage`}
+                    size="sm"
+                    variant="light"
+                    className="text-ink-muted"
+                  >
+                    Manage
+                  </Button>
+                )}
+              </div>
             </SectionCard>
           ))}
         </div>
