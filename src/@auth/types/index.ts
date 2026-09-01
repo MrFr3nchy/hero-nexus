@@ -1,7 +1,21 @@
-import { User } from 'firebase/auth';
+export * from './constants';
+
+/** The shape the app uses for the signed-in user (from the Auth.js session). */
+export interface SessionUser {
+  id: string;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+}
+
+/** Thrown by the auth context helpers; carries a user-facing message. */
+export interface AuthError {
+  code?: string;
+  message: string;
+}
 
 export interface AuthContextType {
-  currentUser: User | null;
+  currentUser: SessionUser | null;
   loading: boolean;
   login: (_email: string, _password: string) => Promise<void>;
   register: (
@@ -12,23 +26,19 @@ export interface AuthContextType {
   logout: () => Promise<void>;
   updateProfile: (_data: {
     displayName?: string;
-    photoURL?: string;
+    image?: string;
   }) => Promise<void>;
   updateEmail: (_email: string) => Promise<void>;
-  updatePassword: (_password: string) => Promise<void>;
-  sendPasswordResetEmail: (_email: string) => Promise<void>;
-}
-
-export interface FirebaseError {
-  code: string;
-  message: string;
+  updatePassword: (
+    _currentPassword: string,
+    _newPassword: string
+  ) => Promise<void>;
 }
 
 export interface UserProfile {
-  uid: string;
-  displayName: string | null;
+  id: string;
+  name: string | null;
   email: string | null;
-  photoURL: string | null;
-  createdAt: Date;
-  lastLoginAt: Date;
+  image: string | null;
+  createdAt: string;
 }

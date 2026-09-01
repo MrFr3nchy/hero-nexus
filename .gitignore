@@ -32,9 +32,16 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
+
+# local database + user uploads (data/srd/ IS committed)
+/data/hero-nexus.db
+/data/hero-nexus.db-*
+/data/uploads/*
+!/data/uploads/.gitkeep
 
 # typescript
 *.tsbuildinfo

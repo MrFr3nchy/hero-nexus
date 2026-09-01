@@ -24,7 +24,8 @@
       "@auth/components/*": ["./src/@auth/components/*"],
       "@auth/types/*": ["./src/@auth/types/*"],
       "@auth/context/*": ["./src/@auth/context/*"],
-      "@lib/*": ["./src/lib/*"]
+      "@db/*": ["./src/db/*"],
+      "@server/*": ["./src/server/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

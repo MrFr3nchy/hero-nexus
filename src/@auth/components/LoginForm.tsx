@@ -12,8 +12,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from '../context';
-import { FirebaseError } from '../types';
-import { AUTH_ERRORS, AuthErrorCode } from '../types/constants';
+import { AuthError } from '../types';
 
 export default function LoginForm() {
   const [email, setEmail] = useState('');
@@ -32,9 +31,8 @@ export default function LoginForm() {
       await login(email, password);
       router.push('/');
     } catch (error: unknown) {
-      const firebaseError = error as FirebaseError;
-      const errorCode = firebaseError.code as AuthErrorCode;
-      setError(AUTH_ERRORS[errorCode] || 'Failed to log in. Please try again.');
+      const authError = error as AuthError;
+      setError(authError.message || 'Failed to log in. Please try again.');
     } finally {
       setLoading(false);
     }

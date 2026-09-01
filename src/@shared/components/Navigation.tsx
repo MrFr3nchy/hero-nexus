@@ -109,18 +109,16 @@ export const Navigation = () => {
                 avatarProps={{
                   isBordered: true,
                   className: 'w-10 h-10',
-                  src: currentUser.photoURL || undefined,
+                  src: currentUser.image || undefined,
                   name:
-                    currentUser.displayName ||
+                    currentUser.name ||
                     currentUser.email?.split('@')[0] ||
                     'User',
                 }}
                 className="transition-transform cursor-pointer hover:scale-105"
                 description={currentUser.email}
                 name={
-                  currentUser.displayName ||
-                  currentUser.email?.split('@')[0] ||
-                  'User'
+                  currentUser.name || currentUser.email?.split('@')[0] || 'User'
                 }
               />
             </DropdownTrigger>
