@@ -139,6 +139,8 @@ export const campaigns = sqliteTable('campaigns', {
     .references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
+  /** Short shareable code for joining. Unique. */
+  joinCode: text('join_code'),
   /** CampaignSettings, JSON-encoded. */
   settings: text('settings', { mode: 'json' })
     .notNull()

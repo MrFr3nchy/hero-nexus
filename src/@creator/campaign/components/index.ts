@@ -1,4 +1,9 @@
 export { CampaignCreationForm } from './CampaignCreationForm';
 export { CampaignDashboard } from './CampaignDashboard';
+export { CampaignDetail } from './CampaignDetail';
+export { CampaignManageForm } from './CampaignManageForm';
 export { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
+export { JoinCampaignForm } from './JoinCampaignForm';
+export { MembersPanel } from './MembersPanel';
+export { PendingInvites } from './PendingInvites';
 export { PublicHomebrewMarketplace } from './PublicHomebrewMarketplace';
