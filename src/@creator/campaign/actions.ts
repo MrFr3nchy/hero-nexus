@@ -4,6 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import {
+  listApprovals,
+  reviewApproval,
+  type ApprovalRow,
+} from '@/server/approvals';
+import {
   acceptInvite,
   createCampaign,
   declineInvite,
@@ -89,6 +94,31 @@ export async function listInvitesAction(
 }
 export async function listMyInvitesAction(): Promise<CampaignInviteRow[]> {
   return listMyInvites();
+}
+
+export async function listApprovalsAction(
+  campaignId: string
+): Promise<ApprovalRow[]> {
+  return listApprovals(campaignId);
+}
+
+export async function reviewApprovalAction(
+  campaignId: string,
+  approvalId: string,
+  status: 'approved' | 'denied',
+  notes: string
+): Promise<Result> {
+  try {
+    await reviewApproval(approvalId, status, notes);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    const code = err instanceof Error ? err.message : '';
+    if (code === 'DENY_NEEDS_NOTE') {
+      return { ok: false, error: 'Add a note explaining the decision.' };
+    }
+    return fail(err, 'Failed to record decision.');
+  }
 }
 
 /* --- mutations ------------------------------------------------------- */

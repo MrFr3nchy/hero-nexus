@@ -9,6 +9,7 @@ import {
   Stat,
 } from '@/@shared/components/ui';
 import type { CampaignRow } from '@/server/campaigns';
+import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { MembersPanel } from './MembersPanel';
 
 export function CampaignDetail({
@@ -99,11 +100,7 @@ export function CampaignDetail({
 
         <Tab key="homebrew" title="Homebrew">
           <div className="pt-4">
-            <SectionCard title="Homebrew review">
-              <p className="text-sm text-ink-muted">
-                Player homebrew submissions and DM approvals land here soon.
-              </p>
-            </SectionCard>
+            <HomebrewApprovalPanel campaignId={campaign.id} isGM={isStaff} />
           </div>
         </Tab>
 
