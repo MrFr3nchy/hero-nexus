@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hero Nexus — dashboard concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Caveat:wght@500;600&family=Karla:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0E0C0A;
+  --ink-2:#16120E;
+  --ink-3:#1E1813;
+  --parch:#EDE3CC;
+  --parch-dim:#A8977A;
+  --parch-faint:#6E6252;
+  --gold:#C9A227;
+  --gold-lt:#E6CE87;
+  --oxblood:#8C332B;
+  --verdigris:#4E7A66;
+  --arcane:#7A67B0;
+  --rule:rgba(201,162,39,.18);
+  --rule-soft:rgba(237,227,204,.08);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ink);
+  color:var(--parch);
+  font-family:Karla,system-ui,sans-serif;
+  font-size:15px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{font-family:'Cormorant Garamond',Georgia,serif;font-weight:600;margin:0;letter-spacing:.01em}
+.scrawl{font-family:Caveat,cursive;font-size:19px;line-height:1.35;color:var(--parch-dim)}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+
+/* ---------- sidebar: book spine ---------- */
+.spine{
+  background:var(--ink-2);
+  border-right:1px solid var(--rule);
+  padding:22px 0 32px;
+  position:relative;
+}
+.spine::after{
+  content:"";position:absolute;top:0;right:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,transparent,rgba(201,162,39,.35),transparent);
+}
+.brand{display:flex;align-items:center;gap:10px;padding:0 20px 20px}
+.sigil{width:30px;height:30px;flex:none}
+.brand-name{font-family:'Cormorant Garamond',serif;font-size:21px;letter-spacing:.06em;color:var(--gold-lt)}
+.nav{list-style:none;margin:0;padding:0}
+.nav li{position:relative}
+.nav a{
+  display:flex;align-items:center;gap:12px;
+  padding:9px 20px;color:var(--parch-dim);text-decoration:none;
+  font-size:14.5px;letter-spacing:.02em;
+}
+.nav a:hover{color:var(--parch);background:rgba(237,227,204,.03)}
+.nav .on a{color:var(--ink);background:var(--gold);font-weight:600}
+.nav .on::before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--oxblood);
+}
+.nav .ico{width:16px;text-align:center;opacity:.9}
+.nav-sep{height:1px;background:var(--rule-soft);margin:14px 20px}
+.spine-foot{position:absolute;bottom:22px;left:20px;right:20px}
+
+/* ---------- header ---------- */
+.page{padding:34px 42px 60px;max-width:1180px}
+.hero{
+  display:flex;justify-content:space-between;align-items:flex-start;gap:32px;
+  padding-bottom:22px;
+}
+.greet{font-size:40px;line-height:1.1}
+.greet em{font-style:italic;color:var(--gold-lt)}
+.ledger{
+  margin-top:14px;font-size:14px;color:var(--parch-faint);letter-spacing:.03em;
+}
+.ledger b{color:var(--parch);font-weight:500}
+.ledger span{margin:0 10px;color:var(--rule)}
+
+/* d20 */
+.die-slot{text-align:center;flex:none}
+.die{
+  width:96px;height:96px;background:none;border:0;padding:0;cursor:pointer;
+  display:block;transition:transform .12s ease;
+}
+.die:hover{transform:translateY(-2px) rotate(-4deg)}
+.die:active{transform:scale(.95)}
+.die.rolling{animation:tumble .7s cubic-bezier(.3,.8,.4,1)}
+@keyframes tumble{
+  0%{transform:rotate(0) scale(1)}
+  40%{transform:rotate(420deg) scale(1.12)}
+  100%{transform:rotate(720deg) scale(1)}
+}
+.die-num{font-family:'Cormorant Garamond',serif;font-size:26px;fill:var(--gold-lt)}
+.die-label{font-family:Caveat,cursive;font-size:17px;color:var(--parch-faint);margin-top:2px}
+
+.rule{
+  height:1px;background:var(--rule);margin:6px 0 34px;position:relative;
+}
+.rule::after{
+  content:"◆";position:absolute;left:50%;top:-11px;transform:translateX(-50%);
+  color:var(--gold);font-size:12px;background:var(--ink);padding:0 12px;
+}
+
+/* ---------- layout ---------- */
+.cols{display:grid;grid-template-columns:1fr 300px;gap:40px;align-items:start}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px}
+.sec-head h2{font-size:26px}
+.sec-head a{color:var(--parch-faint);font-size:13.5px;text-decoration:none;letter-spacing:.04em;border-bottom:1px solid var(--rule)}
+.sec-head a:hover{color:var(--gold-lt)}
+
+/* ---------- character cards ---------- */
+.party{display:flex;flex-wrap:wrap;gap:20px}
+.card{
+  width:196px;background:var(--ink-2);border:1px solid var(--rule-soft);
+  border-radius:3px;padding:0 0 14px;position:relative;
+  transition:transform .18s ease,border-color .18s ease;
+}
+.card:nth-child(2n){transform:rotate(.7deg)}
+.card:nth-child(3n){transform:rotate(-.9deg)}
+.card:hover{transform:translateY(-6px) rotate(0);border-color:var(--rule)}
+.card .spineband{height:4px;border-radius:3px 3px 0 0}
+.portrait{
+  height:150px;margin:12px 12px 0;border-radius:2px;
+  display:flex;align-items:flex-end;justify-content:center;
+  position:relative;overflow:hidden;
+}
+.portrait svg{width:100%;height:100%;display:block}
+.lvl{
+  position:absolute;top:8px;right:8px;
+  font-family:'Cormorant Garamond',serif;font-size:15px;color:var(--ink);
+  background:var(--gold);border-radius:2px;padding:0 7px;letter-spacing:.04em;
+}
+.card-body{padding:12px 14px 0}
+.cname{font-family:'Cormorant Garamond',serif;font-size:21px;line-height:1.15}
+.ctype{font-size:12.5px;color:var(--parch-faint);letter-spacing:.05em;margin-top:2px}
+.hp{margin-top:11px}
+.hp-track{height:5px;background:rgba(237,227,204,.09);border-radius:2px;overflow:hidden}
+.hp-fill{height:100%;background:var(--oxblood)}
+.hp-num{display:flex;justify-content:space-between;font-size:11.5px;color:var(--parch-faint);margin-top:4px;letter-spacing:.04em}
+.card-note{font-family:Caveat,cursive;font-size:16px;color:var(--parch-faint);padding:10px 14px 0;line-height:1.25}
+
+/* new-hero card */
+.card.new{
+  border:1px dashed var(--rule);background:none;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:302px;cursor:pointer;text-align:center;padding:20px;
+}
+.card.new:hover{border-color:var(--gold);background:rgba(201,162,39,.04)}
+.card.new .plus{font-size:30px;color:var(--gold);line-height:1}
+.card.new p{margin:10px 0 0;font-family:Caveat,cursive;font-size:18px;color:var(--parch-faint)}
+
+/* ---------- right rail ---------- */
+.rail{border-left:1px solid var(--rule-soft);padding-left:28px}
+.rail h3{font-size:20px;margin-bottom:4px}
+.seal{
+  display:flex;gap:14px;align-items:center;
+  padding:16px 0 20px;border-bottom:1px solid var(--rule-soft);margin-bottom:20px;
+}
+.seal svg{flex:none}
+.seal .when{font-family:'Cormorant Garamond',serif;font-size:19px;color:var(--gold-lt)}
+.seal .what{font-size:13px;color:var(--parch-faint)}
+.log{list-style:none;margin:10px 0 0;padding:0}
+.log li{
+  font-family:Caveat,cursive;font-size:18.5px;line-height:1.4;color:var(--parch-dim);
+  padding:7px 0 7px 22px;position:relative;
+}
+.log li::before{content:"※";position:absolute;left:0;color:var(--gold);font-size:12px;top:9px}
+.log li.done{color:var(--parch-faint);text-decoration:line-through;text-decoration-thickness:1px}
+.log li.done::before{content:"✓";color:var(--verdigris)}
+.rail-block{margin-top:28px;padding-top:20px;border-top:1px solid var(--rule-soft)}
+.pill{
+  display:inline-block;font-size:11.5px;letter-spacing:.06em;padding:3px 9px;
+  border:1px solid var(--rule);border-radius:2px;color:var(--gold-lt);margin:0 6px 6px 0;
+}
+
+/* ---------- empty state ---------- */
+.empty{
+  display:none;text-align:center;padding:70px 20px 90px;
+  border:1px solid var(--rule-soft);border-radius:3px;background:var(--ink-2);
+}
+.empty h2{font-size:30px;margin-bottom:8px}
+.empty .scrawl{max-width:380px;margin:0 auto 26px}
+.flame{transform-origin:50% 100%;animation:flicker 2.6s ease-in-out infinite}
+@keyframes flicker{
+  0%,100%{transform:scale(1,1) translateX(0);opacity:1}
+  30%{transform:scale(.92,1.06) translateX(-.6px);opacity:.88}
+  55%{transform:scale(1.05,.96) translateX(.7px);opacity:1}
+  75%{transform:scale(.96,1.03) translateX(-.3px);opacity:.92}
+}
+.btn{
+  font-family:Karla,sans-serif;font-size:14px;font-weight:600;letter-spacing:.04em;
+  background:var(--gold);color:var(--ink);border:0;border-radius:2px;
+  padding:11px 26px;cursor:pointer;
+}
+.btn:hover{background:var(--gold-lt)}
+.btn-ghost{background:none;color:var(--parch-dim);border:1px solid var(--rule)}
+.btn-ghost:hover{background:rgba(237,227,204,.04);color:var(--parch)}
+
+.toggle{position:fixed;right:20px;bottom:20px;z-index:9}
+body.is-empty .filled{display:none}
+body.is-empty .empty{display:block}
+body.is-empty .rail{opacity:.35}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:1000px){
+  .shell{grid-template-columns:1fr}.spine{display:none}
+  .cols{grid-template-columns:1fr}.rail{border-left:0;padding-left:0;border-top:1px solid var(--rule-soft);padding-top:24px}
+  .page{padding:26px 20px 80px}.greet{font-size:32px}
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="spine">
+    <div class="brand">
+      <svg class="sigil" viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="20" cy="20" r="18" fill="none" stroke="#C9A227" stroke-width="1"/>
+        <circle cx="20" cy="20" r="13" fill="none" stroke="#8C332B" stroke-width="1"/>
+        <path d="M20 4 L23 17 L36 20 L23 23 L20 36 L17 23 L4 20 L17 17 Z" fill="#C9A227" opacity=".9"/>
+      </svg>
+      <span class="brand-name">Hero Nexus</span>
+    </div>
+    <ul class="nav">
+      <li class="on"><a href="#"><span class="ico">◈</span>Table</a></li>
+      <li><a href="#"><span class="ico">⚔</span>Heroes</a></li>
+      <li><a href="#"><span class="ico">▣</span>Campaigns</a></li>
+      <li class="nav-sep"></li>
+      <li><a href="#"><span class="ico">✦</span>Forge</a></li>
+      <li><a href="#"><span class="ico">✧</span>Classes</a></li>
+      <li><a href="#"><span class="ico">✵</span>Spells</a></li>
+      <li><a href="#"><span class="ico">⌂</span>Market</a></li>
+    </ul>
+    <div class="spine-foot">
+      <div class="scrawl" style="font-size:16px">Signed in as French,<br>keeper of 3 campaigns</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="page">
+
+    <div class="hero">
+      <div>
+        <h1 class="greet">The table is set, <em>French</em></h1>
+        <p class="scrawl" style="margin:6px 0 0">Three heroes await orders. The Whitethorn campaign resumes Friday.</p>
+        <div class="ledger">
+          <b>3</b> heroes <span>/</span> <b>2</b> campaigns <span>/</span> <b>11</b> homebrew <span>/</span> <b>1</b> table you run
+        </div>
+      </div>
+
+      <div class="die-slot">
+        <button class="die" id="die" aria-label="Roll a d20">
+          <svg viewBox="0 0 100 100">
+            <polygon points="50,6 92,30 92,74 50,96 8,74 8,30" fill="#16120E" stroke="#C9A227" stroke-width="1.4"/>
+            <polygon points="50,6 92,30 50,44 8,30" fill="none" stroke="#C9A227" stroke-width=".8" opacity=".45"/>
+            <polygon points="8,30 50,44 50,96 8,74" fill="none" stroke="#C9A227" stroke-width=".8" opacity=".45"/>
+            <polygon points="92,30 92,74 50,96 50,44" fill="none" stroke="#C9A227" stroke-width=".8" opacity=".45"/>
+            <text class="die-num" id="dieNum" x="50" y="62" text-anchor="middle">20</text>
+          </svg>
+        </button>
+        <div class="die-label" id="dieLabel">nat 20 — the dice like you</div>
+      </div>
+    </div>
+
+    <div class="rule"></div>
+
+    <div class="cols">
+      <section>
+        <div class="sec-head">
+          <h2>Your party</h2>
+          <a href="#">See the whole roster</a>
+        </div>
+
+        <!-- filled state -->
+        <div class="party filled">
+
+          <article class="card">
+            <div class="spineband" style="background:var(--oxblood)"></div>
+            <div class="portrait" style="background:#1C1512">
+              <svg viewBox="0 0 120 150" aria-hidden="true">
+                <rect width="120" height="150" fill="#1C1512"/>
+                <circle cx="60" cy="52" r="24" fill="#3A2A22"/>
+                <path d="M36 52a24 24 0 0148 0z" fill="#8C332B" opacity=".85"/>
+                <path d="M22 150c0-26 17-44 38-44s38 18 38 44z" fill="#3A2A22"/>
+                <path d="M60 96v54" stroke="#8C332B" stroke-width="2" opacity=".6"/>
+                <path d="M90 22l6 6-30 30-6-6z" fill="#C9A227" opacity=".75"/>
+              </svg>
+              <span class="lvl">7</span>
+            </div>
+            <div class="card-body">
+              <div class="cname">Brannick Vale</div>
+              <div class="ctype">Human · Battlemaster</div>
+              <div class="hp">
+                <div class="hp-track"><i class="hp-fill" style="display:block;width:72%"></i></div>
+                <div class="hp-num"><span>48 / 66 hp</span><span>ac 18</span></div>
+              </div>
+            </div>
+            <div class="card-note">still bleeding from the bridge</div>
+          </article>
+
+          <article class="card">
+            <div class="spineband" style="background:var(--arcane)"></div>
+            <div class="portrait" style="background:#161425">
+              <svg viewBox="0 0 120 150" aria-hidden="true">
+                <rect width="120" height="150" fill="#161425"/>
+                <circle cx="60" cy="50" r="22" fill="#2C2740"/>
+                <path d="M60 18l26 20H34z" fill="#7A67B0" opacity=".8"/>
+                <path d="M24 150c0-28 16-46 36-46s36 18 36 46z" fill="#2C2740"/>
+                <circle cx="60" cy="112" r="9" fill="none" stroke="#7A67B0" stroke-width="1.5"/>
+                <circle cx="60" cy="112" r="3" fill="#C9A227"/>
+              </svg>
+              <span class="lvl">7</span>
+            </div>
+            <div class="card-body">
+              <div class="cname">Ysolde Marr</div>
+              <div class="ctype">Tiefling · Evocation</div>
+              <div class="hp">
+                <div class="hp-track"><i class="hp-fill" style="display:block;width:96%;background:var(--arcane)"></i></div>
+                <div class="hp-num"><span>41 / 43 hp</span><span>4 slots left</span></div>
+              </div>
+            </div>
+            <div class="card-note">owes the guild 200gp</div>
+          </article>
+
+          <article class="card">
+            <div class="spineband" style="background:var(--verdigris)"></div>
+            <div class="portrait" style="background:#131A17">
+              <svg viewBox="0 0 120 150" aria-hidden="true">
+                <rect width="120" height="150" fill="#131A17"/>
+                <circle cx="60" cy="52" r="22" fill="#243029"/>
+                <path d="M38 46c8-14 36-14 44 0z" fill="#4E7A66" opacity=".85"/>
+                <path d="M24 150c0-28 16-46 36-46s36 18 36 46z" fill="#243029"/>
+                <path d="M44 106l32 34M76 106l-32 34" stroke="#4E7A66" stroke-width="2" opacity=".7"/>
+              </svg>
+              <span class="lvl">6</span>
+            </div>
+            <div class="card-body">
+              <div class="cname">Pip Ashdown</div>
+              <div class="ctype">Halfling · Assassin</div>
+              <div class="hp">
+                <div class="hp-track"><i class="hp-fill" style="display:block;width:38%"></i></div>
+                <div class="hp-num"><span>17 / 45 hp</span><span>ac 15</span></div>
+              </div>
+            </div>
+            <div class="card-note">has not told anyone about the ring</div>
+          </article>
+
+          <article class="card new">
+            <div class="plus">✦</div>
+            <p>Roll a new one</p>
+          </article>
+        </div>
+
+        <!-- empty state -->
+        <div class="empty">
+          <svg width="70" height="96" viewBox="0 0 70 96" aria-hidden="true" style="margin-bottom:14px">
+            <ellipse class="flame" cx="35" cy="30" rx="7" ry="15" fill="#C9A227" opacity=".9"/>
+            <ellipse class="flame" cx="35" cy="33" rx="3.4" ry="8" fill="#E6CE87"/>
+            <rect x="27" y="44" width="16" height="42" rx="2" fill="#2A2018"/>
+            <rect x="27" y="44" width="16" height="6" rx="2" fill="#3A2C20"/>
+            <ellipse cx="35" cy="88" rx="24" ry="6" fill="#16120E"/>
+            <path d="M11 88a24 6 0 0148 0" fill="none" stroke="#C9A227" stroke-width="1" opacity=".5"/>
+          </svg>
+          <h2>No one has pulled up a chair yet</h2>
+          <p class="scrawl">The candle's lit and the dice are cold. Roll someone up and we'll get started.</p>
+          <button class="btn">Create your first hero</button>
+          <button class="btn btn-ghost" style="margin-left:8px">Import from a sheet</button>
+        </div>
+      </section>
+
+      <!-- ============ RAIL ============ -->
+      <aside class="rail">
+        <h3>Next session</h3>
+        <div class="seal">
+          <svg width="46" height="46" viewBox="0 0 46 46" aria-hidden="true">
+            <circle cx="23" cy="23" r="19" fill="#8C332B"/>
+            <circle cx="23" cy="23" r="14" fill="none" stroke="#5E211B" stroke-width="1.2"/>
+            <path d="M23 12l3 8 8 3-8 3-3 8-3-8-8-3 8-3z" fill="#6B2620"/>
+          </svg>
+          <div>
+            <div class="when">Friday, 7pm</div>
+            <div class="what">Whitethorn — session 14</div>
+          </div>
+        </div>
+
+        <h3>Loose threads</h3>
+        <ul class="log">
+          <li>Statblock for the drowned choir</li>
+          <li>Pip's ring — decide what it does</li>
+          <li class="done">Map the lower vault</li>
+          <li>Who bought the horses?</li>
+        </ul>
+
+        <div class="rail-block">
+          <h3 style="margin-bottom:10px">Recently forged</h3>
+          <span class="pill">Rimefang, longsword</span>
+          <span class="pill">Hollow Saint, race</span>
+          <span class="pill">Tidecaller, subclass</span>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<div class="toggle">
+  <button class="btn btn-ghost" id="toggle">Show empty state</button>
+</div>
+
+<script>
+const die=document.getElementById('die'),num=document.getElementById('dieNum'),lab=document.getElementById('dieLabel');
+const lines={20:"nat 20 — the dice like you",1:"nat 1 — pretend that didn't happen"};
+die.addEventListener('click',()=>{
+  die.classList.remove('rolling');void die.offsetWidth;die.classList.add('rolling');
+  const r=1+Math.floor(Math.random()*20);
+  setTimeout(()=>{num.textContent=r;lab.textContent=lines[r]||("you rolled a "+r);},340);
+});
+const t=document.getElementById('toggle');
+t.addEventListener('click',()=>{
+  document.body.classList.toggle('is-empty');
+  t.textContent=document.body.classList.contains('is-empty')?'Show filled state':'Show empty state';
+});
+</script>
+</body>
+</html>
