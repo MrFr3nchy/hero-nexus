@@ -2,7 +2,7 @@
 
 import { Accordion, AccordionItem } from '@heroui/react';
 
-import { PageHeader, PageShell, SectionCard } from '@/@shared/components/ui';
+import { Marginalia, PageHeader, PageShell } from '@/@shared/components/ui';
 
 const faqItems = [
   {
@@ -37,21 +37,23 @@ export default function FAQPage() {
       <PageHeader
         title="Frequently asked questions"
         description="The short version of how Hero Nexus works."
+        rule={false}
       />
-      <SectionCard>
-        <Accordion selectionMode="multiple" className="px-0">
-          {faqItems.map(item => (
-            <AccordionItem
-              key={item.q}
-              title={<span className="font-medium text-ink">{item.q}</span>}
-            >
-              <p className="pb-2 text-sm leading-relaxed text-ink-muted">
-                {item.a}
-              </p>
-            </AccordionItem>
-          ))}
-        </Accordion>
-      </SectionCard>
+      <Accordion selectionMode="multiple" className="px-0">
+        {faqItems.map(item => (
+          <AccordionItem
+            key={item.q}
+            title={<span className="font-display text-ink">{item.q}</span>}
+          >
+            <p className="pb-2 text-sm leading-relaxed text-ink-muted">
+              {item.a}
+            </p>
+          </AccordionItem>
+        ))}
+      </Accordion>
+      <Marginalia dash className="mt-6">
+        still stuck? whoever set up this instance is your GM for tech support
+      </Marginalia>
     </PageShell>
   );
 }
