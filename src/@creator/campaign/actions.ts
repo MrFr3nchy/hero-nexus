@@ -8,6 +8,7 @@ import {
   reviewApproval,
   type ApprovalRow,
 } from '@/server/approvals';
+import { ABILITY_METHODS } from '@/@creator/character/schema';
 import {
   addEntry,
   addPartyToEncounter,
@@ -50,6 +51,20 @@ import {
   type CampaignRow,
 } from '@/server/campaigns';
 
+const trimmedList = z.array(z.string().trim().min(1).max(80)).max(100);
+
+const rulesSchema = z
+  .object({
+    abilityMethods: z.array(z.enum(ABILITY_METHODS)).optional(),
+    allowMulticlass: z.boolean().optional(),
+    maxStartingLevel: z.number().int().min(1).max(20).optional(),
+    allowedSources: trimmedList.optional(),
+    bannedSpecies: trimmedList.optional(),
+    bannedClasses: trimmedList.optional(),
+    requireBackstory: z.boolean().optional(),
+  })
+  .optional();
+
 const settingsSchema = z
   .object({
     rpgSystem: z.string().max(40).optional(),
@@ -59,6 +74,7 @@ const settingsSchema = z
     allowPublicHomebrew: z.boolean().optional(),
     sessionNotes: z.string().max(8000).optional(),
     customRules: z.string().max(8000).optional(),
+    rules: rulesSchema,
   })
   .optional();
 
@@ -259,11 +275,11 @@ export async function setMemberRoleAction(
 export async function setMemberCharacterAction(
   campaignId: string,
   characterId: string | null
-): Promise<Result> {
+): Promise<Result<{ warnings: string[] }>> {
   try {
-    await setMemberCharacter(campaignId, characterId);
+    const violations = await setMemberCharacter(campaignId, characterId);
     revalidatePath(`/campaigns/${campaignId}`);
-    return { ok: true };
+    return { ok: true, data: { warnings: violations.map(v => v.message) } };
   } catch (err) {
     return fail(err, 'Failed to link character.');
   }

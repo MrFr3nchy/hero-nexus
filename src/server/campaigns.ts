@@ -13,6 +13,14 @@ import {
   homebrewApprovals,
   users,
 } from '@/db/schema';
+import { characterSheetSchema } from '@/@creator/character/schema';
+import {
+  checkSheetAgainstRules,
+  DEFAULT_CAMPAIGN_RULES,
+  mergeRules,
+  type CampaignRules,
+  type RuleViolation,
+} from '@/@creator/campaign/lib/rules';
 
 export interface CampaignSettings {
   rpgSystem: string;
@@ -22,6 +30,8 @@ export interface CampaignSettings {
   maxPlayers: number;
   sessionNotes: string;
   customRules: string;
+  /** Structured table rules the builder and server both enforce. */
+  rules: CampaignRules;
 }
 
 export const DEFAULT_CAMPAIGN_SETTINGS: CampaignSettings = {
@@ -32,7 +42,22 @@ export const DEFAULT_CAMPAIGN_SETTINGS: CampaignSettings = {
   maxPlayers: 6,
   sessionNotes: '',
   customRules: '',
+  rules: DEFAULT_CAMPAIGN_RULES,
 };
+
+/**
+ * Fold a stored settings blob over the defaults. The merge is shallow except
+ * for `rules`, which is deep-merged so a row written before a rule key existed
+ * still picks up that key's default.
+ */
+export function mergeCampaignSettings(raw: unknown): CampaignSettings {
+  const obj = (raw ?? {}) as Partial<CampaignSettings>;
+  return {
+    ...DEFAULT_CAMPAIGN_SETTINGS,
+    ...obj,
+    rules: mergeRules(obj.rules),
+  };
+}
 
 export type CampaignRole = 'gm' | 'co-gm' | 'player';
 
@@ -62,6 +87,8 @@ export interface CampaignMemberRow {
   joinedAt: string;
   characterId: string | null;
   characterName: string | null;
+  /** Table-rule problems with this member's linked sheet. Empty = clean. */
+  ruleIssues: string[];
 }
 
 export interface CampaignInviteRow {
@@ -79,7 +106,9 @@ export interface CampaignInviteRow {
 export interface CampaignInput {
   name: string;
   description?: string;
-  settings?: Partial<CampaignSettings>;
+  settings?: Partial<Omit<CampaignSettings, 'rules'>> & {
+    rules?: Partial<CampaignRules>;
+  };
 }
 
 async function requireUserId(): Promise<string> {
@@ -163,7 +192,7 @@ function hydrate(
     gmId: row.gmId,
     name: row.name,
     description: row.description,
-    settings: { ...DEFAULT_CAMPAIGN_SETTINGS, ...(row.settings as object) },
+    settings: mergeCampaignSettings(row.settings),
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -244,7 +273,7 @@ export async function createCampaign(input: CampaignInput): Promise<string> {
       name: input.name,
       description: input.description ?? '',
       joinCode,
-      settings: { ...DEFAULT_CAMPAIGN_SETTINGS, ...(input.settings ?? {}) },
+      settings: mergeCampaignSettings(input.settings),
     })
     .returning({ id: campaigns.id });
   return row.id;
@@ -255,16 +284,18 @@ export async function updateCampaign(
   input: CampaignInput
 ): Promise<void> {
   const { campaign } = await requireCampaignRole(id, ['gm', 'co-gm']);
+  const current = mergeCampaignSettings(campaign.settings);
+  const patch = input.settings ?? {};
   await db
     .update(campaigns)
     .set({
       name: input.name,
       description: input.description ?? '',
       settings: {
-        ...DEFAULT_CAMPAIGN_SETTINGS,
-        ...(campaign.settings as object),
-        ...(input.settings ?? {}),
-      },
+        ...current,
+        ...patch,
+        rules: { ...current.rules, ...(patch.rules ?? {}) },
+      } satisfies CampaignSettings,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(campaigns.id, id));
@@ -291,11 +322,13 @@ export async function deleteCampaign(id: string): Promise<void> {
 export async function listMembers(
   campaignId: string
 ): Promise<CampaignMemberRow[]> {
-  const { campaign } = await requireCampaignRole(campaignId, [
+  const { role, campaign } = await requireCampaignRole(campaignId, [
     'gm',
     'co-gm',
     'player',
   ]);
+  const isStaff = role === 'gm' || role === 'co-gm';
+  const settings = mergeCampaignSettings(campaign.settings);
 
   const gm = await db.query.users.findFirst({
     where: eq(users.id, campaign.gmId),
@@ -312,6 +345,7 @@ export async function listMembers(
       email: users.email,
       image: users.image,
       characterName: characters.name,
+      characterSheet: characters.sheet,
     })
     .from(campaignMembers)
     .innerJoin(users, eq(users.id, campaignMembers.userId))
@@ -329,6 +363,17 @@ export async function listMembers(
     joinedAt: campaign.createdAt,
     characterId: null,
     characterName: null,
+    ruleIssues: [],
+  };
+
+  // Only staff need — and are shown — per-member rule problems.
+  const issuesFor = (raw: unknown): string[] => {
+    if (!isStaff || raw == null) return [];
+    const parsed = characterSheetSchema.safeParse(raw);
+    if (!parsed.success) return [];
+    return checkSheetAgainstRules(parsed.data, settings.rules, {
+      allowHomebrew: settings.allowHomebrew,
+    }).map(v => v.message);
   };
 
   return [
@@ -343,6 +388,7 @@ export async function listMembers(
       joinedAt: r.joinedAt,
       characterId: r.characterId,
       characterName: r.characterName,
+      ruleIssues: r.characterId ? issuesFor(r.characterSheet) : [],
     })),
   ];
 }
@@ -364,10 +410,7 @@ export async function joinByCode(code: string): Promise<string> {
   });
   if (existing) return campaign.id;
 
-  const settings = {
-    ...DEFAULT_CAMPAIGN_SETTINGS,
-    ...(campaign.settings as object),
-  };
+  const settings = mergeCampaignSettings(campaign.settings);
   if ((await memberCount(campaign.id)) >= settings.maxPlayers + 1) {
     throw new Error('CAMPAIGN_FULL');
   }
@@ -423,15 +466,20 @@ export async function setMemberRole(
     );
 }
 
-/** The calling member links one of their own characters to this campaign. */
+/**
+ * The calling member links one of their own characters to this campaign.
+ * A character that breaks the table's rules is still linked — the DM decides
+ * what to do — but the broken rules are returned so the linker sees them.
+ */
 export async function setMemberCharacter(
   campaignId: string,
   characterId: string | null
-): Promise<void> {
+): Promise<RuleViolation[]> {
   const userId = await requireUserId();
 
+  let character: typeof characters.$inferSelect | undefined;
   if (characterId) {
-    const character = await db.query.characters.findFirst({
+    character = await db.query.characters.findFirst({
       where: eq(characters.id, characterId),
     });
     if (!character || character.ownerId !== userId) {
@@ -451,20 +499,42 @@ export async function setMemberCharacter(
     .returning({ id: campaignMembers.id });
   if (result.length === 0) throw new Error('NOT_A_MEMBER');
 
-  if (characterId) {
-    await submitCharacterHomebrewForApproval(campaignId, characterId, userId);
-  }
+  if (!characterId || !character) return [];
+
+  await submitCharacterHomebrewForApproval(campaignId, characterId, userId);
+
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(campaigns.id, campaignId),
+  });
+  const settings = mergeCampaignSettings(campaign?.settings);
+  const parsed = characterSheetSchema.safeParse(character.sheet);
+  if (!parsed.success) return [];
+  return checkSheetAgainstRules(parsed.data, settings.rules, {
+    allowHomebrew: settings.allowHomebrew,
+  });
 }
 
 /**
  * When a character with homebrew content joins a campaign, queue each of its
- * custom entries for the DM to approve or reject. Idempotent.
+ * custom entries for the DM. Idempotent.
+ *
+ * The table's settings decide what happens:
+ *  - `allowHomebrew: false` — nothing is queued. The sheet-level rule check is
+ *    what surfaces the problem; there is nothing for the DM to approve.
+ *  - `requireHomebrewApproval: false` — entries are recorded already approved,
+ *    so the queue stays empty for tables that do not want to review homebrew.
  */
 async function submitCharacterHomebrewForApproval(
   campaignId: string,
   characterId: string,
   userId: string
 ): Promise<void> {
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(campaigns.id, campaignId),
+  });
+  const settings = mergeCampaignSettings(campaign?.settings);
+  if (!settings.allowHomebrew) return;
+
   const links = await db
     .select({ homebrewId: characterHomebrew.homebrewId })
     .from(characterHomebrew)
@@ -480,11 +550,23 @@ async function submitCharacterHomebrewForApproval(
   const fresh = links.filter(l => !already.has(l.homebrewId));
   if (fresh.length === 0) return;
 
+  const autoApprove = !settings.requireHomebrewApproval;
+  const now = new Date().toISOString();
+
   await db.insert(homebrewApprovals).values(
     fresh.map(l => ({
       campaignId,
       homebrewId: l.homebrewId,
       requestedByUserId: userId,
+      ...(autoApprove
+        ? {
+            status: 'approved' as const,
+            reviewNotes:
+              'Auto-approved — this table does not require homebrew review.',
+            reviewedByUserId: userId,
+            reviewedAt: now,
+          }
+        : {}),
     }))
   );
 }
@@ -637,10 +719,4 @@ export async function revokeInvite(inviteId: string): Promise<void> {
   if (!invite) return;
   await requireCampaignRole(invite.campaignId, ['gm', 'co-gm']);
   await db.delete(campaignInvites).where(eq(campaignInvites.id, inviteId));
-}
-
-/* --- Phase 2 placeholders -------------------------------------------------- */
-
-export async function listPendingApprovals(_campaignId: string): Promise<[]> {
-  return [];
 }

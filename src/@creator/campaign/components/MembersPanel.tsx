@@ -43,6 +43,7 @@ export function MembersPanel({
   const [myCharacters, setMyCharacters] = useState<CharacterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviting, setInviting] = useState(false);
 
@@ -70,6 +71,22 @@ export function MembersPanel({
   const run = async (fn: () => Promise<{ ok: boolean; error?: string }>) => {
     const res = await fn();
     if (!res.ok) setError(res.error ?? 'Something went wrong.');
+    await refresh();
+  };
+
+  const linkCharacter = async (characterId: string | null) => {
+    setError(null);
+    setNotice(null);
+    const res = await setMemberCharacterAction(campaignId, characterId);
+    if (!res.ok) {
+      setError(res.error ?? 'Failed to link character.');
+    } else if (res.data.warnings.length) {
+      setNotice(
+        `Linked, but this character breaks the table's rules: ${res.data.warnings.join(
+          ' '
+        )} The DM can see this on the member list.`
+      );
+    }
     await refresh();
   };
 
@@ -105,6 +122,12 @@ export function MembersPanel({
         </p>
       )}
 
+      {notice && (
+        <p className="rounded-md border border-gold/40 bg-gold/10 px-3 py-2 text-sm text-ink-muted">
+          {notice}
+        </p>
+      )}
+
       <SectionCard title={`Members (${members.length})`}>
         <ul className="divide-y divide-line">
           {members.map(m => {
@@ -133,6 +156,11 @@ export function MembersPanel({
                         ? 'Runs the game'
                         : 'No character linked'}
                   </p>
+                  {isStaff && m.ruleIssues.length > 0 && (
+                    <p className="mt-0.5 text-xs text-danger">
+                      Breaks table rules: {m.ruleIssues.join(' ')}
+                    </p>
+                  )}
                 </div>
 
                 <Ribbon
@@ -159,26 +187,33 @@ export function MembersPanel({
                 )}
 
                 {isMe && m.role !== 'gm' && (
-                  <Select
-                    aria-label="Your character"
-                    size="sm"
-                    className="w-44"
-                    placeholder="Link a character"
-                    selectedKeys={m.characterId ? [m.characterId] : []}
-                    onSelectionChange={keys => {
-                      const id = Array.from(keys)[0];
-                      run(() =>
-                        setMemberCharacterAction(
-                          campaignId,
-                          id ? String(id) : null
-                        )
-                      );
-                    }}
-                  >
-                    {myCharacters.map(c => (
-                      <SelectItem key={c.id}>{c.name || 'Unnamed'}</SelectItem>
-                    ))}
-                  </Select>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      aria-label="Your character"
+                      size="sm"
+                      className="w-44"
+                      placeholder="Link a character"
+                      selectedKeys={m.characterId ? [m.characterId] : []}
+                      onSelectionChange={keys => {
+                        const id = Array.from(keys)[0];
+                        linkCharacter(id ? String(id) : null);
+                      }}
+                    >
+                      {myCharacters.map(c => (
+                        <SelectItem key={c.id}>
+                          {c.name || 'Unnamed'}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                    <Button
+                      as={Link}
+                      href={`/creator/character?campaign=${campaignId}`}
+                      size="sm"
+                      variant="light"
+                    >
+                      Build for this table
+                    </Button>
+                  </div>
                 )}
 
                 {viewerRole === 'gm' && m.role !== 'gm' && (

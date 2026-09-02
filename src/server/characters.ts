@@ -6,12 +6,14 @@ import { auth } from '@/auth';
 import { db } from '@/db';
 import {
   campaignMembers,
+  campaigns,
   characterAuditLog,
   characterHomebrew,
   characters,
   homebrew,
 } from '@/db/schema';
-import { requireCampaignRole } from '@/server/campaigns';
+import { mergeCampaignSettings, requireCampaignRole } from '@/server/campaigns';
+import { checkSheetAgainstRules } from '@/@creator/campaign/lib/rules';
 import {
   characterSheetSchema,
   type CharacterSheet,
@@ -302,12 +304,66 @@ export async function createCharacter(input: unknown): Promise<string> {
   return row.id;
 }
 
+/**
+ * A character linked to one or more campaigns must stay legal for each of
+ * those tables. Throws with a reader-facing message naming the campaign(s) and
+ * the broken rules; the character can always be unlinked and edited freely.
+ */
+async function assertSheetLegalForLinkedCampaigns(
+  characterId: string,
+  sheet: CharacterSheet
+): Promise<void> {
+  const links = await db
+    .select({ campaignId: campaignMembers.campaignId })
+    .from(campaignMembers)
+    .where(eq(campaignMembers.characterId, characterId));
+  if (links.length === 0) return;
+
+  const camps = await db
+    .select({
+      name: campaigns.name,
+      settings: campaigns.settings,
+    })
+    .from(campaigns)
+    .where(
+      inArray(
+        campaigns.id,
+        links.map(l => l.campaignId)
+      )
+    );
+
+  const problems: string[] = [];
+  for (const c of camps) {
+    const settings = mergeCampaignSettings(c.settings);
+    const violations = checkSheetAgainstRules(sheet, settings.rules, {
+      allowHomebrew: settings.allowHomebrew,
+    });
+    if (violations.length) {
+      problems.push(`${c.name}: ${violations.map(v => v.message).join(' ')}`);
+    }
+  }
+
+  if (problems.length) {
+    throw new Error(
+      `This character can't be saved while linked to a table it breaks the rules of — ${problems.join(' | ')}`
+    );
+  }
+}
+
 export async function updateCharacter(
   id: string,
   input: unknown
 ): Promise<void> {
   const userId = await requireUserId();
   const sheet = characterSheetSchema.parse(input);
+
+  const owned = await db.query.characters.findFirst({
+    where: and(eq(characters.id, id), eq(characters.ownerId, userId)),
+  });
+  if (!owned) throw new Error('NOT_FOUND');
+
+  await assertSheetLegalForLinkedCampaigns(id, sheet);
+
   const result = await db
     .update(characters)
     .set({

@@ -15,13 +15,23 @@ import { requireCampaignRole } from './campaigns';
 
 export type ApprovalStatus = 'pending' | 'approved' | 'denied';
 
+/** Mirrors the `homebrew.type` enum in the schema. */
+export type HomebrewApprovalType =
+  | 'class'
+  | 'spell'
+  | 'item'
+  | 'species'
+  | 'subclass'
+  | 'background'
+  | 'feat';
+
 export interface ApprovalRow {
   id: string;
   campaignId: string;
   campaignName: string;
   homebrewId: string;
   homebrewName: string;
-  homebrewType: 'class' | 'spell' | 'item';
+  homebrewType: HomebrewApprovalType;
   homebrewDescription: string;
   homebrewData: unknown;
   requestedByUserId: string;
