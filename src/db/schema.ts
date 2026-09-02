@@ -168,6 +168,45 @@ export const characterAuditLog = sqliteTable(
   ]
 );
 
+/**
+ * Append-only history of server-observed changes to a character since creation.
+ *
+ * Distinct from `character_audit_log` / `sheet.provenance`, which are a
+ * client-supplied mirror of creation-time method & roll data. Rows here are
+ * written by the server by diffing the incoming sheet against the stored one,
+ * never accepted from the client. No unique index: a field that changes four
+ * times is four rows.
+ */
+export const characterHistory = sqliteTable(
+  'character_history',
+  {
+    id: uuid(),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    /** Who saved the change. Null once that user is deleted. */
+    actorUserId: text('actor_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    /** identity | level | ability | method | homebrew | other */
+    kind: text('kind').notNull(),
+    /** dot-path of the changed field, e.g. `identity.subclass` */
+    field: text('field').notNull().default(''),
+    fromValue: text('from_value'),
+    toValue: text('to_value'),
+    detail: text('detail').notNull().default(''),
+    /** reserved: JSON array of raw dice a diff cannot reconstruct */
+    rolls: text('rolls'),
+    /** server clock at save time */
+    occurredAt: text('occurred_at').notNull(),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('character_history_char_idx').on(t.characterId),
+    index('character_history_char_time_idx').on(t.characterId, t.occurredAt),
+  ]
+);
+
 export const homebrew = sqliteTable(
   'homebrew',
   {
@@ -377,4 +416,156 @@ export const initiativeEntries = sqliteTable(
     sort: integer('sort').notNull().default(0),
   },
   t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
+);
+
+/* ------------------------------------------------------------------ */
+/* Party canon — a campaign wiki with a DM view and a party view.     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One canon entry (an NPC, place, item, faction, or piece of lore). Two
+ * bodies: `dm_body` is the DM's private notes, `party_body` is what the party
+ * has been told. They are different documents that share a subject, never one
+ * body with hidden regions.
+ */
+export const canonEntries = sqliteTable(
+  'canon_entries',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    kind: text('kind', {
+      enum: ['npc', 'location', 'item', 'faction', 'lore'],
+    }).notNull(),
+    title: text('title').notNull().default(''),
+    dmBody: text('dm_body').notNull().default(''),
+    partyBody: text('party_body').notNull().default(''),
+    /** 'dm' = staff only; 'shared' = every player sees `party_body`. */
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('canon_entries_campaign_idx').on(t.campaignId)]
+);
+
+/** A directed reference from one canon entry to another. */
+export const canonLinks = sqliteTable(
+  'canon_links',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    fromEntryId: text('from_entry_id')
+      .notNull()
+      .references(() => canonEntries.id, { onDelete: 'cascade' }),
+    toEntryId: text('to_entry_id')
+      .notNull()
+      .references(() => canonEntries.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('canon_links_pair_idx').on(t.fromEntryId, t.toEntryId),
+    index('canon_links_to_idx').on(t.toEntryId),
+    index('canon_links_campaign_idx').on(t.campaignId),
+  ]
+);
+
+/**
+ * Per-member reveal: this user sees this entry's `party_body` even while its
+ * visibility is still 'dm'. Keyed on `user_id`, NOT `campaign_members` — the
+ * GM has no member row, so a table keyed on `campaign_members` would silently
+ * exclude them.
+ */
+export const canonReveals = sqliteTable(
+  'canon_reveals',
+  {
+    id: uuid(),
+    entryId: text('entry_id')
+      .notNull()
+      .references(() => canonEntries.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('canon_reveals_entry_user_idx').on(t.entryId, t.userId),
+    index('canon_reveals_user_idx').on(t.userId),
+  ]
+);
+
+/* ------------------------------------------------------------------ */
+/* Between-session downtime — players submit actions, the DM resolves. */
+/* ------------------------------------------------------------------ */
+
+/** A window of time between sessions that the DM opens for downtime actions. */
+export const downtimePeriods = sqliteTable(
+  'downtime_periods',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    label: text('label').notNull().default(''),
+    opensAt: text('opens_at'),
+    closesAt: text('closes_at'),
+    /** 'open' accepts new actions; 'closed' does not. */
+    status: text('status', { enum: ['open', 'closed'] })
+      .notNull()
+      .default('open'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('downtime_periods_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * One downtime action a player submitted against a period, and the DM's
+ * resolution. Modelled on the homebrew-approval flow: submit → review →
+ * respond → resubmit. A rejection needs a written reason.
+ */
+export const downtimeActions = sqliteTable(
+  'downtime_actions',
+  {
+    id: uuid(),
+    periodId: text('period_id')
+      .notNull()
+      .references(() => downtimePeriods.id, { onDelete: 'cascade' }),
+    /** Null once the character is deleted (SET NULL, as campaign_members). */
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    actorUserId: text('actor_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** shopping | crafting | research | training | carousing | letter | other */
+    kind: text('kind').notNull().default('other'),
+    body: text('body').notNull().default(''),
+    dmResponse: text('dm_response'),
+    status: text('status', {
+      enum: ['submitted', 'resolved', 'rejected'],
+    })
+      .notNull()
+      .default('submitted'),
+    resolvedByUserId: text('resolved_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    resolvedAt: text('resolved_at'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('downtime_actions_period_idx').on(t.periodId),
+    index('downtime_actions_character_idx').on(t.characterId),
+  ]
 );

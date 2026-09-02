@@ -116,10 +116,13 @@ export function AbilityScoresSection({
   control,
   setValue,
   log,
+  allowedMethods,
 }: {
   control: C;
   setValue: UseFormSetValue<CharacterSheet>;
   log: (input: ProvenanceInput) => void;
+  /** When set, methods outside this list are disabled by the campaign's rules. */
+  allowedMethods?: AbilityMethod[];
 }) {
   const sheet = useWatch({ control }) as CharacterSheet;
   const level = sheet?.identity?.level ?? 1;
@@ -170,8 +173,17 @@ export function AbilityScoresSection({
     }
   };
 
+  const methodAllowed = (m: AbilityMethod): boolean =>
+    !allowedMethods ||
+    allowedMethods.length === 0 ||
+    allowedMethods.includes(m);
+  const disabledMethodKeys = METHOD_TABS.map(t => t.key).filter(
+    k => !methodAllowed(k)
+  );
+
   const setMethod = (next: AbilityMethod) => {
     if (next === method) return;
+    if (!methodAllowed(next)) return;
     setValue('generation.abilityMethod', next, { shouldDirty: true });
     if (next !== 'roll') setRolledPool(null);
     // Give each guided method a clean slate so nothing looks pre-assigned.
@@ -349,12 +361,19 @@ export function AbilityScoresSection({
         size="sm"
         selectedKey={method}
         onSelectionChange={k => setMethod(k as AbilityMethod)}
+        disabledKeys={disabledMethodKeys}
         classNames={{ tabList: 'bg-surface-2' }}
       >
         {METHOD_TABS.map(t => (
           <Tab key={t.key} title={t.label} />
         ))}
       </Tabs>
+
+      {disabledMethodKeys.length > 0 && (
+        <p className="text-xs text-ink-subtle">
+          Some methods are turned off by this campaign&apos;s rules.
+        </p>
+      )}
 
       <p className="text-sm text-ink-muted">{METHOD_BLURB[method]}</p>
 

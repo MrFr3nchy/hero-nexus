@@ -6,6 +6,12 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { useForm, type Resolver } from 'react-hook-form';
 
+import {
+  checkSheetAgainstRules,
+  describeRules,
+  type CampaignRules,
+} from '@/@creator/campaign/lib/rules';
+
 import { saveCharacterAction } from '../actions';
 import {
   characterSheetSchema,
@@ -38,12 +44,19 @@ interface CharacterFormProps {
   reference: ReferenceOptions;
   characterId?: string;
   initialSheet?: CharacterSheet;
+  /** When the builder is opened for a specific table, its rules are enforced. */
+  campaignRules?: CampaignRules;
+  campaignAllowHomebrew?: boolean;
+  campaignName?: string;
 }
 
 export function CharacterForm({
   reference,
   characterId,
   initialSheet,
+  campaignRules,
+  campaignAllowHomebrew = true,
+  campaignName,
 }: CharacterFormProps) {
   const router = useRouter();
   const [banner, setBanner] = useState<{
@@ -139,6 +152,22 @@ export function CharacterForm({
         },
         provenance: reconcileProvenance(values),
       };
+
+      if (campaignRules) {
+        const violations = checkSheetAgainstRules(payload, campaignRules, {
+          allowHomebrew: campaignAllowHomebrew,
+        });
+        if (violations.length) {
+          setBanner({
+            kind: 'error',
+            text: `This table's rules: ${violations
+              .map(v => v.message)
+              .join(' ')}`,
+          });
+          return;
+        }
+      }
+
       const result = await saveCharacterAction(payload, characterId);
       if (result.ok) {
         setBanner({ kind: 'success', text: 'Inscribed.' });
@@ -159,8 +188,31 @@ export function CharacterForm({
     }
   );
 
+  const ruleLines = campaignRules
+    ? describeRules(campaignRules, { allowHomebrew: campaignAllowHomebrew })
+    : [];
+
   return (
     <form onSubmit={onSubmit} className="space-y-6">
+      {campaignRules && (
+        <div className="rounded-lg border border-gold/40 bg-gold/5 p-3 text-sm">
+          <p className="font-display-alt uppercase tracking-[0.12em] text-ink-muted">
+            Building for {campaignName ?? 'a campaign'}
+          </p>
+          {ruleLines.length > 0 ? (
+            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-ink-muted">
+              {ruleLines.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-ink-muted">
+              This table uses the standard rules.
+            </p>
+          )}
+        </div>
+      )}
+
       {banner && (
         <div
           className={`rounded-lg border p-3 text-center text-sm ${
@@ -184,6 +236,7 @@ export function CharacterForm({
             control={control}
             setValue={setValue}
             log={log}
+            allowedMethods={campaignRules?.abilityMethods}
           />
           <CombatSection control={control} />
           <SkillsSection control={control} />
