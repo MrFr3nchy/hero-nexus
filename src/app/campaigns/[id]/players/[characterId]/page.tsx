@@ -46,12 +46,13 @@ export default async function CampaignPlayerSheetPage({
   return (
     <ProtectedRoute>
       <PageShell width="wide">
+        <Link
+          href={`/campaigns/${id}`}
+          className="mb-2 inline-block text-sm text-ink-muted hover:text-ink"
+        >
+          ← Campaign
+        </Link>
         <PageHeader
-          eyebrow={
-            <Link href={`/campaigns/${id}`} className="hover:text-ink">
-              ← Campaign
-            </Link>
-          }
           title={character.name || 'Character'}
           description={`Level ${character.level} ${character.class} · ${character.species} · read-only`}
           actions={

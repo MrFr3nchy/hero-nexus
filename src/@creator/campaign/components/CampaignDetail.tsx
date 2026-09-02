@@ -26,7 +26,6 @@ export function CampaignDetail({
   return (
     <PageShell width="wide">
       <PageHeader
-        eyebrow="Campaign"
         title={campaign.name}
         description={campaign.description || undefined}
         actions={

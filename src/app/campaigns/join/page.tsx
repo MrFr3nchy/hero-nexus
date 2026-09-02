@@ -13,7 +13,6 @@ export default async function JoinCampaignPage({
     <ProtectedRoute>
       <PageShell width="narrow">
         <PageHeader
-          eyebrow="Campaigns"
           title="Join a campaign"
           description="Enter the join code your DM gave you."
         />

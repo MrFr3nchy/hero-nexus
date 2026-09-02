@@ -150,7 +150,6 @@ export function CharactersList({ embedded = false }: { embedded?: boolean }) {
   return (
     <PageShell width="full">
       <PageHeader
-        eyebrow="Roster"
         title="Your characters"
         description="Every hero you've built."
         actions={

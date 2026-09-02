@@ -23,7 +23,6 @@ export default async function CharacterCreationPage({
     <ProtectedRoute>
       <PageShell width="full">
         <PageHeader
-          eyebrow={existing ? 'Edit' : 'New character'}
           title={
             existing ? existing.name || 'Edit character' : 'Character creator'
           }

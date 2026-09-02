@@ -23,7 +23,6 @@ function DashboardContent() {
   return (
     <PageShell width="full">
       <PageHeader
-        eyebrow="Overview"
         title="Dashboard"
         description="Your characters, homebrew and campaigns at a glance."
         actions={

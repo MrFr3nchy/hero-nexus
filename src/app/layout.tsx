@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Cinzel, Fraunces, Inter } from 'next/font/google';
+import { Caveat, Cinzel, Fraunces, Inter } from 'next/font/google';
 
 import { ConditionalLayout } from '@/@shared/components/ConditionalLayout';
 import './globals.css';
@@ -25,6 +25,15 @@ const cinzel = Cinzel({
   weight: ['500', '600'],
 });
 
+// Hand-lettered face for marginalia only (design rule 5: whimsy in the margin,
+// in a different voice). Never used for headings or body copy.
+const caveat = Caveat({
+  subsets: ['latin'],
+  variable: '--font-caveat',
+  display: 'swap',
+  weight: ['500'],
+});
+
 export const metadata: Metadata = {
   title: 'Hero Nexus',
   description:
@@ -40,7 +49,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${fraunces.variable} ${cinzel.variable}`}
+      className={`${inter.variable} ${fraunces.variable} ${cinzel.variable} ${caveat.variable}`}
     >
       <body className="grain">
         <Providers>

@@ -7,7 +7,6 @@ export default function HomebrewCreatorPage() {
     <ProtectedRoute>
       <PageShell width="full">
         <PageHeader
-          eyebrow="Creator"
           title="Homebrew"
           description="Design custom classes, spells and items for your campaigns."
         />

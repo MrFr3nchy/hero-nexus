@@ -21,7 +21,6 @@ export default async function ManageCampaignPage({
     <ProtectedRoute>
       <PageShell>
         <PageHeader
-          eyebrow="Manage"
           title={campaign.name}
           description="Campaign settings and status."
         />

@@ -54,7 +54,6 @@ export function CampaignDashboard() {
   return (
     <PageShell width="full">
       <PageHeader
-        eyebrow="Table"
         title="Campaigns"
         description="Run games as a DM and join your friends' tables."
         actions={

@@ -14,6 +14,8 @@ interface SectionCardProps {
   bodyClassName?: string;
   /** Add gold corner brackets — reserve for "special" surfaces. */
   framed?: boolean;
+  /** Opt into the scroll-in mount animation. Off by default (design rule 4). */
+  reveal?: boolean;
 }
 
 function Corners() {
@@ -37,9 +39,10 @@ export function SectionCard({
   className,
   bodyClassName,
   framed,
+  reveal,
 }: SectionCardProps) {
   return (
-    <LiftCard className={`relative ${className ?? ''}`}>
+    <LiftCard reveal={reveal} className={`relative ${className ?? ''}`}>
       {framed && <Corners />}
       <Card
         shadow="none"
