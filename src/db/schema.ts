@@ -417,3 +417,86 @@ export const initiativeEntries = sqliteTable(
   },
   t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
 );
+
+/* ------------------------------------------------------------------ */
+/* Party canon — a campaign wiki with a DM view and a party view.     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One canon entry (an NPC, place, item, faction, or piece of lore). Two
+ * bodies: `dm_body` is the DM's private notes, `party_body` is what the party
+ * has been told. They are different documents that share a subject, never one
+ * body with hidden regions.
+ */
+export const canonEntries = sqliteTable(
+  'canon_entries',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    kind: text('kind', {
+      enum: ['npc', 'location', 'item', 'faction', 'lore'],
+    }).notNull(),
+    title: text('title').notNull().default(''),
+    dmBody: text('dm_body').notNull().default(''),
+    partyBody: text('party_body').notNull().default(''),
+    /** 'dm' = staff only; 'shared' = every player sees `party_body`. */
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('canon_entries_campaign_idx').on(t.campaignId)]
+);
+
+/** A directed reference from one canon entry to another. */
+export const canonLinks = sqliteTable(
+  'canon_links',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    fromEntryId: text('from_entry_id')
+      .notNull()
+      .references(() => canonEntries.id, { onDelete: 'cascade' }),
+    toEntryId: text('to_entry_id')
+      .notNull()
+      .references(() => canonEntries.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('canon_links_pair_idx').on(t.fromEntryId, t.toEntryId),
+    index('canon_links_to_idx').on(t.toEntryId),
+    index('canon_links_campaign_idx').on(t.campaignId),
+  ]
+);
+
+/**
+ * Per-member reveal: this user sees this entry's `party_body` even while its
+ * visibility is still 'dm'. Keyed on `user_id`, NOT `campaign_members` — the
+ * GM has no member row, so a table keyed on `campaign_members` would silently
+ * exclude them.
+ */
+export const canonReveals = sqliteTable(
+  'canon_reveals',
+  {
+    id: uuid(),
+    entryId: text('entry_id')
+      .notNull()
+      .references(() => canonEntries.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('canon_reveals_entry_user_idx').on(t.entryId, t.userId),
+    index('canon_reveals_user_idx').on(t.userId),
+  ]
+);
