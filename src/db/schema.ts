@@ -168,6 +168,45 @@ export const characterAuditLog = sqliteTable(
   ]
 );
 
+/**
+ * Append-only history of server-observed changes to a character since creation.
+ *
+ * Distinct from `character_audit_log` / `sheet.provenance`, which are a
+ * client-supplied mirror of creation-time method & roll data. Rows here are
+ * written by the server by diffing the incoming sheet against the stored one,
+ * never accepted from the client. No unique index: a field that changes four
+ * times is four rows.
+ */
+export const characterHistory = sqliteTable(
+  'character_history',
+  {
+    id: uuid(),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    /** Who saved the change. Null once that user is deleted. */
+    actorUserId: text('actor_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    /** identity | level | ability | method | homebrew | other */
+    kind: text('kind').notNull(),
+    /** dot-path of the changed field, e.g. `identity.subclass` */
+    field: text('field').notNull().default(''),
+    fromValue: text('from_value'),
+    toValue: text('to_value'),
+    detail: text('detail').notNull().default(''),
+    /** reserved: JSON array of raw dice a diff cannot reconstruct */
+    rolls: text('rolls'),
+    /** server clock at save time */
+    occurredAt: text('occurred_at').notNull(),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('character_history_char_idx').on(t.characterId),
+    index('character_history_char_time_idx').on(t.characterId, t.occurredAt),
+  ]
+);
+
 export const homebrew = sqliteTable(
   'homebrew',
   {

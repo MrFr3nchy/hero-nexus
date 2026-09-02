@@ -8,13 +8,17 @@ import {
   campaignMembers,
   campaigns,
   characterAuditLog,
+  characterHistory,
   characterHomebrew,
   characters,
   homebrew,
+  users,
 } from '@/db/schema';
 import { mergeCampaignSettings, requireCampaignRole } from '@/server/campaigns';
 import { checkSheetAgainstRules } from '@/@creator/campaign/lib/rules';
 import {
+  ABILITY_KEYS,
+  ABILITY_LABELS,
   characterSheetSchema,
   type CharacterSheet,
   type HomebrewEntry,
@@ -40,6 +44,25 @@ export interface CharacterAuditEntry {
   detail: string;
   rolls: number[] | null;
   occurredAt: string;
+}
+
+export interface CharacterHistoryEntry {
+  id: string;
+  actorUserId: string | null;
+  actorName: string | null;
+  kind: string;
+  field: string;
+  fromValue: string | null;
+  toValue: string | null;
+  detail: string;
+  rolls: number[] | null;
+  occurredAt: string;
+}
+
+/** DM-facing view of a linked character: creation trail + post-creation history. */
+export interface CharacterAudit {
+  provenance: CharacterAuditEntry[];
+  history: CharacterHistoryEntry[];
 }
 
 export interface CharacterWithSheet extends CharacterRow {
@@ -350,6 +373,188 @@ async function assertSheetLegalForLinkedCampaigns(
   }
 }
 
+interface HistoryDraft {
+  kind: string;
+  field: string;
+  fromValue: string | null;
+  toValue: string | null;
+  detail: string;
+}
+
+const asValue = (v: unknown): string | null => {
+  if (v === null || v === undefined) return null;
+  const s = String(v);
+  return s === '' ? null : s;
+};
+
+/**
+ * Diff two versions of a sheet into history rows. Curated to the fields a DM
+ * cares about seeing move over time — identity, level, ability scores, ability
+ * method, homebrew entries — not every keystroke. One row per changed field.
+ */
+function diffSheets(
+  before: CharacterSheet,
+  after: CharacterSheet
+): HistoryDraft[] {
+  const out: HistoryDraft[] = [];
+  const push = (
+    kind: string,
+    field: string,
+    from: unknown,
+    to: unknown,
+    detail: string
+  ): void => {
+    const fromValue = asValue(from);
+    const toValue = asValue(to);
+    if (fromValue === toValue) return;
+    out.push({ kind, field, fromValue, toValue, detail });
+  };
+
+  const b = before.identity;
+  const a = after.identity;
+  const dash = (s: string): string => s || '—';
+  push(
+    'identity',
+    'identity.name',
+    b.name,
+    a.name,
+    `Name: ${dash(b.name)} → ${dash(a.name)}`
+  );
+  push(
+    'identity',
+    'identity.species',
+    b.species,
+    a.species,
+    `Species: ${dash(b.species)} → ${dash(a.species)}`
+  );
+  push(
+    'identity',
+    'identity.class',
+    b.class,
+    a.class,
+    `Class: ${dash(b.class)} → ${dash(a.class)}`
+  );
+  push(
+    'identity',
+    'identity.subclass',
+    b.subclass,
+    a.subclass,
+    `Subclass: ${dash(b.subclass)} → ${dash(a.subclass)}`
+  );
+  push(
+    'identity',
+    'identity.background',
+    b.background,
+    a.background,
+    `Background: ${dash(b.background)} → ${dash(a.background)}`
+  );
+  push(
+    'identity',
+    'identity.alignment',
+    b.alignment,
+    a.alignment,
+    `Alignment: ${dash(b.alignment)} → ${dash(a.alignment)}`
+  );
+
+  if (b.level !== a.level) {
+    push(
+      'level',
+      'identity.level',
+      b.level,
+      a.level,
+      a.level > b.level
+        ? `Levelled up: ${b.level} → ${a.level}`
+        : `Level: ${b.level} → ${a.level}`
+    );
+  }
+
+  for (const key of ABILITY_KEYS) {
+    const bs = before.abilities[key]?.score;
+    const as = after.abilities[key]?.score;
+    if (bs !== as) {
+      push(
+        'ability',
+        `abilities.${key}.score`,
+        bs,
+        as,
+        `${ABILITY_LABELS[key]}: ${bs} → ${as}`
+      );
+    }
+  }
+
+  const bm = before.generation?.abilityMethod;
+  const am = after.generation?.abilityMethod;
+  if (bm !== am) {
+    push(
+      'method',
+      'generation.abilityMethod',
+      bm,
+      am,
+      `Ability score method: ${bm} → ${am}`
+    );
+  }
+
+  const beforeEntries = new Map(before.homebrew.entries.map(e => [e.id, e]));
+  const afterEntries = new Map(after.homebrew.entries.map(e => [e.id, e]));
+  for (const [eid, e] of afterEntries) {
+    if (!beforeEntries.has(eid)) {
+      push(
+        'homebrew',
+        `homebrew.${eid}`,
+        null,
+        e.name,
+        `Added homebrew ${e.kind}: "${e.name}"`
+      );
+    }
+  }
+  for (const [eid, e] of beforeEntries) {
+    if (!afterEntries.has(eid)) {
+      push(
+        'homebrew',
+        `homebrew.${eid}`,
+        e.name,
+        null,
+        `Removed homebrew ${e.kind}: "${e.name}"`
+      );
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Append server-observed changes to `character_history`. Best-effort: a failure
+ * here (e.g. an old stored sheet that won't parse) must never block a save.
+ */
+async function recordCharacterHistory(
+  characterId: string,
+  actorUserId: string,
+  storedSheet: unknown,
+  nextSheet: CharacterSheet
+): Promise<void> {
+  try {
+    const parsed = characterSheetSchema.safeParse(storedSheet);
+    if (!parsed.success) return;
+    const drafts = diffSheets(parsed.data, nextSheet);
+    if (drafts.length === 0) return;
+    const now = new Date().toISOString();
+    await db.insert(characterHistory).values(
+      drafts.map(d => ({
+        characterId,
+        actorUserId,
+        kind: d.kind,
+        field: d.field,
+        fromValue: d.fromValue,
+        toValue: d.toValue,
+        detail: d.detail,
+        occurredAt: now,
+      }))
+    );
+  } catch {
+    // history is a nice-to-have; swallow and move on
+  }
+}
+
 export async function updateCharacter(
   id: string,
   input: unknown
@@ -376,13 +581,20 @@ export async function updateCharacter(
   if (result.length === 0) throw new Error('NOT_FOUND');
   await syncCharacterHomebrew(id, userId, sheet);
   await syncCharacterAuditLog(id, sheet);
+  await recordCharacterHistory(id, userId, owned.sheet, sheet);
 }
 
-/** DM / co-DM: the change log a character brought into the campaign. */
+/**
+ * DM / co-DM: how a linked character came to be. Two parts —
+ *  - `provenance`: the creation-time trail (method, dice, custom values) the
+ *    client recorded. A snapshot, not a history.
+ *  - `history`: the server's own append-only record of what changed since,
+ *    ordered oldest first. A player cannot retroactively edit this.
+ */
 export async function getCharacterAuditForCampaign(
   campaignId: string,
   characterId: string
-): Promise<CharacterAuditEntry[]> {
+): Promise<CharacterAudit> {
   await requireCampaignRole(campaignId, ['gm', 'co-gm']);
   const link = await db.query.campaignMembers.findFirst({
     where: and(
@@ -390,22 +602,55 @@ export async function getCharacterAuditForCampaign(
       eq(campaignMembers.characterId, characterId)
     ),
   });
-  if (!link) return [];
+  if (!link) return { provenance: [], history: [] };
 
-  const rows = await db
+  const auditRows = await db
     .select()
     .from(characterAuditLog)
     .where(eq(characterAuditLog.characterId, characterId))
     .orderBy(desc(characterAuditLog.occurredAt));
 
-  return rows.map(r => ({
-    id: r.id,
-    kind: r.kind,
-    label: r.label,
-    detail: r.detail,
-    rolls: r.rolls ? (JSON.parse(r.rolls) as number[]) : null,
-    occurredAt: r.occurredAt,
-  }));
+  const historyRows = await db
+    .select({
+      id: characterHistory.id,
+      actorUserId: characterHistory.actorUserId,
+      actorName: users.name,
+      kind: characterHistory.kind,
+      field: characterHistory.field,
+      fromValue: characterHistory.fromValue,
+      toValue: characterHistory.toValue,
+      detail: characterHistory.detail,
+      rolls: characterHistory.rolls,
+      occurredAt: characterHistory.occurredAt,
+      createdAt: characterHistory.createdAt,
+    })
+    .from(characterHistory)
+    .leftJoin(users, eq(users.id, characterHistory.actorUserId))
+    .where(eq(characterHistory.characterId, characterId))
+    .orderBy(characterHistory.occurredAt, characterHistory.createdAt);
+
+  return {
+    provenance: auditRows.map(r => ({
+      id: r.id,
+      kind: r.kind,
+      label: r.label,
+      detail: r.detail,
+      rolls: r.rolls ? (JSON.parse(r.rolls) as number[]) : null,
+      occurredAt: r.occurredAt,
+    })),
+    history: historyRows.map(r => ({
+      id: r.id,
+      actorUserId: r.actorUserId,
+      actorName: r.actorName,
+      kind: r.kind,
+      field: r.field,
+      fromValue: r.fromValue,
+      toValue: r.toValue,
+      detail: r.detail,
+      rolls: r.rolls ? (JSON.parse(r.rolls) as number[]) : null,
+      occurredAt: r.occurredAt,
+    })),
+  };
 }
 
 export async function deleteCharacter(id: string): Promise<void> {

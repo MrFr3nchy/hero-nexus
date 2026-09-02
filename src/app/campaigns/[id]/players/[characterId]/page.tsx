@@ -26,6 +26,15 @@ const KIND_LABEL: Record<string, string> = {
   homebrew: 'Homebrew',
 };
 
+const HISTORY_KIND_LABEL: Record<string, string> = {
+  identity: 'Identity',
+  level: 'Level',
+  ability: 'Ability',
+  method: 'Method',
+  homebrew: 'Homebrew',
+  other: 'Change',
+};
+
 export default async function CampaignPlayerSheetPage({
   params,
 }: {
@@ -41,7 +50,12 @@ export default async function CampaignPlayerSheetPage({
   } catch {
     notFound();
   }
-  if (!character) notFound();
+  if (!character || !audit) notFound();
+
+  const fmtWhen = (iso: string): string => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
+  };
 
   return (
     <ProtectedRoute>
@@ -62,15 +76,15 @@ export default async function CampaignPlayerSheetPage({
           }
         />
 
-        {audit.length > 0 && (
+        {audit.provenance.length > 0 && (
           <SectionCard
             framed
-            title="Change log"
+            title="Creation log"
             description="Every custom value, manual score, and dice roll this player recorded while building the character."
             bodyClassName="border-t-2 border-t-arcane/50"
           >
             <ul className="space-y-2">
-              {audit.map(e => (
+              {audit.provenance.map(e => (
                 <li
                   key={e.id}
                   className="flex items-start gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-sm"
@@ -85,6 +99,35 @@ export default async function CampaignPlayerSheetPage({
                         [{e.rolls.join(', ')}]
                       </span>
                     )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </SectionCard>
+        )}
+
+        {audit.history.length > 0 && (
+          <SectionCard
+            framed
+            title="History since creation"
+            description="Server-recorded changes to the sheet after it was first saved. The player cannot edit this."
+            bodyClassName="border-t-2 border-t-gold/50"
+          >
+            <ul className="space-y-2">
+              {audit.history.map(e => (
+                <li
+                  key={e.id}
+                  className="flex items-start gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-sm"
+                >
+                  <span className="mt-0.5 shrink-0 rounded-sm border border-line px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle">
+                    {HISTORY_KIND_LABEL[e.kind] ?? e.kind}
+                  </span>
+                  <span className="flex-1 text-ink-muted">
+                    {e.detail}
+                    <span className="ml-1 text-ink-subtle">
+                      · {fmtWhen(e.occurredAt)}
+                      {e.actorName ? ` · ${e.actorName}` : ''}
+                    </span>
                   </span>
                 </li>
               ))}
