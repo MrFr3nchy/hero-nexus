@@ -11,6 +11,7 @@ import {
 } from '@/@shared/components/ui';
 import type { CampaignRow } from '@/server/campaigns';
 import { CanonPanel } from './CanonPanel';
+import { DowntimePanel } from './DowntimePanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { MembersPanel } from './MembersPanel';
 import { SessionPanel } from './session/SessionPanel';
@@ -117,6 +118,16 @@ export function CampaignDetail({
         <Tab key="canon" title="Canon">
           <div className="pt-4">
             <CanonPanel
+              campaignId={campaign.id}
+              viewerId={viewerId}
+              viewerRole={campaign.role}
+            />
+          </div>
+        </Tab>
+
+        <Tab key="downtime" title="Downtime">
+          <div className="pt-4">
+            <DowntimePanel
               campaignId={campaign.id}
               viewerId={viewerId}
               viewerRole={campaign.role}

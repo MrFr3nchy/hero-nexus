@@ -500,3 +500,72 @@ export const canonReveals = sqliteTable(
     index('canon_reveals_user_idx').on(t.userId),
   ]
 );
+
+/* ------------------------------------------------------------------ */
+/* Between-session downtime — players submit actions, the DM resolves. */
+/* ------------------------------------------------------------------ */
+
+/** A window of time between sessions that the DM opens for downtime actions. */
+export const downtimePeriods = sqliteTable(
+  'downtime_periods',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    label: text('label').notNull().default(''),
+    opensAt: text('opens_at'),
+    closesAt: text('closes_at'),
+    /** 'open' accepts new actions; 'closed' does not. */
+    status: text('status', { enum: ['open', 'closed'] })
+      .notNull()
+      .default('open'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('downtime_periods_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * One downtime action a player submitted against a period, and the DM's
+ * resolution. Modelled on the homebrew-approval flow: submit → review →
+ * respond → resubmit. A rejection needs a written reason.
+ */
+export const downtimeActions = sqliteTable(
+  'downtime_actions',
+  {
+    id: uuid(),
+    periodId: text('period_id')
+      .notNull()
+      .references(() => downtimePeriods.id, { onDelete: 'cascade' }),
+    /** Null once the character is deleted (SET NULL, as campaign_members). */
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    actorUserId: text('actor_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** shopping | crafting | research | training | carousing | letter | other */
+    kind: text('kind').notNull().default('other'),
+    body: text('body').notNull().default(''),
+    dmResponse: text('dm_response'),
+    status: text('status', {
+      enum: ['submitted', 'resolved', 'rejected'],
+    })
+      .notNull()
+      .default('submitted'),
+    resolvedByUserId: text('resolved_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    resolvedAt: text('resolved_at'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('downtime_actions_period_idx').on(t.periodId),
+    index('downtime_actions_character_idx').on(t.characterId),
+  ]
+);

@@ -32,6 +32,7 @@ const HISTORY_KIND_LABEL: Record<string, string> = {
   ability: 'Ability',
   method: 'Method',
   homebrew: 'Homebrew',
+  downtime: 'Downtime',
   other: 'Change',
 };
 
