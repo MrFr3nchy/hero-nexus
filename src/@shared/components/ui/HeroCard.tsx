@@ -5,7 +5,7 @@ import { Marginalia } from './Marginalia';
 interface HeroCardProps {
   name: string;
   /** D&D class name — drives the spine colour and the sub-label. */
-  className?: string;
+  charClass?: string;
   level: number;
   species?: string;
   hp?: { current: number; max: number };
@@ -14,7 +14,7 @@ interface HeroCardProps {
   /** Optional scrawled aside, rendered in the margin voice. Never load-bearing. */
   note?: ReactNode;
   href?: string;
-  wrapperClassName?: string;
+  className?: string;
 }
 
 /** Class → spine colour. Unknown classes fall back to gold. */
@@ -54,16 +54,16 @@ function hpColor(current: number, max: number): string {
  */
 export function HeroCard({
   name,
-  className,
+  charClass,
   level,
   species,
   hp,
   portrait,
   note,
   href,
-  wrapperClassName,
+  className,
 }: HeroCardProps) {
-  const spineColor = spine[className?.toLowerCase() ?? ''] ?? 'var(--gold)';
+  const spineColor = spine[charClass?.toLowerCase() ?? ''] ?? 'var(--gold)';
   const Wrapper = href ? 'a' : 'div';
 
   return (
@@ -71,7 +71,7 @@ export function HeroCard({
       {...(href ? { href } : {})}
       className={`relative flex gap-4 overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface py-4 pl-5 pr-4 [box-shadow:var(--shadow-card)] ${
         href ? 'transition-colors hover:border-gold/40' : ''
-      } ${wrapperClassName ?? ''}`}
+      } ${className ?? ''}`}
     >
       <span
         aria-hidden="true"
@@ -94,7 +94,7 @@ export function HeroCard({
           </span>
         </div>
         <p className="mt-0.5 text-sm text-ink-muted">
-          {[className, species].filter(Boolean).join(' · ') || '—'}
+          {[charClass, species].filter(Boolean).join(' · ') || '—'}
         </p>
 
         {hp && (
