@@ -9,15 +9,21 @@ import {
   useWatch,
 } from 'react-hook-form';
 
-import { SectionCard, DiceRollOverlay } from '@/@shared/components/ui';
+import {
+  SectionCard,
+  Dice3DRoller,
+  type RollRequest,
+} from '@/@shared/components/ui';
 import {
   POINT_BUY_BUDGET,
   POINT_BUY_MAX,
   POINT_BUY_MIN,
+  ROLL_MODES,
   STANDARD_ARRAY,
   pointBuyCost,
   pointBuySpent,
-  type Roll4d6Result,
+  type AbilityRoll,
+  type RollMode,
 } from '@/@shared/lib/dice';
 
 import {
@@ -54,7 +60,7 @@ const METHOD_BLURB: Record<AbilityMethod, string> = {
   pointbuy: `Spend ${POINT_BUY_BUDGET} points. Scores run ${POINT_BUY_MIN}–${POINT_BUY_MAX} before species bonuses.`,
   standard:
     'Assign the fixed set 15, 14, 13, 12, 10, 8 — one value per ability.',
-  roll: 'Roll 4d6 and drop the lowest. Roll each ability, or roll a full set to assign.',
+  roll: 'Roll 3d6 per ability (default), or switch to 4d6 keep the highest three. Roll each ability, or roll a full set to assign.',
 };
 
 function Derived({ label, value }: { label: string; value: string | number }) {
@@ -121,11 +127,34 @@ export function AbilityScoresSection({
   const method: AbilityMethod = sheet?.generation?.abilityMethod ?? 'manual';
   const scores = ABILITY_KEYS.map(k => sheet?.abilities?.[k]?.score ?? 10);
 
-  const [overlay, setOverlay] = useState<{
-    count: 1 | 6;
-    target?: AbilityKey;
-  } | null>(null);
+  const rollMode: RollMode = sheet?.generation?.rollMode ?? '3d6';
+
+  const [rollReq, setRollReq] = useState<
+    (RollRequest & { target?: AbilityKey }) | null
+  >(null);
   const [rolledPool, setRolledPool] = useState<number[] | null>(null);
+
+  const fireRoll = (groups: 1 | 6, target?: AbilityKey) => {
+    setRollReq({
+      nonce: Date.now(),
+      groups,
+      mode: rollMode,
+      title: target
+        ? `Rolling ${ABILITY_LABELS[target]}`
+        : 'Rolling a full set',
+      target,
+    });
+  };
+
+  const setRollMode = (next: RollMode) => {
+    if (next === rollMode) return;
+    setValue('generation.rollMode', next, { shouldDirty: true });
+    log({
+      kind: 'method',
+      label: 'Roll mode',
+      detail: `Roll mode: ${next === '3d6' ? '3d6 (keep all)' : '4d6, keep highest 3'}`,
+    });
+  };
 
   const setScore = (key: AbilityKey, val: number, silent = false) => {
     setValue(SCORE_PATH[key], val as never, {
@@ -165,10 +194,22 @@ export function AbilityScoresSection({
   const spent = pointBuySpent(scores);
   const remaining = POINT_BUY_BUDGET - spent;
 
-  const applyRoll = (results: Roll4d6Result[]) => {
-    if (overlay?.count === 1 && overlay.target) {
-      const r = results[0];
-      const key = overlay.target;
+  const describeRoll = (r: AbilityRoll): string => {
+    const notation = r.mode === '3d6' ? '3d6' : '4d6';
+    if (r.droppedIndexes.length === 0) {
+      return `rolled ${notation} [${r.dice.join(', ')}] → ${r.total}`;
+    }
+    const dropped = r.droppedIndexes.map(i => r.dice[i]).join(', ');
+    return `rolled ${notation} [${r.dice.join(', ')}], dropped ${dropped} → ${r.total}`;
+  };
+
+  const handleResults = (
+    rolls: AbilityRoll[],
+    req: RollRequest & { target?: AbilityKey }
+  ) => {
+    if (req.target && req.groups === 1) {
+      const r = rolls[0];
+      const key = req.target;
       setValue(SCORE_PATH[key], r.total as never, {
         shouldDirty: true,
         shouldValidate: true,
@@ -176,19 +217,18 @@ export function AbilityScoresSection({
       log({
         kind: 'stat-roll',
         label: ABILITY_LABELS[key],
-        detail: `${ABILITY_LABELS[key]}: rolled 4d6 [${r.rolls.join(', ')}], dropped ${r.rolls[r.dropIndex]} → ${r.total}`,
-        rolls: r.rolls,
+        detail: `${ABILITY_LABELS[key]}: ${describeRoll(r)}`,
+        rolls: r.dice,
         append: true,
       });
     } else {
-      const totals = results.map(r => r.total).sort((a, b) => b - a);
-      setRolledPool(totals);
-      results.forEach((r, i) => {
+      setRolledPool(rolls.map(r => r.total).sort((a, b) => b - a));
+      rolls.forEach((r, i) => {
         log({
           kind: 'stat-roll',
           label: `Set die ${i + 1}`,
-          detail: `Rolled 4d6 [${r.rolls.join(', ')}], dropped ${r.rolls[r.dropIndex]} → ${r.total}`,
-          rolls: r.rolls,
+          detail: describeRoll(r),
+          rolls: r.dice,
           append: true,
         });
       });
@@ -429,13 +469,43 @@ export function AbilityScoresSection({
 
       {method === 'roll' && (
         <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="font-display-alt text-xs uppercase tracking-[0.12em] text-ink-subtle">
+              Dice
+            </span>
+            <div className="inline-flex overflow-hidden rounded-md border border-line">
+              {ROLL_MODES.map(m => (
+                <button
+                  key={m.key}
+                  type="button"
+                  title={m.hint}
+                  onClick={() => setRollMode(m.key)}
+                  className={`px-3 py-1 text-xs transition-colors ${
+                    rollMode === m.key
+                      ? 'bg-gold/15 text-gold-strong'
+                      : 'bg-surface-2 text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <Button
             variant="flat"
             className="w-full border border-gold/40"
-            onPress={() => setOverlay({ count: 6 })}
+            onPress={() => fireRoll(6)}
           >
-            🎲 Roll a full set (6 × 4d6 drop lowest)
+            🎲 Roll a full set of six
           </Button>
+
+          <Dice3DRoller
+            request={rollReq}
+            onResults={handleResults}
+            onClose={() => setRollReq(null)}
+          />
+
           <div className="space-y-2">
             {ABILITY_KEYS.map((key, i) => (
               <div
@@ -457,7 +527,7 @@ export function AbilityScoresSection({
                   size="sm"
                   variant="flat"
                   className="ml-auto"
-                  onPress={() => setOverlay({ count: 1, target: key })}
+                  onPress={() => fireRoll(1, key)}
                 >
                   🎲 Roll
                 </Button>
@@ -466,20 +536,6 @@ export function AbilityScoresSection({
           </div>
         </div>
       )}
-
-      <DiceRollOverlay
-        open={overlay !== null}
-        count={overlay?.count ?? 1}
-        title={
-          overlay?.count === 6
-            ? 'Rolling a full set'
-            : overlay?.target
-              ? `Rolling ${ABILITY_LABELS[overlay.target]}`
-              : 'Rolling 4d6'
-        }
-        onClose={() => setOverlay(null)}
-        onApply={applyRoll}
-      />
     </SectionCard>
   );
 }

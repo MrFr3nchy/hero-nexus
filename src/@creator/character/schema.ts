@@ -208,8 +208,9 @@ export const characterSheetSchema = z.object({
   generation: z
     .object({
       abilityMethod: z.enum(ABILITY_METHODS).default('manual'),
+      rollMode: z.enum(['3d6', '4d6kh3']).default('3d6'),
     })
-    .default({ abilityMethod: 'manual' }),
+    .default({ abilityMethod: 'manual', rollMode: '3d6' }),
 
   homebrew: z
     .object({
@@ -317,7 +318,7 @@ const emptySlot = { total: 0, expended: 0 };
 export function makeEmptySheet(): CharacterSheet {
   return {
     rpgSystem: 'dnd5e2024',
-    generation: { abilityMethod: 'manual' },
+    generation: { abilityMethod: 'manual', rollMode: '3d6' },
     homebrew: { isHomebrew: false, entries: [] },
     provenance: [],
     identity: {
