@@ -1,0 +1,28 @@
+# /etc/caddy/Caddyfile
+#
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Caddy fetches and renews the TLS certificate automatically. Replace the
+# domain below with the real one; it must resolve to this droplet first.
+
+hero-nexus.example.com {
+	encode zstd gzip
+
+	# Terminate TLS here, forward plaintext to Next on localhost. Caddy sets
+	# X-Forwarded-For / X-Forwarded-Proto / X-Forwarded-Host itself and
+	# overwrites anything the client sent — this is what makes trusting
+	# X-Forwarded-For in the app safe (see src/server/http.ts).
+	reverse_proxy 127.0.0.1:3000
+
+	# Cap upload bodies. Handout uploads are validated to 10 MB in the app;
+	# stop anything larger at the edge.
+	request_body {
+		max_size 12MB
+	}
+
+	log {
+		output file /var/log/caddy/hero-nexus.log
+		format json
+	}
+}

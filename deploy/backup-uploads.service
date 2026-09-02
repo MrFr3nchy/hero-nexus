@@ -1,0 +1,18 @@
+# /etc/systemd/system/backup-uploads.service
+#
+#   sudo cp deploy/backup-uploads.sh /opt/hero-nexus/deploy/
+#   sudo chmod +x /opt/hero-nexus/deploy/backup-uploads.sh
+#   sudo cp deploy/backup-uploads.service deploy/backup-uploads.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now backup-uploads.timer
+
+[Unit]
+Description=Mirror Hero Nexus handout uploads to the backup bucket
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=hero
+Group=hero
+ExecStart=/opt/hero-nexus/deploy/backup-uploads.sh

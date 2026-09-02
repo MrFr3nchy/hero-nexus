@@ -13,8 +13,11 @@ export default function RegisterForm() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [resent, setResent] = useState(false);
   const { register } = useAuth();
   const router = useRouter();
 
@@ -33,9 +36,13 @@ export default function RegisterForm() {
 
     setLoading(true);
     try {
-      await register(email, password, displayName || undefined);
-      router.push('/dashboard');
-      router.refresh();
+      await register(
+        email,
+        password,
+        displayName || undefined,
+        inviteCode || undefined
+      );
+      setRegisteredEmail(email);
     } catch (err: unknown) {
       setError(
         (err as AuthError).message ||
@@ -45,6 +52,60 @@ export default function RegisterForm() {
       setLoading(false);
     }
   };
+
+  const handleResend = async () => {
+    setResent(true);
+    await fetch('/api/resend-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: registeredEmail }),
+    }).catch(() => {});
+  };
+
+  if (registeredEmail) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg px-4 py-12">
+        <div className="w-full max-w-sm">
+          <div className="mb-6 text-center">
+            <h1 className="font-display text-2xl text-ink">Check your inbox</h1>
+          </div>
+          <div className="relative">
+            <SectionCard>
+              <div className="space-y-3 text-sm text-ink-muted">
+                <p>
+                  We sent a verification link to{' '}
+                  <span className="text-ink">{registeredEmail}</span>. Click it
+                  to activate your account, then sign in.
+                </p>
+                <p>
+                  Nothing arrived? Check spam, then{' '}
+                  <button
+                    type="button"
+                    onClick={handleResend}
+                    disabled={resent}
+                    className="text-gold hover:underline disabled:opacity-50"
+                  >
+                    {resent ? 'link sent' : 'send it again'}
+                  </button>
+                  .
+                </p>
+              </div>
+              <div className="mt-5">
+                <button
+                  type="button"
+                  onClick={() => router.push('/login')}
+                  className="text-sm text-ink-muted hover:text-ink"
+                >
+                  ← Back to sign in
+                </button>
+              </div>
+            </SectionCard>
+            <DeckledEdge />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg px-4 py-12">
@@ -93,6 +154,13 @@ export default function RegisterForm() {
                 onValueChange={setConfirmPassword}
                 isRequired
                 autoComplete="new-password"
+              />
+              <Input
+                label="Invite code"
+                description="Required during the launch period."
+                value={inviteCode}
+                onValueChange={setInviteCode}
+                autoComplete="off"
               />
               {error && (
                 <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">

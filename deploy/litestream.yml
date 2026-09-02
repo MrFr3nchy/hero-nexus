@@ -1,0 +1,25 @@
+# /etc/litestream.yml
+#
+# Continuous streaming backup of the SQLite database to an S3-compatible
+# bucket (DigitalOcean Spaces, Backblaze B2, AWS S3, ...). Litestream ships
+# the WAL as it is written, so the recovery point is seconds, not hours.
+#
+# This backs up the DATABASE ONLY. Handout images under the data volume's
+# `uploads/` directory are not in the database — see deploy/backup-uploads.sh.
+#
+# Credentials come from the environment (see deploy/litestream.service):
+#   LITESTREAM_ACCESS_KEY_ID, LITESTREAM_SECRET_ACCESS_KEY
+
+dbs:
+  - path: /mnt/hero-nexus-data/hero-nexus.db
+    replicas:
+      - type: s3
+        bucket: hero-nexus-backups
+        path: db
+        # For DigitalOcean Spaces / Backblaze B2, set endpoint + region to the
+        # provider's values. For AWS S3, drop `endpoint` and set `region`.
+        endpoint: https://nyc3.digitaloceanspaces.com
+        region: nyc3
+        retention: 168h # keep 7 days of restore points
+        snapshot-interval: 24h
+        validation-interval: 12h

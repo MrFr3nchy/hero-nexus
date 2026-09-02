@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 
 import { canViewHandout } from '@/server/session';
+import { UPLOADS_DIR } from '@/server/uploads';
 
 export const runtime = 'nodejs';
 
@@ -22,7 +23,7 @@ export async function GET(
     return new Response('Not found', { status: 404 });
   }
 
-  const abs = join(process.cwd(), 'data', 'uploads', access.row.filePath);
+  const abs = join(UPLOADS_DIR, access.row.filePath);
   try {
     const info = await stat(abs);
     return new Response(

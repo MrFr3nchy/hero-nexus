@@ -7,6 +7,10 @@ import { z } from 'zod';
 import { auth } from '@/auth';
 import { db } from '@/db';
 import { users } from '@/db/schema';
+import { sendMail } from '@/server/mail';
+import { emailChangeConfirmEmail } from '@/server/mail-templates';
+import { LIMITS, rateLimit } from '@/server/rate-limit';
+import { issueToken } from '@/server/tokens';
 import type { AuthError } from './types';
 
 function fail(code: string, message: string): never {
@@ -47,20 +51,52 @@ export async function updateProfileAction(input: {
     .where(eq(users.id, userId));
 }
 
-export async function updateEmailAction(email: string) {
+/**
+ * Change the account email. Requires the current password (a stolen session
+ * alone must not be able to do this) and does not commit the change — it emails
+ * a confirmation link to the *new* address. The change lands only when that
+ * link is clicked (`/api/account/confirm-email`).
+ */
+export async function updateEmailAction(
+  newEmail: string,
+  currentPassword: string
+) {
   const userId = await requireUserId();
-  const parsed = z.string().email().max(200).safeParse(email);
+  const parsed = z.string().email().max(200).safeParse(newEmail);
   if (!parsed.success)
     fail('invalid-email', 'Please enter a valid email address.');
 
   const next = parsed.data.toLowerCase();
+
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!user?.passwordHash) fail('unknown', 'Account has no password set.');
+
+  const ok = await verify(user!.passwordHash!, currentPassword);
+  if (!ok) fail('wrong-password', 'Your current password is incorrect.');
+
+  if (next === user!.email) {
+    fail('invalid-email', 'That is already your email address.');
+  }
+
   const clash = await db.query.users.findFirst({
     where: eq(users.email, next),
   });
   if (clash && clash.id !== userId) {
     fail('email-in-use', 'An account with this email already exists.');
   }
-  await db.update(users).set({ email: next }).where(eq(users.id, userId));
+
+  const limited = rateLimit(`email-change:${userId}`, ...LIMITS.mailByTarget);
+  if (!limited.ok) {
+    fail('unknown', 'Too many requests. Please try again later.');
+  }
+
+  try {
+    const token = await issueToken('email-change', `${userId}:${next}`);
+    await sendMail(emailChangeConfirmEmail(userId, next, token));
+  } catch (err) {
+    console.error('[updateEmailAction] confirmation email failed:', err);
+    fail('unknown', 'Could not send the confirmation email. Try again.');
+  }
 }
 
 export async function updatePasswordAction(

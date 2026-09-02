@@ -56,6 +56,15 @@ const InnerAuthProvider: React.FC<{ children: React.ReactNode }> = ({
           redirect: false,
         });
         if (!res || res.error) {
+          // `signIn` callback returns false for unverified accounts, which
+          // Auth.js reports as 'AccessDenied' (distinct from bad credentials).
+          if (res?.error === 'AccessDenied') {
+            throw {
+              code: 'email-not-verified',
+              message:
+                'Please verify your email address first — check your inbox for the link.',
+            } satisfies AuthError;
+          }
           throw {
             code: 'invalid-credentials',
             message: 'Incorrect email or password.',
@@ -64,11 +73,11 @@ const InnerAuthProvider: React.FC<{ children: React.ReactNode }> = ({
         await update();
       },
 
-      async register(email, password, displayName) {
+      async register(email, password, displayName, inviteCode) {
         const res = await fetch('/api/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, displayName }),
+          body: JSON.stringify({ email, password, displayName, inviteCode }),
         });
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as {
@@ -79,8 +88,8 @@ const InnerAuthProvider: React.FC<{ children: React.ReactNode }> = ({
             message: data.error ?? 'Failed to create account.',
           } satisfies AuthError;
         }
-        await signIn('credentials', { email, password, redirect: false });
-        await update();
+        // No auto sign-in: the account can't sign in until the email is
+        // verified. The form shows a "check your inbox" panel instead.
       },
 
       async logout() {
@@ -96,10 +105,11 @@ const InnerAuthProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       },
 
-      async updateEmail(email) {
+      async updateEmail(email, currentPassword) {
         try {
-          await updateEmailAction(email);
-          await update();
+          await updateEmailAction(email, currentPassword);
+          // The change isn't live yet — it's pending a click on the link sent
+          // to the new address — so there's nothing to refresh here.
         } catch (err) {
           throw toAuthError(err, 'Failed to update email.');
         }

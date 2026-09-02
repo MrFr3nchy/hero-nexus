@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 
 import { requireCampaignRole } from '@/server/campaigns';
 import { createImageHandout } from '@/server/session';
+import { UPLOADS_DIR } from '@/server/uploads';
 
 export const runtime = 'nodejs';
 
@@ -51,7 +52,7 @@ export async function POST(
     );
   }
 
-  const dir = join(process.cwd(), 'data', 'uploads', campaignId);
+  const dir = join(UPLOADS_DIR, campaignId);
   await mkdir(dir, { recursive: true });
   const name = `${randomUUID()}.${ext}`;
   await writeFile(join(dir, name), Buffer.from(await file.arrayBuffer()));

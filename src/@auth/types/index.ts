@@ -21,14 +21,15 @@ export interface AuthContextType {
   register: (
     _email: string,
     _password: string,
-    _displayName?: string
+    _displayName?: string,
+    _inviteCode?: string
   ) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (_data: {
     displayName?: string;
     image?: string;
   }) => Promise<void>;
-  updateEmail: (_email: string) => Promise<void>;
+  updateEmail: (_email: string, _currentPassword: string) => Promise<void>;
   updatePassword: (
     _currentPassword: string,
     _newPassword: string

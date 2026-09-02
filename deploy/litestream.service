@@ -1,0 +1,29 @@
+# /etc/systemd/system/litestream.service
+#
+#   sudo cp deploy/litestream.yml /etc/litestream.yml
+#   sudo cp deploy/litestream.service /etc/systemd/system/
+#   sudo mkdir -p /etc/litestream
+#   # put the bucket credentials in /etc/litestream/litestream.env (chmod 600):
+#   #   LITESTREAM_ACCESS_KEY_ID=...
+#   #   LITESTREAM_SECRET_ACCESS_KEY=...
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now litestream
+#
+# Verify it is replicating:
+#   litestream replicas -config /etc/litestream.yml
+#   litestream snapshots /mnt/hero-nexus-data/hero-nexus.db
+
+[Unit]
+Description=Litestream (SQLite replication)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/litestream/litestream.env
+ExecStart=/usr/bin/litestream replicate -config /etc/litestream.yml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
