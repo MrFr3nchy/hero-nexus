@@ -4,7 +4,7 @@ import { Button, Input, Link } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { DeckledEdge, SectionCard } from '@/@shared/components/ui';
+import { FormSpread, SealedLetterScene } from '@/@shared/components/ui';
 import { useAuth } from '../context';
 import { AuthError } from '../types';
 
@@ -47,71 +47,65 @@ export default function RegisterForm() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg px-4 py-12">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 text-center">
-          <h1 className="font-display text-2xl text-ink">
-            Create your account
-          </h1>
-          <p className="mt-1 text-sm text-ink-muted">
-            Already have one?{' '}
-            <Link href="/login" size="sm" className="text-gold">
-              Sign in
-            </Link>
+    <FormSpread
+      scene={<SealedLetterScene />}
+      title="Pull up a chair"
+      blurb="no email, no accounts elsewhere — a name and a password"
+      footer={
+        <>
+          Already have one?{' '}
+          <Link href="/login" size="sm" className="text-gold">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Input
+          label="Display name"
+          value={displayName}
+          onValueChange={setDisplayName}
+          autoComplete="nickname"
+        />
+        <Input
+          type="email"
+          label="Email"
+          value={email}
+          onValueChange={setEmail}
+          isRequired
+          autoComplete="email"
+        />
+        <Input
+          type="password"
+          label="Password"
+          description="At least 8 characters."
+          value={password}
+          onValueChange={setPassword}
+          isRequired
+          autoComplete="new-password"
+        />
+        <Input
+          type="password"
+          label="Confirm password"
+          value={confirmPassword}
+          onValueChange={setConfirmPassword}
+          isRequired
+          autoComplete="new-password"
+        />
+        {error && (
+          <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {error}
           </p>
-        </div>
-        <div className="relative">
-          <SectionCard>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <Input
-                label="Display name"
-                value={displayName}
-                onValueChange={setDisplayName}
-                autoComplete="nickname"
-              />
-              <Input
-                type="email"
-                label="Email"
-                value={email}
-                onValueChange={setEmail}
-                isRequired
-                autoComplete="email"
-              />
-              <Input
-                type="password"
-                label="Password"
-                description="At least 8 characters."
-                value={password}
-                onValueChange={setPassword}
-                isRequired
-                autoComplete="new-password"
-              />
-              <Input
-                type="password"
-                label="Confirm password"
-                value={confirmPassword}
-                onValueChange={setConfirmPassword}
-                isRequired
-                autoComplete="new-password"
-              />
-              {error && (
-                <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-                  {error}
-                </p>
-              )}
-              <Button
-                type="submit"
-                color="primary"
-                className="w-full"
-                isLoading={loading}
-              >
-                Create account
-              </Button>
-            </form>
-          </SectionCard>
-          <DeckledEdge />
-        </div>
-      </div>
-    </div>
+        )}
+        <Button
+          type="submit"
+          color="primary"
+          className="w-full"
+          isLoading={loading}
+        >
+          Create account
+        </Button>
+      </form>
+    </FormSpread>
   );
 }
