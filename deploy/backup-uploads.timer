@@ -1,0 +1,12 @@
+# /etc/systemd/system/backup-uploads.timer
+
+[Unit]
+Description=Run backup-uploads.service every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

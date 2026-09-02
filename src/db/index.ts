@@ -25,6 +25,10 @@ function createConnection() {
   const sqlite = new Database(DB_PATH);
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
+  // Wait up to 5s for a competing writer instead of throwing SQLITE_BUSY
+  // immediately. A DM plus several players active in one campaign is the normal
+  // case here, and better-sqlite3 is synchronous, so contention is real.
+  sqlite.pragma('busy_timeout = 5000');
   return sqlite;
 }
 
