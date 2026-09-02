@@ -1,6 +1,14 @@
 'use client';
 
-import { Checkbox, Input, Select, SelectItem, Textarea } from '@heroui/react';
+import {
+  Autocomplete,
+  AutocompleteItem,
+  Checkbox,
+  Input,
+  Select,
+  SelectItem,
+  Textarea,
+} from '@heroui/react';
 import { Control, Controller, FieldPath, FieldValues } from 'react-hook-form';
 
 /**
@@ -153,6 +161,65 @@ export function SheetCheckbox<T extends FieldValues>({
 interface SelectOption {
   value: string;
   label: string;
+}
+
+/**
+ * Select-or-type field. The player can pick an SRD option or enter their own
+ * value; a value not present in `options` is reported as custom via
+ * `onResolved`, which the identity section uses to flag homebrew.
+ */
+export function SheetComboBox<T extends FieldValues>({
+  control,
+  name,
+  label,
+  placeholder,
+  description,
+  options,
+  onResolved,
+}: BaseProps<T> & {
+  options: SelectOption[];
+  onResolved?: (value: string, isCustom: boolean) => void;
+}) {
+  return (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field, fieldState }) => {
+        const value = (field.value as string) ?? '';
+        const commit = (next: string) => {
+          field.onChange(next);
+          onResolved?.(
+            next,
+            next.trim().length > 0 &&
+              !options.some(o => o.value.toLowerCase() === next.toLowerCase())
+          );
+        };
+        return (
+          <Autocomplete
+            label={label}
+            placeholder={placeholder ?? 'Pick one or type your own'}
+            description={description}
+            allowsCustomValue
+            defaultItems={options}
+            inputValue={value}
+            selectedKey={options.some(o => o.value === value) ? value : null}
+            onInputChange={commit}
+            onSelectionChange={key => {
+              if (key != null) commit(String(key));
+            }}
+            onBlur={field.onBlur}
+            isInvalid={Boolean(fieldState.error)}
+            errorMessage={fieldState.error?.message}
+            inputProps={{ classNames: inputClassNames }}
+          >
+            {opt => (
+              <AutocompleteItem key={opt.value}>{opt.label}</AutocompleteItem>
+            )}
+          </Autocomplete>
+        );
+      }}
+    />
+  );
 }
 
 export function SheetSelect<T extends FieldValues>({

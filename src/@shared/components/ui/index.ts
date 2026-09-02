@@ -7,4 +7,5 @@ export { Fleuron } from './Fleuron';
 export { Seal } from './Seal';
 export { Ribbon } from './Ribbon';
 export { DiceSpinner } from './DiceSpinner';
+export { DiceRollOverlay } from './DiceRollOverlay';
 export { DeckledEdge } from './DeckledEdge';

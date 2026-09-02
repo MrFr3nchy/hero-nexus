@@ -48,6 +48,15 @@ function CharacterGrid({
                 {c.background}
               </Chip>
             )}
+            {c.hasHomebrew && (
+              <Chip
+                size="sm"
+                variant="flat"
+                className="border border-arcane/40 bg-arcane/10 text-arcane"
+              >
+                Homebrew
+              </Chip>
+            )}
             <Chip size="sm" variant="flat" className="bg-surface-2">
               Updated {formatDate(c.updatedAt)}
             </Chip>

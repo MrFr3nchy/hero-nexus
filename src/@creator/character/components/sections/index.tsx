@@ -2,12 +2,13 @@
 
 import { Control, useWatch } from 'react-hook-form';
 
-import { SectionCard, StatBlock } from '@/@shared/components/ui';
+import { SectionCard } from '@/@shared/components/ui';
 
 import {
   ABILITY_KEYS,
   ABILITY_LABELS,
   type CharacterSheet,
+  type HomebrewKind,
   SKILL_ABILITY,
   SKILL_KEYS,
   SKILL_LABELS,
@@ -24,16 +25,29 @@ import {
 } from '../../lib/derive';
 import {
   SheetCheckbox,
+  SheetComboBox,
   SheetNumber,
   SheetSelect,
   SheetText,
   SheetTextarea,
 } from '../fields';
 
+export { AbilityScoresSection } from './AbilityScoresSection';
+export { HomebrewSection } from './HomebrewSection';
+export { ChangeLogSection } from './ChangeLogSection';
+
 export interface SelectOption {
   value: string;
   label: string;
 }
+
+/** Called when an identity field is picked or typed; `isCustom` = not in SRD. */
+export type CustomFieldHandler = (
+  field: string,
+  kind: HomebrewKind,
+  value: string,
+  isCustom: boolean
+) => void;
 
 export interface ReferenceOptions {
   classes: SelectOption[];
@@ -80,9 +94,11 @@ function Derived({ label, value }: { label: string; value: string | number }) {
 export function IdentitySection({
   control,
   reference,
+  onCustomField,
 }: {
   control: C;
   reference: ReferenceOptions;
+  onCustomField: CustomFieldHandler;
 }) {
   return (
     <Section title="Identity">
@@ -92,41 +108,42 @@ export function IdentitySection({
         label="Character Name"
       />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <SheetSelect
+        <SheetComboBox
           control={control}
           name="identity.class"
           label="Class"
-          placeholder="Choose a class"
-          allowEmpty
           options={reference.classes}
+          onResolved={(v, custom) =>
+            onCustomField('identity.class', 'class', v, custom)
+          }
         />
         <SheetText
           control={control}
           name="identity.subclass"
           label="Subclass"
         />
-        <SheetSelect
+        <SheetComboBox
           control={control}
           name="identity.species"
           label="Species"
-          placeholder="Choose a species"
-          allowEmpty
           options={reference.species}
+          onResolved={(v, custom) =>
+            onCustomField('identity.species', 'species', v, custom)
+          }
         />
-        <SheetSelect
+        <SheetComboBox
           control={control}
           name="identity.background"
           label="Background"
-          placeholder="Choose a background"
-          allowEmpty
           options={reference.backgrounds}
+          onResolved={(v, custom) =>
+            onCustomField('identity.background', 'background', v, custom)
+          }
         />
-        <SheetSelect
+        <SheetComboBox
           control={control}
           name="identity.alignment"
           label="Alignment"
-          placeholder="Choose an alignment"
-          allowEmpty
           options={reference.alignments}
         />
         <SheetText control={control} name="identity.size" label="Size" />
@@ -139,48 +156,10 @@ export function IdentitySection({
         />
         <SheetNumber control={control} name="identity.xp" label="XP" min={0} />
       </div>
-    </Section>
-  );
-}
-
-export function AbilityScoresSection({ control }: { control: C }) {
-  const sheet = useWatch({ control }) as CharacterSheet;
-  const level = sheet?.identity?.level ?? 1;
-  const pb = proficiencyBonus(level);
-
-  return (
-    <Section title="Ability Scores">
-      <div className="space-y-4">
-        {ABILITY_KEYS.map(ability => {
-          const score = sheet?.abilities?.[ability]?.score ?? 10;
-          const mod = abilityModifier(score);
-          const proficient =
-            sheet?.abilities?.[ability]?.proficientSave ?? false;
-          const save = proficient ? mod + pb : mod;
-          return (
-            <StatBlock key={ability} label={ability.slice(0, 3)}>
-              <div className="grid grid-cols-3 items-end gap-3">
-                <SheetNumber
-                  control={control}
-                  name={`abilities.${ability}.score`}
-                  label="Score"
-                  min={1}
-                  max={30}
-                />
-                <Derived label="Modifier" value={fmtBonus(mod)} />
-                <Derived label="Save" value={fmtBonus(save)} />
-              </div>
-              <div className="mt-3">
-                <SheetCheckbox
-                  control={control}
-                  name={`abilities.${ability}.proficientSave`}
-                  label={`${ABILITY_LABELS[ability]} save proficiency`}
-                />
-              </div>
-            </StatBlock>
-          );
-        })}
-      </div>
+      <p className="text-xs text-ink-subtle">
+        Not on the list? Type your own — the character is flagged as homebrew
+        and you can describe it below.
+      </p>
     </Section>
   );
 }

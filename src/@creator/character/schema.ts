@@ -132,8 +132,93 @@ const spellSlot = z.object({
   expended: z.number().int().min(0).max(9),
 });
 
+/* ------------------------------------------------------------------ *
+ * Custom / homebrew content + provenance
+ * ------------------------------------------------------------------ */
+
+export const HOMEBREW_KINDS = [
+  'species',
+  'class',
+  'subclass',
+  'background',
+  'feat',
+  'other',
+] as const;
+export type HomebrewKind = (typeof HOMEBREW_KINDS)[number];
+
+export const HOMEBREW_KIND_LABELS: Record<HomebrewKind, string> = {
+  species: 'Species',
+  class: 'Class',
+  subclass: 'Subclass',
+  background: 'Background',
+  feat: 'Feat',
+  other: 'Other',
+};
+
+const homebrewTrait = z.object({
+  name: z.string().trim().min(1, 'Trait needs a name').max(120),
+  description: z.string().trim().max(2000).default(''),
+  mechanic: z.string().trim().max(400).default(''),
+});
+
+const homebrewEntry = z.object({
+  /** client-stable id; used to dedupe on the server and reconcile homebrew rows */
+  id: z.string().min(1).max(64),
+  kind: z.enum(HOMEBREW_KINDS),
+  name: z.string().trim().min(1, 'Custom entry needs a name').max(120),
+  /** dot-path of the identity field this backs, e.g. `identity.species` */
+  field: z.string().max(60).default(''),
+  traits: z.array(homebrewTrait).default([]),
+});
+export type HomebrewEntry = z.infer<typeof homebrewEntry>;
+export type HomebrewTrait = z.infer<typeof homebrewTrait>;
+
+export const PROVENANCE_KINDS = [
+  'field',
+  'stat-manual',
+  'stat-roll',
+  'stat-pointbuy',
+  'stat-standard',
+  'method',
+  'homebrew',
+] as const;
+export type ProvenanceKind = (typeof PROVENANCE_KINDS)[number];
+
+const provenanceEntry = z.object({
+  id: z.string().min(1).max(64),
+  at: z.string().min(1).max(40),
+  kind: z.enum(PROVENANCE_KINDS),
+  label: z.string().max(160).default(''),
+  detail: z.string().max(1200).default(''),
+  rolls: z.array(z.number().int()).optional(),
+});
+export type ProvenanceEntry = z.infer<typeof provenanceEntry>;
+
+export const ABILITY_METHODS = [
+  'manual',
+  'pointbuy',
+  'standard',
+  'roll',
+] as const;
+export type AbilityMethod = (typeof ABILITY_METHODS)[number];
+
 export const characterSheetSchema = z.object({
   rpgSystem: z.literal('dnd5e2024').default('dnd5e2024'),
+
+  generation: z
+    .object({
+      abilityMethod: z.enum(ABILITY_METHODS).default('manual'),
+    })
+    .default({ abilityMethod: 'manual' }),
+
+  homebrew: z
+    .object({
+      isHomebrew: z.boolean().default(false),
+      entries: z.array(homebrewEntry).default([]),
+    })
+    .default({ isHomebrew: false, entries: [] }),
+
+  provenance: z.array(provenanceEntry).max(1000).default([]),
 
   identity: z.object({
     name: z.string().trim().min(1, 'Name is required').max(120),
@@ -232,6 +317,9 @@ const emptySlot = { total: 0, expended: 0 };
 export function makeEmptySheet(): CharacterSheet {
   return {
     rpgSystem: 'dnd5e2024',
+    generation: { abilityMethod: 'manual' },
+    homebrew: { isHomebrew: false, entries: [] },
+    provenance: [],
     identity: {
       name: '',
       class: '',
