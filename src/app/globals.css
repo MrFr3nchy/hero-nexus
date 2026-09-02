@@ -181,9 +181,31 @@ h4 {
   }
 }
 
+/* The one allowed moving element inside an EmptyState scene (design rule 7). */
+@keyframes candle-flicker {
+  0%,
+  100% {
+    transform: scale(1, 1) translateX(0);
+    opacity: 1;
+  }
+  30% {
+    transform: scale(0.92, 1.06) translateX(-0.6px);
+    opacity: 0.88;
+  }
+  55% {
+    transform: scale(1.05, 0.96) translateX(0.7px);
+    opacity: 1;
+  }
+  75% {
+    transform: scale(0.96, 1.03) translateX(-0.3px);
+    opacity: 0.92;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fleuron-rule,
-  .d20-spin {
+  .d20-spin,
+  .candle-flame {
     animation: none !important;
   }
 }

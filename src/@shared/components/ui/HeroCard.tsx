@@ -14,6 +14,11 @@ interface HeroCardProps {
   /** Optional scrawled aside, rendered in the margin voice. Never load-bearing. */
   note?: ReactNode;
   href?: string;
+  /**
+   * `row` — a wide list row (roster, campaign member list).
+   * `stack` — the ~12rem portrait-on-top party card (dashboard, card grids).
+   */
+  layout?: 'row' | 'stack';
   className?: string;
 }
 
@@ -47,6 +52,24 @@ function hpColor(current: number, max: number): string {
   return 'var(--danger)';
 }
 
+function HpTrack({ hp }: { hp: { current: number; max: number } }) {
+  const pct =
+    Math.max(0, Math.min(1, hp.max > 0 ? hp.current / hp.max : 0)) * 100;
+  return (
+    <div className="mt-2.5">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+        <span
+          className="block h-full rounded-full"
+          style={{ width: `${pct}%`, background: hpColor(hp.current, hp.max) }}
+        />
+      </div>
+      <p className="mt-1 text-[0.7rem] tabular-nums text-ink-subtle">
+        {hp.current} / {hp.max} HP
+      </p>
+    </div>
+  );
+}
+
 /**
  * The party card (design rule 1: the object is the hero). A working fragment of
  * a character, not a description of one. Used on the dashboard, the roster, and
@@ -61,10 +84,54 @@ export function HeroCard({
   portrait,
   note,
   href,
+  layout = 'row',
   className,
 }: HeroCardProps) {
   const spineColor = spine[charClass?.toLowerCase() ?? ''] ?? 'var(--gold)';
   const Wrapper = href ? 'a' : 'div';
+  const sub = [charClass, species].filter(Boolean).join(' · ') || '—';
+
+  if (layout === 'stack') {
+    return (
+      <Wrapper
+        {...(href ? { href } : {})}
+        className={`relative flex h-full flex-col overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface pb-3 [box-shadow:var(--shadow-card)] ${
+          href ? 'transition-colors hover:border-gold/40' : ''
+        } ${className ?? ''}`}
+      >
+        <span
+          aria-hidden="true"
+          className="h-1 w-full"
+          style={{ background: spineColor }}
+        />
+        <div className="relative mx-3 mt-3 flex h-28 items-center justify-center overflow-hidden rounded-sm border border-line bg-surface-2">
+          {portrait ?? (
+            <span
+              aria-hidden="true"
+              className="font-display-alt text-2xl text-ink-subtle"
+            >
+              {initials(name)}
+            </span>
+          )}
+          <span className="absolute right-1.5 top-1.5 rounded-sm bg-gold px-1.5 font-display-alt text-[0.7rem] text-bg">
+            {level}
+          </span>
+        </div>
+        <div className="px-3.5 pt-3">
+          <h3 className="truncate font-display text-lg leading-tight text-ink">
+            {name}
+          </h3>
+          <p className="mt-0.5 text-xs text-ink-subtle">{sub}</p>
+          {hp && <HpTrack hp={hp} />}
+        </div>
+        {note && (
+          <div className="mt-2 px-3.5">
+            <Marginalia>{note}</Marginalia>
+          </div>
+        )}
+      </Wrapper>
+    );
+  }
 
   return (
     <Wrapper
@@ -93,27 +160,8 @@ export function HeroCard({
             Lv {level}
           </span>
         </div>
-        <p className="mt-0.5 text-sm text-ink-muted">
-          {[charClass, species].filter(Boolean).join(' · ') || '—'}
-        </p>
-
-        {hp && (
-          <div className="mt-2.5">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
-              <span
-                className="block h-full rounded-full"
-                style={{
-                  width: `${Math.max(0, Math.min(1, hp.max > 0 ? hp.current / hp.max : 0)) * 100}%`,
-                  background: hpColor(hp.current, hp.max),
-                }}
-              />
-            </div>
-            <p className="mt-1 text-[0.7rem] tabular-nums text-ink-subtle">
-              {hp.current} / {hp.max} HP
-            </p>
-          </div>
-        )}
-
+        <p className="mt-0.5 text-sm text-ink-muted">{sub}</p>
+        {hp && <HpTrack hp={hp} />}
         {note && (
           <div className="mt-2">
             <Marginalia dash>{note}</Marginalia>
