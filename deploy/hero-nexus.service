@@ -1,0 +1,38 @@
+# /etc/systemd/system/hero-nexus.service
+#
+#   sudo cp deploy/hero-nexus.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now hero-nexus
+#
+# Migrations run on boot (src/instrumentation.ts) and THROW on failure, taking
+# the process down on purpose. The restart cap below stops a bad migration from
+# crash-looping in silence — after 3 failures in 5 min the unit stays "failed"
+# and `systemctl status hero-nexus` / `journalctl -u hero-nexus` shows why.
+
+[Unit]
+Description=Hero Nexus (Next.js)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hero
+Group=hero
+WorkingDirectory=/opt/hero-nexus
+EnvironmentFile=/opt/hero-nexus/.env.local
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Writable paths: the app bundle (Next cache) and the data volume.
+ReadWritePaths=/opt/hero-nexus /mnt/hero-nexus-data
+
+[Install]
+WantedBy=multi-user.target
