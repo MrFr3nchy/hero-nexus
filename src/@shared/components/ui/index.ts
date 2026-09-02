@@ -10,3 +10,7 @@ export { DiceSpinner } from './DiceSpinner';
 export { Dice3DRoller } from './Dice3DRoller';
 export type { RollRequest } from './Dice3DRoller';
 export { DeckledEdge } from './DeckledEdge';
+export { Marginalia } from './Marginalia';
+export { Ledger } from './Ledger';
+export { HeroCard } from './HeroCard';
+export { SheetPreview, abilityMod } from './SheetPreview';

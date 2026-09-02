@@ -9,8 +9,8 @@ interface PageHeaderProps {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
-  /** Small kicker line above the title (e.g. section name). */
-  eyebrow?: ReactNode;
+  /** Show the fleuron rule below the header. Off for pages that lead with an object. */
+  rule?: boolean;
   className?: string;
 }
 
@@ -18,18 +18,13 @@ export function PageHeader({
   title,
   description,
   actions,
-  eyebrow,
+  rule = true,
   className,
 }: PageHeaderProps) {
   return (
     <header className={`mb-8 ${className ?? ''}`}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <Reveal>
-          {eyebrow && (
-            <p className="mb-1.5 font-display-alt text-[0.7rem] uppercase tracking-[0.2em] text-gold">
-              {eyebrow}
-            </p>
-          )}
           <h1 className="font-display-alt text-2xl text-ink sm:text-3xl">
             {title}
           </h1>
@@ -43,9 +38,11 @@ export function PageHeader({
           </Reveal>
         )}
       </div>
-      <div className="mt-5">
-        <Fleuron />
-      </div>
+      {rule && (
+        <div className="mt-5">
+          <Fleuron />
+        </div>
+      )}
     </header>
   );
 }

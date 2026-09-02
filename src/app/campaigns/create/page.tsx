@@ -7,7 +7,6 @@ export default function CreateCampaignPage() {
     <ProtectedRoute>
       <PageShell>
         <PageHeader
-          eyebrow="New campaign"
           title="Start a campaign"
           description="Set it up, then share the join code with your players."
         />

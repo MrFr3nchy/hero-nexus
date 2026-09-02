@@ -4,7 +4,6 @@ export default function AboutPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="About"
         title="Hero Nexus"
         description="A campaign organiser you run yourself."
       />

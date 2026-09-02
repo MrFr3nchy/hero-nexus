@@ -28,7 +28,6 @@ export default function CreatorHubPage() {
     <ProtectedRoute>
       <PageShell width="wide">
         <PageHeader
-          eyebrow="Creator"
           title="Make something"
           description="Forge a new hero, or design homebrew content for your table."
         />

@@ -17,7 +17,6 @@ export default async function ClassesPage() {
   return (
     <PageShell width="wide">
       <PageHeader
-        eyebrow="Compendium"
         title="Classes"
         description="The SRD 5.2 base classes, synced from Open5e."
       />

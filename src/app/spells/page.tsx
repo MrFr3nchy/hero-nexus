@@ -15,7 +15,6 @@ export default async function SpellsPage() {
   return (
     <PageShell width="wide">
       <PageHeader
-        eyebrow="Compendium"
         title="Spells"
         description={`${entries.length} spells from the SRD, synced from Open5e.`}
       />

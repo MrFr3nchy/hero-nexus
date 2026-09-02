@@ -35,7 +35,6 @@ export default function FAQPage() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Help"
         title="Frequently asked questions"
         description="The short version of how Hero Nexus works."
       />
