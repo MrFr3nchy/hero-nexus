@@ -5,7 +5,10 @@ import { type ReactNode } from 'react';
 import { Float } from '../motion';
 
 interface EmptyStateProps {
+  /** Small glyph — bobs gently in a Float. Keep it to an emoji or tiny icon. */
   icon?: ReactNode;
+  /** Scene-scale illustration — rendered still (no Float). Overrides `icon`. */
+  scene?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
@@ -13,6 +16,7 @@ interface EmptyStateProps {
 
 export function EmptyState({
   icon,
+  scene,
   title,
   description,
   action,
@@ -39,7 +43,11 @@ export function EmptyState({
         />
       </svg>
 
-      {icon && <Float className="mb-3 text-3xl opacity-80">{icon}</Float>}
+      {scene ? (
+        <div className="mb-4 flex justify-center">{scene}</div>
+      ) : (
+        icon && <Float className="mb-3 text-3xl opacity-80">{icon}</Float>
+      )}
       <h3 className="font-display-alt text-base text-ink">{title}</h3>
       {description && (
         <p className="mx-auto mt-1.5 max-w-sm text-sm text-ink-muted">
