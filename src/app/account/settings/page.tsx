@@ -3,11 +3,18 @@
 import { useAuth } from '@/@auth/context';
 import { AuthError } from '@/@auth/types';
 import { Button, Card, CardBody, CardHeader, Input } from '@heroui/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+const EMAIL_NOTICES: Record<string, string> = {
+  email_changed: 'Email address confirmed and updated.',
+  email_error: 'That confirmation link is invalid or has expired.',
+  email_taken: 'That address was claimed by another account in the meantime.',
+};
 
 export default function SettingsPage() {
   const { currentUser, updateEmail, updatePassword } = useAuth();
   const [email, setEmail] = useState('');
+  const [emailPassword, setEmailPassword] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -16,6 +23,17 @@ export default function SettingsPage() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'email' | 'password'>('email');
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    for (const key of Object.keys(EMAIL_NOTICES)) {
+      if (params.has(key)) {
+        if (key === 'email_changed') setMessage(EMAIL_NOTICES[key]);
+        else setError(EMAIL_NOTICES[key]);
+        break;
+      }
+    }
+  }, []);
+
   const handleEmailUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -23,9 +41,12 @@ export default function SettingsPage() {
     setLoading(true);
 
     try {
-      await updateEmail(email);
-      setMessage('Email updated successfully!');
+      await updateEmail(email, emailPassword);
+      setMessage(
+        'Almost done — click the confirmation link we sent to the new address.'
+      );
       setEmail('');
+      setEmailPassword('');
     } catch (error: unknown) {
       const authError = error as AuthError;
       setError(
@@ -145,6 +166,20 @@ export default function SettingsPage() {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   required
+                  classNames={{
+                    input: 'text-ink',
+                    inputWrapper: 'bg-surface-2 border-line',
+                    label: 'text-ink-muted',
+                  }}
+                />
+                <Input
+                  type="password"
+                  label="Current Password"
+                  placeholder="Confirm it's you"
+                  value={emailPassword}
+                  onChange={e => setEmailPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
                   classNames={{
                     input: 'text-ink',
                     inputWrapper: 'bg-surface-2 border-line',

@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { authConfig } from './auth.config';
 import { db } from './db';
 import { accounts, sessions, users, verificationTokens } from './db/schema';
+import { isRateLimited, LIMITS, rateLimit } from './server/rate-limit';
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -29,7 +30,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     sessionsTable: sessions,
     verificationTokensTable: verificationTokens,
   }),
-  session: { strategy: 'jwt' },
+  // JWT sessions cannot be revoked server-side. Keep the lifetime short so a
+  // password change (or a leaked token) has a bounded blast radius. See
+  // `docs/ops/security-decisions.md`.
+  session: { strategy: 'jwt', maxAge: 3 * 24 * 60 * 60 },
+  callbacks: {
+    ...authConfig.callbacks,
+    async signIn({ user }) {
+      // Credentials is the only provider. Block accounts that haven't confirmed
+      // their email. Surfaces to the client as `error: 'AccessDenied'`, which
+      // the login form turns into a "resend verification" prompt.
+      if (!user?.id) return false;
+      const row = await db.query.users.findFirst({
+        where: eq(users.id, user.id),
+      });
+      return Boolean(row?.emailVerified);
+    },
+  },
   providers: [
     Credentials({
       credentials: { email: {}, password: {} },
@@ -37,14 +54,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const parsed = credentialsSchema.safeParse(raw);
         if (!parsed.success) return null;
 
-        const { email, password } = parsed.data;
-        const user = await db.query.users.findFirst({
-          where: eq(users.email, email.toLowerCase()),
-        });
-        if (!user?.passwordHash) return null;
+        const email = parsed.data.email.toLowerCase();
 
-        const ok = await verify(user.passwordHash, password);
-        if (!ok) return null;
+        // Throttle password guessing per account. Argon2 is a speed bump, not a
+        // lockout policy.
+        if (isRateLimited(`login:${email}`, ...LIMITS.login)) return null;
+
+        const user = await db.query.users.findFirst({
+          where: eq(users.email, email),
+        });
+
+        const ok =
+          user?.passwordHash &&
+          (await verify(user.passwordHash, parsed.data.password));
+
+        if (!ok) {
+          rateLimit(`login:${email}`, ...LIMITS.login);
+          return null;
+        }
 
         return {
           id: user.id,
