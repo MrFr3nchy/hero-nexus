@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
-import { auth } from '@/auth';
+import { requireUserId } from './session-user';
 import { db } from '@/db';
 import {
   campaignInvites,
@@ -109,13 +109,6 @@ export interface CampaignInput {
   settings?: Partial<Omit<CampaignSettings, 'rules'>> & {
     rules?: Partial<CampaignRules>;
   };
-}
-
-async function requireUserId(): Promise<string> {
-  const session = await auth();
-  const id = session?.user?.id;
-  if (!id) throw new Error('NOT_AUTHENTICATED');
-  return id;
 }
 
 const JOIN_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';

@@ -24,6 +24,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
   const code = err instanceof Error ? err.message : '';
   const messages: Record<string, string> = {
     NOT_AUTHENTICATED: 'You are not signed in.',
+    SESSION_STALE: 'Your session is out of date. Sign in again.',
     NOT_FOUND: 'That downtime item no longer exists.',
     FORBIDDEN: 'You do not have permission to do that.',
     PERIOD_CLOSED: 'This downtime window is closed.',
@@ -34,6 +35,9 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_YOUR_ACTION: 'That is not your downtime action.',
     ALREADY_RESOLVED: 'The DM has already responded to this one.',
   };
+  // Unmapped errors reach the client as a generic sentence, which makes them
+  // invisible in a bug report. Keep the real one in the server log.
+  if (!messages[code]) console.error('[action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
 }
 

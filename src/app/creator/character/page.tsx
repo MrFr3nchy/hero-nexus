@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getCharacterAction } from '@/@creator/character/actions';
 import { CharacterForm } from '@/@creator/character/components';
 import { loadReferenceOptions } from '@/@creator/character/lib/reference-options';
+import { loadBuildCatalog } from '@/@creator/character/lib/srd/catalog';
 import { getCampaignAction } from '@/@creator/campaign/actions';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import { PageHeader, PageShell } from '@/@shared/components/ui';
@@ -15,7 +16,10 @@ export default async function CharacterCreationPage({
   searchParams,
 }: PageProps) {
   const { id, campaign: campaignId } = await searchParams;
-  const reference = await loadReferenceOptions();
+  const [reference, catalog] = await Promise.all([
+    loadReferenceOptions(),
+    loadBuildCatalog(),
+  ]);
 
   const existing = id ? await getCharacterAction(id) : null;
   if (id && !existing) notFound();
@@ -34,11 +38,12 @@ export default async function CharacterCreationPage({
           description={
             existing
               ? 'Update the sheet and save your changes.'
-              : 'Fill in the D&D 5e (2024) sheet. Modifiers and DCs are worked out for you.'
+              : 'Nine steps. Everything your class, species and background grant is filled in as you choose it.'
           }
         />
         <CharacterForm
           reference={reference}
+          catalog={catalog}
           characterId={existing?.id}
           initialSheet={existing?.sheet}
           campaignRules={campaign?.settings.rules}

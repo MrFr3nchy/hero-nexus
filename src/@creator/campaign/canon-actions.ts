@@ -25,11 +25,15 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
   const code = err instanceof Error ? err.message : '';
   const messages: Record<string, string> = {
     NOT_AUTHENTICATED: 'You are not signed in.',
+    SESSION_STALE: 'Your session is out of date. Sign in again.',
     NOT_FOUND: 'That canon entry no longer exists.',
     FORBIDDEN: 'Only the DM can edit canon.',
     NOT_A_MEMBER: 'That person is not in this campaign.',
     CANNOT_LINK_SELF: 'An entry cannot link to itself.',
   };
+  // Unmapped errors reach the client as a generic sentence, which makes them
+  // invisible in a bug report. Keep the real one in the server log.
+  if (!messages[code]) console.error('[action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
 }
 

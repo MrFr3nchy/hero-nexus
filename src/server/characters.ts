@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
 
-import { auth } from '@/auth';
+import { requireUserId } from './session-user';
 import { db } from '@/db';
 import {
   campaignMembers,
@@ -67,13 +67,6 @@ export interface CharacterAudit {
 
 export interface CharacterWithSheet extends CharacterRow {
   sheet: CharacterSheet;
-}
-
-async function requireUserId(): Promise<string> {
-  const session = await auth();
-  const id = session?.user?.id;
-  if (!id) throw new Error('NOT_AUTHENTICATED');
-  return id;
 }
 
 const listColumns = {

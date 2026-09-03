@@ -2,7 +2,7 @@ import 'server-only';
 
 import { desc, eq, inArray } from 'drizzle-orm';
 
-import { auth } from '@/auth';
+import { requireUserId } from './session-user';
 import { db } from '@/db';
 import {
   characterHistory,
@@ -29,14 +29,6 @@ export {
   type DowntimePeriodRow,
   type DowntimePeriodStatus,
 } from '@/@creator/campaign/lib/downtime';
-
-/** Signed-in user id. Author-only mutations gate on "signed in AND owns row". */
-async function currentUserId(): Promise<string> {
-  const session = await auth();
-  const id = session?.user?.id;
-  if (!id) throw new Error('NOT_AUTHENTICATED');
-  return id;
-}
 
 /** Resolve an action's campaign and assert the caller is staff there. */
 async function staffForAction(actionId: string): Promise<{
@@ -253,7 +245,7 @@ export async function updateDowntimeAction(
   actionId: string,
   input: Partial<DowntimeActionInput>
 ): Promise<void> {
-  const userId = await currentUserId();
+  const userId = await requireUserId();
   const action = await db.query.downtimeActions.findFirst({
     where: eq(downtimeActions.id, actionId),
   });
@@ -291,7 +283,7 @@ export async function updateDowntimeAction(
 }
 
 export async function withdrawDowntimeAction(actionId: string): Promise<void> {
-  const userId = await currentUserId();
+  const userId = await requireUserId();
   const action = await db.query.downtimeActions.findFirst({
     where: eq(downtimeActions.id, actionId),
   });

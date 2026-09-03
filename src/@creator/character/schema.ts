@@ -202,6 +202,142 @@ export const ABILITY_METHODS = [
 ] as const;
 export type AbilityMethod = (typeof ABILITY_METHODS)[number];
 
+/* ------------------------------------------------------------------ *
+ * Guided build — the choices the wizard makes, kept separately from the
+ * sheet values they produce.
+ *
+ * The sheet stays the source of truth for what a character *is*; `build`
+ * records how the player got there, so changing class or level can recompute
+ * the derived fields (`lib/compose`) instead of leaving stale text behind.
+ * A sheet written before the wizard existed simply has an empty build and
+ * stays fully editable by hand.
+ * ------------------------------------------------------------------ */
+
+export const HP_MODES = ['average', 'roll', 'manual'] as const;
+export type HpMode = (typeof HP_MODES)[number];
+
+/** An Ability Score Improvement taken as +2/+1+1, or traded for a feat. */
+const asiChoice = z.object({
+  mode: z.enum(['ability', 'feat']).default('ability'),
+  /** '' until chosen; otherwise an AbilityKey. */
+  plusTwo: z.string().max(20).default(''),
+  plusOnes: z.array(z.string().max(20)).max(2).default([]),
+  featKey: z.string().max(80).default(''),
+  featName: z.string().max(120).default(''),
+});
+export type AsiChoice = z.infer<typeof asiChoice>;
+
+/** One row of the level-up log: what this level cost and what it granted. */
+const levelEntry = z.object({
+  level: z.number().int().min(1).max(20),
+  hpMode: z.enum(HP_MODES).default('average'),
+  /** Hit points gained before the Constitution modifier. */
+  hpGain: z.number().int().min(0).max(30).default(0),
+  /** Raw hit-die result when `hpMode` is 'roll'. */
+  hpRoll: z.number().int().min(0).max(12).default(0),
+  subclassKey: z.string().max(80).default(''),
+  subclassName: z.string().max(120).default(''),
+  asi: asiChoice.optional(),
+  note: z.string().trim().max(400).default(''),
+});
+export type LevelEntry = z.infer<typeof levelEntry>;
+
+const traitChoice = z.object({
+  trait: z.string().max(120),
+  option: z.string().max(160),
+  detail: z.string().max(600).default(''),
+});
+
+export const buildSchema = z
+  .object({
+    /** 'guided' = the wizard owns the derived fields; 'manual' = hands off. */
+    mode: z.enum(['guided', 'manual']).default('manual'),
+
+    classKey: z.string().max(80).default(''),
+    className: z.string().max(120).default(''),
+    subclassKey: z.string().max(80).default(''),
+    subclassName: z.string().max(120).default(''),
+    speciesKey: z.string().max(80).default(''),
+    speciesName: z.string().max(120).default(''),
+    backgroundKey: z.string().max(80).default(''),
+    backgroundName: z.string().max(120).default(''),
+
+    /** Scores before background increases and ASIs. */
+    baseAbilities: z
+      .object({
+        strength: z.number().int().min(1).max(30).default(10),
+        dexterity: z.number().int().min(1).max(30).default(10),
+        constitution: z.number().int().min(1).max(30).default(10),
+        intelligence: z.number().int().min(1).max(30).default(10),
+        wisdom: z.number().int().min(1).max(30).default(10),
+        charisma: z.number().int().min(1).max(30).default(10),
+      })
+      .default({
+        strength: 10,
+        dexterity: 10,
+        constitution: 10,
+        intelligence: 10,
+        wisdom: 10,
+        charisma: 10,
+      }),
+
+    /** The 2024 background ability increase: +2/+1 or +1/+1/+1. */
+    backgroundBoost: z
+      .object({
+        mode: z.enum(['two-one', 'three']).default('two-one'),
+        plusTwo: z.string().max(20).default(''),
+        plusOnes: z.array(z.string().max(20)).max(3).default([]),
+      })
+      .default({ mode: 'two-one', plusTwo: '', plusOnes: [] }),
+
+    /** Skill keys picked from the class list. */
+    classSkills: z.array(z.string().max(30)).max(8).default([]),
+    /** Free skill picks a species grants (Elf Keen Senses, Human Skillful). */
+    bonusSkills: z.array(z.string().max(30)).max(4).default([]),
+    /** Lineage / ancestry / legacy picks made inside species traits. */
+    speciesChoices: z.array(traitChoice).max(12).default([]),
+
+    equipment: z
+      .object({
+        classOption: z.string().max(2).default(''),
+        backgroundOption: z.string().max(2).default(''),
+      })
+      .default({ classOption: '', backgroundOption: '' }),
+
+    levels: z.array(levelEntry).max(20).default([]),
+
+    /** Dot-paths the player edited by hand; recompute leaves these alone. */
+    overrides: z.array(z.string().max(60)).max(60).default([]),
+  })
+  .default({
+    mode: 'manual',
+    classKey: '',
+    className: '',
+    subclassKey: '',
+    subclassName: '',
+    speciesKey: '',
+    speciesName: '',
+    backgroundKey: '',
+    backgroundName: '',
+    baseAbilities: {
+      strength: 10,
+      dexterity: 10,
+      constitution: 10,
+      intelligence: 10,
+      wisdom: 10,
+      charisma: 10,
+    },
+    backgroundBoost: { mode: 'two-one', plusTwo: '', plusOnes: [] },
+    classSkills: [],
+    bonusSkills: [],
+    speciesChoices: [],
+    equipment: { classOption: '', backgroundOption: '' },
+    levels: [],
+    overrides: [],
+  });
+
+export type CharacterBuild = z.infer<typeof buildSchema>;
+
 export const characterSheetSchema = z.object({
   rpgSystem: z.literal('dnd5e2024').default('dnd5e2024'),
 
@@ -220,6 +356,8 @@ export const characterSheetSchema = z.object({
     .default({ isHomebrew: false, entries: [] }),
 
   provenance: z.array(provenanceEntry).max(1000).default([]),
+
+  build: buildSchema,
 
   identity: z.object({
     name: z.string().trim().min(1, 'Name is required').max(120),
@@ -310,6 +448,11 @@ export type SpellSlotLevel = keyof CharacterSheet['spellcasting']['slots'];
 
 const emptySlot = { total: 0, expended: 0 };
 
+/** A blank guided-build record; every field is inert until the wizard runs. */
+export function makeEmptyBuild(): CharacterBuild {
+  return buildSchema.parse(undefined);
+}
+
 /**
  * Default values for a brand-new character. Deliberately NOT run through
  * `characterSheetSchema.parse()` — the schema requires a non-empty name,
@@ -321,6 +464,7 @@ export function makeEmptySheet(): CharacterSheet {
     generation: { abilityMethod: 'manual', rollMode: '3d6' },
     homebrew: { isHomebrew: false, entries: [] },
     provenance: [],
+    build: makeEmptyBuild(),
     identity: {
       name: '',
       class: '',
