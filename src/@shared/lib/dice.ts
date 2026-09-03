@@ -15,72 +15,73 @@ export const ROLL_MODES: { key: RollMode; label: string; hint: string }[] = [
   },
 ];
 
-export interface AbilityRoll {
-  mode: RollMode;
+/** One handful of dice: `count`d`sides`, optionally keeping the best few. */
+export interface RollSpec {
+  sides: number;
+  count: number;
+  /** Keep only the highest N dice; omit to keep them all. */
+  keepHighest?: number;
+}
+
+export interface RollResult {
+  spec: RollSpec;
   /** every die rolled, in roll order */
   dice: number[];
   /** indexes into `dice` that count toward the total */
   keptIndexes: number[];
-  /** indexes into `dice` that were dropped (empty for 3d6) */
+  /** indexes into `dice` that were dropped */
   droppedIndexes: number[];
   total: number;
+}
+
+export interface AbilityRoll extends RollResult {
+  mode: RollMode;
 }
 
 export function rollDie(sides = 6): number {
   return 1 + Math.floor(Math.random() * sides);
 }
 
+/** Fold already-rolled values into a {@link RollResult} for the spec. */
+export function tallyRoll(spec: RollSpec, dice: number[]): RollResult {
+  const drop = Math.max(0, dice.length - (spec.keepHighest ?? dice.length));
+  const order = dice
+    .map((value, index) => ({ value, index }))
+    .sort((a, b) => a.value - b.value || a.index - b.index);
+  const droppedIndexes = order.slice(0, drop).map(d => d.index).sort((a, b) => a - b);
+  const dropped = new Set(droppedIndexes);
+  return {
+    spec,
+    dice,
+    keptIndexes: dice.map((_, i) => i).filter(i => !dropped.has(i)),
+    droppedIndexes,
+    total: dice.reduce((sum, v, i) => (dropped.has(i) ? sum : sum + v), 0),
+  };
+}
+
+/** Roll a handful of dice. */
+export function rollGroup(spec: RollSpec): RollResult {
+  return tallyRoll(
+    spec,
+    Array.from({ length: spec.count }, () => rollDie(spec.sides))
+  );
+}
+
+/** The dice a roll mode asks for. */
+export function specForMode(mode: RollMode): RollSpec {
+  return mode === '3d6'
+    ? { sides: 6, count: 3 }
+    : { sides: 6, count: 4, keepHighest: 3 };
+}
+
 /** Roll one ability score under the given mode. */
 export function rollAbilityScore(mode: RollMode): AbilityRoll {
-  const count = mode === '3d6' ? 3 : 4;
-  const dice = Array.from({ length: count }, () => rollDie());
-
-  if (mode === '3d6') {
-    return {
-      mode,
-      dice,
-      keptIndexes: dice.map((_, i) => i),
-      droppedIndexes: [],
-      total: dice.reduce((a, b) => a + b, 0),
-    };
-  }
-
-  // 4d6kh3 — drop the single lowest die (first one on ties).
-  let dropIndex = 0;
-  for (let i = 1; i < dice.length; i++) {
-    if (dice[i] < dice[dropIndex]) dropIndex = i;
-  }
-  return {
-    mode,
-    dice,
-    keptIndexes: dice.map((_, i) => i).filter(i => i !== dropIndex),
-    droppedIndexes: [dropIndex],
-    total: dice.reduce((sum, v, i) => (i === dropIndex ? sum : sum + v), 0),
-  };
+  return { ...rollGroup(specForMode(mode)), mode };
 }
 
 /** Fold a set of raw d6 values into an {@link AbilityRoll} for the mode. */
 export function tallyAbilityRoll(mode: RollMode, dice: number[]): AbilityRoll {
-  if (mode === '3d6' || dice.length < 4) {
-    return {
-      mode,
-      dice,
-      keptIndexes: dice.map((_, i) => i),
-      droppedIndexes: [],
-      total: dice.reduce((a, b) => a + b, 0),
-    };
-  }
-  let dropIndex = 0;
-  for (let i = 1; i < dice.length; i++) {
-    if (dice[i] < dice[dropIndex]) dropIndex = i;
-  }
-  return {
-    mode,
-    dice,
-    keptIndexes: dice.map((_, i) => i).filter(i => i !== dropIndex),
-    droppedIndexes: [dropIndex],
-    total: dice.reduce((sum, v, i) => (i === dropIndex ? sum : sum + v), 0),
-  };
+  return { ...tallyRoll(specForMode(mode), dice), mode };
 }
 
 /* ---- Point buy (D&D 5e 2024) --------------------------------------- */

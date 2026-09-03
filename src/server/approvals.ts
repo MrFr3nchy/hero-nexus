@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, desc, eq } from 'drizzle-orm';
 
-import { auth } from '@/auth';
+import { requireUserId } from './session-user';
 import { db } from '@/db';
 import {
   campaignMembers,
@@ -40,13 +40,6 @@ export interface ApprovalRow {
   reviewNotes: string | null;
   createdAt: string;
   reviewedAt: string | null;
-}
-
-async function requireUserId(): Promise<string> {
-  const session = await auth();
-  const id = session?.user?.id;
-  if (!id) throw new Error('NOT_AUTHENTICATED');
-  return id;
 }
 
 async function isMember(campaignId: string, userId: string): Promise<boolean> {

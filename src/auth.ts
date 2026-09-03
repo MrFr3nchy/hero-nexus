@@ -36,6 +36,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: 'jwt', maxAge: 3 * 24 * 60 * 60 },
   callbacks: {
     ...authConfig.callbacks,
+    // JWTs outlive the rows they point at: a `db:reset`, a deleted account,
+    // or a restored backup leaves a cookie naming a user that no longer exists.
+    // Everything the app writes has a foreign key onto `user.id`, so such a
+    // token used to fail every save with "FOREIGN KEY constraint failed".
+    // Returning null drops the token, which sends the request to /login.
+    async jwt({ token, user, trigger }) {
+      if (user) {
+        token.id = user.id;
+        return token;
+      }
+      if (trigger === 'signUp') return token;
+      if (!token.id) return null;
+      const row = await db.query.users.findFirst({
+        columns: { id: true },
+        where: eq(users.id, token.id as string),
+      });
+      return row ? token : null;
+    },
     async signIn({ user }) {
       // Credentials is the only provider. Block accounts that haven't confirmed
       // their email. Surfaces to the client as `error: 'AccessDenied'`, which

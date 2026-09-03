@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Button } from '@heroui/react';
+import { Button, Tab, Tabs } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { useForm, type Resolver } from 'react-hook-form';
@@ -19,6 +19,7 @@ import {
   type CharacterSheet,
   type HomebrewKind,
 } from '../schema';
+import type { BuildCatalog } from '../lib/srd/types';
 import {
   genUid,
   makeProvenanceLogger,
@@ -39,9 +40,12 @@ import {
   SkillsSection,
   SpellcastingSection,
 } from './sections';
+import { CharacterWizard } from './wizard/CharacterWizard';
 
 interface CharacterFormProps {
   reference: ReferenceOptions;
+  /** Parsed SRD data the guided builder runs on. */
+  catalog: BuildCatalog;
   characterId?: string;
   initialSheet?: CharacterSheet;
   /** When the builder is opened for a specific table, its rules are enforced. */
@@ -50,8 +54,32 @@ interface CharacterFormProps {
   campaignName?: string;
 }
 
+type View = 'guided' | 'sheet';
+
+/**
+ * A brand-new character opens in the guided builder, so its build has to say
+ * so from the first render. `makeEmptySheet` defaults to `manual` — the right
+ * default for the schema, wrong for this form — and `composeSheet` returns the
+ * sheet untouched for a manual build, so leaving it would mean nothing a class,
+ * species or background grants ever reaches the sheet.
+ */
+function newGuidedSheet(): CharacterSheet {
+  const sheet = makeEmptySheet();
+  return { ...sheet, build: { ...sheet.build, mode: 'guided' } };
+}
+
+const SHEET_TABS = [
+  { key: 'core', label: 'Identity & combat' },
+  { key: 'abilities', label: 'Abilities & skills' },
+  { key: 'magic', label: 'Magic & training' },
+  { key: 'story', label: 'Story & gear' },
+] as const;
+
+type SheetTab = (typeof SHEET_TABS)[number]['key'];
+
 export function CharacterForm({
   reference,
+  catalog,
   characterId,
   initialSheet,
   campaignRules,
@@ -73,8 +101,15 @@ export function CharacterForm({
     formState: { isSubmitting, isDirty },
   } = useForm<CharacterSheet>({
     resolver: zodResolver(characterSheetSchema) as Resolver<CharacterSheet>,
-    defaultValues: initialSheet ?? makeEmptySheet(),
+    defaultValues: initialSheet ?? newGuidedSheet(),
   });
+
+  // A brand-new character starts in the guided builder; a sheet saved before
+  // the builder existed opens on the sheet it was written as.
+  const [view, setView] = useState<View>(() =>
+    !initialSheet || initialSheet.build.mode === 'guided' ? 'guided' : 'sheet'
+  );
+  const [sheetTab, setSheetTab] = useState<SheetTab>('core');
 
   const log = useCallback(
     (input: ProvenanceInput) =>
@@ -188,9 +223,49 @@ export function CharacterForm({
     }
   );
 
+  /** Turn the guided builder on, taking ownership of the derived fields. */
+  const enterGuided = () => {
+    if (getValues('build.mode') !== 'guided') {
+      setValue('build.mode', 'guided', { shouldDirty: true });
+      log({
+        kind: 'method',
+        label: 'Builder',
+        detail: 'Switched to the guided builder.',
+      });
+    }
+    setView('guided');
+  };
+
+  const enterSheet = () => {
+    setView('sheet');
+  };
+
   const ruleLines = campaignRules
     ? describeRules(campaignRules, { allowHomebrew: campaignAllowHomebrew })
     : [];
+
+  const actions = (
+    <>
+      <Button
+        type="button"
+        variant="bordered"
+        className="border-line text-ink"
+        isDisabled={isSubmitting || !isDirty}
+        onPress={() => reset(initialSheet ?? newGuidedSheet())}
+      >
+        Reset
+      </Button>
+      <Button
+        type="submit"
+        size="lg"
+        isLoading={isSubmitting}
+        color="primary"
+        className="px-8"
+      >
+        {characterId ? 'Save changes' : 'Create character'}
+      </Button>
+    </>
+  );
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
@@ -225,54 +300,89 @@ export function CharacterForm({
         </div>
       )}
 
-      <div className="relative grid grid-cols-1 gap-6 rounded-[var(--radius-card)] border border-gold/25 p-4 shadow-[inset_0_0_0_1px_var(--line)] lg:grid-cols-2 lg:p-6">
-        <div className="space-y-6">
-          <IdentitySection
-            control={control}
-            reference={reference}
-            onCustomField={handleCustomField}
-          />
-          <AbilityScoresSection
-            control={control}
-            setValue={setValue}
-            log={log}
-            allowedMethods={campaignRules?.abilityMethods}
-          />
-          <CombatSection control={control} />
-          <SkillsSection control={control} />
+      {view === 'guided' ? (
+        <CharacterWizard
+          control={control}
+          setValue={setValue}
+          getValues={getValues}
+          catalog={catalog}
+          log={log}
+          onCustomField={handleCustomField}
+          maxLevel={campaignRules?.maxStartingLevel ?? 20}
+          allowedMethods={campaignRules?.abilityMethods}
+          footer={actions}
+          onSwitchToSheet={enterSheet}
+        />
+      ) : (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Tabs
+              aria-label="Sheet sections"
+              selectedKey={sheetTab}
+              onSelectionChange={key => setSheetTab(key as SheetTab)}
+              classNames={{ tabList: 'bg-surface-2' }}
+            >
+              {SHEET_TABS.map(tab => (
+                <Tab key={tab.key} title={tab.label} />
+              ))}
+            </Tabs>
+            <button
+              type="button"
+              onClick={enterGuided}
+              className="text-sm text-ink-muted underline-offset-2 hover:text-ink hover:underline"
+            >
+              Use the guided builder
+            </button>
+          </div>
+
+          {sheetTab === 'core' && (
+            <div className="grid gap-5 lg:grid-cols-2">
+              <IdentitySection
+                control={control}
+                reference={reference}
+                onCustomField={handleCustomField}
+              />
+              <CombatSection control={control} />
+            </div>
+          )}
+
+          {sheetTab === 'abilities' && (
+            <div className="grid gap-5 lg:grid-cols-2">
+              <AbilityScoresSection
+                control={control}
+                setValue={setValue}
+                log={log}
+                allowedMethods={campaignRules?.abilityMethods}
+              />
+              <SkillsSection control={control} />
+            </div>
+          )}
+
+          {sheetTab === 'magic' && (
+            <div className="grid gap-5 lg:grid-cols-2">
+              <SpellcastingSection control={control} />
+              <ProficienciesSection control={control} />
+            </div>
+          )}
+
+          {sheetTab === 'story' && (
+            <div className="grid gap-5 lg:grid-cols-2">
+              <DetailsSection control={control} />
+              <div className="space-y-5">
+                <EquipmentSection control={control} />
+                <CurrencySection control={control} />
+                <HomebrewSection control={control} setValue={setValue} />
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap justify-center gap-4 border-t border-line pt-5">
+            {actions}
+          </div>
         </div>
-        <div className="space-y-6">
-          <HomebrewSection control={control} setValue={setValue} />
-          <SpellcastingSection control={control} />
-          <ProficienciesSection control={control} />
-          <DetailsSection control={control} />
-          <EquipmentSection control={control} />
-          <CurrencySection control={control} />
-        </div>
-      </div>
+      )}
 
       <ChangeLogSection control={control} />
-
-      <div className="flex flex-wrap justify-center gap-4">
-        <Button
-          type="button"
-          variant="bordered"
-          className="border-line text-ink"
-          isDisabled={isSubmitting || !isDirty}
-          onPress={() => reset(initialSheet ?? makeEmptySheet())}
-        >
-          Reset
-        </Button>
-        <Button
-          type="submit"
-          size="lg"
-          isLoading={isSubmitting}
-          color="primary"
-          className="px-8"
-        >
-          {characterId ? 'Save Changes' : 'Create Character'}
-        </Button>
-      </div>
     </form>
   );
 }

@@ -92,6 +92,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
   const code = err instanceof Error ? err.message : '';
   const messages: Record<string, string> = {
     NOT_AUTHENTICATED: 'You are not signed in.',
+    SESSION_STALE: 'Your session is out of date. Sign in again.',
     NOT_FOUND: 'Campaign not found.',
     FORBIDDEN: 'You do not have permission to do that.',
     INVALID_CODE: 'That join code is not valid.',
@@ -103,6 +104,9 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_A_MEMBER: 'You are not a member of this campaign.',
     INVITE_NOT_PENDING: 'That invite is no longer pending.',
   };
+  // Unmapped errors reach the client as a generic sentence, which makes them
+  // invisible in a bug report. Keep the real one in the server log.
+  if (!messages[code]) console.error('[action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
 }
 

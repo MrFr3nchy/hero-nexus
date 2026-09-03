@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, desc, eq } from 'drizzle-orm';
 
-import { auth } from '@/auth';
+import { requireUserId } from './session-user';
 import { db } from '@/db';
 import { homebrew } from '@/db/schema';
 
@@ -28,13 +28,6 @@ export interface HomebrewInput {
   data?: unknown;
   visibility?: 'private' | 'public';
   rpgSystem?: string;
-}
-
-async function requireUserId(): Promise<string> {
-  const session = await auth();
-  const id = session?.user?.id;
-  if (!id) throw new Error('NOT_AUTHENTICATED');
-  return id;
 }
 
 export async function listHomebrew(
