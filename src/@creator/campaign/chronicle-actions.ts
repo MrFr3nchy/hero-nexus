@@ -15,6 +15,7 @@ import {
   updateSession,
   type SessionRow,
 } from '@/server/campaign-sessions';
+import { getCampaignPulse, type CampaignPulse } from '@/server/campaign-pulse';
 
 type Result<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
@@ -168,5 +169,15 @@ export async function fileUnderSessionAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Failed to file that under the session.');
+  }
+}
+
+export async function getCampaignPulseAction(
+  campaignId: string
+): Promise<CampaignPulse | null> {
+  try {
+    return await getCampaignPulse(campaignId);
+  } catch {
+    return null;
   }
 }

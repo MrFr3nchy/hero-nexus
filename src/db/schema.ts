@@ -860,6 +860,126 @@ export const campaignSessionAttendance = sqliteTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* What the party is doing, and what it is carrying.                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A thread the party is pulling on.
+ *
+ * Two bodies, as everywhere else in this schema: `summary` is what the party
+ * has been told, `dmNotes` is what is actually going on. A quest starts
+ * `visibility: 'dm'` because a DM writes down the hook before the party has
+ * heard it.
+ */
+export const campaignQuests = sqliteTable(
+  'campaign_quests',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    /** What the party has been told. */
+    summary: text('summary').notNull().default(''),
+    /** What is actually going on. */
+    dmNotes: text('dm_notes').notNull().default(''),
+    /** Who asked — free text, because half of them are not in the canon yet. */
+    giver: text('giver').notNull().default(''),
+    reward: text('reward').notNull().default(''),
+    status: text('status', {
+      enum: ['rumour', 'active', 'done', 'failed'],
+    })
+      .notNull()
+      .default('active'),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_quests_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * One ticked line under a quest. Visibility is per objective, because "find
+ * the ledger" and "the ledger is a forgery" belong to the same quest and to
+ * different audiences.
+ */
+export const campaignQuestObjectives = sqliteTable(
+  'campaign_quest_objectives',
+  {
+    id: uuid(),
+    questId: text('quest_id')
+      .notNull()
+      .references(() => campaignQuests.id, { onDelete: 'cascade' }),
+    body: text('body').notNull().default(''),
+    done: integer('done', { mode: 'boolean' }).notNull().default(false),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('shared'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_quest_objectives_quest_idx').on(t.questId)]
+);
+
+/**
+ * The shared haul. `holderCharacterId` answers the question that actually
+ * starts arguments at a table: who is carrying it.
+ */
+export const partyLoot = sqliteTable(
+  'party_loot',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    name: text('name').notNull().default(''),
+    quantity: integer('quantity').notNull().default(1),
+    notes: text('notes').notNull().default(''),
+    kind: text('kind', {
+      enum: ['item', 'consumable', 'treasure', 'magic'],
+    })
+      .notNull()
+      .default('item'),
+    holderCharacterId: text('holder_character_id').references(
+      () => characters.id,
+      { onDelete: 'set null' }
+    ),
+    /** False for the wand nobody has worked out yet. */
+    identified: integer('identified', { mode: 'boolean' })
+      .notNull()
+      .default(true),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('party_loot_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * The party's common purse. Coins are a running total the whole table edits,
+ * not a list of finds, so they are columns on one row rather than rows.
+ */
+export const partyTreasury = sqliteTable('party_treasury', {
+  campaignId: text('campaign_id')
+    .primaryKey()
+    .references(() => campaigns.id, { onDelete: 'cascade' }),
+  cp: integer('cp').notNull().default(0),
+  sp: integer('sp').notNull().default(0),
+  ep: integer('ep').notNull().default(0),
+  gp: integer('gp').notNull().default(0),
+  pp: integer('pp').notNull().default(0),
+  updatedAt: text('updated_at').default(nowIso).notNull(),
+});
+
+/* ------------------------------------------------------------------ */
 /* Campaign images — portraits and sketches attached to campaign things.*/
 /* ------------------------------------------------------------------ */
 
