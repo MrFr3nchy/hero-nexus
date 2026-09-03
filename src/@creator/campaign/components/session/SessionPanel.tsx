@@ -13,6 +13,7 @@ import {
   fileUnderSessionAction,
   listSessionsAction,
 } from '../../chronicle-actions';
+import { PartyPlayPanel } from '../PartyPlayPanel';
 import { HandoutsPanel } from './HandoutsPanel';
 import { InitiativeTracker } from './InitiativeTracker';
 import { RollPanel } from './RollPanel';
@@ -148,6 +149,12 @@ export function SessionPanel({ campaignId }: { campaignId: string }) {
           </Select>
         </div>
       )}
+
+      <PartyPlayPanel
+        campaignId={campaignId}
+        isStaff={isStaff}
+        onError={setError}
+      />
 
       <InitiativeTracker
         state={state}
