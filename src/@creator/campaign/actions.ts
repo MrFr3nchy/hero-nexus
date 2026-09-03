@@ -81,6 +81,7 @@ const settingsSchema = z
     allowPublicHomebrew: z.boolean().optional(),
     sessionNotes: z.string().max(8000).optional(),
     customRules: z.string().max(8000).optional(),
+    bannerImageId: z.string().min(1).max(64).nullable().optional(),
     rules: rulesSchema,
   })
   .optional();

@@ -8,6 +8,7 @@ import {
   campaignInvites,
   campaignMembers,
   campaigns,
+  campaignSessions,
   characterHomebrew,
   characters,
   homebrewApprovals,
@@ -30,6 +31,8 @@ export interface CampaignSettings {
   maxPlayers: number;
   sessionNotes: string;
   customRules: string;
+  /** A banner from `campaign_images`, or null. Shown on the campaign page. */
+  bannerImageId: string | null;
   /** Structured table rules the builder and server both enforce. */
   rules: CampaignRules;
 }
@@ -42,6 +45,7 @@ export const DEFAULT_CAMPAIGN_SETTINGS: CampaignSettings = {
   maxPlayers: 6,
   sessionNotes: '',
   customRules: '',
+  bannerImageId: null,
   rules: DEFAULT_CAMPAIGN_RULES,
 };
 
@@ -75,6 +79,8 @@ export interface CampaignRow {
   /** Only present for gm / co-gm. */
   joinCode?: string | null;
   memberCount: number;
+  /** The next planned sitting, so a list of tables can say when each meets. */
+  nextSessionAt?: string | null;
 }
 
 export interface CampaignMemberRow {
@@ -177,7 +183,8 @@ export async function requireCampaignRole(
 function hydrate(
   row: typeof campaigns.$inferSelect,
   role: CampaignRole,
-  count: number
+  count: number,
+  nextSessionAt: string | null = null
 ): CampaignRow {
   const isStaff = role === 'gm' || role === 'co-gm';
   return {
@@ -193,7 +200,42 @@ function hydrate(
     isGM: role === 'gm',
     joinCode: isStaff ? row.joinCode : undefined,
     memberCount: count,
+    nextSessionAt,
   };
+}
+
+/**
+ * The soonest planned sitting for each of the given campaigns.
+ *
+ * One query for the whole list rather than one per campaign: the campaigns
+ * page renders every table a user is at, and that is the difference between
+ * two queries and twenty.
+ */
+async function nextSessionDates(
+  campaignIds: string[]
+): Promise<Map<string, string>> {
+  if (campaignIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      campaignId: campaignSessions.campaignId,
+      scheduledFor: campaignSessions.scheduledFor,
+      number: campaignSessions.number,
+    })
+    .from(campaignSessions)
+    .where(
+      and(
+        inArray(campaignSessions.campaignId, campaignIds),
+        eq(campaignSessions.status, 'planned')
+      )
+    )
+    .orderBy(campaignSessions.number);
+
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    if (!row.scheduledFor) continue;
+    if (!out.has(row.campaignId)) out.set(row.campaignId, row.scheduledFor);
+  }
+  return out;
 }
 
 /** Campaigns the user runs as GM or belongs to as a member. */
@@ -229,12 +271,15 @@ export async function listCampaigns(): Promise<CampaignRow[]> {
     return true;
   });
 
+  const nextDates = await nextSessionDates(all.map(c => c.id));
+
   return Promise.all(
     all.map(async c =>
       hydrate(
         c,
         c.gmId === userId ? 'gm' : (roleByCampaign.get(c.id) ?? 'player'),
-        await memberCount(c.id)
+        await memberCount(c.id),
+        nextDates.get(c.id) ?? null
       )
     )
   );

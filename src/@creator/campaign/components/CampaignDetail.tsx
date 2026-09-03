@@ -100,6 +100,17 @@ export function CampaignDetail({
 
   return (
     <PageShell width="wide">
+      {campaign.settings.bannerImageId && (
+        // Deliberately an <img>: the file is served through a role-checked
+        // route, which next/image's optimiser cannot fetch on the server.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`/api/campaigns/${campaign.id}/images/${campaign.settings.bannerImageId}`}
+          alt=""
+          className="mb-6 h-40 w-full rounded-[var(--radius-card)] border border-line object-cover [box-shadow:var(--shadow-card)] sm:h-52"
+        />
+      )}
+
       <PageHeader
         rule={false}
         title={campaign.name}

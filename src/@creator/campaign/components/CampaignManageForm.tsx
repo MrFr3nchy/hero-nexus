@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { RPG_SYSTEMS } from '@/@creator/campaign/types';
 import { ABILITY_METHODS } from '@/@creator/character/schema';
 import { SectionCard, useConfirm } from '@/@shared/components/ui';
+import { ImagePicker } from './ImagePicker';
 import type { CampaignRow } from '@/server/campaigns';
 import {
   deleteCampaignAction,
@@ -48,6 +49,7 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
     maxPlayers: settings.maxPlayers,
     sessionNotes: settings.sessionNotes,
     customRules: settings.customRules,
+    bannerImageId: settings.bannerImageId,
     // homebrew toggles (previously had no UI)
     allowHomebrew: settings.allowHomebrew,
     requireHomebrewApproval: settings.requireHomebrewApproval,
@@ -84,6 +86,7 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
           maxPlayers: form.maxPlayers,
           sessionNotes: form.sessionNotes,
           customRules: form.customRules,
+          bannerImageId: form.bannerImageId,
           allowHomebrew: form.allowHomebrew,
           requireHomebrewApproval: form.requireHomebrewApproval,
           allowPublicHomebrew: form.allowPublicHomebrew,
@@ -197,6 +200,16 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
               onValueChange={v => set('customRules', v)}
               minRows={3}
             />
+            <ImagePicker
+              campaignId={campaign.id}
+              label="Banner"
+              value={form.bannerImageId}
+              onChange={id => set('bannerImageId', id)}
+            />
+            <p className="-mt-2 text-xs text-ink-subtle">
+              Shown across the top of the campaign page and on its card. Save
+              after choosing one.
+            </p>
           </div>
         </SectionCard>
 
