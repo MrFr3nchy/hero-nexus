@@ -15,3 +15,6 @@ export { Marginalia } from './Marginalia';
 export { Ledger } from './Ledger';
 export { HeroCard } from './HeroCard';
 export { SheetPreview, abilityMod } from './SheetPreview';
+export { CandleScene, SealedLetterScene } from './scenes';
+export { useConfirm } from './ConfirmDialog';
+export { FormSpread } from './FormSpread';

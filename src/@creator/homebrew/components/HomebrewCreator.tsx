@@ -21,6 +21,7 @@ import {
   EmptyState,
   Seal,
   SectionCard,
+  useConfirm,
 } from '@/@shared/components/ui';
 import type { ApprovalRow } from '@/server/approvals';
 import type { CampaignRow } from '@/server/campaigns';
@@ -39,6 +40,7 @@ export function HomebrewCreator() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   const [form, setForm] = useState({
     type: 'item' as HomebrewType,
@@ -105,7 +107,13 @@ export function HomebrewCreator() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this homebrew item?')) return;
+    const ok = await confirm({
+      title: 'Scrap this homebrew?',
+      body: 'The draft and any pending submission are removed.',
+      confirmLabel: 'Scrap it',
+      destructive: true,
+    });
+    if (!ok) return;
     await deleteHomebrewAction(id);
     setItems(prev => prev.filter(i => i.id !== id));
   };
@@ -115,6 +123,7 @@ export function HomebrewCreator() {
 
   return (
     <div className="space-y-6">
+      {dialog}
       <SectionCard title="Create homebrew">
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

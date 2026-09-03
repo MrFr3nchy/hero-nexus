@@ -3,11 +3,11 @@
 import { Button, Link, Snippet, Tab, Tabs } from '@heroui/react';
 
 import {
+  Ledger,
   PageHeader,
   PageShell,
   Ribbon,
   SectionCard,
-  Stat,
 } from '@/@shared/components/ui';
 import type { CampaignRow } from '@/server/campaigns';
 import { CanonPanel } from './CanonPanel';
@@ -65,12 +65,13 @@ export function CampaignDetail({
       <Tabs aria-label="Campaign sections" variant="underlined">
         <Tab key="overview" title="Overview">
           <div className="space-y-5 pt-4">
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Stat label="Status" value={campaign.status} />
-              <Stat label="Members" value={campaign.memberCount} />
-              <Stat label="Max players" value={campaign.settings.maxPlayers} />
-              <Stat label="System" value={campaign.settings.rpgSystem} />
-            </div>
+            <Ledger
+              items={[
+                { value: campaign.memberCount, label: 'at the table' },
+                { value: campaign.settings.maxPlayers, label: 'seats' },
+                { value: campaign.settings.rpgSystem, label: '' },
+              ]}
+            />
 
             {isStaff && campaign.joinCode && (
               <SectionCard
