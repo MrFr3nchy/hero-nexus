@@ -372,6 +372,8 @@ export const campaignHandouts = sqliteTable(
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('dm'),
+    /** The sitting this was shown at. Null is unfiled. */
+    sessionId: text('session_id'),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -393,6 +395,8 @@ export const initiativeEncounters = sqliteTable(
       .default(false),
     round: integer('round').notNull().default(1),
     turnIndex: integer('turn_index').notNull().default(0),
+    /** The sitting this was fought at. Null is unfiled. */
+    sessionId: text('session_id'),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('initiative_encounters_campaign_idx').on(t.campaignId)]
@@ -562,6 +566,8 @@ export const downtimePeriods = sqliteTable(
     status: text('status', { enum: ['open', 'closed'] })
       .notNull()
       .default('open'),
+    /** The sitting this window runs up to. Null is unfiled. */
+    sessionId: text('session_id'),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -705,6 +711,91 @@ export const characterSecrets = sqliteTable(
   t => [
     index('character_secrets_character_idx').on(t.characterId),
     index('character_secrets_campaign_idx').on(t.campaignId),
+  ]
+);
+
+/* ------------------------------------------------------------------ */
+/* The session chronicle — the campaign's spine.                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One sitting at the table.
+ *
+ * `prepBody` is the DM's private plan and `recapBody` is the account the party
+ * is given — two documents about the same evening, never one body with hidden
+ * regions, for the same reason as `canon_entries`. A recap starts private so a
+ * DM can draft it during the game and hand it over when it reads right.
+ *
+ * `number` is the campaign-local session number and is unique per campaign, so
+ * "session 12" addresses one row and a player asking about it gets an answer.
+ */
+export const campaignSessions = sqliteTable(
+  'campaign_sessions',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    number: integer('number').notNull().default(1),
+    title: text('title').notNull().default(''),
+    /** ISO date the table plans to meet. */
+    scheduledFor: text('scheduled_for'),
+    /** ISO date it actually happened. */
+    playedOn: text('played_on'),
+    status: text('status', { enum: ['planned', 'played', 'cancelled'] })
+      .notNull()
+      .default('planned'),
+    /** The DM's private plan for the evening. */
+    prepBody: text('prep_body').notNull().default(''),
+    /** What the party is told happened. */
+    recapBody: text('recap_body').notNull().default(''),
+    /** 'dm' = still a draft; 'shared' = the party can read the recap. */
+    recapVisibility: text('recap_visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('campaign_sessions_campaign_idx').on(t.campaignId),
+    uniqueIndex('campaign_sessions_campaign_number_idx').on(
+      t.campaignId,
+      t.number
+    ),
+  ]
+);
+
+/**
+ * Who was at a given sitting. Keyed on `user_id` rather than
+ * `campaign_members`, as `canon_reveals` is: the GM has no member row, and a
+ * player who later leaves the table was still at session 9.
+ */
+export const campaignSessionAttendance = sqliteTable(
+  'campaign_session_attendance',
+  {
+    id: uuid(),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => campaignSessions.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    status: text('status', { enum: ['present', 'absent', 'late'] })
+      .notNull()
+      .default('present'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('campaign_session_attendance_session_user_idx').on(
+      t.sessionId,
+      t.userId
+    ),
   ]
 );
 

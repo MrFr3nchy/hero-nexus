@@ -11,6 +11,7 @@ import {
 } from '@/@shared/components/ui';
 import type { CampaignRow } from '@/server/campaigns';
 import { CanonPanel } from './CanonPanel';
+import { ChroniclePanel } from './ChroniclePanel';
 import { DowntimePanel } from './DowntimePanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { MembersPanel } from './MembersPanel';
@@ -116,6 +117,15 @@ export function CampaignDetail({
         <Tab key="homebrew" title="Homebrew">
           <div className="pt-4">
             <HomebrewApprovalPanel campaignId={campaign.id} isGM={isStaff} />
+          </div>
+        </Tab>
+
+        <Tab key="chronicle" title="Chronicle">
+          <div className="pt-4">
+            <ChroniclePanel
+              campaignId={campaign.id}
+              viewerRole={campaign.role}
+            />
           </div>
         </Tab>
 

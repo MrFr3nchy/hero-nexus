@@ -2,6 +2,7 @@ export { CampaignCreationForm } from './CampaignCreationForm';
 export { CampaignDashboard } from './CampaignDashboard';
 export { CampaignDetail } from './CampaignDetail';
 export { CampaignManageForm } from './CampaignManageForm';
+export { ChroniclePanel } from './ChroniclePanel';
 export { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 export { ImagePicker } from './ImagePicker';
 export { JoinCampaignForm } from './JoinCampaignForm';
