@@ -416,10 +416,70 @@ export const initiativeEntries = sqliteTable(
     initiative: integer('initiative').notNull().default(0),
     hpCurrent: integer('hp_current'),
     hpMax: integer('hp_max'),
+    /** Temporary hit points: spent first, never healed back. */
+    hpTemp: integer('hp_temp').notNull().default(0),
+    armorClass: integer('armor_class'),
+    /** Free-text note beside the conditions ("prone behind the cart"). */
     conditions: text('conditions').notNull().default(''),
+    /** Comma-separated 2024 condition keys — see lib/conditions.ts. */
+    conditionKeys: text('condition_keys').notNull().default(''),
+    /**
+     * Not a condition: concentration survives most of them, ends on its own
+     * rules, and the DM needs to see it the moment damage lands.
+     */
+    concentrating: integer('concentrating', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    /** Which side of the fight, so foe HP can stay off the players' screens. */
+    side: text('side', { enum: ['party', 'foe', 'other'] })
+      .notNull()
+      .default('foe'),
     sort: integer('sort').notNull().default(0),
   },
   t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
+);
+
+/**
+ * The table's shared roll log.
+ *
+ * Rolls are made on the server and every die face is stored, so the log is a
+ * record of what was rolled rather than a claim about it. `visibility` is how
+ * a DM rolls behind the screen without leaving the app.
+ */
+export const campaignRolls = sqliteTable(
+  'campaign_rolls',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    actorUserId: text('actor_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    /** Who rolled, kept independent of the account surviving. */
+    actorName: text('actor_name').notNull().default(''),
+    /** What it was for — "Stealth", "Longsword", "Death save". */
+    label: text('label').notNull().default(''),
+    notation: text('notation').notNull().default(''),
+    /** JSON array of every die face rolled, in roll order. */
+    dice: text('dice', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
+    /** JSON array of indexes into `dice` that did not count. */
+    dropped: text('dropped', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
+    modifier: integer('modifier').notNull().default(0),
+    total: integer('total').notNull().default(0),
+    visibility: text('visibility', { enum: ['table', 'dm'] })
+      .notNull()
+      .default('table'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_rolls_campaign_idx').on(t.campaignId, t.createdAt)]
 );
 
 /* ------------------------------------------------------------------ */

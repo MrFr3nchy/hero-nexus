@@ -115,3 +115,147 @@ export function pointBuySpent(scores: number[]): number {
 }
 
 export const STANDARD_ARRAY = [15, 14, 13, 12, 10, 8] as const;
+
+/* ---- Free dice notation (the table's shared roller) ----------------- *
+ * Kept separate from the ability-score helpers above: those model one
+ * specific 5e procedure, this parses whatever someone types at the table.
+ * ------------------------------------------------------------------- */
+
+/** One `NdS`, optionally keeping the highest/lowest few, plus its sign. */
+export interface NotationTerm {
+  count: number;
+  sides: number;
+  keepHighest?: number;
+  keepLowest?: number;
+  negative: boolean;
+}
+
+export interface Notation {
+  terms: NotationTerm[];
+  /** Flat bonus/penalty, already summed. */
+  modifier: number;
+}
+
+export interface NotationRoll {
+  notation: string;
+  /** Every die face rolled, in roll order across all terms. */
+  dice: number[];
+  /** Indexes into `dice` that did not count (dropped by keep-highest/lowest). */
+  dropped: number[];
+  modifier: number;
+  total: number;
+}
+
+/** Sane ceilings so a typo can't ask for a million dice. */
+const MAX_DICE = 100;
+const MAX_SIDES = 1000;
+
+const TERM = /^([+-]?)(\d*)d(\d+)(?:(kh|kl)(\d+))?$/i;
+const FLAT = /^([+-]?)(\d+)$/;
+
+/**
+ * Parse `2d6+3`, `d20`, `4d6kh3`, `2d20kl1-1`. Whitespace is ignored and terms
+ * may appear in any order. Returns null when the string isn't dice notation —
+ * callers show that as "not dice", never as a roll of zero.
+ */
+export function parseNotation(input: string): Notation | null {
+  const cleaned = input.replace(/\s+/g, '').toLowerCase();
+  if (!cleaned) return null;
+
+  // Split before each sign, keeping the sign with its term.
+  const chunks = cleaned
+    .replace(/([+-])/g, ' $1')
+    .trim()
+    .split(/\s+/);
+  const terms: NotationTerm[] = [];
+  let modifier = 0;
+
+  for (const chunk of chunks) {
+    const flat = FLAT.exec(chunk);
+    if (flat) {
+      const value = Number(flat[2]);
+      modifier += flat[1] === '-' ? -value : value;
+      continue;
+    }
+
+    const term = TERM.exec(chunk);
+    if (!term) return null;
+
+    const count = term[2] === '' ? 1 : Number(term[2]);
+    const sides = Number(term[3]);
+    if (count < 1 || count > MAX_DICE) return null;
+    if (sides < 2 || sides > MAX_SIDES) return null;
+
+    const keep = term[5] ? Number(term[5]) : undefined;
+    if (keep !== undefined && (keep < 1 || keep > count)) return null;
+
+    terms.push({
+      count,
+      sides,
+      negative: term[1] === '-',
+      keepHighest: term[4] === 'kh' ? keep : undefined,
+      keepLowest: term[4] === 'kl' ? keep : undefined,
+    });
+  }
+
+  if (terms.length === 0) return null;
+  return { terms, modifier };
+}
+
+/** Roll a parsed notation. Rolling happens wherever this is called — the
+ *  shared table log calls it on the server so the dice are not the client's
+ *  to choose. */
+export function rollNotation(input: string): NotationRoll | null {
+  const parsed = parseNotation(input);
+  if (!parsed) return null;
+
+  const dice: number[] = [];
+  const dropped: number[] = [];
+  let total = parsed.modifier;
+
+  for (const term of parsed.terms) {
+    const base = dice.length;
+    const faces = Array.from({ length: term.count }, () => rollDie(term.sides));
+    dice.push(...faces);
+
+    const keep = term.keepHighest ?? term.keepLowest;
+    let counted = faces.map((_, i) => i);
+    if (keep !== undefined) {
+      const order = faces
+        .map((value, index) => ({ value, index }))
+        .sort((a, b) =>
+          term.keepHighest !== undefined
+            ? b.value - a.value || a.index - b.index
+            : a.value - b.value || a.index - b.index
+        );
+      counted = order.slice(0, keep).map(d => d.index);
+      const kept = new Set(counted);
+      faces.forEach((_, i) => {
+        if (!kept.has(i)) dropped.push(base + i);
+      });
+    }
+
+    const sum = counted.reduce((acc, i) => acc + faces[i], 0);
+    total += term.negative ? -sum : sum;
+  }
+
+  return {
+    notation: input.trim(),
+    dice,
+    dropped,
+    modifier: parsed.modifier,
+    total,
+  };
+}
+
+/** Rewrite `1d20+5` as its advantage / disadvantage form. */
+export function withAdvantage(
+  input: string,
+  mode: 'advantage' | 'disadvantage'
+): string {
+  const keep = mode === 'advantage' ? 'kh1' : 'kl1';
+  return input.replace(
+    /^\s*(\d*)d(\d+)/i,
+    (_, __, sides) => `2d${sides}${keep}`
+  );
+}
