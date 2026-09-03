@@ -12,6 +12,7 @@ import {
   SectionCard,
   useConfirm,
 } from '@/@shared/components/ui';
+import { formatCalendarDate, toDateInputValue } from '@/@shared/lib/dates';
 import type { CampaignRole } from '@/server/campaigns';
 import type { AttendanceStatus, SessionRow } from '@/server/campaign-sessions';
 import {
@@ -36,26 +37,6 @@ const LINK_LABEL: Record<string, string> = {
   downtime: 'Downtime',
 };
 
-function formatDate(value: string | null): string {
-  if (!value) return '';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime())
-    ? value
-    : d.toLocaleDateString(undefined, {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      });
-}
-
-/** ISO calendar date for a `<input type="date">`, from a stored value. */
-function dateInputValue(value: string | null): string {
-  if (!value) return '';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
-}
-
 /* --- one sitting ---------------------------------------------------- */
 
 function SessionEntry({
@@ -74,9 +55,9 @@ function SessionEntry({
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(session.title);
   const [scheduledFor, setScheduledFor] = useState(
-    dateInputValue(session.scheduledFor)
+    toDateInputValue(session.scheduledFor)
   );
-  const [playedOn, setPlayedOn] = useState(dateInputValue(session.playedOn));
+  const [playedOn, setPlayedOn] = useState(toDateInputValue(session.playedOn));
   const [prep, setPrep] = useState(session.prepBody ?? '');
   const [recap, setRecap] = useState(session.recapBody ?? '');
   const [saving, setSaving] = useState(false);
@@ -116,10 +97,16 @@ function SessionEntry({
 
   const dateLine =
     session.status === 'played'
-      ? formatDate(session.playedOn) || 'Played, date unrecorded'
-      : session.scheduledFor
-        ? formatDate(session.scheduledFor)
-        : 'No date set';
+      ? formatCalendarDate(
+          session.playedOn,
+          { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' },
+          'Played, date unrecorded'
+        )
+      : formatCalendarDate(
+          session.scheduledFor,
+          { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' },
+          'No date set'
+        );
 
   const present = session.attendance.filter(a => a.status !== 'absent');
 
@@ -153,9 +140,11 @@ function SessionEntry({
               {session.status === 'played' && (
                 <Pill tone="success">Played</Pill>
               )}
-              {isStaff && session.recapVisibility === 'dm' && (
-                <Pill tone="warning">Recap unsent</Pill>
-              )}
+              {isStaff &&
+                session.recapVisibility === 'dm' &&
+                !!session.recapBody?.trim() && (
+                  <Pill tone="warning">Recap unsent</Pill>
+                )}
             </div>
           </div>
 

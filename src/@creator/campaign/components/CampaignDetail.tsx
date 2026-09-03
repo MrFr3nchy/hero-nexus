@@ -12,6 +12,7 @@ import {
   Ribbon,
   SectionCard,
 } from '@/@shared/components/ui';
+import { countdownWords, formatCalendarDate } from '@/@shared/lib/dates';
 import type { CampaignPulse } from '@/server/campaign-pulse';
 import type { CampaignRow } from '@/server/campaigns';
 import { getCampaignPulseAction } from '../chronicle-actions';
@@ -27,32 +28,6 @@ import { SessionPanel } from './session/SessionPanel';
 
 const ROLE_LABEL = { gm: 'DM', 'co-gm': 'Co-DM', player: 'Player' } as const;
 const ROLE_TONE = { gm: 'gold', 'co-gm': 'arcane', player: 'neutral' } as const;
-
-function formatDate(value: string | null): string {
-  if (!value) return 'no date yet';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime())
-    ? value
-    : d.toLocaleDateString(undefined, {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-      });
-}
-
-/** How many sleeps away, in words. Null when the date is missing or unreadable. */
-function countdown(value: string | null): string | null {
-  if (!value) return null;
-  const then = new Date(value);
-  if (Number.isNaN(then.getTime())) return null;
-  const days = Math.ceil(
-    (then.setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000
-  );
-  if (days < 0) return 'overdue';
-  if (days === 0) return 'tonight';
-  if (days === 1) return 'tomorrow';
-  return `in ${days} days`;
-}
 
 /**
  * A tab title with a count of things wanting attention. The count only ever
@@ -96,7 +71,7 @@ export function CampaignDetail({
     loadPulse();
   }, [loadPulse]);
 
-  const soon = pulse?.next ? countdown(pulse.next.date) : null;
+  const soon = pulse?.next ? countdownWords(pulse.next.date) : null;
 
   return (
     <PageShell width="wide">
@@ -158,7 +133,7 @@ export function CampaignDetail({
               {pulse.next.title ? ` · ${pulse.next.title}` : ''}
             </span>{' '}
             <span className="text-ink-subtle">
-              {formatDate(pulse.next.date)}
+              {formatCalendarDate(pulse.next.date)}
               {soon ? ` — ${soon}` : ''}
             </span>
           </p>

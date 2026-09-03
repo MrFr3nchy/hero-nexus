@@ -12,13 +12,9 @@ import {
   Ribbon,
   SealedLetterScene,
 } from '@/@shared/components/ui';
+import { formatCalendarDate } from '@/@shared/lib/dates';
 import type { CampaignRow } from '@/server/campaigns';
 import { PendingInvites } from './PendingInvites';
-
-function formatDate(value: string): string {
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? 'Unknown' : d.toLocaleDateString();
-}
 
 function statusTone(status: CampaignRow['status']) {
   switch (status) {
@@ -144,7 +140,11 @@ export function CampaignDashboard() {
                 {c.nextSessionAt && (
                   <p className="mt-auto pt-3 text-xs text-ink-subtle">
                     <span className="text-gold">◆</span> next sitting{' '}
-                    {formatDate(c.nextSessionAt)}
+                    {formatCalendarDate(
+                      c.nextSessionAt,
+                      { day: 'numeric', month: 'short' },
+                      'soon'
+                    )}
                   </p>
                 )}
               </div>
