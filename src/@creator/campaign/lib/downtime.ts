@@ -9,6 +9,10 @@ export const DOWNTIME_KINDS = [
   'training',
   'carousing',
   'letter',
+  'travel',
+  'scheming',
+  'recovery',
+  'faith',
   'other',
 ] as const;
 export type DowntimeKind = (typeof DOWNTIME_KINDS)[number];
@@ -20,8 +24,30 @@ export const DOWNTIME_KIND_LABELS: Record<DowntimeKind, string> = {
   training: 'Training',
   carousing: 'Carousing',
   letter: 'Letter / correspondence',
+  travel: 'Travel',
+  scheming: 'Scheming',
+  recovery: 'Rest & recovery',
+  faith: 'Prayer & ritual',
   other: 'Other',
 };
+
+/** A glyph per kind, so a period reads as a week of activity at a glance. */
+export const DOWNTIME_KIND_ICONS: Record<DowntimeKind, string> = {
+  shopping: '🪙',
+  crafting: '🔨',
+  research: '🔍',
+  training: '🎯',
+  carousing: '🍺',
+  letter: '✉️',
+  travel: '🧭',
+  scheming: '🕯️',
+  recovery: '🛏️',
+  faith: '🕊️',
+  other: '❔',
+};
+
+/** Who may read an action and the DM's answer to it. */
+export type DowntimeVisibility = 'player' | 'party';
 
 export type DowntimePeriodStatus = 'open' | 'closed';
 export type DowntimeActionStatus = 'submitted' | 'resolved' | 'rejected';
@@ -35,6 +61,8 @@ export interface DowntimeActionRow {
   actorName: string | null;
   kind: string;
   body: string;
+  imageId: string | null;
+  visibility: DowntimeVisibility;
   dmResponse: string | null;
   status: DowntimeActionStatus;
   resolvedByName: string | null;
@@ -66,4 +94,6 @@ export interface DowntimeActionInput {
   characterId: string | null;
   kind: DowntimeKind;
   body: string;
+  imageId?: string | null;
+  visibility?: DowntimeVisibility;
 }

@@ -1,6 +1,7 @@
 export { PageShell } from './PageShell';
 export { PageHeader } from './PageHeader';
 export { SectionCard } from './SectionCard';
+export { EntryCard, Pill } from './EntryCard';
 export { Stat, StatBlock } from './Stat';
 export { EmptyState } from './EmptyState';
 export { Fleuron } from './Fleuron';

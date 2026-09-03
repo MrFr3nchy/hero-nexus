@@ -82,7 +82,9 @@ export function finalAbilities(
   for (const entry of build.levels) {
     if (!entry.asi || entry.asi.mode !== 'ability') continue;
     bump(entry.asi.plusTwo, 2);
-    entry.asi.plusOnes.slice(0, entry.asi.plusTwo ? 1 : 2).forEach(k => bump(k, 1));
+    entry.asi.plusOnes
+      .slice(0, entry.asi.plusTwo ? 1 : 2)
+      .forEach(k => bump(k, 1));
   }
 
   return out;
@@ -142,7 +144,8 @@ function featureText(sheet: CharacterSheet, def: ClassDef | null): string {
   for (const step of steps) {
     for (const grant of step.grants) {
       const suffix = grant.detail ? ` (${grant.detail})` : '';
-      const origin = grant.source === 'subclass' ? ` [${sheet.build.subclassName}]` : '';
+      const origin =
+        grant.source === 'subclass' ? ` [${sheet.build.subclassName}]` : '';
       lines.push(`Level ${step.level} — ${grant.name}${suffix}${origin}`);
     }
   }
@@ -231,7 +234,8 @@ export function composeSheet(
   const slots = slotsAtLevel(refs.classDef, level);
   const nextSlots = { ...sheet.spellcasting.slots };
   for (let i = 1; i <= 9; i++) {
-    const slotKey = `level${i}` as keyof CharacterSheet['spellcasting']['slots'];
+    const slotKey =
+      `level${i}` as keyof CharacterSheet['spellcasting']['slots'];
     const total = slots[i] ?? 0;
     nextSlots[slotKey] = {
       total,
@@ -249,7 +253,11 @@ export function composeSheet(
         build.subclassName,
         sheet.identity.subclass
       ),
-      species: keep('identity.species', build.speciesName, sheet.identity.species),
+      species: keep(
+        'identity.species',
+        build.speciesName,
+        sheet.identity.species
+      ),
       background: keep(
         'identity.background',
         build.backgroundName,
@@ -268,8 +276,16 @@ export function composeSheet(
     ) as CharacterSheet['skills'],
     combat: {
       ...sheet.combat,
-      speed: keep('combat.speed', refs.species?.speed ?? 30, sheet.combat.speed),
-      armorClass: keep('combat.armorClass', 10 + dexMod, sheet.combat.armorClass),
+      speed: keep(
+        'combat.speed',
+        refs.species?.speed ?? 30,
+        sheet.combat.speed
+      ),
+      armorClass: keep(
+        'combat.armorClass',
+        10 + dexMod,
+        sheet.combat.armorClass
+      ),
       hitDieSize: refs.classDef?.hitDie ?? sheet.combat.hitDieSize,
       hitDiceMax: level,
       hitPointsMax: keep(
@@ -291,7 +307,11 @@ export function composeSheet(
         refs.classDef?.coreTraits.weapons ?? '',
         sheet.proficiencies.weapons
       ),
-      tools: keep('proficiencies.tools', toolText(sheet, refs), sheet.proficiencies.tools),
+      tools: keep(
+        'proficiencies.tools',
+        toolText(sheet, refs),
+        sheet.proficiencies.tools
+      ),
     },
     spellcasting: {
       ability: spellcastingAbility(refs.classDef),
@@ -313,7 +333,11 @@ export function composeSheet(
     },
     equipment: {
       ...sheet.equipment,
-      items: keep('equipment.items', equipmentText(sheet, refs), sheet.equipment.items),
+      items: keep(
+        'equipment.items',
+        equipmentText(sheet, refs),
+        sheet.equipment.items
+      ),
     },
     currency: {
       ...sheet.currency,
@@ -323,7 +347,10 @@ export function composeSheet(
 }
 
 /** Human-readable summary of what the build granted, for the change log. */
-export function describeGrants(sheet: CharacterSheet, refs: BuildRefs): string[] {
+export function describeGrants(
+  sheet: CharacterSheet,
+  refs: BuildRefs
+): string[] {
   const lines: string[] = [];
   const saves = refs.classDef?.coreTraits.savingThrows ?? [];
   if (saves.length) {

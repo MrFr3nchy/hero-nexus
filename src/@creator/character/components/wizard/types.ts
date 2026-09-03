@@ -1,6 +1,7 @@
 import type { Control } from 'react-hook-form';
 
 import type { ProvenanceInput } from '../../lib/provenance';
+import type { BuildLimits } from '../../lib/validate-build';
 import type { BuildCatalog, ClassDef } from '../../lib/srd/types';
 import type { CharacterBuild, CharacterSheet } from '../../schema';
 import type { CustomFieldHandler } from '../sections';
@@ -10,6 +11,8 @@ export interface StepProps {
   sheet: CharacterSheet;
   build: CharacterBuild;
   catalog: BuildCatalog;
+  /** What the chosen campaign's table rules allow. Steps hide the rest. */
+  limits: BuildLimits;
   classDef: ClassDef | null;
   loadingClass: boolean;
   control: Control<CharacterSheet>;

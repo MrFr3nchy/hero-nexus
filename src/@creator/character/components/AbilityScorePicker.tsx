@@ -57,9 +57,11 @@ const METHOD_TABS: { key: AbilityMethod; label: string }[] = [
 
 const METHOD_BLURB: Record<AbilityMethod, string> = {
   pointbuy: `Spend ${POINT_BUY_BUDGET} points across the six abilities. Nothing starts below ${POINT_BUY_MIN} or above ${POINT_BUY_MAX}.`,
-  standard: 'Hand out the fixed set 15, 14, 13, 12, 10, 8 — one value per ability.',
+  standard:
+    'Hand out the fixed set 15, 14, 13, 12, 10, 8 — one value per ability.',
   roll: 'Throw the dice, then decide where each result goes. Every roll is written to your log.',
-  manual: 'Type any score from 1 to 30. Useful when you are copying in an existing character.',
+  manual:
+    'Type any score from 1 to 30. Useful when you are copying in an existing character.',
 };
 
 /**
@@ -159,7 +161,9 @@ export function AbilityScorePicker({
     saveProficiencies?.[key] ?? saves?.includes(key) ?? false;
 
   const methodAllowed = (m: AbilityMethod) =>
-    !allowedMethods || allowedMethods.length === 0 || allowedMethods.includes(m);
+    !allowedMethods ||
+    allowedMethods.length === 0 ||
+    allowedMethods.includes(m);
 
   const setScore = (key: AbilityKey, value: number) =>
     onScores({ ...scores, [key]: value });
@@ -193,8 +197,13 @@ export function AbilityScorePicker({
       nonce: Date.now(),
       spec: specForMode(rollMode),
       groups,
-      title: target ? `Rolling ${ABILITY_LABELS[target]}` : 'Rolling a full set',
-      hint: rollMode === '3d6' ? 'three d6, keep them all' : 'four d6, drop the lowest',
+      title: target
+        ? `Rolling ${ABILITY_LABELS[target]}`
+        : 'Rolling a full set',
+      hint:
+        rollMode === '3d6'
+          ? 'three d6, keep them all'
+          : 'four d6, drop the lowest',
       target,
     });
 
@@ -245,7 +254,9 @@ export function AbilityScorePicker({
       kind: method === 'standard' ? 'stat-standard' : 'stat-roll',
       label: ABILITY_LABELS[key],
       detail: `${ABILITY_LABELS[key]} = ${value} (${
-        method === 'standard' ? 'standard array' : 'assigned from the rolled set'
+        method === 'standard'
+          ? 'standard array'
+          : 'assigned from the rolled set'
       })`,
     });
   };
@@ -297,7 +308,9 @@ export function AbilityScorePicker({
         size="sm"
         selectedKey={method}
         onSelectionChange={k => changeMethod(k as AbilityMethod)}
-        disabledKeys={METHOD_TABS.map(t => t.key).filter(k => !methodAllowed(k))}
+        disabledKeys={METHOD_TABS.map(t => t.key).filter(
+          k => !methodAllowed(k)
+        )}
         classNames={{ tabList: 'bg-surface-2' }}
       >
         {METHOD_TABS.map(tab => (
@@ -392,7 +405,12 @@ export function AbilityScorePicker({
               </span>
             ))
           )}
-          <Button size="sm" variant="light" className="ml-auto" onPress={autoAssign}>
+          <Button
+            size="sm"
+            variant="light"
+            className="ml-auto"
+            onPress={autoAssign}
+          >
             Auto-assign
           </Button>
         </div>
@@ -492,7 +510,8 @@ export function AbilityScorePicker({
 
       {method === 'roll' && pool && (
         <p className="text-xs text-ink-subtle">
-          Roll the set again to replace these values — the old ones stay in your log.
+          Roll the set again to replace these values — the old ones stay in your
+          log.
         </p>
       )}
     </div>

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import { SectionCard, Stat, StatBlock } from '@/@shared/components/ui';
 import {
   abilityModifier,
@@ -10,6 +12,7 @@ import {
   spellAttackBonus,
   spellSaveDC,
 } from '../lib/derive';
+import type { NoteSection } from '../lib/note-sections';
 import {
   ABILITY_KEYS,
   ABILITY_LABELS,
@@ -55,7 +58,19 @@ const SPELL_LEVELS: SpellSlotLevel[] = [
   'level9',
 ];
 
-export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
+/**
+ * A read-only sheet. `slots` hangs extra UI under a named section — the DM's
+ * comment thread on their view of a player's sheet, and the same thread
+ * (shared comments only) on the player's own. The sheet itself stays a plain
+ * render either way; nothing here knows what a note is.
+ */
+export function CharacterSheetView({
+  sheet,
+  slots,
+}: {
+  sheet: CharacterSheet;
+  slots?: Partial<Record<NoteSection, ReactNode>>;
+}) {
   const pb = proficiencyBonus(sheet.identity.level);
   const dc = spellSaveDC(sheet);
   const atk = spellAttackBonus(sheet);
@@ -74,6 +89,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
           <Field label="XP" value={sheet.identity.xp} />
           <Field label="Size" value={sheet.identity.size} />
         </div>
+        {slots?.identity}
       </SectionCard>
 
       <SectionCard framed title="Combat">
@@ -93,6 +109,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
             value={`${sheet.combat.hitDiceMax - sheet.combat.hitDiceSpent}/${sheet.combat.hitDiceMax} d${sheet.combat.hitDieSize}`}
           />
         </div>
+        {slots?.combat}
       </SectionCard>
 
       <SectionCard framed title="Ability scores">
@@ -114,6 +131,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
             );
           })}
         </div>
+        {slots?.abilities}
       </SectionCard>
 
       <SectionCard framed title="Skills">
@@ -136,6 +154,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
             </div>
           ))}
         </div>
+        {slots?.skills}
       </SectionCard>
 
       {sheet.spellcasting.ability && (
@@ -165,6 +184,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
               );
             })}
           </div>
+          {slots?.spellcasting}
         </SectionCard>
       )}
 
@@ -175,6 +195,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
           <Prose label="Tools" value={sheet.proficiencies.tools} />
           <Prose label="Languages" value={sheet.proficiencies.languages} />
         </div>
+        {slots?.proficiencies}
       </SectionCard>
 
       <SectionCard framed title="Details">
@@ -186,6 +207,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
           <Prose label="Species traits" value={sheet.details.speciesTraits} />
           <Prose label="Feats" value={sheet.details.feats} />
         </div>
+        {slots?.details}
       </SectionCard>
 
       <SectionCard framed title="Equipment & currency">
@@ -203,6 +225,7 @@ export function CharacterSheetView({ sheet }: { sheet: CharacterSheet }) {
             ))}
           </div>
         </div>
+        {slots?.equipment}
       </SectionCard>
     </div>
   );

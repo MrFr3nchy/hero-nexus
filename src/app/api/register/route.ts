@@ -20,23 +20,7 @@ const registerSchema = z.object({
     .min(8, 'Password must be at least 8 characters.')
     .max(200),
   displayName: z.string().trim().min(1).max(80).optional(),
-  inviteCode: z.string().trim().max(200).optional(),
 });
-
-/**
- * Invite codes for public sign-up. When `REGISTRATION_INVITE_CODES` is set
- * (comma-separated), a matching `inviteCode` is required to register; when it
- * is empty or unset, registration is open. Launch posture is invite-only — see
- * `docs/ops/security-decisions.md`.
- */
-function inviteCodeAccepted(code: string | undefined): boolean {
-  const configured = (process.env.REGISTRATION_INVITE_CODES ?? '')
-    .split(',')
-    .map(c => c.trim())
-    .filter(Boolean);
-  if (configured.length === 0) return true;
-  return code !== undefined && configured.includes(code);
-}
 
 export async function POST(request: Request) {
   const ip = requestIp(request);
@@ -58,13 +42,6 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? 'Invalid input.' },
       { status: 400 }
-    );
-  }
-
-  if (!inviteCodeAccepted(parsed.data.inviteCode)) {
-    return NextResponse.json(
-      { error: 'That invite code is not valid.' },
-      { status: 403 }
     );
   }
 

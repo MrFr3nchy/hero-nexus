@@ -96,7 +96,9 @@ export function ReviewStep({
                 </div>
                 <div className="font-display text-lg tabular-nums text-ink">
                   {score}{' '}
-                  <span className="text-sm text-ink-muted">{fmtBonus(mod)}</span>
+                  <span className="text-sm text-ink-muted">
+                    {fmtBonus(mod)}
+                  </span>
                 </div>
                 <div className="text-xs text-ink-muted">
                   save{' '}
@@ -151,10 +153,7 @@ export function ReviewStep({
                 value={ABILITY_LABELS[sheet.spellcasting.ability]}
               />
               <Fact label="Save DC" value={dc ?? '—'} />
-              <Fact
-                label="Attack"
-                value={atk === null ? '—' : fmtBonus(atk)}
-              />
+              <Fact label="Attack" value={atk === null ? '—' : fmtBonus(atk)} />
               {slots.map(([level, slot]) => (
                 <Fact
                   key={level}

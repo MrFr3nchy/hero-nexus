@@ -64,7 +64,18 @@ export function slotsAtLevel(
   return out;
 }
 
-const ORDINAL = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th'];
+const ORDINAL = [
+  '',
+  '1st',
+  '2nd',
+  '3rd',
+  '4th',
+  '5th',
+  '6th',
+  '7th',
+  '8th',
+  '9th',
+];
 
 /**
  * The whole ladder from level 1 to `level`. Levels above the class's own
@@ -104,7 +115,8 @@ export function planLevels(
     steps.push({
       level: lvl,
       proficiencyBonus: proficiencyBonus(lvl),
-      proficiencyGrew: lvl > 1 && proficiencyBonus(lvl) > proficiencyBonus(lvl - 1),
+      proficiencyGrew:
+        lvl > 1 && proficiencyBonus(lvl) > proficiencyBonus(lvl - 1),
       grants: [
         ...grantsAt(def?.features ?? [], lvl, 'class'),
         ...grantsAt(subclass?.features ?? [], lvl, 'subclass'),

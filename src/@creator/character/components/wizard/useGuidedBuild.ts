@@ -58,7 +58,8 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
       if (current.build.mode !== 'guided') return;
       const next = composeSheet(current, refsFor(current.build, def));
       for (const group of COMPOSED_GROUPS) {
-        if (JSON.stringify(next[group]) === JSON.stringify(current[group])) continue;
+        if (JSON.stringify(next[group]) === JSON.stringify(current[group]))
+          continue;
         setValue(group, next[group], { shouldDirty: true });
       }
     },

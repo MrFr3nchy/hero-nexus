@@ -423,6 +423,31 @@ export const initiativeEntries = sqliteTable(
 /* ------------------------------------------------------------------ */
 
 /**
+ * A shelf in the campaign's archive — the Bestiary, a looted spellbook, the
+ * party's own notebook. Purely organisational: a collection has no visibility
+ * of its own, because each entry on the shelf is revealed on its own terms,
+ * and a half-known bestiary should show a player exactly what they have met.
+ */
+export const canonCollections = sqliteTable(
+  'canon_collections',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    blurb: text('blurb').notNull().default(''),
+    /** An emoji for the spine. */
+    icon: text('icon').notNull().default('📚'),
+    imageId: text('image_id'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('canon_collections_campaign_idx').on(t.campaignId)]
+);
+
+/**
  * One canon entry (an NPC, place, item, faction, or piece of lore). Two
  * bodies: `dm_body` is the DM's private notes, `party_body` is what the party
  * has been told. They are different documents that share a subject, never one
@@ -436,11 +461,28 @@ export const canonEntries = sqliteTable(
       .notNull()
       .references(() => campaigns.id, { onDelete: 'cascade' }),
     kind: text('kind', {
-      enum: ['npc', 'location', 'item', 'faction', 'lore'],
+      enum: [
+        'npc',
+        'creature',
+        'location',
+        'faction',
+        'item',
+        'spell',
+        'lore',
+        'note',
+      ],
     }).notNull(),
     title: text('title').notNull().default(''),
     dmBody: text('dm_body').notNull().default(''),
     partyBody: text('party_body').notNull().default(''),
+    /** The shelf it is filed on. Null is a loose entry. */
+    collectionId: text('collection_id'),
+    /** Portrait or sketch, from `campaign_images`. */
+    imageId: text('image_id'),
+    /** Kind-specific facts as JSON — presentation, never queried on. */
+    fields: text('fields', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
     /** 'dm' = staff only; 'shared' = every player sees `party_body`. */
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
@@ -548,9 +590,19 @@ export const downtimeActions = sqliteTable(
     actorUserId: text('actor_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    /** shopping | crafting | research | training | carousing | letter | other */
+    /** See DOWNTIME_KINDS — shopping, crafting, scheming, recovery, … */
     kind: text('kind').notNull().default('other'),
     body: text('body').notNull().default(''),
+    /** A letter, a sketch, a shopping list — from `campaign_images`. */
+    imageId: text('image_id'),
+    /**
+     * Who reads this action and its resolution. 'party' is the old behaviour
+     * and stays the default; 'player' keeps a scheme between its author and
+     * the DM until the DM decides the table may know.
+     */
+    visibility: text('visibility', { enum: ['player', 'party'] })
+      .notNull()
+      .default('party'),
     dmResponse: text('dm_response'),
     status: text('status', {
       enum: ['submitted', 'resolved', 'rejected'],
@@ -568,4 +620,125 @@ export const downtimeActions = sqliteTable(
     index('downtime_actions_period_idx').on(t.periodId),
     index('downtime_actions_character_idx').on(t.characterId),
   ]
+);
+
+/* ------------------------------------------------------------------ */
+/* DM annotations on a player's sheet, and the per-player secret log.   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A DM comment pinned to one section of a player's character sheet.
+ *
+ * `visibility` is per comment: 'shared' is written for the player and shows on
+ * their own sheet; 'dm' is a private margin note only staff ever receive. The
+ * section key is the sheet section it hangs under, not a free-text label, so
+ * the same string addresses the DM's read-only view and the player's sheet.
+ */
+export const sheetNotes = sqliteTable(
+  'sheet_notes',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    /** identity | combat | abilities | skills | spellcasting | proficiencies | details | equipment */
+    section: text('section').notNull(),
+    body: text('body').notNull().default(''),
+    authorUserId: text('author_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    /** 'shared' = the owning player sees it; 'dm' = staff only. */
+    visibility: text('visibility', { enum: ['shared', 'dm'] })
+      .notNull()
+      .default('shared'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('sheet_notes_character_idx').on(t.characterId),
+    index('sheet_notes_campaign_idx').on(t.campaignId),
+  ]
+);
+
+/**
+ * The secret log for one character: things this player knows that the rest of
+ * the table does not. Either side writes to it — the player records what their
+ * character learned, the DM drops in what they were told in private.
+ *
+ * Three levels rather than a boolean, because the DM needs to widen a secret
+ * in two steps: 'dm' (withheld, the player cannot see it yet), 'player' (that
+ * player only), 'party' (revealed to everyone at the table).
+ *
+ * A DM-authored entry is never deletable — it can only be hidden. The log is
+ * a record of what was known when, and a DM quietly erasing their own entry
+ * would break that; `authorRole` is stored so the rule survives the author's
+ * account being deleted.
+ */
+export const characterSecrets = sqliteTable(
+  'character_secrets',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    authorUserId: text('author_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    /** Who wrote it, kept independent of the author row surviving. */
+    authorRole: text('author_role', { enum: ['gm', 'player'] })
+      .notNull()
+      .default('player'),
+    body: text('body').notNull().default(''),
+    /** 'dm' = staff only; 'player' = staff + this character's owner; 'party' = the whole table. */
+    visibility: text('visibility', { enum: ['dm', 'player', 'party'] })
+      .notNull()
+      .default('player'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('character_secrets_character_idx').on(t.characterId),
+    index('character_secrets_campaign_idx').on(t.campaignId),
+  ]
+);
+
+/* ------------------------------------------------------------------ */
+/* Campaign images — portraits and sketches attached to campaign things.*/
+/* ------------------------------------------------------------------ */
+
+/**
+ * One uploaded image belonging to a campaign, stored on disk beside the
+ * handouts (see `src/server/uploads.ts`) rather than as a data URI in the row.
+ * A portrait is read every time its entry is listed, and base64 in SQLite
+ * would drag that weight through every query and every backup.
+ *
+ * Rows here are shared plumbing: canon entries, downtime actions and anything
+ * else that wants a picture reference one by id. Access is judged by the thing
+ * pointing at the image, so the serve route only asks "are you at this table".
+ */
+export const campaignImages = sqliteTable(
+  'campaign_images',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** Path under UPLOADS_DIR, e.g. "<campaignId>/<uuid>.webp". */
+    filePath: text('file_path').notNull(),
+    mime: text('mime').notNull(),
+    bytes: integer('bytes').notNull().default(0),
+    /** Shown when the image cannot load, and read out by screen readers. */
+    alt: text('alt').notNull().default(''),
+    uploadedBy: text('uploaded_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_images_campaign_idx').on(t.campaignId)]
 );

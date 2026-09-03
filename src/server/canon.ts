@@ -1,9 +1,10 @@
 import 'server-only';
 
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
+  canonCollections,
   canonEntries,
   canonLinks,
   canonReveals,
@@ -12,15 +13,22 @@ import {
   users,
 } from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
-import type {
-  CanonEntryRow,
-  CanonInput,
-  CanonKind,
+import {
+  tidyFields,
+  type CanonCollectionInput,
+  type CanonCollectionRow,
+  type CanonEntryRow,
+  type CanonInput,
+  type CanonKind,
 } from '@/@creator/campaign/lib/canon';
 
 export {
   CANON_KINDS,
+  CANON_KIND_FIELDS,
+  CANON_KIND_ICONS,
   CANON_KIND_LABELS,
+  type CanonCollectionInput,
+  type CanonCollectionRow,
   type CanonEntryRow,
   type CanonInput,
   type CanonKind,
@@ -130,6 +138,9 @@ export async function listCanon(campaignId: string): Promise<CanonEntryRow[]> {
       visibility: e.visibility,
       revealedToMe:
         !staff && e.visibility !== 'shared' && revealedToMe.has(e.id),
+      collectionId: e.collectionId,
+      imageId: e.imageId,
+      fields: (e.fields ?? {}) as Record<string, string>,
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       links: outgoing,
@@ -159,6 +170,9 @@ export async function createCanonEntry(
       dmBody: input.dmBody,
       partyBody: input.partyBody,
       visibility: input.visibility ?? 'dm',
+      collectionId: input.collectionId ?? null,
+      imageId: input.imageId ?? null,
+      fields: tidyFields(input.kind, input.fields),
       createdBy: userId,
     })
     .returning({ id: canonEntries.id });
@@ -169,14 +183,122 @@ export async function updateCanonEntry(
   entryId: string,
   patch: Partial<CanonInput>
 ): Promise<void> {
-  await requireStaffForEntry(entryId);
+  const { entry } = await requireStaffForEntry(entryId);
   const set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (patch.kind !== undefined) set.kind = patch.kind;
   if (patch.title !== undefined) set.title = patch.title.trim();
   if (patch.dmBody !== undefined) set.dmBody = patch.dmBody;
   if (patch.partyBody !== undefined) set.partyBody = patch.partyBody;
   if (patch.visibility !== undefined) set.visibility = patch.visibility;
+  if (patch.collectionId !== undefined) set.collectionId = patch.collectionId;
+  if (patch.imageId !== undefined) set.imageId = patch.imageId;
+  // Facts are validated against the kind the entry ends up with, so changing
+  // an NPC into a spell drops the facts that no longer mean anything.
+  if (patch.fields !== undefined) {
+    set.fields = tidyFields(
+      (patch.kind ?? entry.kind) as CanonKind,
+      patch.fields
+    );
+  }
   await db.update(canonEntries).set(set).where(eq(canonEntries.id, entryId));
+}
+
+/* --- collections --------------------------------------------------------- */
+
+function hydrateCollection(
+  row: typeof canonCollections.$inferSelect
+): CanonCollectionRow {
+  return {
+    id: row.id,
+    campaignId: row.campaignId,
+    title: row.title,
+    blurb: row.blurb,
+    icon: row.icon,
+    imageId: row.imageId,
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+/**
+ * The shelves at this table. Everyone sees them all — a shelf's existence is
+ * not a secret, what stands on it is; an empty-looking Bestiary tells a player
+ * only that they have met nothing in it yet.
+ */
+export async function listCanonCollections(
+  campaignId: string
+): Promise<CanonCollectionRow[]> {
+  await requireCampaignRole(campaignId, ['gm', 'co-gm', 'player']);
+  const rows = await db
+    .select()
+    .from(canonCollections)
+    .where(eq(canonCollections.campaignId, campaignId))
+    .orderBy(asc(canonCollections.sortOrder), asc(canonCollections.createdAt));
+  return rows.map(hydrateCollection);
+}
+
+export async function createCanonCollection(
+  campaignId: string,
+  input: CanonCollectionInput
+): Promise<string> {
+  await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  const [row] = await db
+    .insert(canonCollections)
+    .values({
+      campaignId,
+      title: input.title.trim(),
+      blurb: (input.blurb ?? '').trim(),
+      icon: (input.icon ?? '📚').slice(0, 8),
+      imageId: input.imageId ?? null,
+      sortOrder: input.sortOrder ?? 0,
+    })
+    .returning({ id: canonCollections.id });
+  return row.id;
+}
+
+export async function updateCanonCollection(
+  collectionId: string,
+  patch: Partial<CanonCollectionInput>
+): Promise<void> {
+  const row = await db.query.canonCollections.findFirst({
+    where: eq(canonCollections.id, collectionId),
+  });
+  if (!row) throw new Error('NOT_FOUND');
+  await requireCampaignRole(row.campaignId, ['gm', 'co-gm']);
+
+  const set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  if (patch.title !== undefined) set.title = patch.title.trim();
+  if (patch.blurb !== undefined) set.blurb = patch.blurb.trim();
+  if (patch.icon !== undefined) set.icon = patch.icon.slice(0, 8);
+  if (patch.imageId !== undefined) set.imageId = patch.imageId;
+  if (patch.sortOrder !== undefined) set.sortOrder = patch.sortOrder;
+  await db
+    .update(canonCollections)
+    .set(set)
+    .where(eq(canonCollections.id, collectionId));
+}
+
+/**
+ * Remove a shelf. Its entries survive as loose entries — deleting the Bestiary
+ * must never quietly delete every monster the party has met.
+ */
+export async function deleteCanonCollection(
+  collectionId: string
+): Promise<void> {
+  const row = await db.query.canonCollections.findFirst({
+    where: eq(canonCollections.id, collectionId),
+  });
+  if (!row) throw new Error('NOT_FOUND');
+  await requireCampaignRole(row.campaignId, ['gm', 'co-gm']);
+
+  await db
+    .update(canonEntries)
+    .set({ collectionId: null })
+    .where(eq(canonEntries.collectionId, collectionId));
+  await db
+    .delete(canonCollections)
+    .where(eq(canonCollections.id, collectionId));
 }
 
 export async function deleteCanonEntry(entryId: string): Promise<void> {

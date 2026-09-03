@@ -36,7 +36,9 @@ function PackagePicker({
                 : 'border-line bg-surface text-ink-muted hover:border-gold/60 hover:text-ink'
             }`}
           >
-            <span className="font-display text-base text-ink">{option.label}</span>
+            <span className="font-display text-base text-ink">
+              {option.label}
+            </span>
             <span className="flex-1">{option.desc}</span>
             {option.gp > 0 && (
               <span className="shrink-0 font-display-alt text-xs text-gold-strong">
@@ -103,7 +105,9 @@ export function EquipmentStep({
         options={classDef?.coreTraits.equipment ?? []}
         chosen={build.equipment.classOption}
         onChoose={label => {
-          const option = classDef?.coreTraits.equipment.find(e => e.label === label);
+          const option = classDef?.coreTraits.equipment.find(
+            e => e.label === label
+          );
           choose('classOption', label, build.className, option?.desc ?? '');
         }}
       />

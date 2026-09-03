@@ -11,11 +11,18 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 
 import { listCharactersAction } from '@/@creator/character/actions';
-import { DiceSpinner, EmptyState, SectionCard } from '@/@shared/components/ui';
+import {
+  DiceSpinner,
+  EmptyState,
+  EntryCard,
+  Pill,
+  SectionCard,
+} from '@/@shared/components/ui';
 import type { CharacterRow } from '@/server/characters';
 import type { CampaignRole } from '@/server/campaigns';
 import {
   DOWNTIME_KINDS,
+  DOWNTIME_KIND_ICONS,
   DOWNTIME_KIND_LABELS,
   type DowntimeActionRow,
   type DowntimeKind,
@@ -27,10 +34,27 @@ import {
   openDowntimeAction,
   resolveDowntimeActionAction,
   setDowntimePeriodStatusAction,
+  setDowntimeVisibilityAction,
   submitDowntimeActionAction,
   updateDowntimeActionAction,
   withdrawDowntimeActionAction,
 } from '../downtime-actions';
+import { ImagePicker } from './ImagePicker';
+import { RevealControls } from './RevealControls';
+
+/** The two audiences an action can have, in the archive's own words. */
+const DOWNTIME_LEVELS = [
+  {
+    key: 'player' as const,
+    label: 'Quiet',
+    hint: 'Only the author and the DM read this one.',
+  },
+  {
+    key: 'party' as const,
+    label: 'The whole party',
+    hint: 'Everyone at the table sees it in the log.',
+  },
+];
 
 const STATUS_CHIP: Record<
   DowntimeActionRow['status'],
@@ -199,12 +223,16 @@ function PeriodCard({
   const [kind, setKind] = useState<DowntimeKind>('other');
   const [characterId, setCharacterId] = useState<string>('');
   const [body, setBody] = useState('');
+  const [imageId, setImageId] = useState<string | null>(null);
+  const [visibility, setVisibility] = useState<'player' | 'party'>('party');
 
   const submit = async () => {
     const res = await submitDowntimeActionAction(campaignId, period.id, {
       characterId: characterId || null,
       kind,
       body,
+      imageId,
+      visibility,
     });
     if (!res.ok) {
       setError(res.error);
@@ -213,6 +241,8 @@ function PeriodCard({
     setBody('');
     setKind('other');
     setCharacterId('');
+    setImageId(null);
+    setVisibility('party');
     await refresh();
   };
 
@@ -279,7 +309,12 @@ function PeriodCard({
                 }
               >
                 {DOWNTIME_KINDS.map(k => (
-                  <SelectItem key={k}>{DOWNTIME_KIND_LABELS[k]}</SelectItem>
+                  <SelectItem
+                    key={k}
+                    textValue={`${DOWNTIME_KIND_ICONS[k]} ${DOWNTIME_KIND_LABELS[k]}`}
+                  >
+                    {DOWNTIME_KIND_ICONS[k]} {DOWNTIME_KIND_LABELS[k]}
+                  </SelectItem>
                 ))}
               </Select>
               <Select
@@ -302,6 +337,19 @@ function PeriodCard({
               value={body}
               onValueChange={setBody}
             />
+            <div className="grid gap-4 sm:grid-cols-[auto_1fr]">
+              <ImagePicker
+                campaignId={campaignId}
+                value={imageId}
+                onChange={setImageId}
+                label="A letter, a sketch, a list"
+              />
+              <RevealControls
+                levels={DOWNTIME_LEVELS}
+                value={visibility}
+                onSet={setVisibility}
+              />
+            </div>
             <Button
               size="sm"
               color="primary"
@@ -392,116 +440,164 @@ function ActionRow({
     await refresh();
   };
 
+  const kindKey = (action.kind as DowntimeKind) ?? 'other';
+  const canReveal = isStaff || action.mine;
+
   return (
-    <div className="rounded-md border border-line bg-surface px-3 py-2 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <Chip size="sm" variant="flat">
-          {DOWNTIME_KIND_LABELS[action.kind as DowntimeKind] ?? action.kind}
-        </Chip>
-        <span className="text-ink-muted">
-          {action.characterName || action.actorName || 'A player'}
-        </span>
-        <Chip size="sm" variant="flat" color={chip.color}>
-          {chip.label}
-        </Chip>
-      </div>
-
-      {editing ? (
-        <div className="mt-2 space-y-2">
-          <Select
-            aria-label="Kind"
-            size="sm"
-            className="max-w-xs"
-            selectedKeys={[editKind]}
-            onSelectionChange={keys =>
-              setEditKind((Array.from(keys)[0] as DowntimeKind) ?? editKind)
+    <EntryCard
+      title={action.characterName || action.actorName || 'A player'}
+      kind={`${DOWNTIME_KIND_ICONS[kindKey] ?? '❔'} ${
+        DOWNTIME_KIND_LABELS[kindKey] ?? action.kind
+      }`}
+      imageUrl={
+        action.imageId
+          ? `/api/campaigns/${campaignId}/images/${action.imageId}`
+          : null
+      }
+      imageAlt=""
+      tone={
+        action.status === 'rejected'
+          ? 'muted'
+          : action.status === 'resolved'
+            ? 'gold'
+            : 'default'
+      }
+      badges={
+        <>
+          <Pill
+            tone={
+              action.status === 'resolved'
+                ? 'success'
+                : action.status === 'rejected'
+                  ? 'warning'
+                  : 'default'
             }
           >
-            {DOWNTIME_KINDS.map(k => (
-              <SelectItem key={k}>{DOWNTIME_KIND_LABELS[k]}</SelectItem>
-            ))}
-          </Select>
-          <Textarea
-            aria-label="Edit body"
-            minRows={2}
-            value={editBody}
-            onValueChange={setEditBody}
-          />
-          <div className="flex gap-2">
-            <Button size="sm" color="primary" onPress={saveEdit}>
-              Save
-            </Button>
-            <Button size="sm" variant="light" onPress={() => setEditing(false)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <p className="mt-1 whitespace-pre-wrap text-ink-muted">{action.body}</p>
-      )}
-
-      {action.dmResponse && (
-        <p className="mt-2 rounded border border-gold/30 bg-gold/5 px-2 py-1.5 text-ink-muted">
-          <span className="text-[0.7rem] uppercase tracking-[0.1em] text-ink-subtle">
-            DM
-            {action.resolvedByName ? ` · ${action.resolvedByName}` : ''}
-          </span>
-          <br />
-          {action.dmResponse}
-        </p>
-      )}
-
-      {action.mine && action.status === 'submitted' && !editing && (
-        <div className="mt-2 flex gap-2">
-          <Button size="sm" variant="light" onPress={() => setEditing(true)}>
-            Edit
-          </Button>
-          <Button
-            size="sm"
-            variant="light"
-            className="text-ink-muted data-[hover=true]:text-danger"
-            onPress={() =>
-              act(withdrawDowntimeActionAction(campaignId, action.id))
-            }
-          >
-            Withdraw
-          </Button>
-        </div>
-      )}
-
-      {isStaff && action.status === 'submitted' && (
-        <div className="mt-2 space-y-2">
-          <Textarea
-            aria-label="DM response"
-            minRows={2}
-            placeholder="Your response to the player…"
-            value={response}
-            onValueChange={setResponse}
-          />
-          <div className="flex gap-2">
-            <Button
+            {chip.label}
+          </Pill>
+          {action.visibility === 'player' && <Pill tone="arcane">Quiet</Pill>}
+        </>
+      }
+      summary={action.body.split('\n')[0].slice(0, 160)}
+      defaultOpen={action.status === 'submitted'}
+    >
+      <div className="space-y-3 text-sm">
+        {editing ? (
+          <div className="space-y-2">
+            <Select
+              aria-label="Kind"
               size="sm"
-              color="primary"
-              isDisabled={!response.trim()}
-              onPress={() => resolve('resolved')}
+              className="max-w-xs"
+              selectedKeys={[editKind]}
+              onSelectionChange={keys =>
+                setEditKind((Array.from(keys)[0] as DowntimeKind) ?? editKind)
+              }
             >
-              Resolve
-            </Button>
-            <Button
-              size="sm"
-              variant="flat"
-              color="danger"
-              isDisabled={!response.trim()}
-              onPress={() => resolve('rejected')}
-            >
-              Reject
-            </Button>
+              {DOWNTIME_KINDS.map(k => (
+                <SelectItem
+                  key={k}
+                  textValue={`${DOWNTIME_KIND_ICONS[k]} ${DOWNTIME_KIND_LABELS[k]}`}
+                >
+                  {DOWNTIME_KIND_ICONS[k]} {DOWNTIME_KIND_LABELS[k]}
+                </SelectItem>
+              ))}
+            </Select>
+            <Textarea
+              aria-label="Edit body"
+              minRows={2}
+              value={editBody}
+              onValueChange={setEditBody}
+            />
+            <div className="flex gap-2">
+              <Button size="sm" color="primary" onPress={saveEdit}>
+                Save
+              </Button>
+              <Button
+                size="sm"
+                variant="light"
+                onPress={() => setEditing(false)}
+              >
+                Cancel
+              </Button>
+            </div>
           </div>
-          <p className="text-xs text-ink-subtle">
-            A rejection needs a written reason.
+        ) : (
+          <p className="whitespace-pre-wrap text-ink-muted">{action.body}</p>
+        )}
+
+        {action.dmResponse && (
+          <p className="rounded border border-gold/30 bg-gold/5 px-2 py-1.5 text-ink-muted">
+            <span className="text-[0.65rem] uppercase tracking-[0.1em] text-ink-subtle">
+              DM
+              {action.resolvedByName ? ` · ${action.resolvedByName}` : ''}
+            </span>
+            <br />
+            {action.dmResponse}
           </p>
-        </div>
-      )}
-    </div>
+        )}
+
+        {canReveal && (
+          <RevealControls
+            levels={DOWNTIME_LEVELS}
+            value={action.visibility}
+            onSet={next =>
+              act(setDowntimeVisibilityAction(campaignId, action.id, next))
+            }
+          />
+        )}
+
+        {action.mine && action.status === 'submitted' && !editing && (
+          <div className="flex gap-2">
+            <Button size="sm" variant="light" onPress={() => setEditing(true)}>
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              variant="light"
+              className="text-ink-muted data-[hover=true]:text-danger"
+              onPress={() =>
+                act(withdrawDowntimeActionAction(campaignId, action.id))
+              }
+            >
+              Withdraw
+            </Button>
+          </div>
+        )}
+
+        {isStaff && action.status === 'submitted' && (
+          <div className="space-y-2">
+            <Textarea
+              aria-label="DM response"
+              minRows={2}
+              placeholder="Your response to the player…"
+              value={response}
+              onValueChange={setResponse}
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                color="primary"
+                isDisabled={!response.trim()}
+                onPress={() => resolve('resolved')}
+              >
+                Resolve
+              </Button>
+              <Button
+                size="sm"
+                variant="flat"
+                color="danger"
+                isDisabled={!response.trim()}
+                onPress={() => resolve('rejected')}
+              >
+                Reject
+              </Button>
+            </div>
+            <p className="text-xs text-ink-subtle">
+              A rejection needs a written reason.
+            </p>
+          </div>
+        )}
+      </div>
+    </EntryCard>
   );
 }

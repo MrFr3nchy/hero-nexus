@@ -11,10 +11,7 @@ import {
 
 import { Marginalia, SheetPreview } from '@/@shared/components/ui';
 
-import {
-  type AbilityMethod,
-  type CharacterSheet,
-} from '../../schema';
+import { type CharacterSheet } from '../../schema';
 import { COMPOSED_PATHS } from '../../lib/compose';
 import {
   abilityModifier,
@@ -23,7 +20,12 @@ import {
   spellSaveDC,
 } from '../../lib/derive';
 import type { BuildCatalog } from '../../lib/srd/types';
-import { findBuildIssues, type StepId } from '../../lib/validate-build';
+import {
+  findBuildIssues,
+  OPEN_LIMITS,
+  type BuildLimits,
+  type StepId,
+} from '../../lib/validate-build';
 import type { ProvenanceInput } from '../../lib/provenance';
 import type { CustomFieldHandler } from '../sections';
 
@@ -46,11 +48,15 @@ interface CharacterWizardProps {
   catalog: BuildCatalog;
   log: (input: ProvenanceInput) => void;
   onCustomField: CustomFieldHandler;
-  /** Highest level this table lets a character join at. */
-  maxLevel?: number;
-  allowedMethods?: AbilityMethod[];
-  /** Save / reset controls, owned by the form around this. */
-  footer?: ReactNode;
+  /** What the chosen campaign allows. Defaults to an unconstrained build. */
+  limits?: BuildLimits;
+  /** Campaign picker and anything else that belongs above the first step. */
+  header?: ReactNode;
+  /**
+   * Save / reset controls, owned by the form around this. Given the build's
+   * completeness so the form can keep an unfinished character unsaveable.
+   */
+  footer?: (status: { complete: boolean; remaining: number }) => ReactNode;
   onSwitchToSheet: () => void;
 }
 
@@ -83,8 +89,8 @@ export function CharacterWizard({
   catalog,
   log,
   onCustomField,
-  maxLevel = 20,
-  allowedMethods,
+  limits = OPEN_LIMITS,
+  header,
   footer,
   onSwitchToSheet,
 }: CharacterWizardProps) {
@@ -92,8 +98,32 @@ export function CharacterWizard({
   const [stepId, setStepId] = useState<StepId>('class');
 
   const guided = useGuidedBuild({ getValues, setValue, catalog });
-  const { classDef, loadingClass, patchBuild, setLevel, chooseClass, restoreClass } =
-    guided;
+  const {
+    classDef,
+    loadingClass,
+    patchBuild,
+    setLevel,
+    chooseClass,
+    restoreClass,
+  } = guided;
+
+  const level = sheet?.identity.level ?? 1;
+  const method = sheet?.generation.abilityMethod;
+
+  // Picking a table mid-build can invalidate choices already made. Rather than
+  // refuse the sheet at save time, pull them back inside the rules.
+  useEffect(() => {
+    if (level > limits.maxLevel) setLevel(limits.maxLevel);
+  }, [level, limits.maxLevel, setLevel]);
+
+  useEffect(() => {
+    if (!method) return;
+    if (limits.allowedMethods.length === 0) return;
+    if (limits.allowedMethods.includes(method)) return;
+    setValue('generation.abilityMethod', limits.allowedMethods[0], {
+      shouldDirty: true,
+    });
+  }, [method, limits.allowedMethods, setValue]);
 
   // Reopening a saved character: pull its class definition back in so the
   // level log and feature text have something to work from.
@@ -121,16 +151,18 @@ export function CharacterWizard({
   const refs = useMemo(
     () => ({
       classDef,
-      species: catalog.species.find(s => s.key === sheet?.build?.speciesKey) ?? null,
+      species:
+        catalog.species.find(s => s.key === sheet?.build?.speciesKey) ?? null,
       background:
-        catalog.backgrounds.find(b => b.key === sheet?.build?.backgroundKey) ?? null,
+        catalog.backgrounds.find(b => b.key === sheet?.build?.backgroundKey) ??
+        null,
     }),
     [classDef, catalog, sheet?.build?.speciesKey, sheet?.build?.backgroundKey]
   );
 
   const issues = useMemo(
-    () => (sheet?.build ? findBuildIssues(sheet, refs) : []),
-    [sheet, refs]
+    () => (sheet?.build ? findBuildIssues(sheet, refs, limits) : []),
+    [sheet, refs, limits]
   );
 
   const issuesFor = (id: StepId) => issues.filter(i => i.step === id);
@@ -139,6 +171,7 @@ export function CharacterWizard({
     sheet,
     build: sheet?.build,
     catalog,
+    limits,
     classDef,
     loadingClass,
     control,
@@ -151,12 +184,22 @@ export function CharacterWizard({
   };
 
   const index = STEPS.findIndex(s => s.id === stepId);
+
+  /**
+   * The first step still missing a decision. Everything up to and including it
+   * is open; beyond it the build has nothing to show yet, so the rail and the
+   * Next button both stop there.
+   */
+  const firstOpen = STEPS.findIndex(s => issuesFor(s.id).length > 0);
+  const lastReachable = firstOpen === -1 ? STEPS.length - 1 : firstOpen;
+  const blocking = issuesFor(stepId);
+
   const go = (delta: number) => {
     const next = STEPS[index + delta];
-    if (next) {
-      setStepId(next.id);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+    if (!next) return;
+    if (delta > 0 && index + delta > lastReachable) return;
+    setStepId(next.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   if (!sheet?.build) return null;
@@ -170,11 +213,11 @@ export function CharacterWizard({
       case 'background':
         return <BackgroundStep {...stepProps} />;
       case 'abilities':
-        return <AbilitiesStep {...stepProps} allowedMethods={allowedMethods} />;
+        return <AbilitiesStep {...stepProps} />;
       case 'skills':
         return <SkillsStep {...stepProps} />;
       case 'advancement':
-        return <AdvancementStep {...stepProps} maxLevel={maxLevel} />;
+        return <AdvancementStep {...stepProps} />;
       case 'equipment':
         return <EquipmentStep {...stepProps} />;
       case 'details':
@@ -196,15 +239,19 @@ export function CharacterWizard({
 
   return (
     <div className="space-y-5">
+      {header}
+
       {/* ---- the one thing that is always on screen ---- */}
       <div className="flex flex-wrap items-end gap-4 rounded-[var(--radius-card)] border border-line bg-surface p-4">
         <Input
           label="Character name"
           value={sheet.identity.name}
-          onValueChange={value => setValue('identity.name', value, {
-            shouldDirty: true,
-            shouldValidate: true,
-          })}
+          onValueChange={value =>
+            setValue('identity.name', value, {
+              shouldDirty: true,
+              shouldValidate: true,
+            })
+          }
           className="min-w-[16rem] flex-1"
           classNames={{ inputWrapper: 'bg-surface-2 border-line' }}
         />
@@ -225,21 +272,33 @@ export function CharacterWizard({
 
       <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[13rem_minmax(0,1fr)_18rem]">
         {/* ---- step rail ---- */}
-        <nav className="lg:sticky lg:top-6 lg:self-start" aria-label="Builder steps">
+        <nav
+          className="lg:sticky lg:top-6 lg:self-start"
+          aria-label="Builder steps"
+        >
           <ol className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
             {STEPS.map((step, i) => {
               const open = issuesFor(step.id).length;
               const active = step.id === stepId;
               const behind = i < index;
+              const locked = i > lastReachable;
               return (
                 <li key={step.id} className="shrink-0 lg:shrink">
                   <button
                     type="button"
+                    disabled={locked}
+                    title={
+                      locked
+                        ? 'Finish the steps before this one first.'
+                        : undefined
+                    }
                     onClick={() => setStepId(step.id)}
                     className={`flex w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left transition-colors ${
                       active
                         ? 'border-gold bg-gold/10'
-                        : 'border-transparent hover:border-line hover:bg-surface-2'
+                        : locked
+                          ? 'cursor-not-allowed border-transparent opacity-45'
+                          : 'border-transparent hover:border-line hover:bg-surface-2'
                     }`}
                   >
                     <span
@@ -272,21 +331,50 @@ export function CharacterWizard({
         <div className="min-w-0">
           {body()}
 
-          <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-line pt-5">
-            <Button
-              variant="bordered"
-              className="border-line text-ink"
-              isDisabled={index === 0}
-              onPress={() => go(-1)}
-            >
-              Back
-            </Button>
-            {index < STEPS.length - 1 ? (
-              <Button color="primary" onPress={() => go(1)}>
-                Next — {STEPS[index + 1].label}
+          <div className="mt-8 border-t border-line pt-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="bordered"
+                className="border-line text-ink"
+                isDisabled={index === 0}
+                onPress={() => go(-1)}
+              >
+                Back
               </Button>
-            ) : null}
-            <div className="ml-auto flex flex-wrap items-center gap-3">{footer}</div>
+              {index < STEPS.length - 1 ? (
+                <Button
+                  color="primary"
+                  isDisabled={blocking.length > 0}
+                  onPress={() => go(1)}
+                >
+                  Next — {STEPS[index + 1].label}
+                </Button>
+              ) : null}
+              <div className="ml-auto flex flex-wrap items-center gap-3">
+                {footer?.({
+                  complete: issues.length === 0,
+                  remaining: issues.length,
+                })}
+              </div>
+            </div>
+
+            {blocking.length > 0 && (
+              <div className="mt-3 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-warning">
+                <p>Finish this step first:</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                  {blocking.map(issue => (
+                    <li key={issue.message}>{issue.message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {blocking.length === 0 && issues.length > 0 && (
+              <p className="mt-3 text-sm text-ink-muted">
+                {issues.length} decision{issues.length === 1 ? '' : 's'} left on{' '}
+                {firstOpen === -1 ? 'another step' : STEPS[firstOpen].label} —
+                the character can be saved once they are made.
+              </p>
+            )}
           </div>
         </div>
 
@@ -312,7 +400,9 @@ export function CharacterWizard({
               },
               {
                 label: 'Initiative',
-                value: fmtBonus(abilityModifier(sheet.abilities.dexterity.score)),
+                value: fmtBonus(
+                  abilityModifier(sheet.abilities.dexterity.score)
+                ),
               },
               ...(sheet.spellcasting.ability
                 ? [{ label: 'Spell save DC', value: spellSaveDC(sheet) ?? '—' }]

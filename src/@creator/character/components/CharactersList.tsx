@@ -64,6 +64,15 @@ function CharacterGrid({
           <div className="mt-auto flex gap-2">
             <Button
               as={Link}
+              href={`/characters/${c.id}`}
+              size="sm"
+              variant="flat"
+              className="flex-1"
+            >
+              View
+            </Button>
+            <Button
+              as={Link}
               href={`/creator/character?id=${c.id}`}
               size="sm"
               variant="flat"

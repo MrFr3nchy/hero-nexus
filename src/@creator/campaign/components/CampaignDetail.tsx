@@ -14,6 +14,7 @@ import { CanonPanel } from './CanonPanel';
 import { DowntimePanel } from './DowntimePanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { MembersPanel } from './MembersPanel';
+import { PartySecrets } from './PartySecrets';
 import { SessionPanel } from './session/SessionPanel';
 
 export function CampaignDetail({
@@ -81,6 +82,8 @@ export function CampaignDetail({
                 </Snippet>
               </SectionCard>
             )}
+
+            <PartySecrets campaignId={campaign.id} />
 
             {campaign.settings.sessionNotes && (
               <SectionCard title="Session notes">

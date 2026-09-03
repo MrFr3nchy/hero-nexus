@@ -5,15 +5,20 @@ import { z } from 'zod';
 
 import {
   CANON_KINDS,
+  createCanonCollection,
   createCanonEntry,
+  deleteCanonCollection,
   deleteCanonEntry,
   linkCanon,
   listCanon,
+  listCanonCollections,
   revealCanonTo,
   setCanonVisibility,
   unlinkCanon,
   unrevealCanonTo,
+  updateCanonCollection,
   updateCanonEntry,
+  type CanonCollectionRow,
   type CanonEntryRow,
 } from '@/server/canon';
 
@@ -43,7 +48,81 @@ const entrySchema = z.object({
   dmBody: z.string().max(20000),
   partyBody: z.string().max(20000),
   visibility: z.enum(['dm', 'shared']).optional(),
+  collectionId: z.string().nullable().optional(),
+  imageId: z.string().nullable().optional(),
+  // Keys are checked against the kind's field list server-side (`tidyFields`).
+  fields: z.record(z.string(), z.string().max(200)).optional(),
 });
+
+const collectionSchema = z.object({
+  title: z.string().trim().min(1, 'A name is required.').max(120),
+  blurb: z.string().max(400).optional(),
+  icon: z.string().max(8).optional(),
+  imageId: z.string().nullable().optional(),
+  sortOrder: z.number().int().min(0).max(999).optional(),
+});
+
+/* --- collections --------------------------------------------------------- */
+
+export async function listCanonCollectionsAction(
+  campaignId: string
+): Promise<CanonCollectionRow[]> {
+  return listCanonCollections(campaignId);
+}
+
+export async function createCanonCollectionAction(
+  campaignId: string,
+  input: unknown
+): Promise<Result<{ id: string }>> {
+  const parsed = collectionSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Invalid shelf.',
+    };
+  }
+  try {
+    const id = await createCanonCollection(campaignId, parsed.data);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true, data: { id } };
+  } catch (err) {
+    return fail(err, 'Failed to make that shelf.');
+  }
+}
+
+export async function updateCanonCollectionAction(
+  campaignId: string,
+  collectionId: string,
+  input: unknown
+): Promise<Result> {
+  const parsed = collectionSchema.partial().safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Invalid shelf.',
+    };
+  }
+  try {
+    await updateCanonCollection(collectionId, parsed.data);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to save that shelf.');
+  }
+}
+
+export async function deleteCanonCollectionAction(
+  campaignId: string,
+  collectionId: string
+): Promise<Result> {
+  try {
+    await deleteCanonCollection(collectionId);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to remove that shelf.');
+  }
+}
 
 export async function listCanonAction(
   campaignId: string

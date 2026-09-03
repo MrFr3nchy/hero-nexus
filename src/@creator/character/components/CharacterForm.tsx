@@ -1,16 +1,14 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Button, Tab, Tabs } from '@heroui/react';
+import { Button, Select, SelectItem, Tab, Tabs } from '@heroui/react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useForm, type Resolver } from 'react-hook-form';
 
-import {
-  checkSheetAgainstRules,
-  describeRules,
-  type CampaignRules,
-} from '@/@creator/campaign/lib/rules';
+import { setMemberCharacterAction } from '@/@creator/campaign/actions';
+import { describeRules } from '@/@creator/campaign/lib/rules';
+import type { BuilderCampaignRow } from '@/server/campaigns';
 
 import { saveCharacterAction } from '../actions';
 import {
@@ -20,6 +18,7 @@ import {
   type HomebrewKind,
 } from '../schema';
 import type { BuildCatalog } from '../lib/srd/types';
+import { OPEN_LIMITS, type BuildLimits } from '../lib/validate-build';
 import {
   genUid,
   makeProvenanceLogger,
@@ -48,10 +47,10 @@ interface CharacterFormProps {
   catalog: BuildCatalog;
   characterId?: string;
   initialSheet?: CharacterSheet;
-  /** When the builder is opened for a specific table, its rules are enforced. */
-  campaignRules?: CampaignRules;
-  campaignAllowHomebrew?: boolean;
-  campaignName?: string;
+  /** Campaigns the player belongs to and can attach this character to. */
+  campaigns: BuilderCampaignRow[];
+  /** Campaign selected up front — the `?campaign=` link, or the current link. */
+  initialCampaignId?: string;
 }
 
 type View = 'guided' | 'sheet';
@@ -82,15 +81,40 @@ export function CharacterForm({
   catalog,
   characterId,
   initialSheet,
-  campaignRules,
-  campaignAllowHomebrew = true,
-  campaignName,
+  campaigns,
+  initialCampaignId,
 }: CharacterFormProps) {
   const router = useRouter();
   const [banner, setBanner] = useState<{
     kind: 'error' | 'success';
     text: string;
   } | null>(null);
+  const [campaignId, setCampaignId] = useState(
+    campaigns.some(c => c.id === initialCampaignId) ? initialCampaignId! : ''
+  );
+
+  const campaign = campaigns.find(c => c.id === campaignId) ?? null;
+  /** The table this character already sits at, if it is a saved one. */
+  const linkedCampaignId = characterId
+    ? (campaigns.find(c => c.linkedCharacterId === characterId)?.id ?? null)
+    : null;
+
+  /**
+   * The table's rules, turned into what the builder may still offer. The
+   * builder hides everything outside this, so a legal build is the only one
+   * that can be assembled — the save-time check behind it is a backstop.
+   */
+  const limits: BuildLimits = useMemo(() => {
+    if (!campaign) return OPEN_LIMITS;
+    return {
+      maxLevel: campaign.rules.maxStartingLevel,
+      allowedMethods: campaign.rules.abilityMethods,
+      bannedSpecies: campaign.rules.bannedSpecies,
+      bannedClasses: campaign.rules.bannedClasses,
+      allowHomebrew: campaign.allowHomebrew,
+      requireBackstory: campaign.rules.requireBackstory,
+    };
+  }, [campaign]);
 
   const {
     control,
@@ -188,32 +212,26 @@ export function CharacterForm({
         provenance: reconcileProvenance(values),
       };
 
-      if (campaignRules) {
-        const violations = checkSheetAgainstRules(payload, campaignRules, {
-          allowHomebrew: campaignAllowHomebrew,
-        });
-        if (violations.length) {
-          setBanner({
-            kind: 'error',
-            text: `This table's rules: ${violations
-              .map(v => v.message)
-              .join(' ')}`,
-          });
-          return;
-        }
-      }
-
       const result = await saveCharacterAction(payload, characterId);
-      if (result.ok) {
-        setBanner({ kind: 'success', text: 'Inscribed.' });
-        router.push('/characters');
-        router.refresh();
-      } else {
+      if (!result.ok) {
         setBanner({
           kind: 'error',
           text: result.error ?? 'Failed to save character.',
         });
+        return;
       }
+
+      // The table this character plays at is a campaign-membership fact, not
+      // part of the sheet, so it is written after the sheet is safely saved.
+      const link = await linkToCampaign(result.id);
+      if (link) {
+        setBanner({ kind: 'error', text: link });
+        return;
+      }
+
+      setBanner({ kind: 'success', text: 'Inscribed.' });
+      router.push('/characters');
+      router.refresh();
     },
     () => {
       setBanner({
@@ -222,6 +240,25 @@ export function CharacterForm({
       });
     }
   );
+
+  /**
+   * Attach the saved character to the chosen table, or detach it from the one
+   * it used to sit at. Returns a message when the link failed; the sheet
+   * itself is already saved either way.
+   */
+  const linkToCampaign = async (savedId?: string): Promise<string | null> => {
+    if (campaignId === (linkedCampaignId ?? '')) return null;
+
+    if (linkedCampaignId && campaignId !== linkedCampaignId) {
+      const off = await setMemberCharacterAction(linkedCampaignId, null);
+      if (!off.ok) return off.error ?? 'Failed to leave the previous table.';
+    }
+    if (!campaignId || !savedId) return null;
+
+    const on = await setMemberCharacterAction(campaignId, savedId);
+    if (!on.ok) return on.error ?? 'Failed to attach the character.';
+    return null;
+  };
 
   /** Turn the guided builder on, taking ownership of the derived fields. */
   const enterGuided = () => {
@@ -240,11 +277,16 @@ export function CharacterForm({
     setView('sheet');
   };
 
-  const ruleLines = campaignRules
-    ? describeRules(campaignRules, { allowHomebrew: campaignAllowHomebrew })
+  const ruleLines = campaign
+    ? describeRules(campaign.rules, { allowHomebrew: campaign.allowHomebrew })
     : [];
 
-  const actions = (
+  /**
+   * `complete` is false while the guided build still has decisions open, which
+   * is what keeps a half-finished character from being written at all — the
+   * hand-built sheet view passes nothing and stays saveable.
+   */
+  const actions = (status?: { complete: boolean; remaining: number }) => (
     <>
       <Button
         type="button"
@@ -259,6 +301,7 @@ export function CharacterForm({
         type="submit"
         size="lg"
         isLoading={isSubmitting}
+        isDisabled={status ? !status.complete : false}
         color="primary"
         className="px-8"
       >
@@ -267,27 +310,45 @@ export function CharacterForm({
     </>
   );
 
+  const campaignPicker = campaigns.length > 0 && (
+    <div className="rounded-lg border border-line bg-surface p-3">
+      <Select
+        label="Play this character at"
+        placeholder="No campaign — a character of your own"
+        selectedKeys={campaignId ? [campaignId] : []}
+        onSelectionChange={keys =>
+          setCampaignId((Array.from(keys)[0] as string) ?? '')
+        }
+        classNames={{ trigger: 'bg-surface-2 border-line' }}
+      >
+        {campaigns.map(c => (
+          <SelectItem key={c.id}>{c.name}</SelectItem>
+        ))}
+      </Select>
+      {campaign?.linkedCharacterId &&
+        campaign.linkedCharacterId !== characterId && (
+          <p className="mt-2 text-sm text-warning">
+            {campaign.linkedCharacterName ?? 'Another character'} is your
+            character at that table right now — saving replaces them.
+          </p>
+        )}
+      {ruleLines.length > 0 && (
+        <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-ink-muted">
+          {ruleLines.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      )}
+      {campaign && ruleLines.length === 0 && (
+        <p className="mt-2 text-sm text-ink-muted">
+          This table uses the standard rules.
+        </p>
+      )}
+    </div>
+  );
+
   return (
     <form onSubmit={onSubmit} className="space-y-6">
-      {campaignRules && (
-        <div className="rounded-lg border border-gold/40 bg-gold/5 p-3 text-sm">
-          <p className="font-display-alt uppercase tracking-[0.12em] text-ink-muted">
-            Building for {campaignName ?? 'a campaign'}
-          </p>
-          {ruleLines.length > 0 ? (
-            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-ink-muted">
-              {ruleLines.map((line, i) => (
-                <li key={i}>{line}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-1 text-ink-muted">
-              This table uses the standard rules.
-            </p>
-          )}
-        </div>
-      )}
-
       {banner && (
         <div
           className={`rounded-lg border p-3 text-center text-sm ${
@@ -308,13 +369,14 @@ export function CharacterForm({
           catalog={catalog}
           log={log}
           onCustomField={handleCustomField}
-          maxLevel={campaignRules?.maxStartingLevel ?? 20}
-          allowedMethods={campaignRules?.abilityMethods}
+          limits={limits}
+          header={campaignPicker}
           footer={actions}
           onSwitchToSheet={enterSheet}
         />
       ) : (
         <div className="space-y-5">
+          {campaignPicker}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Tabs
               aria-label="Sheet sections"
@@ -352,7 +414,7 @@ export function CharacterForm({
                 control={control}
                 setValue={setValue}
                 log={log}
-                allowedMethods={campaignRules?.abilityMethods}
+                allowedMethods={limits.allowedMethods}
               />
               <SkillsSection control={control} />
             </div>
@@ -371,13 +433,15 @@ export function CharacterForm({
               <div className="space-y-5">
                 <EquipmentSection control={control} />
                 <CurrencySection control={control} />
-                <HomebrewSection control={control} setValue={setValue} />
+                {limits.allowHomebrew && (
+                  <HomebrewSection control={control} setValue={setValue} />
+                )}
               </div>
             </div>
           )}
 
           <div className="flex flex-wrap justify-center gap-4 border-t border-line pt-5">
-            {actions}
+            {actions()}
           </div>
         </div>
       )}

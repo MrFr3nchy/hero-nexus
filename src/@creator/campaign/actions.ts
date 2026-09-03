@@ -36,6 +36,7 @@ import {
   inviteUserByEmail,
   joinByCode,
   leaveCampaign,
+  listBuilderCampaigns,
   listCampaigns,
   listInvites,
   listMembers,
@@ -46,6 +47,7 @@ import {
   setMemberCharacter,
   setMemberRole,
   updateCampaign,
+  type BuilderCampaignRow,
   type CampaignInviteRow,
   type CampaignMemberRow,
   type CampaignRow,
@@ -132,6 +134,11 @@ export async function listInvitesAction(
 }
 export async function listMyInvitesAction(): Promise<CampaignInviteRow[]> {
   return listMyInvites();
+}
+export async function listBuilderCampaignsAction(): Promise<
+  BuilderCampaignRow[]
+> {
+  return listBuilderCampaigns();
 }
 
 export async function listApprovalsAction(

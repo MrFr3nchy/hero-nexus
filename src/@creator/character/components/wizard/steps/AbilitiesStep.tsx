@@ -2,7 +2,10 @@
 
 import { ABILITY_KEYS, ABILITY_LABELS, type AbilityKey } from '../../../schema';
 import { finalAbilities } from '../../../lib/compose';
-import { AbilityScorePicker, type AbilityScores } from '../../AbilityScorePicker';
+import {
+  AbilityScorePicker,
+  type AbilityScores,
+} from '../../AbilityScorePicker';
 import { StepHeading } from '../parts';
 import type { StepProps } from '../types';
 
@@ -10,10 +13,11 @@ export function AbilitiesStep({
   sheet,
   build,
   classDef,
+  limits,
   patchBuild,
   setOverride,
   log,
-}: StepProps & { allowedMethods?: string[] }) {
+}: StepProps) {
   const base = build.baseAbilities as AbilityScores;
   const final = finalAbilities(sheet);
 
@@ -55,8 +59,12 @@ export function AbilitiesStep({
       <AbilityScorePicker
         scores={base}
         onScores={next =>
-          patchBuild(b => ({ ...b, baseAbilities: { ...b.baseAbilities, ...next } }))
+          patchBuild(b => ({
+            ...b,
+            baseAbilities: { ...b.baseAbilities, ...next },
+          }))
         }
+        allowedMethods={limits.allowedMethods}
         method={sheet.generation.abilityMethod}
         onMethod={next => {
           setOverride('generation.abilityMethod', next);

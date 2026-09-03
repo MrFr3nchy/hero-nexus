@@ -9,6 +9,7 @@ import type { StepProps } from '../types';
 export function SpeciesStep({
   build,
   catalog,
+  limits,
   patchBuild,
   setOverride,
   log,
@@ -23,6 +24,11 @@ export function SpeciesStep({
   );
 
   const species = catalog.species.find(s => s.key === build.speciesKey) ?? null;
+
+  const banned = new Set(limits.bannedSpecies.map(n => n.trim().toLowerCase()));
+  const options = catalog.species.filter(
+    option => !banned.has(option.name.trim().toLowerCase())
+  );
 
   const pick = (key: string, name: string) => {
     setCustom(false);
@@ -42,7 +48,12 @@ export function SpeciesStep({
   const commitCustom = (value: string) => {
     setCustomName(value);
     patchBuild(b => ({ ...b, speciesKey: '', speciesName: value }));
-    onCustomField('identity.species', 'species', value, value.trim().length > 0);
+    onCustomField(
+      'identity.species',
+      'species',
+      value,
+      value.trim().length > 0
+    );
   };
 
   const chooseTrait = (trait: string, option: string, detail: string) => {
@@ -71,7 +82,7 @@ export function SpeciesStep({
       />
 
       <ChoiceGrid>
-        {catalog.species.map(option => (
+        {options.map(option => (
           <ChoiceCard
             key={option.key}
             title={option.name}
@@ -81,15 +92,23 @@ export function SpeciesStep({
             blurb={option.blurb}
           />
         ))}
-        <ChoiceCard
-          custom
-          title="A species of your own"
-          selected={custom}
-          onSelect={() => setCustom(true)}
-          meta="homebrew"
-          blurb="Describe it yourself; the sheet is flagged as homebrew for your DM."
-        />
+        {limits.allowHomebrew && (
+          <ChoiceCard
+            custom
+            title="A species of your own"
+            selected={custom}
+            onSelect={() => setCustom(true)}
+            meta="homebrew"
+            blurb="Describe it yourself; the sheet is flagged as homebrew for your DM."
+          />
+        )}
       </ChoiceGrid>
+
+      {banned.size > 0 && (
+        <p className="mt-3 text-sm text-ink-subtle">
+          Species this table does not allow are not listed.
+        </p>
+      )}
 
       {custom && (
         <div className="mt-4 rounded-[var(--radius-card)] border border-arcane/40 bg-arcane/5 p-4">

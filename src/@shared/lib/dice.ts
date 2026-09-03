@@ -48,7 +48,10 @@ export function tallyRoll(spec: RollSpec, dice: number[]): RollResult {
   const order = dice
     .map((value, index) => ({ value, index }))
     .sort((a, b) => a.value - b.value || a.index - b.index);
-  const droppedIndexes = order.slice(0, drop).map(d => d.index).sort((a, b) => a - b);
+  const droppedIndexes = order
+    .slice(0, drop)
+    .map(d => d.index)
+    .sort((a, b) => a - b);
   const dropped = new Set(droppedIndexes);
   return {
     spec,

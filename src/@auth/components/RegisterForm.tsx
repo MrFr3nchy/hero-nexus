@@ -13,7 +13,6 @@ export default function RegisterForm() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState('');
@@ -36,12 +35,7 @@ export default function RegisterForm() {
 
     setLoading(true);
     try {
-      await register(
-        email,
-        password,
-        displayName || undefined,
-        inviteCode || undefined
-      );
+      await register(email, password, displayName || undefined);
       setRegisteredEmail(email);
     } catch (err: unknown) {
       setError(
@@ -154,13 +148,6 @@ export default function RegisterForm() {
                 onValueChange={setConfirmPassword}
                 isRequired
                 autoComplete="new-password"
-              />
-              <Input
-                label="Invite code"
-                description="Required during the launch period."
-                value={inviteCode}
-                onValueChange={setInviteCode}
-                autoComplete="off"
               />
               {error && (
                 <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">

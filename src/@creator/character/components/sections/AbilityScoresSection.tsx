@@ -13,10 +13,7 @@ import {
   type CharacterSheet,
 } from '../../schema';
 import type { ProvenanceInput } from '../../lib/provenance';
-import {
-  AbilityScorePicker,
-  type AbilityScores,
-} from '../AbilityScorePicker';
+import { AbilityScorePicker, type AbilityScores } from '../AbilityScorePicker';
 
 /**
  * The hand-built sheet's ability block: a react-hook-form adapter around

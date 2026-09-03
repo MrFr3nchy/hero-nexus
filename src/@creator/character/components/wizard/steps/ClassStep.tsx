@@ -7,13 +7,7 @@ import { DiceSpinner } from '@/@shared/components/ui';
 
 import { ABILITY_LABELS, SKILL_LABELS, type SkillKey } from '../../../schema';
 import { planLevels } from '../../../lib/advancement';
-import {
-  ChoiceCard,
-  ChoiceGrid,
-  Fact,
-  FactRow,
-  StepHeading,
-} from '../parts';
+import { ChoiceCard, ChoiceGrid, Fact, FactRow, StepHeading } from '../parts';
 import type { StepProps } from '../types';
 
 const CASTER_LABEL: Record<string, string> = {
@@ -27,6 +21,7 @@ const CASTER_LABEL: Record<string, string> = {
 export function ClassStep({
   build,
   catalog,
+  limits,
   classDef,
   loadingClass,
   sheet,
@@ -54,6 +49,11 @@ export function ClassStep({
     log({ kind: 'field', label: 'Class', detail: `Class: ${name}` });
   };
 
+  const banned = new Set(limits.bannedClasses.map(n => n.trim().toLowerCase()));
+  const classes = catalog.classes.filter(
+    option => !banned.has(option.name.trim().toLowerCase())
+  );
+
   const skillChoice = classDef?.coreTraits.skillChoice;
   const steps = classDef
     ? planLevels(classDef, sheet.identity.level, build.subclassKey)
@@ -67,7 +67,7 @@ export function ClassStep({
       />
 
       <ChoiceGrid>
-        {catalog.classes.map(option => (
+        {classes.map(option => (
           <ChoiceCard
             key={option.key}
             title={option.name}
@@ -84,15 +84,23 @@ export function ClassStep({
             blurb={option.blurb}
           />
         ))}
-        <ChoiceCard
-          custom
-          title="A class of your own"
-          selected={custom}
-          onSelect={() => setCustom(true)}
-          meta="homebrew"
-          blurb="Name it yourself. The character is flagged as homebrew and your DM sees it in the change log."
-        />
+        {limits.allowHomebrew && (
+          <ChoiceCard
+            custom
+            title="A class of your own"
+            selected={custom}
+            onSelect={() => setCustom(true)}
+            meta="homebrew"
+            blurb="Name it yourself. The character is flagged as homebrew and your DM sees it in the change log."
+          />
+        )}
       </ChoiceGrid>
+
+      {banned.size > 0 && (
+        <p className="mt-3 text-sm text-ink-subtle">
+          Classes this table does not allow are not listed.
+        </p>
+      )}
 
       {custom && (
         <div className="mt-4 rounded-[var(--radius-card)] border border-arcane/40 bg-arcane/5 p-4">
@@ -103,8 +111,8 @@ export function ClassStep({
             classNames={{ inputWrapper: 'bg-surface border-line' }}
           />
           <p className="mt-2 text-xs text-ink-subtle">
-            Nothing is filled in automatically for a homebrew class — set the hit
-            die, proficiencies and features on the sheet view.
+            Nothing is filled in automatically for a homebrew class — set the
+            hit die, proficiencies and features on the sheet view.
           </p>
         </div>
       )}
@@ -132,7 +140,10 @@ export function ClassStep({
                     .join(' & ') || '—'
                 }
               />
-              <Fact label="Armour" value={classDef.coreTraits.armor || 'None'} />
+              <Fact
+                label="Armour"
+                value={classDef.coreTraits.armor || 'None'}
+              />
               <Fact
                 label="Weapons"
                 value={classDef.coreTraits.weapons || 'None'}
@@ -140,7 +151,10 @@ export function ClassStep({
               {classDef.coreTraits.tools && (
                 <Fact label="Tools" value={classDef.coreTraits.tools} />
               )}
-              <Fact label="Subclass at" value={`level ${classDef.subclassLevel}`} />
+              <Fact
+                label="Subclass at"
+                value={`level ${classDef.subclassLevel}`}
+              />
             </FactRow>
           </div>
 

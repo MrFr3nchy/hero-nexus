@@ -50,9 +50,7 @@ function Picker({
             <TogglePill
               key={skill}
               label={`${SKILL_LABELS[skill]}`}
-              hint={
-                grantedBy ?? SKILL_ABILITY[skill].slice(0, 3).toUpperCase()
-              }
+              hint={grantedBy ?? SKILL_ABILITY[skill].slice(0, 3).toUpperCase()}
               selected={selected || Boolean(grantedBy)}
               locked={Boolean(grantedBy)}
               disabled={!selected && full}
@@ -71,7 +69,13 @@ function Picker({
  * hand out one more. Anything already granted is locked so you can't waste a
  * pick doubling up.
  */
-export function SkillsStep({ build, catalog, classDef, patchBuild, log }: StepProps) {
+export function SkillsStep({
+  build,
+  catalog,
+  classDef,
+  patchBuild,
+  log,
+}: StepProps) {
   const background =
     catalog.backgrounds.find(b => b.key === build.backgroundKey) ?? null;
   const species = catalog.species.find(s => s.key === build.speciesKey) ?? null;
@@ -178,7 +182,12 @@ export function SkillsStep({ build, catalog, classDef, patchBuild, log }: StepPr
           limit={speciesChoice.count}
           locked={lockedForSpecies}
           onToggle={skill =>
-            toggle('bonusSkills', skill, speciesChoice.count, species?.name ?? 'species')
+            toggle(
+              'bonusSkills',
+              skill,
+              speciesChoice.count,
+              species?.name ?? 'species'
+            )
           }
         />
       )}

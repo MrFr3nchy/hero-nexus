@@ -6,7 +6,8 @@ section before launch, and mark Branch 1 done only after it passes.**
 Two things must be backed up, separately:
 
 - **Database** — `hero-nexus.db`, streamed continuously by Litestream.
-- **Uploads** — `uploads/` (handout images), mirrored every 15 min by
+- **Uploads** — `uploads/` (handout images and campaign images — NPC
+  portraits, item sketches, downtime letters), mirrored every 15 min by
   `deploy/backup-uploads.sh`. These are **not** in the database; Litestream does
   not see them. A DB-only restore leaves `campaign_handouts` rows pointing at
   missing files (the GET route returns 404 rather than crashing, but the image

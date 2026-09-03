@@ -386,6 +386,60 @@ export async function listMembers(
   ];
 }
 
+export interface BuilderCampaignRow {
+  id: string;
+  name: string;
+  rules: CampaignRules;
+  allowHomebrew: boolean;
+  /** The character this member already plays at that table, if any. */
+  linkedCharacterId: string | null;
+  linkedCharacterName: string | null;
+}
+
+/**
+ * The campaigns a character can be attached to from the builder: the ones the
+ * caller holds a member row in. A GM has no member row of their own, so the
+ * tables they run are deliberately absent — a GM links NPCs elsewhere.
+ *
+ * The table's rules travel with each row so the builder can hide what the
+ * table disallows the moment a campaign is picked, rather than refusing the
+ * sheet at save time.
+ */
+export async function listBuilderCampaigns(): Promise<BuilderCampaignRow[]> {
+  const userId = await requireUserId();
+
+  const rows = await db
+    .select({
+      id: campaigns.id,
+      name: campaigns.name,
+      settings: campaigns.settings,
+      characterId: campaignMembers.characterId,
+      characterName: characters.name,
+    })
+    .from(campaignMembers)
+    .innerJoin(campaigns, eq(campaigns.id, campaignMembers.campaignId))
+    .leftJoin(characters, eq(characters.id, campaignMembers.characterId))
+    .where(
+      and(
+        eq(campaignMembers.userId, userId),
+        eq(campaignMembers.status, 'active')
+      )
+    )
+    .orderBy(campaigns.name);
+
+  return rows.map(r => {
+    const settings = mergeCampaignSettings(r.settings);
+    return {
+      id: r.id,
+      name: r.name,
+      rules: settings.rules,
+      allowHomebrew: settings.allowHomebrew,
+      linkedCharacterId: r.characterId,
+      linkedCharacterName: r.characterName,
+    };
+  });
+}
+
 export async function joinByCode(code: string): Promise<string> {
   const userId = await requireUserId();
   const campaign = await db.query.campaigns.findFirst({
