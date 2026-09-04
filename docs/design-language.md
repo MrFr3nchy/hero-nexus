@@ -215,20 +215,27 @@ Anatomy, matching the concept's `.card`:
 
 - **Recently forged** — the last few homebrew items as `Ribbon`/pill links.
 - **Tables you run** — campaigns where `isGM`, name + member count, linking in.
-- Only build a block that has real data. No "Loose threads" until a notes/tasks model
-  exists; no "Next session" until sessions have scheduled dates. A stub with fake
-  content is worse than an absent block.
+- **Next session** — now real: `campaign_sessions` carries scheduled dates, and
+  `getCampaignPulse` returns the soonest planned sitting. The campaign page shows it
+  beside its `Ledger` line as "Session 4 · Thursday, September 10 — in 7 days".
+- Only build a block that has real data. A stub with fake content is worse than an
+  absent block.
 
-### Quest log (when a task/notes model exists)
+### Quest log
 
 `ul` of `Marginalia`-voice lines, `※` gold bullet, done = `✓` verdigris + strikethrough.
-Not built yet — spec here so it's consistent when it lands.
+Built as `QuestPanel` on `/campaigns/[id]`. A quest has two bodies — what the party
+was told, and what is actually going on — and each objective carries its own
+visibility, so the same list serves the DM and the table.
 
 ### Empty-state scene
 
 `EmptyState` with the `scene` prop: an inline SVG at ~70–96px, drawn in token colours,
 one gently-animated element max (the candle flame) that **stops** under
-`prefers-reduced-motion`. `title` straight, `description` as the scrawl, one primary +
+`prefers-reduced-motion`. The set lives in `ui/scenes.tsx`: `CandleScene` (an absent
+party), `SealedLetterScene` (auth and mail), `ChronicleScene` (an unwritten chronicle),
+`QuestScene` (a bare notice board), `HoardScene` (an empty chest), `BattlefieldScene`
+(no fight running). `title` straight, `description` as the scrawl, one primary +
 optional ghost action.
 
 ### Pitch row (marketing)
