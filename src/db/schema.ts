@@ -501,8 +501,8 @@ export const canonCollections = sqliteTable(
       .references(() => campaigns.id, { onDelete: 'cascade' }),
     title: text('title').notNull().default(''),
     blurb: text('blurb').notNull().default(''),
-    /** An emoji for the spine. */
-    icon: text('icon').notNull().default('📚'),
+    /** A `GlyphName` for the spine — see `ui/Glyph.tsx`. */
+    icon: text('icon').notNull().default('books'),
     imageId: text('image_id'),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: text('created_at').default(nowIso).notNull(),
