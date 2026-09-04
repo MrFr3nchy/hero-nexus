@@ -5,7 +5,7 @@
  * where the gaps are without duplicating any of this logic.
  */
 
-import type { CharacterSheet } from '../schema';
+import type { AbilityMethod, CharacterSheet } from '../schema';
 import { speciesSkillGrant } from './srd/parse';
 import type { BuildRefs } from './compose';
 import { planLevels } from './advancement';
@@ -26,18 +26,81 @@ export interface BuildIssue {
   message: string;
 }
 
+/**
+ * What a campaign's table rules narrow the builder down to. The builder hides
+ * whatever these forbid, so the only ones that can still turn into an issue
+ * are the rules a saved sheet can break on its own — a level or a generation
+ * method chosen before the table was picked, and a missing backstory.
+ */
+export interface BuildLimits {
+  /** Highest level a character may be built to. */
+  maxLevel: number;
+  /** Ability-score methods the table permits. Empty = all of them. */
+  allowedMethods: AbilityMethod[];
+  /** Species names (case-insensitive) the table disallows. */
+  bannedSpecies: string[];
+  /** Class names (case-insensitive) the table disallows. */
+  bannedClasses: string[];
+  allowHomebrew: boolean;
+  requireBackstory: boolean;
+}
+
+/** No table picked: everything the SRD offers is on the menu. */
+export const OPEN_LIMITS: BuildLimits = {
+  maxLevel: 20,
+  allowedMethods: [],
+  bannedSpecies: [],
+  bannedClasses: [],
+  allowHomebrew: true,
+  requireBackstory: false,
+};
+
+const METHOD_LABEL: Record<AbilityMethod, string> = {
+  pointbuy: 'point buy',
+  standard: 'the standard array',
+  roll: 'rolled scores',
+  manual: 'typed-in scores',
+};
+
 export function findBuildIssues(
   sheet: CharacterSheet,
-  refs: BuildRefs
+  refs: BuildRefs,
+  limits: BuildLimits = OPEN_LIMITS
 ): BuildIssue[] {
   const build = sheet.build;
   const issues: BuildIssue[] = [];
   const add = (step: StepId, message: string) => issues.push({ step, message });
 
+  const norm = (s: string) => s.trim().toLowerCase();
+  const bannedClass = new Set(limits.bannedClasses.map(norm));
+  const bannedSpecies = new Set(limits.bannedSpecies.map(norm));
+
   if (!sheet.identity.name.trim()) add('details', 'Your hero needs a name.');
   if (!build.className) add('class', 'No class chosen.');
+  else if (bannedClass.has(norm(build.className))) {
+    add('class', `${build.className} is not allowed at this table.`);
+  }
   if (!build.speciesName) add('species', 'No species chosen.');
+  else if (bannedSpecies.has(norm(build.speciesName))) {
+    add('species', `${build.speciesName} is not allowed at this table.`);
+  }
   if (!build.backgroundName) add('background', 'No background chosen.');
+
+  // Homebrew written before a no-homebrew table was picked.
+  if (!limits.allowHomebrew) {
+    if (!build.classKey && build.className) {
+      add('class', 'This table does not allow a homebrew class.');
+    }
+    if (!build.speciesKey && build.speciesName) {
+      add('species', 'This table does not allow a homebrew species.');
+    }
+    if (!build.backgroundKey && build.backgroundName) {
+      add('background', 'This table does not allow a homebrew background.');
+    }
+    if (sheet.homebrew.isHomebrew || sheet.homebrew.entries.length > 0) {
+      add('details', 'This table does not allow homebrew content.');
+    }
+  }
 
   /* ---- abilities ---- */
   // Standard array and rolled sets leave unplaced abilities at 1.
@@ -52,6 +115,20 @@ export function findBuildIssues(
         `${blank} ability score${blank === 1 ? '' : 's'} still to place.`
       );
     }
+  }
+
+  if (limits.requireBackstory && !sheet.details.backstory.trim()) {
+    add('details', 'This table requires a backstory.');
+  }
+
+  if (
+    limits.allowedMethods.length > 0 &&
+    !limits.allowedMethods.includes(sheet.generation.abilityMethod)
+  ) {
+    add(
+      'abilities',
+      `This table does not allow ${METHOD_LABEL[sheet.generation.abilityMethod]} — pick another method.`
+    );
   }
 
   const boost = build.backgroundBoost;
@@ -88,7 +165,17 @@ export function findBuildIssues(
   }
 
   /* ---- advancement ---- */
-  const steps = planLevels(refs.classDef, sheet.identity.level, build.subclassKey);
+  if (sheet.identity.level > limits.maxLevel) {
+    add(
+      'advancement',
+      `This table starts characters at level ${limits.maxLevel} or below.`
+    );
+  }
+  const steps = planLevels(
+    refs.classDef,
+    sheet.identity.level,
+    build.subclassKey
+  );
   for (const step of steps) {
     const entry = build.levels.find(l => l.level === step.level);
     if (step.needsSubclass && !entry?.subclassKey) {
@@ -102,7 +189,10 @@ export function findBuildIssues(
           : Boolean(asi.plusTwo) || asi.plusOnes.length === 2
         : false;
       if (!done) {
-        add('advancement', `Level ${step.level}: spend the Ability Score Improvement.`);
+        add(
+          'advancement',
+          `Level ${step.level}: spend the Ability Score Improvement.`
+        );
       }
     }
   }

@@ -56,7 +56,9 @@ export function DetailsStep({ sheet, catalog, setOverride }: StepProps) {
           type="number"
           min={0}
           value={String(sheet.identity.xp)}
-          onValueChange={value => setOverride('identity.xp', Number(value) || 0)}
+          onValueChange={value =>
+            setOverride('identity.xp', Number(value) || 0)
+          }
           classNames={{ inputWrapper: 'bg-surface-2 border-line' }}
         />
       </div>

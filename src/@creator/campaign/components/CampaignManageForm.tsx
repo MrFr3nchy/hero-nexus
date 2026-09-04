@@ -16,7 +16,8 @@ import { useState } from 'react';
 
 import { RPG_SYSTEMS } from '@/@creator/campaign/types';
 import { ABILITY_METHODS } from '@/@creator/character/schema';
-import { SectionCard } from '@/@shared/components/ui';
+import { SectionCard, useConfirm } from '@/@shared/components/ui';
+import { ImagePicker } from './ImagePicker';
 import type { CampaignRow } from '@/server/campaigns';
 import {
   deleteCampaignAction,
@@ -40,6 +41,7 @@ const parseList = (raw: string): string[] =>
 export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
   const router = useRouter();
   const { settings } = campaign;
+  const { confirm, dialog } = useConfirm();
   const [form, setForm] = useState({
     name: campaign.name,
     description: campaign.description,
@@ -47,6 +49,7 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
     maxPlayers: settings.maxPlayers,
     sessionNotes: settings.sessionNotes,
     customRules: settings.customRules,
+    bannerImageId: settings.bannerImageId,
     // homebrew toggles (previously had no UI)
     allowHomebrew: settings.allowHomebrew,
     requireHomebrewApproval: settings.requireHomebrewApproval,
@@ -83,6 +86,7 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
           maxPlayers: form.maxPlayers,
           sessionNotes: form.sessionNotes,
           customRules: form.customRules,
+          bannerImageId: form.bannerImageId,
           allowHomebrew: form.allowHomebrew,
           requireHomebrewApproval: form.requireHomebrewApproval,
           allowPublicHomebrew: form.allowPublicHomebrew,
@@ -119,12 +123,13 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
   };
 
   const remove = async () => {
-    if (
-      !confirm(
-        'Delete this campaign? Members, invites and session data are removed. This cannot be undone.'
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: 'Disband this campaign?',
+      body: 'Members, invites and session data are removed for good.',
+      confirmLabel: 'Disband',
+      destructive: true,
+    });
+    if (!ok) return;
     const res = await deleteCampaignAction(campaign.id);
     if (res.ok) router.push('/campaigns');
     else setBanner({ kind: 'err', text: res.error });
@@ -132,6 +137,7 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
 
   return (
     <div className="space-y-5">
+      {dialog}
       {banner && (
         <p
           className={`rounded-md border px-3 py-2 text-sm ${
@@ -194,6 +200,16 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
               onValueChange={v => set('customRules', v)}
               minRows={3}
             />
+            <ImagePicker
+              campaignId={campaign.id}
+              label="Banner"
+              value={form.bannerImageId}
+              onChange={id => set('bannerImageId', id)}
+            />
+            <p className="-mt-2 text-xs text-ink-subtle">
+              Shown across the top of the campaign page and on its card. Save
+              after choosing one.
+            </p>
           </div>
         </SectionCard>
 

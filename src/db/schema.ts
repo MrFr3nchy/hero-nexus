@@ -372,6 +372,8 @@ export const campaignHandouts = sqliteTable(
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('dm'),
+    /** The sitting this was shown at. Null is unfiled. */
+    sessionId: text('session_id'),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -393,6 +395,8 @@ export const initiativeEncounters = sqliteTable(
       .default(false),
     round: integer('round').notNull().default(1),
     turnIndex: integer('turn_index').notNull().default(0),
+    /** The sitting this was fought at. Null is unfiled. */
+    sessionId: text('session_id'),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('initiative_encounters_campaign_idx').on(t.campaignId)]
@@ -412,15 +416,100 @@ export const initiativeEntries = sqliteTable(
     initiative: integer('initiative').notNull().default(0),
     hpCurrent: integer('hp_current'),
     hpMax: integer('hp_max'),
+    /** Temporary hit points: spent first, never healed back. */
+    hpTemp: integer('hp_temp').notNull().default(0),
+    armorClass: integer('armor_class'),
+    /** Free-text note beside the conditions ("prone behind the cart"). */
     conditions: text('conditions').notNull().default(''),
+    /** Comma-separated 2024 condition keys — see lib/conditions.ts. */
+    conditionKeys: text('condition_keys').notNull().default(''),
+    /**
+     * Not a condition: concentration survives most of them, ends on its own
+     * rules, and the DM needs to see it the moment damage lands.
+     */
+    concentrating: integer('concentrating', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    /** Which side of the fight, so foe HP can stay off the players' screens. */
+    side: text('side', { enum: ['party', 'foe', 'other'] })
+      .notNull()
+      .default('foe'),
     sort: integer('sort').notNull().default(0),
   },
   t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
 );
 
+/**
+ * The table's shared roll log.
+ *
+ * Rolls are made on the server and every die face is stored, so the log is a
+ * record of what was rolled rather than a claim about it. `visibility` is how
+ * a DM rolls behind the screen without leaving the app.
+ */
+export const campaignRolls = sqliteTable(
+  'campaign_rolls',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    actorUserId: text('actor_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    /** Who rolled, kept independent of the account surviving. */
+    actorName: text('actor_name').notNull().default(''),
+    /** What it was for — "Stealth", "Longsword", "Death save". */
+    label: text('label').notNull().default(''),
+    notation: text('notation').notNull().default(''),
+    /** JSON array of every die face rolled, in roll order. */
+    dice: text('dice', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
+    /** JSON array of indexes into `dice` that did not count. */
+    dropped: text('dropped', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
+    modifier: integer('modifier').notNull().default(0),
+    total: integer('total').notNull().default(0),
+    visibility: text('visibility', { enum: ['table', 'dm'] })
+      .notNull()
+      .default('table'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_rolls_campaign_idx').on(t.campaignId, t.createdAt)]
+);
+
 /* ------------------------------------------------------------------ */
 /* Party canon — a campaign wiki with a DM view and a party view.     */
 /* ------------------------------------------------------------------ */
+
+/**
+ * A shelf in the campaign's archive — the Bestiary, a looted spellbook, the
+ * party's own notebook. Purely organisational: a collection has no visibility
+ * of its own, because each entry on the shelf is revealed on its own terms,
+ * and a half-known bestiary should show a player exactly what they have met.
+ */
+export const canonCollections = sqliteTable(
+  'canon_collections',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    blurb: text('blurb').notNull().default(''),
+    /** An emoji for the spine. */
+    icon: text('icon').notNull().default('📚'),
+    imageId: text('image_id'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('canon_collections_campaign_idx').on(t.campaignId)]
+);
 
 /**
  * One canon entry (an NPC, place, item, faction, or piece of lore). Two
@@ -436,11 +525,28 @@ export const canonEntries = sqliteTable(
       .notNull()
       .references(() => campaigns.id, { onDelete: 'cascade' }),
     kind: text('kind', {
-      enum: ['npc', 'location', 'item', 'faction', 'lore'],
+      enum: [
+        'npc',
+        'creature',
+        'location',
+        'faction',
+        'item',
+        'spell',
+        'lore',
+        'note',
+      ],
     }).notNull(),
     title: text('title').notNull().default(''),
     dmBody: text('dm_body').notNull().default(''),
     partyBody: text('party_body').notNull().default(''),
+    /** The shelf it is filed on. Null is a loose entry. */
+    collectionId: text('collection_id'),
+    /** Portrait or sketch, from `campaign_images`. */
+    imageId: text('image_id'),
+    /** Kind-specific facts as JSON — presentation, never queried on. */
+    fields: text('fields', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
     /** 'dm' = staff only; 'shared' = every player sees `party_body`. */
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
@@ -520,6 +626,8 @@ export const downtimePeriods = sqliteTable(
     status: text('status', { enum: ['open', 'closed'] })
       .notNull()
       .default('open'),
+    /** The sitting this window runs up to. Null is unfiled. */
+    sessionId: text('session_id'),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -548,9 +656,19 @@ export const downtimeActions = sqliteTable(
     actorUserId: text('actor_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    /** shopping | crafting | research | training | carousing | letter | other */
+    /** See DOWNTIME_KINDS — shopping, crafting, scheming, recovery, … */
     kind: text('kind').notNull().default('other'),
     body: text('body').notNull().default(''),
+    /** A letter, a sketch, a shopping list — from `campaign_images`. */
+    imageId: text('image_id'),
+    /**
+     * Who reads this action and its resolution. 'party' is the old behaviour
+     * and stays the default; 'player' keeps a scheme between its author and
+     * the DM until the DM decides the table may know.
+     */
+    visibility: text('visibility', { enum: ['player', 'party'] })
+      .notNull()
+      .default('party'),
     dmResponse: text('dm_response'),
     status: text('status', {
       enum: ['submitted', 'resolved', 'rejected'],
@@ -568,4 +686,330 @@ export const downtimeActions = sqliteTable(
     index('downtime_actions_period_idx').on(t.periodId),
     index('downtime_actions_character_idx').on(t.characterId),
   ]
+);
+
+/* ------------------------------------------------------------------ */
+/* DM annotations on a player's sheet, and the per-player secret log.   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A DM comment pinned to one section of a player's character sheet.
+ *
+ * `visibility` is per comment: 'shared' is written for the player and shows on
+ * their own sheet; 'dm' is a private margin note only staff ever receive. The
+ * section key is the sheet section it hangs under, not a free-text label, so
+ * the same string addresses the DM's read-only view and the player's sheet.
+ */
+export const sheetNotes = sqliteTable(
+  'sheet_notes',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    /** identity | combat | abilities | skills | spellcasting | proficiencies | details | equipment */
+    section: text('section').notNull(),
+    body: text('body').notNull().default(''),
+    authorUserId: text('author_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    /** 'shared' = the owning player sees it; 'dm' = staff only. */
+    visibility: text('visibility', { enum: ['shared', 'dm'] })
+      .notNull()
+      .default('shared'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('sheet_notes_character_idx').on(t.characterId),
+    index('sheet_notes_campaign_idx').on(t.campaignId),
+  ]
+);
+
+/**
+ * The secret log for one character: things this player knows that the rest of
+ * the table does not. Either side writes to it — the player records what their
+ * character learned, the DM drops in what they were told in private.
+ *
+ * Three levels rather than a boolean, because the DM needs to widen a secret
+ * in two steps: 'dm' (withheld, the player cannot see it yet), 'player' (that
+ * player only), 'party' (revealed to everyone at the table).
+ *
+ * A DM-authored entry is never deletable — it can only be hidden. The log is
+ * a record of what was known when, and a DM quietly erasing their own entry
+ * would break that; `authorRole` is stored so the rule survives the author's
+ * account being deleted.
+ */
+export const characterSecrets = sqliteTable(
+  'character_secrets',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    authorUserId: text('author_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    /** Who wrote it, kept independent of the author row surviving. */
+    authorRole: text('author_role', { enum: ['gm', 'player'] })
+      .notNull()
+      .default('player'),
+    body: text('body').notNull().default(''),
+    /** 'dm' = staff only; 'player' = staff + this character's owner; 'party' = the whole table. */
+    visibility: text('visibility', { enum: ['dm', 'player', 'party'] })
+      .notNull()
+      .default('player'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('character_secrets_character_idx').on(t.characterId),
+    index('character_secrets_campaign_idx').on(t.campaignId),
+  ]
+);
+
+/* ------------------------------------------------------------------ */
+/* The session chronicle — the campaign's spine.                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One sitting at the table.
+ *
+ * `prepBody` is the DM's private plan and `recapBody` is the account the party
+ * is given — two documents about the same evening, never one body with hidden
+ * regions, for the same reason as `canon_entries`. A recap starts private so a
+ * DM can draft it during the game and hand it over when it reads right.
+ *
+ * `number` is the campaign-local session number and is unique per campaign, so
+ * "session 12" addresses one row and a player asking about it gets an answer.
+ */
+export const campaignSessions = sqliteTable(
+  'campaign_sessions',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    number: integer('number').notNull().default(1),
+    title: text('title').notNull().default(''),
+    /** ISO date the table plans to meet. */
+    scheduledFor: text('scheduled_for'),
+    /** ISO date it actually happened. */
+    playedOn: text('played_on'),
+    status: text('status', { enum: ['planned', 'played', 'cancelled'] })
+      .notNull()
+      .default('planned'),
+    /** The DM's private plan for the evening. */
+    prepBody: text('prep_body').notNull().default(''),
+    /** What the party is told happened. */
+    recapBody: text('recap_body').notNull().default(''),
+    /** 'dm' = still a draft; 'shared' = the party can read the recap. */
+    recapVisibility: text('recap_visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('campaign_sessions_campaign_idx').on(t.campaignId),
+    uniqueIndex('campaign_sessions_campaign_number_idx').on(
+      t.campaignId,
+      t.number
+    ),
+  ]
+);
+
+/**
+ * Who was at a given sitting. Keyed on `user_id` rather than
+ * `campaign_members`, as `canon_reveals` is: the GM has no member row, and a
+ * player who later leaves the table was still at session 9.
+ */
+export const campaignSessionAttendance = sqliteTable(
+  'campaign_session_attendance',
+  {
+    id: uuid(),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => campaignSessions.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    status: text('status', { enum: ['present', 'absent', 'late'] })
+      .notNull()
+      .default('present'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('campaign_session_attendance_session_user_idx').on(
+      t.sessionId,
+      t.userId
+    ),
+  ]
+);
+
+/* ------------------------------------------------------------------ */
+/* What the party is doing, and what it is carrying.                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A thread the party is pulling on.
+ *
+ * Two bodies, as everywhere else in this schema: `summary` is what the party
+ * has been told, `dmNotes` is what is actually going on. A quest starts
+ * `visibility: 'dm'` because a DM writes down the hook before the party has
+ * heard it.
+ */
+export const campaignQuests = sqliteTable(
+  'campaign_quests',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    /** What the party has been told. */
+    summary: text('summary').notNull().default(''),
+    /** What is actually going on. */
+    dmNotes: text('dm_notes').notNull().default(''),
+    /** Who asked — free text, because half of them are not in the canon yet. */
+    giver: text('giver').notNull().default(''),
+    reward: text('reward').notNull().default(''),
+    status: text('status', {
+      enum: ['rumour', 'active', 'done', 'failed'],
+    })
+      .notNull()
+      .default('active'),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_quests_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * One ticked line under a quest. Visibility is per objective, because "find
+ * the ledger" and "the ledger is a forgery" belong to the same quest and to
+ * different audiences.
+ */
+export const campaignQuestObjectives = sqliteTable(
+  'campaign_quest_objectives',
+  {
+    id: uuid(),
+    questId: text('quest_id')
+      .notNull()
+      .references(() => campaignQuests.id, { onDelete: 'cascade' }),
+    body: text('body').notNull().default(''),
+    done: integer('done', { mode: 'boolean' }).notNull().default(false),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('shared'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_quest_objectives_quest_idx').on(t.questId)]
+);
+
+/**
+ * The shared haul. `holderCharacterId` answers the question that actually
+ * starts arguments at a table: who is carrying it.
+ */
+export const partyLoot = sqliteTable(
+  'party_loot',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    name: text('name').notNull().default(''),
+    quantity: integer('quantity').notNull().default(1),
+    notes: text('notes').notNull().default(''),
+    kind: text('kind', {
+      enum: ['item', 'consumable', 'treasure', 'magic'],
+    })
+      .notNull()
+      .default('item'),
+    holderCharacterId: text('holder_character_id').references(
+      () => characters.id,
+      { onDelete: 'set null' }
+    ),
+    /** False for the wand nobody has worked out yet. */
+    identified: integer('identified', { mode: 'boolean' })
+      .notNull()
+      .default(true),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('party_loot_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * The party's common purse. Coins are a running total the whole table edits,
+ * not a list of finds, so they are columns on one row rather than rows.
+ */
+export const partyTreasury = sqliteTable('party_treasury', {
+  campaignId: text('campaign_id')
+    .primaryKey()
+    .references(() => campaigns.id, { onDelete: 'cascade' }),
+  cp: integer('cp').notNull().default(0),
+  sp: integer('sp').notNull().default(0),
+  ep: integer('ep').notNull().default(0),
+  gp: integer('gp').notNull().default(0),
+  pp: integer('pp').notNull().default(0),
+  updatedAt: text('updated_at').default(nowIso).notNull(),
+});
+
+/* ------------------------------------------------------------------ */
+/* Campaign images — portraits and sketches attached to campaign things.*/
+/* ------------------------------------------------------------------ */
+
+/**
+ * One uploaded image belonging to a campaign, stored on disk beside the
+ * handouts (see `src/server/uploads.ts`) rather than as a data URI in the row.
+ * A portrait is read every time its entry is listed, and base64 in SQLite
+ * would drag that weight through every query and every backup.
+ *
+ * Rows here are shared plumbing: canon entries, downtime actions and anything
+ * else that wants a picture reference one by id. Access is judged by the thing
+ * pointing at the image, so the serve route only asks "are you at this table".
+ */
+export const campaignImages = sqliteTable(
+  'campaign_images',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** Path under UPLOADS_DIR, e.g. "<campaignId>/<uuid>.webp". */
+    filePath: text('file_path').notNull(),
+    mime: text('mime').notNull(),
+    bytes: integer('bytes').notNull().default(0),
+    /** Shown when the image cannot load, and read out by screen readers. */
+    alt: text('alt').notNull().default(''),
+    uploadedBy: text('uploaded_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_images_campaign_idx').on(t.campaignId)]
 );

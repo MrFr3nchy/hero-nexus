@@ -1,53 +1,75 @@
 'use client';
 
-import {
-  Button,
-  Checkbox,
-  Chip,
-  Input,
-  Select,
-  SelectItem,
-  Switch,
-  Textarea,
-} from '@heroui/react';
-import { useCallback, useEffect, useState } from 'react';
+import { Button, Input, Select, SelectItem, Textarea } from '@heroui/react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { DiceSpinner, EmptyState, SectionCard } from '@/@shared/components/ui';
-import type { CampaignRole, CampaignMemberRow } from '@/server/campaigns';
+import {
+  DiceSpinner,
+  EmptyState,
+  EntryCard,
+  Pill,
+  SectionCard,
+} from '@/@shared/components/ui';
+import type { CampaignMemberRow, CampaignRole } from '@/server/campaigns';
 import {
   CANON_KINDS,
+  CANON_KIND_FIELDS,
+  CANON_KIND_ICONS,
+  CANON_KIND_LABELS,
+  type CanonCollectionRow,
   type CanonEntryRow,
   type CanonKind,
 } from '@/@creator/campaign/lib/canon';
+
 import { listMembersAction } from '../actions';
 import {
   createCanonAction,
+  createCanonCollectionAction,
   deleteCanonAction,
+  deleteCanonCollectionAction,
   linkCanonAction,
   listCanonAction,
+  listCanonCollectionsAction,
   revealCanonAction,
   setCanonVisibilityAction,
   unlinkCanonAction,
   unrevealCanonAction,
   updateCanonAction,
+  updateCanonCollectionAction,
 } from '../canon-actions';
+import { ImagePicker } from './ImagePicker';
+import { RevealControls } from './RevealControls';
 
-const KIND_LABEL: Record<CanonKind, string> = {
-  npc: 'NPC',
-  location: 'Location',
-  item: 'Item',
-  faction: 'Faction',
-  lore: 'Lore',
+/**
+ * The campaign archive.
+ *
+ * Entries are shelved into collections — a bestiary, a spellbook, somebody's
+ * notebook — and each one carries a picture and a few facts belonging to its
+ * kind, so a shelf can be read at a glance instead of unfolded paragraph by
+ * paragraph. Reveals stay per entry: a shelf is never secret, its contents are.
+ */
+
+type Draft = {
+  kind: CanonKind;
+  title: string;
+  dmBody: string;
+  partyBody: string;
+  collectionId: string | null;
+  imageId: string | null;
+  fields: Record<string, string>;
 };
 
-const emptyDraft = {
-  kind: 'npc' as CanonKind,
+const emptyDraft: Draft = {
+  kind: 'npc',
   title: '',
   dmBody: '',
   partyBody: '',
+  collectionId: null,
+  imageId: null,
+  fields: {},
 };
 
-type Draft = typeof emptyDraft;
+const LOOSE = '__loose__';
 
 export function CanonPanel({
   campaignId,
@@ -60,23 +82,34 @@ export function CanonPanel({
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
 
   const [entries, setEntries] = useState<CanonEntryRow[]>([]);
+  const [shelves, setShelves] = useState<CanonCollectionRow[]>([]);
   const [members, setMembers] = useState<CampaignMemberRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [creating, setCreating] = useState(false);
-  const [newDraft, setNewDraft] = useState<Draft>(emptyDraft);
+  const [query, setQuery] = useState('');
+  const [kindFilter, setKindFilter] = useState<CanonKind | 'all'>('all');
+
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState<Draft>(emptyDraft);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [shelfDraft, setShelfDraft] = useState<{
+    title: string;
+    blurb: string;
+    icon: string;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      const list = await listCanonAction(campaignId);
+      const [list, collections] = await Promise.all([
+        listCanonAction(campaignId),
+        listCanonCollectionsAction(campaignId),
+      ]);
       setEntries(list);
+      setShelves(collections);
       if (isStaff) setMembers(await listMembersAction(campaignId));
     } catch {
-      setError('Failed to load the canon.');
+      setError('Failed to load the archive.');
     } finally {
       setLoading(false);
     }
@@ -92,37 +125,52 @@ export function CanonPanel({
     await refresh();
   };
 
-  const submitNew = async () => {
-    if (!newDraft.title.trim()) return;
-    const res = await createCanonAction(campaignId, newDraft);
+  const save = async () => {
+    if (!draft?.title.trim()) return;
+    const res = editingId
+      ? await updateCanonAction(campaignId, editingId, draft)
+      : await createCanonAction(campaignId, draft);
     if (!res.ok) {
       setError(res.error);
       return;
     }
-    setNewDraft(emptyDraft);
-    setCreating(false);
-    await refresh();
-  };
-
-  const startEdit = (e: CanonEntryRow) => {
-    setEditingId(e.id);
-    setEditDraft({
-      kind: e.kind,
-      title: e.title,
-      dmBody: e.dmBody ?? '',
-      partyBody: e.partyBody,
-    });
-  };
-
-  const saveEdit = async (id: string) => {
-    const res = await updateCanonAction(campaignId, id, editDraft);
-    if (!res.ok) {
-      setError(res.error);
-      return;
-    }
+    setDraft(null);
     setEditingId(null);
     await refresh();
   };
+
+  const saveShelf = async () => {
+    if (!shelfDraft?.title.trim()) return;
+    const res = await createCanonCollectionAction(campaignId, shelfDraft);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setShelfDraft(null);
+    await refresh();
+  };
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return entries.filter(e => {
+      if (kindFilter !== 'all' && e.kind !== kindFilter) return false;
+      if (!needle) return true;
+      return (
+        e.title.toLowerCase().includes(needle) ||
+        e.partyBody.toLowerCase().includes(needle) ||
+        (e.dmBody ?? '').toLowerCase().includes(needle)
+      );
+    });
+  }, [entries, kindFilter, query]);
+
+  const byShelf = useMemo(() => {
+    const map = new Map<string, CanonEntryRow[]>();
+    for (const entry of visible) {
+      const key = entry.collectionId ?? LOOSE;
+      map.set(key, [...(map.get(key) ?? []), entry]);
+    }
+    return map;
+  }, [visible]);
 
   if (loading) {
     return (
@@ -132,6 +180,37 @@ export function CanonPanel({
     );
   }
 
+  const kindsInUse = [...new Set(entries.map(e => e.kind))];
+
+  const renderEntries = (rows: CanonEntryRow[]) => (
+    <div className="grid gap-3 lg:grid-cols-2">
+      {rows.map(entry => (
+        <CanonCard
+          key={entry.id}
+          campaignId={campaignId}
+          entry={entry}
+          entries={entries}
+          shelves={shelves}
+          members={members}
+          isStaff={isStaff}
+          act={act}
+          onEdit={() => {
+            setEditingId(entry.id);
+            setDraft({
+              kind: entry.kind,
+              title: entry.title,
+              dmBody: entry.dmBody ?? '',
+              partyBody: entry.partyBody,
+              collectionId: entry.collectionId,
+              imageId: entry.imageId,
+              fields: entry.fields,
+            });
+          }}
+        />
+      ))}
+    </div>
+  );
+
   return (
     <div className="space-y-5">
       {error && (
@@ -140,66 +219,120 @@ export function CanonPanel({
         </p>
       )}
 
+      {/* ---- what the DM can add ---- */}
       {isStaff && (
-        <SectionCard title="Add to the canon">
-          {creating ? (
-            <div className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
-                <Select
-                  aria-label="Kind"
-                  selectedKeys={[newDraft.kind]}
-                  onSelectionChange={keys =>
-                    setNewDraft(d => ({
-                      ...d,
-                      kind: (Array.from(keys)[0] as CanonKind) ?? d.kind,
-                    }))
-                  }
-                >
-                  {CANON_KINDS.map(k => (
-                    <SelectItem key={k}>{KIND_LABEL[k]}</SelectItem>
-                  ))}
-                </Select>
-                <Input
-                  aria-label="Title"
-                  placeholder="Name of the NPC, place, faction…"
-                  value={newDraft.title}
-                  onValueChange={v => setNewDraft(d => ({ ...d, title: v }))}
-                />
-              </div>
-              <Textarea
-                label="DM notes (private)"
-                minRows={3}
-                value={newDraft.dmBody}
-                onValueChange={v => setNewDraft(d => ({ ...d, dmBody: v }))}
-              />
-              <Textarea
-                label="What the party knows"
-                minRows={3}
-                value={newDraft.partyBody}
-                onValueChange={v => setNewDraft(d => ({ ...d, partyBody: v }))}
-              />
-              <div className="flex gap-2">
-                <Button color="primary" size="sm" onPress={submitNew}>
-                  Create
-                </Button>
-                <Button
-                  size="sm"
-                  variant="light"
-                  onPress={() => {
-                    setCreating(false);
-                    setNewDraft(emptyDraft);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button size="sm" variant="flat" onPress={() => setCreating(true)}>
-              New entry
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            color="primary"
+            onPress={() => {
+              setEditingId(null);
+              setDraft(emptyDraft);
+            }}
+          >
+            New entry
+          </Button>
+          <Button
+            size="sm"
+            variant="bordered"
+            className="border-line text-ink"
+            onPress={() => setShelfDraft({ title: '', blurb: '', icon: '📚' })}
+          >
+            New shelf
+          </Button>
+        </div>
+      )}
+
+      {shelfDraft && (
+        <SectionCard title="A new shelf">
+          <div className="grid gap-3 sm:grid-cols-[6rem_1fr]">
+            <Input
+              aria-label="Icon"
+              value={shelfDraft.icon}
+              onValueChange={v => setShelfDraft(d => d && { ...d, icon: v })}
+            />
+            <Input
+              aria-label="Name"
+              placeholder="Bestiary, Spellbook, The party's notebook…"
+              value={shelfDraft.title}
+              onValueChange={v => setShelfDraft(d => d && { ...d, title: v })}
+            />
+          </div>
+          <Textarea
+            className="mt-3"
+            label="What lives on it"
+            minRows={2}
+            value={shelfDraft.blurb}
+            onValueChange={v => setShelfDraft(d => d && { ...d, blurb: v })}
+          />
+          <div className="mt-3 flex gap-2">
+            <Button size="sm" color="primary" onPress={saveShelf}>
+              Make the shelf
             </Button>
-          )}
+            <Button
+              size="sm"
+              variant="light"
+              onPress={() => setShelfDraft(null)}
+            >
+              Cancel
+            </Button>
+          </div>
         </SectionCard>
+      )}
+
+      {draft && (
+        <EntryEditor
+          campaignId={campaignId}
+          draft={draft}
+          shelves={shelves}
+          editing={Boolean(editingId)}
+          onChange={setDraft}
+          onSave={save}
+          onCancel={() => {
+            setDraft(null);
+            setEditingId(null);
+          }}
+        />
+      )}
+
+      {/* ---- finding things ---- */}
+      {entries.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            size="sm"
+            aria-label="Search the archive"
+            placeholder="Search…"
+            value={query}
+            onValueChange={setQuery}
+            className="max-w-xs"
+            classNames={{ inputWrapper: 'bg-surface-2 border-line' }}
+          />
+          <button
+            type="button"
+            onClick={() => setKindFilter('all')}
+            className={`rounded-md border px-2 py-1 text-xs transition-colors ${
+              kindFilter === 'all'
+                ? 'border-gold bg-gold/15 text-ink'
+                : 'border-line text-ink-muted hover:border-gold/60'
+            }`}
+          >
+            Everything
+          </button>
+          {kindsInUse.map(kind => (
+            <button
+              key={kind}
+              type="button"
+              onClick={() => setKindFilter(kind)}
+              className={`rounded-md border px-2 py-1 text-xs transition-colors ${
+                kindFilter === kind
+                  ? 'border-gold bg-gold/15 text-ink'
+                  : 'border-line text-ink-muted hover:border-gold/60'
+              }`}
+            >
+              {CANON_KIND_ICONS[kind]} {CANON_KIND_LABELS[kind]}
+            </button>
+          ))}
+        </div>
       )}
 
       {entries.length === 0 ? (
@@ -208,251 +341,468 @@ export function CanonPanel({
           title="Nothing written down yet"
           description={
             isStaff
-              ? 'Add NPCs, places and lore. Each entry has private notes and a separate party-facing version you reveal when the party learns it.'
-              : 'The DM has not shared any canon with the party yet.'
+              ? 'Make a shelf — a bestiary, a spellbook, the party notebook — and file NPCs, places and lore onto it. Every entry keeps private notes beside the version the party is allowed to read.'
+              : 'The DM has not shared any of the archive with the party yet.'
           }
         />
       ) : (
-        <ul className="space-y-4">
-          {entries.map(e => (
-            <li key={e.id}>
+        <div className="space-y-5">
+          {shelves.map(shelf => {
+            const rows = byShelf.get(shelf.id) ?? [];
+            return (
               <SectionCard
+                key={shelf.id}
+                framed
                 title={
                   <span className="flex items-center gap-2">
-                    <Chip size="sm" variant="flat">
-                      {KIND_LABEL[e.kind]}
-                    </Chip>
-                    <span>{e.title}</span>
-                    {e.visibility === 'shared' ? (
-                      <Chip size="sm" color="success" variant="flat">
-                        Shared
-                      </Chip>
-                    ) : e.revealedToMe ? (
-                      <Chip size="sm" color="warning" variant="flat">
-                        Revealed to you
-                      </Chip>
-                    ) : null}
+                    <span aria-hidden>{shelf.icon}</span>
+                    <span>{shelf.title}</span>
+                    <span className="font-sans text-sm text-ink-subtle">
+                      ({rows.length})
+                    </span>
                   </span>
                 }
+                description={shelf.blurb || undefined}
+                actions={
+                  isStaff ? (
+                    <ShelfControls
+                      campaignId={campaignId}
+                      shelf={shelf}
+                      act={act}
+                    />
+                  ) : undefined
+                }
               >
-                {editingId === e.id ? (
-                  <div className="space-y-3">
-                    <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
-                      <Select
-                        aria-label="Kind"
-                        selectedKeys={[editDraft.kind]}
-                        onSelectionChange={keys =>
-                          setEditDraft(d => ({
-                            ...d,
-                            kind: (Array.from(keys)[0] as CanonKind) ?? d.kind,
-                          }))
-                        }
-                      >
-                        {CANON_KINDS.map(k => (
-                          <SelectItem key={k}>{KIND_LABEL[k]}</SelectItem>
-                        ))}
-                      </Select>
-                      <Input
-                        aria-label="Title"
-                        value={editDraft.title}
-                        onValueChange={v =>
-                          setEditDraft(d => ({ ...d, title: v }))
-                        }
-                      />
-                    </div>
-                    <Textarea
-                      label="DM notes (private)"
-                      minRows={3}
-                      value={editDraft.dmBody}
-                      onValueChange={v =>
-                        setEditDraft(d => ({ ...d, dmBody: v }))
-                      }
-                    />
-                    <Textarea
-                      label="What the party knows"
-                      minRows={3}
-                      value={editDraft.partyBody}
-                      onValueChange={v =>
-                        setEditDraft(d => ({ ...d, partyBody: v }))
-                      }
-                    />
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        color="primary"
-                        onPress={() => saveEdit(e.id)}
-                      >
-                        Save
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="light"
-                        onPress={() => setEditingId(null)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
+                {rows.length === 0 ? (
+                  <p className="text-sm text-ink-subtle">
+                    {isStaff
+                      ? 'Nothing filed here yet.'
+                      : 'Nothing you have learned yet.'}
+                  </p>
                 ) : (
-                  <div className="space-y-3 text-sm">
-                    {isStaff && (
-                      <div>
-                        <p className="text-[0.7rem] uppercase tracking-[0.1em] text-ink-subtle">
-                          DM notes
-                        </p>
-                        <p className="whitespace-pre-wrap text-ink-muted">
-                          {e.dmBody?.trim() || '—'}
-                        </p>
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-[0.7rem] uppercase tracking-[0.1em] text-ink-subtle">
-                        {isStaff ? 'Party text' : 'What the party knows'}
-                      </p>
-                      <p className="whitespace-pre-wrap text-ink-muted">
-                        {e.partyBody.trim() || '—'}
-                      </p>
-                    </div>
-
-                    {e.links.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[0.7rem] uppercase tracking-[0.1em] text-ink-subtle">
-                          Related
-                        </span>
-                        {e.links.map(l => (
-                          <Chip key={l.id} size="sm" variant="flat">
-                            {l.title}
-                            {isStaff && (
-                              <button
-                                type="button"
-                                className="ml-1 text-ink-subtle hover:text-danger"
-                                onClick={() =>
-                                  act(unlinkCanonAction(campaignId, e.id, l.id))
-                                }
-                              >
-                                ×
-                              </button>
-                            )}
-                          </Chip>
-                        ))}
-                      </div>
-                    )}
-
-                    {isStaff && (
-                      <CanonStaffControls
-                        campaignId={campaignId}
-                        entry={e}
-                        entries={entries}
-                        members={members}
-                        act={act}
-                        onEdit={() => startEdit(e)}
-                      />
-                    )}
-                  </div>
+                  renderEntries(rows)
                 )}
               </SectionCard>
-            </li>
-          ))}
-        </ul>
+            );
+          })}
+
+          {(byShelf.get(LOOSE)?.length ?? 0) > 0 && (
+            <SectionCard
+              title={
+                <span className="flex items-center gap-2">
+                  <span aria-hidden>🗂️</span>
+                  <span>Loose pages</span>
+                  <span className="font-sans text-sm text-ink-subtle">
+                    ({byShelf.get(LOOSE)?.length})
+                  </span>
+                </span>
+              }
+              description="Entries not filed on a shelf."
+            >
+              {renderEntries(byShelf.get(LOOSE) ?? [])}
+            </SectionCard>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-function CanonStaffControls({
+/* --- one entry ----------------------------------------------------------- */
+
+function CanonCard({
   campaignId,
   entry,
   entries,
+  shelves,
   members,
+  isStaff,
   act,
   onEdit,
 }: {
   campaignId: string;
   entry: CanonEntryRow;
   entries: CanonEntryRow[];
+  shelves: CanonCollectionRow[];
   members: CampaignMemberRow[];
+  isStaff: boolean;
   act: (_p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
   onEdit: () => void;
 }) {
+  const facts = CANON_KIND_FIELDS[entry.kind]
+    .map(f => (entry.fields[f.key] ? `${f.label}: ${entry.fields[f.key]}` : ''))
+    .filter(Boolean);
+
   const linkable = entries.filter(
     o => o.id !== entry.id && !entry.links.some(l => l.id === o.id)
   );
-  const revealedIds = new Set(entry.revealedTo.map(r => r.userId));
 
   return (
-    <div className="space-y-3 border-t border-line pt-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <Switch
-          size="sm"
-          isSelected={entry.visibility === 'shared'}
-          onValueChange={v =>
-            act(
-              setCanonVisibilityAction(
-                campaignId,
-                entry.id,
-                v ? 'shared' : 'dm'
-              )
-            )
-          }
-        >
-          Shared with the whole party
-        </Switch>
-        <Button size="sm" variant="light" onPress={onEdit}>
-          Edit
-        </Button>
-        <Button
-          size="sm"
-          variant="light"
-          className="text-ink-muted data-[hover=true]:text-danger"
-          onPress={() => act(deleteCanonAction(campaignId, entry.id))}
-        >
-          Delete
-        </Button>
-      </div>
+    <EntryCard
+      title={entry.title || 'Untitled'}
+      kind={`${CANON_KIND_ICONS[entry.kind]} ${CANON_KIND_LABELS[entry.kind]}`}
+      imageUrl={
+        entry.imageId
+          ? `/api/campaigns/${campaignId}/images/${entry.imageId}`
+          : null
+      }
+      imageAlt={entry.title}
+      tone={entry.visibility === 'shared' ? 'gold' : 'arcane'}
+      meta={facts.length > 0 ? facts.join(' · ') : undefined}
+      badges={
+        entry.visibility === 'shared' ? (
+          <Pill tone="gold">Party knows</Pill>
+        ) : entry.revealedToMe ? (
+          <Pill tone="arcane">Told to you</Pill>
+        ) : (
+          isStaff && <Pill tone="warning">DM only</Pill>
+        )
+      }
+      summary={
+        entry.partyBody.trim()
+          ? entry.partyBody.trim().split('\n')[0].slice(0, 160)
+          : isStaff
+            ? 'No party-facing text yet.'
+            : undefined
+      }
+    >
+      <div className="space-y-3 text-sm">
+        {entry.partyBody.trim() && (
+          <div>
+            <p className="text-[0.65rem] uppercase tracking-[0.1em] text-ink-subtle">
+              {isStaff ? 'Party text' : 'What you know'}
+            </p>
+            <p className="whitespace-pre-wrap text-ink-muted">
+              {entry.partyBody}
+            </p>
+          </div>
+        )}
 
-      {linkable.length > 0 && (
-        <Select
-          size="sm"
-          aria-label="Link to another entry"
-          placeholder="Link to another entry…"
-          className="max-w-xs"
-          selectedKeys={[]}
-          onSelectionChange={keys => {
-            const to = Array.from(keys)[0];
-            if (to) act(linkCanonAction(campaignId, entry.id, String(to)));
-          }}
-        >
-          {linkable.map(o => (
-            <SelectItem key={o.id}>{o.title}</SelectItem>
-          ))}
-        </Select>
-      )}
+        {isStaff && (
+          <div>
+            <p className="text-[0.65rem] uppercase tracking-[0.1em] text-ink-subtle">
+              DM notes
+            </p>
+            <p className="whitespace-pre-wrap text-ink-muted">
+              {entry.dmBody?.trim() || '—'}
+            </p>
+          </div>
+        )}
 
-      {entry.visibility === 'dm' && (
-        <div>
-          <p className="mb-1 text-[0.7rem] uppercase tracking-[0.1em] text-ink-subtle">
-            Reveal to specific people
-          </p>
-          <div className="flex flex-wrap gap-3">
-            {members.map(m => (
-              <Checkbox
-                key={m.userId}
-                size="sm"
-                isSelected={revealedIds.has(m.userId)}
-                onValueChange={v =>
-                  act(
-                    v
-                      ? revealCanonAction(campaignId, entry.id, m.userId)
-                      : unrevealCanonAction(campaignId, entry.id, m.userId)
-                  )
-                }
+        {entry.links.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[0.65rem] uppercase tracking-[0.1em] text-ink-subtle">
+              Related
+            </span>
+            {entry.links.map(l => (
+              <span
+                key={l.id}
+                className="rounded-md border border-line px-2 py-0.5 text-xs text-ink-muted"
               >
-                {m.name || m.email || 'User'}
-              </Checkbox>
+                {CANON_KIND_ICONS[l.kind]} {l.title}
+                {isStaff && (
+                  <button
+                    type="button"
+                    className="ml-1 text-ink-subtle hover:text-danger"
+                    onClick={() =>
+                      act(unlinkCanonAction(campaignId, entry.id, l.id))
+                    }
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
             ))}
           </div>
-        </div>
-      )}
+        )}
+
+        {isStaff && (
+          <div className="space-y-3 border-t border-line pt-3">
+            <RevealControls
+              levels={[
+                {
+                  key: 'dm',
+                  label: 'Kept back',
+                  hint: 'Only you and your co-DMs can read this.',
+                },
+                {
+                  key: 'shared',
+                  label: 'The whole party',
+                  hint: 'Every player sees the party text.',
+                },
+              ]}
+              value={entry.visibility}
+              onSet={next =>
+                act(setCanonVisibilityAction(campaignId, entry.id, next))
+              }
+              members={
+                entry.visibility === 'dm'
+                  ? members
+                      .filter(m => m.role === 'player')
+                      .map(m => ({
+                        userId: m.userId,
+                        name: m.name || m.email || 'Player',
+                      }))
+                  : undefined
+              }
+              revealedTo={entry.revealedTo.map(r => r.userId)}
+              onToggleMember={(userId, next) =>
+                act(
+                  next
+                    ? revealCanonAction(campaignId, entry.id, userId)
+                    : unrevealCanonAction(campaignId, entry.id, userId)
+                )
+              }
+            />
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="light" onPress={onEdit}>
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="light"
+                className="text-ink-muted data-[hover=true]:text-danger"
+                onPress={() => act(deleteCanonAction(campaignId, entry.id))}
+              >
+                Delete
+              </Button>
+              {linkable.length > 0 && (
+                <Select
+                  size="sm"
+                  aria-label="Link to another entry"
+                  placeholder="Link to…"
+                  className="max-w-[12rem]"
+                  selectedKeys={[]}
+                  onSelectionChange={keys => {
+                    const to = Array.from(keys)[0];
+                    if (to)
+                      act(linkCanonAction(campaignId, entry.id, String(to)));
+                  }}
+                >
+                  {linkable.map(o => (
+                    <SelectItem key={o.id}>{o.title}</SelectItem>
+                  ))}
+                </Select>
+              )}
+              {shelves.length > 0 && (
+                <Select
+                  size="sm"
+                  aria-label="Shelf"
+                  placeholder="File on…"
+                  className="max-w-[12rem]"
+                  selectedKeys={entry.collectionId ? [entry.collectionId] : []}
+                  onSelectionChange={keys => {
+                    const to = Array.from(keys)[0];
+                    act(
+                      updateCanonAction(campaignId, entry.id, {
+                        collectionId: to ? String(to) : null,
+                      })
+                    );
+                  }}
+                >
+                  {shelves.map(s => (
+                    <SelectItem key={s.id} textValue={`${s.icon} ${s.title}`}>
+                      {s.icon} {s.title}
+                    </SelectItem>
+                  ))}
+                </Select>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </EntryCard>
+  );
+}
+
+function ShelfControls({
+  campaignId,
+  shelf,
+  act,
+}: {
+  campaignId: string;
+  shelf: CanonCollectionRow;
+  act: (_p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [title, setTitle] = useState(shelf.title);
+
+  if (renaming) {
+    return (
+      <div className="flex items-center gap-2">
+        <Input
+          size="sm"
+          aria-label="Shelf name"
+          value={title}
+          onValueChange={setTitle}
+          className="w-48"
+        />
+        <Button
+          size="sm"
+          color="primary"
+          onPress={async () => {
+            await act(
+              updateCanonCollectionAction(campaignId, shelf.id, { title })
+            );
+            setRenaming(false);
+          }}
+        >
+          Save
+        </Button>
+        <Button size="sm" variant="light" onPress={() => setRenaming(false)}>
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button size="sm" variant="light" onPress={() => setRenaming(true)}>
+        Rename
+      </Button>
+      <Button
+        size="sm"
+        variant="light"
+        className="text-ink-muted data-[hover=true]:text-danger"
+        onPress={() => act(deleteCanonCollectionAction(campaignId, shelf.id))}
+      >
+        Remove shelf
+      </Button>
     </div>
+  );
+}
+
+/* --- the editor ---------------------------------------------------------- */
+
+function EntryEditor({
+  campaignId,
+  draft,
+  shelves,
+  editing,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  campaignId: string;
+  draft: Draft;
+  shelves: CanonCollectionRow[];
+  editing: boolean;
+  onChange: (next: Draft) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const fields = CANON_KIND_FIELDS[draft.kind];
+
+  return (
+    <SectionCard
+      framed
+      title={editing ? 'Edit this entry' : 'A new entry'}
+      bodyClassName="border-t-2 border-t-arcane/50"
+    >
+      <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
+        <Select
+          aria-label="Kind"
+          selectedKeys={[draft.kind]}
+          onSelectionChange={keys => {
+            const kind = (Array.from(keys)[0] as CanonKind) ?? draft.kind;
+            // Facts belong to a kind; changing kind starts them fresh.
+            onChange({ ...draft, kind, fields: {} });
+          }}
+        >
+          {CANON_KINDS.map(k => (
+            <SelectItem
+              key={k}
+              textValue={`${CANON_KIND_ICONS[k]} ${CANON_KIND_LABELS[k]}`}
+            >
+              {CANON_KIND_ICONS[k]} {CANON_KIND_LABELS[k]}
+            </SelectItem>
+          ))}
+        </Select>
+        <Input
+          aria-label="Title"
+          placeholder="Name of the NPC, place, spell…"
+          value={draft.title}
+          onValueChange={v => onChange({ ...draft, title: v })}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-4 sm:grid-cols-[auto_1fr]">
+        <ImagePicker
+          campaignId={campaignId}
+          value={draft.imageId}
+          onChange={imageId => onChange({ ...draft, imageId })}
+        />
+
+        <div className="space-y-3">
+          {shelves.length > 0 && (
+            <Select
+              aria-label="Shelf"
+              label="Shelf"
+              placeholder="Loose page"
+              selectedKeys={draft.collectionId ? [draft.collectionId] : []}
+              onSelectionChange={keys => {
+                const id = Array.from(keys)[0];
+                onChange({
+                  ...draft,
+                  collectionId: id ? String(id) : null,
+                });
+              }}
+            >
+              {shelves.map(s => (
+                <SelectItem key={s.id} textValue={`${s.icon} ${s.title}`}>
+                  {s.icon} {s.title}
+                </SelectItem>
+              ))}
+            </Select>
+          )}
+
+          {fields.length > 0 && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {fields.map(field => (
+                <Input
+                  key={field.key}
+                  size="sm"
+                  label={field.label}
+                  placeholder={field.placeholder}
+                  value={draft.fields[field.key] ?? ''}
+                  onValueChange={v =>
+                    onChange({
+                      ...draft,
+                      fields: { ...draft.fields, [field.key]: v },
+                    })
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <Textarea
+        className="mt-3"
+        label="DM notes (private)"
+        minRows={3}
+        value={draft.dmBody}
+        onValueChange={v => onChange({ ...draft, dmBody: v })}
+      />
+      <Textarea
+        className="mt-3"
+        label="What the party knows"
+        minRows={3}
+        value={draft.partyBody}
+        onValueChange={v => onChange({ ...draft, partyBody: v })}
+      />
+
+      <div className="mt-3 flex gap-2">
+        <Button size="sm" color="primary" onPress={onSave}>
+          {editing ? 'Save' : 'Add to the archive'}
+        </Button>
+        <Button size="sm" variant="light" onPress={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </SectionCard>
   );
 }

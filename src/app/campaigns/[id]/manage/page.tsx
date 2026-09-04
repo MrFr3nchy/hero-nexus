@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { CampaignManageForm } from '@/@creator/campaign/components';
@@ -20,9 +21,15 @@ export default async function ManageCampaignPage({
   return (
     <ProtectedRoute>
       <PageShell>
+        <Link
+          href={`/campaigns/${id}`}
+          className="mb-2 inline-block text-sm text-ink-muted hover:text-ink"
+        >
+          ← {campaign.name}
+        </Link>
         <PageHeader
-          title={campaign.name}
-          description="Campaign settings and status."
+          title="Manage the table"
+          description="Campaign details, status, and the join code."
         />
         <CampaignManageForm campaign={campaign} />
       </PageShell>

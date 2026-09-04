@@ -20,7 +20,9 @@ import type {
 
 export {
   DOWNTIME_KINDS,
+  DOWNTIME_KIND_ICONS,
   DOWNTIME_KIND_LABELS,
+  type DowntimeVisibility,
   type DowntimeActionInput,
   type DowntimeActionRow,
   type DowntimeActionStatus,
@@ -74,11 +76,12 @@ async function staffForPeriod(periodId: string): Promise<{
 export async function listDowntime(
   campaignId: string
 ): Promise<DowntimePeriodRow[]> {
-  const { userId } = await requireCampaignRole(campaignId, [
+  const { userId, role } = await requireCampaignRole(campaignId, [
     'gm',
     'co-gm',
     'player',
   ]);
+  const staff = role === 'gm' || role === 'co-gm';
 
   const periods = await db
     .select()
@@ -98,6 +101,8 @@ export async function listDowntime(
       actorName: users.name,
       kind: downtimeActions.kind,
       body: downtimeActions.body,
+      imageId: downtimeActions.imageId,
+      visibility: downtimeActions.visibility,
       dmResponse: downtimeActions.dmResponse,
       status: downtimeActions.status,
       resolvedByUserId: downtimeActions.resolvedByUserId,
@@ -138,6 +143,11 @@ export async function listDowntime(
     createdAt: p.createdAt,
     actions: actions
       .filter(a => a.periodId === p.id)
+      // A 'player' action is between its author and the DM until the DM
+      // widens it, so it is dropped here rather than hidden in the browser.
+      .filter(
+        a => staff || a.visibility === 'party' || a.actorUserId === userId
+      )
       .map(a => ({
         id: a.id,
         periodId: a.periodId,
@@ -147,6 +157,8 @@ export async function listDowntime(
         actorName: a.actorName,
         kind: a.kind,
         body: a.body,
+        imageId: a.imageId,
+        visibility: a.visibility,
         dmResponse: a.dmResponse,
         status: a.status,
         resolvedByName: a.resolvedByUserId
@@ -232,6 +244,8 @@ export async function submitDowntimeAction(
       actorUserId: userId,
       kind: input.kind,
       body: input.body.trim(),
+      imageId: input.imageId ?? null,
+      visibility: input.visibility ?? 'party',
     })
     .returning({ id: downtimeActions.id });
   return row.id;
@@ -254,6 +268,8 @@ export async function updateDowntimeAction(
 
   const set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (input.kind !== undefined) set.kind = input.kind;
+  if (input.imageId !== undefined) set.imageId = input.imageId;
+  if (input.visibility !== undefined) set.visibility = input.visibility;
   if (input.body !== undefined) {
     if (!input.body.trim()) throw new Error('BODY_REQUIRED');
     set.body = input.body.trim();
@@ -279,6 +295,32 @@ export async function updateDowntimeAction(
   await db
     .update(downtimeActions)
     .set(set)
+    .where(eq(downtimeActions.id, actionId));
+}
+
+/**
+ * Change who reads an action. Its author may keep their own plan quiet or
+ * share it; staff decide for anyone's — that is how a scheme reaches the table
+ * once it has played out.
+ */
+export async function setDowntimeVisibility(
+  actionId: string,
+  visibility: 'player' | 'party'
+): Promise<void> {
+  const userId = await requireUserId();
+  const action = await db.query.downtimeActions.findFirst({
+    where: eq(downtimeActions.id, actionId),
+  });
+  if (!action) throw new Error('NOT_FOUND');
+
+  if (action.actorUserId !== userId) {
+    // Not the author — this has to be staff at that table.
+    await staffForAction(actionId);
+  }
+
+  await db
+    .update(downtimeActions)
+    .set({ visibility, updatedAt: new Date().toISOString() })
     .where(eq(downtimeActions.id, actionId));
 }
 

@@ -10,6 +10,7 @@ import {
   openDowntimePeriod,
   resolveDowntimeAction,
   setDowntimePeriodStatus,
+  setDowntimeVisibility,
   submitDowntimeAction,
   updateDowntimeAction,
   withdrawDowntimeAction,
@@ -51,7 +52,25 @@ const actionSchema = z.object({
   characterId: z.string().min(1).nullable(),
   kind: z.enum(DOWNTIME_KINDS),
   body: z.string().trim().min(1, 'Describe the action.').max(4000),
+  imageId: z.string().nullable().optional(),
+  visibility: z.enum(['player', 'party']).optional(),
 });
+
+export async function setDowntimeVisibilityAction(
+  campaignId: string,
+  actionId: string,
+  visibility: string
+): Promise<Result> {
+  const parsed = z.enum(['player', 'party']).safeParse(visibility);
+  if (!parsed.success) return { ok: false, error: 'Unknown visibility.' };
+  try {
+    await setDowntimeVisibility(actionId, parsed.data);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to change who sees that.');
+  }
+}
 
 export async function listDowntimeAction(
   campaignId: string

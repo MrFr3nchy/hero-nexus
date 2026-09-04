@@ -30,15 +30,21 @@ function isSubclass(data: unknown): boolean {
 }
 
 export async function loadBuildCatalog(): Promise<BuildCatalog> {
-  const [classRows, speciesRows, backgroundRows, featRows, alignmentRows, languageRows] =
-    await Promise.all([
-      getReference('class'),
-      getReference('species'),
-      getReference('background'),
-      getReference('feat'),
-      getReference('alignment'),
-      getReference('language'),
-    ]);
+  const [
+    classRows,
+    speciesRows,
+    backgroundRows,
+    featRows,
+    alignmentRows,
+    languageRows,
+  ] = await Promise.all([
+    getReference('class'),
+    getReference('species'),
+    getReference('background'),
+    getReference('feat'),
+    getReference('alignment'),
+    getReference('language'),
+  ]);
 
   const subclassesByParent = new Map<string, RawClass[]>();
   for (const row of classRows) {
@@ -54,7 +60,9 @@ export async function loadBuildCatalog(): Promise<BuildCatalog> {
     .filter(row => !isSubclass(row.data))
     .map(row => {
       const raw = row.data as RawClass;
-      return toClassSummary(parseClass(raw, subclassesByParent.get(raw.key ?? '') ?? []));
+      return toClassSummary(
+        parseClass(raw, subclassesByParent.get(raw.key ?? '') ?? [])
+      );
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 

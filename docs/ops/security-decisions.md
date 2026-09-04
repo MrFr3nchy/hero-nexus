@@ -42,13 +42,13 @@ the standard cost of account-keyed throttling, and it's preferable to leaving
 password guessing bounded only by argon2's cost. Revisit (key by email + IP,
 with a looser global per-email cap) if it is actually abused.
 
-## Registration is invite-only at launch
+## Registration is open
 
-`REGISTRATION_INVITE_CODES` (comma-separated) gates `POST /api/register`. When
-non-empty, a matching code is required; when empty, registration is open. We
-launch invite-only and lift it later by clearing the variable. Codes are shared,
-not single-use — good enough for a first cohort; a `signup_invites` table with
-per-code audit is the upgrade if abuse appears.
+`POST /api/register` has no invite gate. Sign-up is bounded by the per-IP rate
+limit and by mandatory email verification — an account cannot sign in until its
+verification link is clicked. If abuse appears, a `signup_invites` table with
+per-code audit is the upgrade; campaign membership is already invite-driven from
+the creator's dashboard, so a registration gate is not the only lever.
 
 ## Unverified accounts cannot sign in
 
@@ -102,6 +102,30 @@ breaks the app silently. Tracked as follow-up work.
 session is required. This is unchanged by this work. If marketing copy promises
 browsing without an account, either the copy or the allowlist must change —
 open product decision.
+
+## Who sees what: one filter, on the server
+
+Four surfaces now hold text that is deliberately not for everyone — canon
+entries, character secrets, DM comments on a sheet, and downtime actions. Each
+filters in its server module before returning, never in the browser:
+
+- **Canon** — `visibility` is `dm` or `shared`, plus per-user rows in
+  `canon_reveals`. A non-staff viewer never receives `dm_body` at all, and an
+  unrevealed entry is absent from the response rather than hidden in the UI.
+- **Character secrets** — `dm` (staff), `player` (staff + the character's
+  owner), `party` (everyone at the table). A DM-written secret can be hidden
+  but never deleted; `author_role` records who wrote it so that rule survives
+  the author's account being removed.
+- **Sheet notes** — `shared` reaches the player whose sheet it is, `dm` never
+  leaves staff.
+- **Downtime** — `party` (the old behaviour, and the default) or `player`, so a
+  scheme stays between its author and the DM until the DM widens it.
+
+Campaign images are the one thing served without a per-item check: the route
+asks only whether the viewer is at that table. What an image depicts is guarded
+by the entry pointing at it — an entry a player cannot see never renders, so
+its image URL never reaches them. Guessing an id is a 32-hex-digit search
+against a route that already requires membership.
 
 ## Retention promise
 

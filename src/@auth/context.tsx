@@ -73,11 +73,11 @@ const InnerAuthProvider: React.FC<{ children: React.ReactNode }> = ({
         await update();
       },
 
-      async register(email, password, displayName, inviteCode) {
+      async register(email, password, displayName) {
         const res = await fetch('/api/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, displayName, inviteCode }),
+          body: JSON.stringify({ email, password, displayName }),
         });
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as {

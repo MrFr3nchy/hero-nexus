@@ -184,7 +184,9 @@ export function parseEquipmentOptions(input: string): EquipmentOption[] {
   return matches.map((m, i) => {
     const start = (m.index ?? 0) + m[0].length;
     const end =
-      i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
+      i + 1 < matches.length
+        ? (matches[i + 1].index ?? text.length)
+        : text.length;
     const desc = text
       .slice(start, end)
       .replace(/;?\s*or\s*$/i, '')
@@ -301,7 +303,8 @@ export function parseClass(
     // The same feature is occasionally listed twice under one class.
     .filter(
       (f, i, all) =>
-        all.findIndex(o => o.name === f.name && o.levels[0] === f.levels[0]) === i
+        all.findIndex(o => o.name === f.name && o.levels[0] === f.levels[0]) ===
+        i
     )
     .sort(byFirstLevel);
 
@@ -324,7 +327,8 @@ export function parseClass(
     .map(f => {
       const byLevel: Record<number, string> = {};
       for (const row of f.data_for_class_table ?? []) {
-        if (typeof row.level === 'number') byLevel[row.level] = row.column_value ?? '';
+        if (typeof row.level === 'number')
+          byLevel[row.level] = row.column_value ?? '';
       }
       return { name: mendText(f.name ?? ''), byLevel };
     });
@@ -337,10 +341,15 @@ export function parseClass(
   if (pactCount && pactLevel) {
     for (const [level, value] of Object.entries(pactCount.byLevel)) {
       const slotLevel =
-        SLOT_LEVEL_BY_NAME[(pactLevel.byLevel[Number(level)] ?? '').toLowerCase()] ?? 0;
+        SLOT_LEVEL_BY_NAME[
+          (pactLevel.byLevel[Number(level)] ?? '').toLowerCase()
+        ] ?? 0;
       const count = Number(value) || 0;
       if (!slotLevel || !count) continue;
-      spellSlots[slotLevel] = { ...(spellSlots[slotLevel] ?? {}), [Number(level)]: count };
+      spellSlots[slotLevel] = {
+        ...(spellSlots[slotLevel] ?? {}),
+        [Number(level)]: count,
+      };
     }
   }
 
@@ -349,7 +358,9 @@ export function parseClass(
   );
 
   const subclassFeature = features.find(f => /subclass/i.test(f.name));
-  const asiFeature = features.find(f => /ability score improvement/i.test(f.name));
+  const asiFeature = features.find(f =>
+    /ability score improvement/i.test(f.name)
+  );
 
   return {
     key: raw.key ?? '',
@@ -358,11 +369,15 @@ export function parseClass(
     casterType: casterTypeOf(raw.caster_type),
     coreTraits: {
       ...coreTraits,
-      savingThrows: savingThrows.length ? savingThrows : coreTraits.savingThrows,
+      savingThrows: savingThrows.length
+        ? savingThrows
+        : coreTraits.savingThrows,
     },
     features,
     subclassLevel: subclassFeature?.levels[0] ?? 3,
-    subclasses: subclassRows.map(parseSubclass).sort((a, b) => a.name.localeCompare(b.name)),
+    subclasses: subclassRows
+      .map(parseSubclass)
+      .sort((a, b) => a.name.localeCompare(b.name)),
     spellSlots,
     tableColumns,
     asiLevels: asiFeature?.levels ?? [],

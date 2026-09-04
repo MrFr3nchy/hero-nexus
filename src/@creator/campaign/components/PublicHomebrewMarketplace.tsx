@@ -1,6 +1,13 @@
 'use client';
 
-import { Card, CardBody } from '@heroui/react';
+import { Button, Link } from '@heroui/react';
+
+import {
+  EmptyState,
+  PageHeader,
+  PageShell,
+  SealedLetterScene,
+} from '@/@shared/components/ui';
 
 /**
  * Phase 2: browse public homebrew shared by other players. Private homebrew
@@ -9,19 +16,22 @@ import { Card, CardBody } from '@heroui/react';
  */
 export function PublicHomebrewMarketplace() {
   return (
-    <div className="min-h-screen bg-bg flex items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
-      <Card className="max-w-lg border-line ">
-        <CardBody className="py-12 text-center">
-          <div className="mb-4 text-6xl">🛒</div>
-          <h1 className="mb-2 font-display text-2xl text-ink">
-            Homebrew Marketplace
-          </h1>
-          <p className="text-ink-muted">
-            Coming in Phase 2 — discover and download homebrew classes, spells,
-            and items shared by the community.
-          </p>
-        </CardBody>
-      </Card>
-    </div>
+    <PageShell width="wide">
+      <PageHeader
+        rule={false}
+        title="The Market"
+        description="Homebrew other tables have shared."
+      />
+      <EmptyState
+        scene={<SealedLetterScene />}
+        title="The stalls aren't up yet"
+        description="Sharing homebrew between tables lands in Phase 2. Until then, your own drafts live in the Forge."
+        action={
+          <Button as={Link} href="/creator/homebrew" color="primary">
+            Go to the Forge
+          </Button>
+        }
+      />
+    </PageShell>
   );
 }

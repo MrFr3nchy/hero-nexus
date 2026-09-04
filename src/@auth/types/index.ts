@@ -21,8 +21,7 @@ export interface AuthContextType {
   register: (
     _email: string,
     _password: string,
-    _displayName?: string,
-    _inviteCode?: string
+    _displayName?: string
   ) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (_data: {

@@ -27,7 +27,6 @@ process supervision. See `security-decisions.md` for why it's shaped this way.
    - `AUTH_TRUST_HOST=true`
    - `APP_URL=https://your-domain` — no trailing slash, this is what email links use
    - `RESEND_API_KEY`, `MAIL_FROM` — see below
-   - `REGISTRATION_INVITE_CODES=code1,code2` — launch is invite-only
    - `HERO_NEXUS_DB_PATH=/mnt/hero-nexus-data/hero-nexus.db`
    - `HERO_NEXUS_UPLOADS_DIR=/mnt/hero-nexus-data/uploads` (read by the app's
      handout routes and by `deploy/backup-uploads.sh`)

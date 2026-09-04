@@ -13,6 +13,7 @@ import type { StepProps } from '../types';
  * ability scores go up outside an ASI.
  */
 export function BackgroundStep({
+  limits,
   build,
   catalog,
   patchBuild,
@@ -90,7 +91,8 @@ export function BackgroundStep({
     }));
 
   const describeBoost = (): string => {
-    if (!boost.plusTwo && boost.plusOnes.length === 0) return 'nothing assigned yet';
+    if (!boost.plusTwo && boost.plusOnes.length === 0)
+      return 'nothing assigned yet';
     if (boost.mode === 'three') {
       return boost.plusOnes
         .map(k => `+1 ${ABILITY_LABELS[k as AbilityKey] ?? k}`)
@@ -98,7 +100,9 @@ export function BackgroundStep({
     }
     const parts: string[] = [];
     if (boost.plusTwo) {
-      parts.push(`+2 ${ABILITY_LABELS[boost.plusTwo as AbilityKey] ?? boost.plusTwo}`);
+      parts.push(
+        `+2 ${ABILITY_LABELS[boost.plusTwo as AbilityKey] ?? boost.plusTwo}`
+      );
     }
     for (const k of boost.plusOnes) {
       parts.push(`+1 ${ABILITY_LABELS[k as AbilityKey] ?? k}`);
@@ -126,14 +130,16 @@ export function BackgroundStep({
             blurb={`${option.skills.map(s => SKILL_LABELS[s]).join(', ')} · ${option.feat}`}
           />
         ))}
-        <ChoiceCard
-          custom
-          title="A background of your own"
-          selected={custom}
-          onSelect={() => setCustom(true)}
-          meta="homebrew"
-          blurb="Write your own origin. Fill in its skills and gear on the sheet view."
-        />
+        {limits.allowHomebrew && (
+          <ChoiceCard
+            custom
+            title="A background of your own"
+            selected={custom}
+            onSelect={() => setCustom(true)}
+            meta="homebrew"
+            blurb="Write your own origin. Fill in its skills and gear on the sheet view."
+          />
+        )}
       </ChoiceGrid>
 
       {custom && (
@@ -162,7 +168,8 @@ export function BackgroundStep({
             <h4 className="font-display text-sm text-ink">Ability increase</h4>
             <p className="mt-0.5 text-sm text-ink-muted">
               Spread 3 points across{' '}
-              {background.abilityOptions.map(a => ABILITY_LABELS[a]).join(', ')}.
+              {background.abilityOptions.map(a => ABILITY_LABELS[a]).join(', ')}
+              .
             </p>
 
             <div className="mt-3 inline-flex overflow-hidden rounded-md border border-line">

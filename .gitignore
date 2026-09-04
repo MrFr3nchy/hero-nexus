@@ -49,3 +49,7 @@ next-env.d.ts
 
 # vscode
 .vscode
+
+# Downloaded installers — never commit these; two Chrome .deb files once
+# blocked a push at GitHub's 100 MB limit and cost a history rewrite.
+*.deb

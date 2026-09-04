@@ -14,8 +14,16 @@ import {
   type HpMode,
   type LevelEntry,
 } from '../../../schema';
-import { abilityModifier, fmtBonus, proficiencyBonus } from '../../../lib/derive';
-import { averageHp, planLevels, type LevelStep } from '../../../lib/advancement';
+import {
+  abilityModifier,
+  fmtBonus,
+  proficiencyBonus,
+} from '../../../lib/derive';
+import {
+  averageHp,
+  planLevels,
+  type LevelStep,
+} from '../../../lib/advancement';
 import { finalAbilities } from '../../../lib/compose';
 import { StepHeading } from '../parts';
 import type { StepProps } from '../types';
@@ -161,7 +169,9 @@ function LevelCard({
               )}
               {entry.hpMode === 'roll' && (
                 <Button size="sm" variant="flat" onPress={onRollHp}>
-                  {entry.hpRoll > 0 ? `Rolled ${entry.hpRoll} — roll again` : `Roll d${hitDie}`}
+                  {entry.hpRoll > 0
+                    ? `Rolled ${entry.hpRoll} — roll again`
+                    : `Roll d${hitDie}`}
                 </Button>
               )}
               {entry.hpMode === 'manual' && (
@@ -264,7 +274,10 @@ function LevelCard({
                               ...asi,
                               plusOnes: asi.plusOnes.filter(k => k !== ability),
                             });
-                          } else if (!asi.plusTwo && asi.plusOnes.length === 0) {
+                          } else if (
+                            !asi.plusTwo &&
+                            asi.plusOnes.length === 0
+                          ) {
                             onAsi({ ...asi, plusTwo: ability, plusOnes: [] });
                           } else if (asi.plusTwo === ability) {
                             onAsi({ ...asi, plusTwo: '' });
@@ -276,7 +289,10 @@ function LevelCard({
                               plusOnes: [asi.plusTwo, ability],
                             });
                           } else if (asi.plusOnes.length < 2) {
-                            onAsi({ ...asi, plusOnes: [...asi.plusOnes, ability] });
+                            onAsi({
+                              ...asi,
+                              plusOnes: [...asi.plusOnes, ability],
+                            });
                           }
                         }}
                         className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
@@ -373,8 +389,9 @@ export function AdvancementStep({
   patchBuild,
   setLevel,
   log,
-  maxLevel = 20,
-}: StepProps & { maxLevel?: number }) {
+  limits,
+}: StepProps) {
+  const maxLevel = limits.maxLevel;
   const [request, setRequest] = useState<
     (RollRequest & { level?: number }) | null
   >(null);
@@ -460,9 +477,7 @@ export function AdvancementStep({
     log({ kind: 'method', label: `ASI level ${lvl}`, detail });
   };
 
-  const subclassLabel = classDef
-    ? `${classDef.name} subclass`
-    : 'subclass';
+  const subclassLabel = classDef ? `${classDef.name} subclass` : 'subclass';
 
   return (
     <div>
@@ -482,9 +497,7 @@ export function AdvancementStep({
             </div>
           </div>
           <div className="text-right text-sm text-ink-muted">
-            <div>
-              proficiency bonus {fmtBonus(proficiencyBonus(level))}
-            </div>
+            <div>proficiency bonus {fmtBonus(proficiencyBonus(level))}</div>
             <div>
               hit points {sheet.combat.hitPointsMax} · hit dice {level}d{hitDie}
             </div>

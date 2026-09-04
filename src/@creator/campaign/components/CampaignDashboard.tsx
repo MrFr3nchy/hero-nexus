@@ -10,15 +10,11 @@ import {
   PageHeader,
   PageShell,
   Ribbon,
-  SectionCard,
+  SealedLetterScene,
 } from '@/@shared/components/ui';
+import { formatCalendarDate } from '@/@shared/lib/dates';
 import type { CampaignRow } from '@/server/campaigns';
 import { PendingInvites } from './PendingInvites';
-
-function formatDate(value: string): string {
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? 'Unknown' : d.toLocaleDateString();
-}
 
 function statusTone(status: CampaignRow['status']) {
   switch (status) {
@@ -85,60 +81,74 @@ export function CampaignDashboard() {
         </div>
       ) : campaigns.length === 0 ? (
         <EmptyState
-          icon="🏰"
-          title="No campaigns yet"
-          description="Create your first campaign, or wait for an invitation."
+          scene={<SealedLetterScene />}
+          title="No table to your name yet"
+          description="Start a campaign and hand out the join code, or wait for an invitation to land."
           action={
             <Button as={Link} href="/campaigns/create" color="primary">
-              Create a campaign
+              Start a campaign
             </Button>
           }
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {campaigns.map(c => (
-            <SectionCard key={c.id} bodyClassName="flex flex-col">
-              <div className="mb-2 flex items-start justify-between gap-2">
-                <div>
-                  <h3 className="font-display text-lg text-ink">{c.name}</h3>
-                  <p className="text-sm text-ink-muted">
-                    {c.settings.rpgSystem} ·{' '}
-                    {c.role === 'gm'
-                      ? 'DM'
-                      : c.role === 'co-gm'
-                        ? 'Co-DM'
-                        : 'Player'}{' '}
-                    · {c.memberCount} member{c.memberCount === 1 ? '' : 's'}
-                  </p>
+            <Link
+              key={c.id}
+              href={`/campaigns/${c.id}`}
+              className="group relative flex flex-col overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface [box-shadow:var(--shadow-card)] transition-colors hover:border-gold/40"
+            >
+              {c.settings.bannerImageId ? (
+                // Deliberately an <img>: the file is served through a
+                // role-checked route, which next/image's optimiser cannot
+                // fetch on the server.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`/api/campaigns/${c.id}/images/${c.settings.bannerImageId}`}
+                  alt=""
+                  className="h-24 w-full border-b border-line object-cover"
+                />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-x-0 top-0 h-1 bg-gold/70"
+                />
+              )}
+
+              <div className="flex flex-1 flex-col p-4">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="truncate font-display text-lg text-ink">
+                      {c.name}
+                    </h3>
+                    <p className="text-sm text-ink-muted">
+                      {c.role === 'gm'
+                        ? 'You run this'
+                        : c.role === 'co-gm'
+                          ? 'You co-run this'
+                          : 'You play here'}{' '}
+                      · {c.memberCount} member{c.memberCount === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <Ribbon tone={statusTone(c.status)}>{c.status}</Ribbon>
                 </div>
-                <Ribbon tone={statusTone(c.status)}>{c.status}</Ribbon>
-              </div>
-              <p className="mb-3 line-clamp-3 text-sm text-ink-muted">
-                {c.description || 'No description.'}
-              </p>
-              <div className="mt-auto flex gap-2 pt-2">
-                <Button
-                  as={Link}
-                  href={`/campaigns/${c.id}`}
-                  size="sm"
-                  variant="flat"
-                  className="flex-1"
-                >
-                  Open
-                </Button>
-                {(c.role === 'gm' || c.role === 'co-gm') && (
-                  <Button
-                    as={Link}
-                    href={`/campaigns/${c.id}/manage`}
-                    size="sm"
-                    variant="light"
-                    className="text-ink-muted"
-                  >
-                    Manage
-                  </Button>
+
+                <p className="line-clamp-3 text-sm text-ink-muted">
+                  {c.description || 'No description yet.'}
+                </p>
+
+                {c.nextSessionAt && (
+                  <p className="mt-auto pt-3 text-xs text-ink-subtle">
+                    <span className="text-gold">◆</span> next sitting{' '}
+                    {formatCalendarDate(
+                      c.nextSessionAt,
+                      { day: 'numeric', month: 'short' },
+                      'soon'
+                    )}
+                  </p>
                 )}
               </div>
-            </SectionCard>
+            </Link>
           ))}
         </div>
       )}

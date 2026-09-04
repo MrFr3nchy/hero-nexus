@@ -13,6 +13,8 @@ import {
   addEntry,
   addPartyToEncounter,
   advanceTurn,
+  applyHp,
+  clearRolls,
   createEncounter,
   createNote,
   deleteEncounter,
@@ -20,10 +22,13 @@ import {
   endEncounter,
   getLiveState,
   removeEntry,
+  rollForCampaign,
+  rollInitiative,
   setHandoutVisibility,
   updateEntry,
   type EntryInput,
   type LiveState,
+  type RollInput,
 } from '@/server/session';
 import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -36,6 +41,7 @@ import {
   inviteUserByEmail,
   joinByCode,
   leaveCampaign,
+  listBuilderCampaigns,
   listCampaigns,
   listInvites,
   listMembers,
@@ -46,6 +52,7 @@ import {
   setMemberCharacter,
   setMemberRole,
   updateCampaign,
+  type BuilderCampaignRow,
   type CampaignInviteRow,
   type CampaignMemberRow,
   type CampaignRow,
@@ -74,6 +81,7 @@ const settingsSchema = z
     allowPublicHomebrew: z.boolean().optional(),
     sessionNotes: z.string().max(8000).optional(),
     customRules: z.string().max(8000).optional(),
+    bannerImageId: z.string().min(1).max(64).nullable().optional(),
     rules: rulesSchema,
   })
   .optional();
@@ -132,6 +140,11 @@ export async function listInvitesAction(
 }
 export async function listMyInvitesAction(): Promise<CampaignInviteRow[]> {
   return listMyInvites();
+}
+export async function listBuilderCampaignsAction(): Promise<
+  BuilderCampaignRow[]
+> {
+  return listBuilderCampaigns();
 }
 
 export async function listApprovalsAction(
@@ -361,8 +374,13 @@ async function sessionAction(fn: () => Promise<unknown>): Promise<Result> {
 export async function createEncounterAction(
   campaignId: string,
   name: string
-): Promise<Result> {
-  return sessionAction(() => createEncounter(campaignId, name));
+): Promise<Result<{ id: string }>> {
+  try {
+    const id = await createEncounter(campaignId, name);
+    return { ok: true, data: { id } };
+  } catch (err) {
+    return fail(err, 'Failed to start the encounter.');
+  }
 }
 export async function endEncounterAction(id: string): Promise<Result> {
   return sessionAction(() => endEncounter(id));
@@ -393,6 +411,38 @@ export async function updateEntryAction(
 }
 export async function removeEntryAction(entryId: string): Promise<Result> {
   return sessionAction(() => removeEntry(entryId));
+}
+export async function applyHpAction(
+  entryId: string,
+  delta: number
+): Promise<Result> {
+  return sessionAction(() => applyHp(entryId, delta));
+}
+export async function rollInitiativeAction(
+  encounterId: string
+): Promise<Result> {
+  return sessionAction(() => rollInitiative(encounterId));
+}
+export async function rollAction(
+  campaignId: string,
+  input: RollInput
+): Promise<Result> {
+  try {
+    await rollForCampaign(campaignId, input);
+    return { ok: true };
+  } catch (err) {
+    const code = err instanceof Error ? err.message : '';
+    if (code === 'BAD_NOTATION') {
+      return {
+        ok: false,
+        error: 'That is not dice. Try 2d6+3, d20, or 4d6kh3.',
+      };
+    }
+    return fail(err, 'The dice did not land.');
+  }
+}
+export async function clearRollsAction(campaignId: string): Promise<Result> {
+  return sessionAction(() => clearRolls(campaignId));
 }
 export async function createNoteAction(
   campaignId: string,

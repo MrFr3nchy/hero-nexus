@@ -8,6 +8,7 @@ import {
   campaignInvites,
   campaignMembers,
   campaigns,
+  campaignSessions,
   characterHomebrew,
   characters,
   homebrewApprovals,
@@ -30,6 +31,8 @@ export interface CampaignSettings {
   maxPlayers: number;
   sessionNotes: string;
   customRules: string;
+  /** A banner from `campaign_images`, or null. Shown on the campaign page. */
+  bannerImageId: string | null;
   /** Structured table rules the builder and server both enforce. */
   rules: CampaignRules;
 }
@@ -42,6 +45,7 @@ export const DEFAULT_CAMPAIGN_SETTINGS: CampaignSettings = {
   maxPlayers: 6,
   sessionNotes: '',
   customRules: '',
+  bannerImageId: null,
   rules: DEFAULT_CAMPAIGN_RULES,
 };
 
@@ -75,6 +79,8 @@ export interface CampaignRow {
   /** Only present for gm / co-gm. */
   joinCode?: string | null;
   memberCount: number;
+  /** The next planned sitting, so a list of tables can say when each meets. */
+  nextSessionAt?: string | null;
 }
 
 export interface CampaignMemberRow {
@@ -177,7 +183,8 @@ export async function requireCampaignRole(
 function hydrate(
   row: typeof campaigns.$inferSelect,
   role: CampaignRole,
-  count: number
+  count: number,
+  nextSessionAt: string | null = null
 ): CampaignRow {
   const isStaff = role === 'gm' || role === 'co-gm';
   return {
@@ -193,7 +200,42 @@ function hydrate(
     isGM: role === 'gm',
     joinCode: isStaff ? row.joinCode : undefined,
     memberCount: count,
+    nextSessionAt,
   };
+}
+
+/**
+ * The soonest planned sitting for each of the given campaigns.
+ *
+ * One query for the whole list rather than one per campaign: the campaigns
+ * page renders every table a user is at, and that is the difference between
+ * two queries and twenty.
+ */
+async function nextSessionDates(
+  campaignIds: string[]
+): Promise<Map<string, string>> {
+  if (campaignIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      campaignId: campaignSessions.campaignId,
+      scheduledFor: campaignSessions.scheduledFor,
+      number: campaignSessions.number,
+    })
+    .from(campaignSessions)
+    .where(
+      and(
+        inArray(campaignSessions.campaignId, campaignIds),
+        eq(campaignSessions.status, 'planned')
+      )
+    )
+    .orderBy(campaignSessions.number);
+
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    if (!row.scheduledFor) continue;
+    if (!out.has(row.campaignId)) out.set(row.campaignId, row.scheduledFor);
+  }
+  return out;
 }
 
 /** Campaigns the user runs as GM or belongs to as a member. */
@@ -229,12 +271,15 @@ export async function listCampaigns(): Promise<CampaignRow[]> {
     return true;
   });
 
+  const nextDates = await nextSessionDates(all.map(c => c.id));
+
   return Promise.all(
     all.map(async c =>
       hydrate(
         c,
         c.gmId === userId ? 'gm' : (roleByCampaign.get(c.id) ?? 'player'),
-        await memberCount(c.id)
+        await memberCount(c.id),
+        nextDates.get(c.id) ?? null
       )
     )
   );
@@ -384,6 +429,60 @@ export async function listMembers(
       ruleIssues: r.characterId ? issuesFor(r.characterSheet) : [],
     })),
   ];
+}
+
+export interface BuilderCampaignRow {
+  id: string;
+  name: string;
+  rules: CampaignRules;
+  allowHomebrew: boolean;
+  /** The character this member already plays at that table, if any. */
+  linkedCharacterId: string | null;
+  linkedCharacterName: string | null;
+}
+
+/**
+ * The campaigns a character can be attached to from the builder: the ones the
+ * caller holds a member row in. A GM has no member row of their own, so the
+ * tables they run are deliberately absent — a GM links NPCs elsewhere.
+ *
+ * The table's rules travel with each row so the builder can hide what the
+ * table disallows the moment a campaign is picked, rather than refusing the
+ * sheet at save time.
+ */
+export async function listBuilderCampaigns(): Promise<BuilderCampaignRow[]> {
+  const userId = await requireUserId();
+
+  const rows = await db
+    .select({
+      id: campaigns.id,
+      name: campaigns.name,
+      settings: campaigns.settings,
+      characterId: campaignMembers.characterId,
+      characterName: characters.name,
+    })
+    .from(campaignMembers)
+    .innerJoin(campaigns, eq(campaigns.id, campaignMembers.campaignId))
+    .leftJoin(characters, eq(characters.id, campaignMembers.characterId))
+    .where(
+      and(
+        eq(campaignMembers.userId, userId),
+        eq(campaignMembers.status, 'active')
+      )
+    )
+    .orderBy(campaigns.name);
+
+  return rows.map(r => {
+    const settings = mergeCampaignSettings(r.settings);
+    return {
+      id: r.id,
+      name: r.name,
+      rules: settings.rules,
+      allowHomebrew: settings.allowHomebrew,
+      linkedCharacterId: r.characterId,
+      linkedCharacterName: r.characterName,
+    };
+  });
 }
 
 export async function joinByCode(code: string): Promise<string> {

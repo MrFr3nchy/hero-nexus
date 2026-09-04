@@ -1,9 +1,13 @@
 'use client';
 
+import { Button, Input, Link } from '@heroui/react';
+import { useEffect, useState } from 'react';
+
 import { useAuth } from '@/@auth/context';
 import { AuthError } from '@/@auth/types';
-import { Button, Card, CardBody, CardHeader, Input } from '@heroui/react';
-import { useEffect, useState } from 'react';
+import { PageHeader, PageShell, SectionCard } from '@/@shared/components/ui';
+
+type Tab = 'email' | 'password';
 
 const EMAIL_NOTICES: Record<string, string> = {
   email_changed: 'Email address confirmed and updated.',
@@ -21,7 +25,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'email' | 'password'>('email');
+  const [tab, setTab] = useState<Tab>('email');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -39,7 +43,6 @@ export default function SettingsPage() {
     setError('');
     setMessage('');
     setLoading(true);
-
     try {
       await updateEmail(email, emailPassword);
       setMessage(
@@ -47,11 +50,8 @@ export default function SettingsPage() {
       );
       setEmail('');
       setEmailPassword('');
-    } catch (error: unknown) {
-      const authError = error as AuthError;
-      setError(
-        authError.message || 'Failed to update email. Please try again.'
-      );
+    } catch (err: unknown) {
+      setError((err as AuthError).message || 'Failed to update email.');
     } finally {
       setLoading(false);
     }
@@ -61,30 +61,23 @@ export default function SettingsPage() {
     e.preventDefault();
     setError('');
     setMessage('');
-
     if (newPassword !== confirmPassword) {
-      setError('New passwords do not match');
+      setError('New passwords do not match.');
       return;
     }
-
     if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters');
+      setError('Password must be at least 8 characters.');
       return;
     }
-
     setLoading(true);
-
     try {
       await updatePassword(currentPassword, newPassword);
-      setMessage('Password updated successfully!');
+      setMessage('Password updated.');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-    } catch (error: unknown) {
-      const authError = error as AuthError;
-      setError(
-        authError.message || 'Failed to update password. Please try again.'
-      );
+    } catch (err: unknown) {
+      setError((err as AuthError).message || 'Failed to update password.');
     } finally {
       setLoading(false);
     }
@@ -92,208 +85,137 @@ export default function SettingsPage() {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-bg">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-ink mb-4">
-            Please log in to view your settings
+      <PageShell width="narrow">
+        <div className="py-16 text-center">
+          <h1 className="font-display text-2xl text-ink">
+            Sign in to change your settings
           </h1>
-          <Button as="a" href="/login" color="primary" className="">
-            Go to Login
+          <Button as={Link} href="/login" color="primary" className="mt-4">
+            Go to sign in
           </Button>
         </div>
-      </div>
+      </PageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-bg py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-2xl mx-auto">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-ink mb-2">Account Settings</h1>
-          <p className="text-ink-muted">
-            Manage your account security and preferences
-          </p>
-        </div>
+    <PageShell width="narrow">
+      <PageHeader
+        title="Account settings"
+        description="Change the email and password you sign in with."
+      />
 
-        {/* Tab Navigation */}
-        <div className="flex justify-center mb-8">
-          <div className="bg-surface/50 rounded-lg p-1 border border-line">
-            <button
-              onClick={() => setActiveTab('email')}
-              className={`px-6 py-2 rounded-md transition-colors ${
-                activeTab === 'email'
-                  ? 'bg-gold text-white'
-                  : 'text-ink-muted hover:text-ink'
-              }`}
-            >
-              Email Settings
-            </button>
-            <button
-              onClick={() => setActiveTab('password')}
-              className={`px-6 py-2 rounded-md transition-colors ${
-                activeTab === 'password'
-                  ? 'bg-gold text-white'
-                  : 'text-ink-muted hover:text-ink'
-              }`}
-            >
-              Password Settings
-            </button>
-          </div>
-        </div>
-
-        {/* Email Settings */}
-        {activeTab === 'email' && (
-          <Card className=" border-line shadow-2xl">
-            <CardHeader className="pb-0">
-              <div className="text-center w-full">
-                <h2 className="text-2xl font-bold text-ink">Email Settings</h2>
-                <p className="text-ink-muted mt-2">Update your email address</p>
-              </div>
-            </CardHeader>
-            <CardBody className="pt-6">
-              <div className="mb-6 p-4 bg-surface-2 rounded-lg border border-line/50">
-                <p className="text-ink-muted text-sm">
-                  <span className="font-medium">Current Email:</span>{' '}
-                  {currentUser.email}
-                </p>
-              </div>
-
-              <form onSubmit={handleEmailUpdate} className="space-y-6">
-                <Input
-                  type="email"
-                  label="New Email Address"
-                  placeholder="Enter your new email address"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  required
-                  classNames={{
-                    input: 'text-ink',
-                    inputWrapper: 'bg-surface-2 border-line',
-                    label: 'text-ink-muted',
-                  }}
-                />
-                <Input
-                  type="password"
-                  label="Current Password"
-                  placeholder="Confirm it's you"
-                  value={emailPassword}
-                  onChange={e => setEmailPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                  classNames={{
-                    input: 'text-ink',
-                    inputWrapper: 'bg-surface-2 border-line',
-                    label: 'text-ink-muted',
-                  }}
-                />
-
-                {error && (
-                  <div className="text-danger text-sm text-center bg-danger/10 p-3 rounded-lg border border-danger/40">
-                    {error}
-                  </div>
-                )}
-
-                {message && (
-                  <div className="text-success text-sm text-center bg-success/10 p-3 rounded-lg border border-success/40">
-                    {message}
-                  </div>
-                )}
-
-                <Button
-                  type="submit"
-                  color="primary"
-                  size="lg"
-                  className="w-full"
-                  isLoading={loading}
-                  disabled={loading}
-                >
-                  {loading ? 'Updating...' : 'Update Email'}
-                </Button>
-              </form>
-            </CardBody>
-          </Card>
-        )}
-
-        {/* Password Settings */}
-        {activeTab === 'password' && (
-          <Card className=" border-line shadow-2xl">
-            <CardHeader className="pb-0">
-              <div className="text-center w-full">
-                <h2 className="text-2xl font-bold text-ink">
-                  Password Settings
-                </h2>
-                <p className="text-ink-muted mt-2">Update your password</p>
-              </div>
-            </CardHeader>
-            <CardBody className="pt-6">
-              <form onSubmit={handlePasswordUpdate} className="space-y-6">
-                <Input
-                  type="password"
-                  label="Current Password"
-                  placeholder="Enter your current password"
-                  value={currentPassword}
-                  onChange={e => setCurrentPassword(e.target.value)}
-                  required
-                  classNames={{
-                    input: 'text-ink',
-                    inputWrapper: 'bg-surface-2 border-line',
-                    label: 'text-ink-muted',
-                  }}
-                />
-                <Input
-                  type="password"
-                  label="New Password"
-                  placeholder="Enter your new password"
-                  value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)}
-                  required
-                  classNames={{
-                    input: 'text-ink',
-                    inputWrapper: 'bg-surface-2 border-line',
-                    label: 'text-ink-muted',
-                  }}
-                />
-                <Input
-                  type="password"
-                  label="Confirm New Password"
-                  placeholder="Confirm your new password"
-                  value={confirmPassword}
-                  onChange={e => setConfirmPassword(e.target.value)}
-                  required
-                  classNames={{
-                    input: 'text-ink',
-                    inputWrapper: 'bg-surface-2 border-line',
-                    label: 'text-ink-muted',
-                  }}
-                />
-
-                {error && (
-                  <div className="text-danger text-sm text-center bg-danger/10 p-3 rounded-lg border border-danger/40">
-                    {error}
-                  </div>
-                )}
-
-                {message && (
-                  <div className="text-success text-sm text-center bg-success/10 p-3 rounded-lg border border-success/40">
-                    {message}
-                  </div>
-                )}
-
-                <Button
-                  type="submit"
-                  color="primary"
-                  size="lg"
-                  className="w-full"
-                  isLoading={loading}
-                  disabled={loading}
-                >
-                  {loading ? 'Updating...' : 'Update Password'}
-                </Button>
-              </form>
-            </CardBody>
-          </Card>
-        )}
+      <div className="mb-5 inline-flex rounded-md border border-line bg-surface-2 p-1">
+        {(['email', 'password'] as Tab[]).map(t => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => {
+              setTab(t);
+              setError('');
+              setMessage('');
+            }}
+            className={`rounded px-4 py-1.5 text-sm capitalize transition-colors ${
+              tab === t
+                ? 'bg-gold font-medium text-bg'
+                : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {t}
+          </button>
+        ))}
       </div>
-    </div>
+
+      <SectionCard>
+        {tab === 'email' ? (
+          <form onSubmit={handleEmailUpdate} className="space-y-4">
+            <p className="text-sm text-ink-muted">
+              Current: <span className="text-ink">{currentUser.email}</span>
+            </p>
+            <Input
+              type="email"
+              label="New email address"
+              value={email}
+              onValueChange={setEmail}
+              isRequired
+              autoComplete="email"
+            />
+            <Input
+              type="password"
+              label="Current password"
+              description="Confirms it's you before the address changes."
+              value={emailPassword}
+              onValueChange={setEmailPassword}
+              isRequired
+              autoComplete="current-password"
+            />
+            {error && (
+              <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+                {error}
+              </p>
+            )}
+            {message && (
+              <p className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">
+                {message}
+              </p>
+            )}
+            <Button
+              type="submit"
+              color="primary"
+              className="w-full"
+              isLoading={loading}
+            >
+              Update email
+            </Button>
+          </form>
+        ) : (
+          <form onSubmit={handlePasswordUpdate} className="space-y-4">
+            <Input
+              type="password"
+              label="Current password"
+              value={currentPassword}
+              onValueChange={setCurrentPassword}
+              isRequired
+              autoComplete="current-password"
+            />
+            <Input
+              type="password"
+              label="New password"
+              description="At least 8 characters."
+              value={newPassword}
+              onValueChange={setNewPassword}
+              isRequired
+              autoComplete="new-password"
+            />
+            <Input
+              type="password"
+              label="Confirm new password"
+              value={confirmPassword}
+              onValueChange={setConfirmPassword}
+              isRequired
+              autoComplete="new-password"
+            />
+            {error && (
+              <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+                {error}
+              </p>
+            )}
+            {message && (
+              <p className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">
+                {message}
+              </p>
+            )}
+            <Button
+              type="submit"
+              color="primary"
+              className="w-full"
+              isLoading={loading}
+            >
+              Update password
+            </Button>
+          </form>
+        )}
+      </SectionCard>
+    </PageShell>
   );
 }

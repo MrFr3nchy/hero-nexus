@@ -22,7 +22,9 @@ export function StepHeading({
     <div className="mb-5 flex items-end justify-between gap-4">
       <div>
         <h2 className="font-display text-2xl text-ink">{title}</h2>
-        {lede && <p className="mt-1 max-w-prose text-sm text-ink-muted">{lede}</p>}
+        {lede && (
+          <p className="mt-1 max-w-prose text-sm text-ink-muted">{lede}</p>
+        )}
       </div>
       {aside && <div className="shrink-0">{aside}</div>}
     </div>
