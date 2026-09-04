@@ -256,7 +256,7 @@ export function LedgerPanel({
       <Purse
         campaignId={campaignId}
         treasury={ledger.treasury}
-        partySize={Math.max(1, ledger.holders.length)}
+        partySize={ledger.partySize}
         onChange={next => setLedger(l => (l ? { ...l, treasury: next } : l))}
         onError={report}
       />

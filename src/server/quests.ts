@@ -68,6 +68,16 @@ export interface LedgerState {
   treasury: Treasury;
   /** Party members who can hold something, for the "who has it" picker. */
   holders: { characterId: string; name: string }[];
+  /**
+   * How many players are at the table — the sensible default for a split,
+   * since a haul is divided among the party and not with the DM (who has no
+   * `campaign_members` row anyway).
+   *
+   * Deliberately not `holders.length`: a party of five who have not linked
+   * their characters yet would otherwise default to splitting the purse one
+   * way, which is never what anyone means.
+   */
+  partySize: number;
 }
 
 function isStaffRole(role: CampaignRole): boolean {
@@ -307,6 +317,16 @@ export async function getLedger(campaignId: string): Promise<LedgerState> {
       )
     );
 
+  const members = await db
+    .select({ userId: campaignMembers.userId })
+    .from(campaignMembers)
+    .where(
+      and(
+        eq(campaignMembers.campaignId, campaignId),
+        eq(campaignMembers.status, 'active')
+      )
+    );
+
   return {
     loot: rows.map(r => ({
       id: r.loot.id,
@@ -322,6 +342,7 @@ export async function getLedger(campaignId: string): Promise<LedgerState> {
       ? { cp: purse.cp, sp: purse.sp, ep: purse.ep, gp: purse.gp, pp: purse.pp }
       : { ...EMPTY_TREASURY },
     holders,
+    partySize: Math.max(1, members.length),
   };
 }
 

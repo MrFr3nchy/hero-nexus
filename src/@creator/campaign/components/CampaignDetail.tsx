@@ -29,6 +29,11 @@ import { SessionPanel } from './session/SessionPanel';
 const ROLE_LABEL = { gm: 'DM', 'co-gm': 'Co-DM', player: 'Player' } as const;
 const ROLE_TONE = { gm: 'gold', 'co-gm': 'arcane', player: 'neutral' } as const;
 
+/** "1 thread" / "3 threads" — a count line that reads as a sentence. */
+function plural(count: number, one: string, many: string): string {
+  return count === 1 ? one : many;
+}
+
 /**
  * A tab title with a count of things wanting attention. The count only ever
  * appears when there is something to do — a tab wearing a "0" is furniture.
@@ -115,8 +120,22 @@ export function CampaignDetail({
           <Ledger
             items={[
               { value: campaign.memberCount, label: 'at the table' },
-              { value: pulse.sessionsPlayed, label: 'sessions played' },
-              { value: pulse.questsInHand, label: 'threads in hand' },
+              {
+                value: pulse.sessionsPlayed,
+                label: plural(
+                  pulse.sessionsPlayed,
+                  'session played',
+                  'sessions played'
+                ),
+              },
+              {
+                value: pulse.questsInHand,
+                label: plural(
+                  pulse.questsInHand,
+                  'thread in hand',
+                  'threads in hand'
+                ),
+              },
             ]}
           />
         ) : (
@@ -143,7 +162,14 @@ export function CampaignDetail({
       <Fleuron />
 
       <div className="mt-5">
-        <Tabs aria-label="Campaign sections" variant="underlined">
+        {/* Moving tabs re-reads the counts: a quest pinned or a recap handed
+            over changes the ledger line, and a stale number is worse than a
+            slightly late one. */}
+        <Tabs
+          aria-label="Campaign sections"
+          variant="underlined"
+          onSelectionChange={() => loadPulse()}
+        >
           <Tab key="table" title="The table">
             <div className="pt-4">
               <SessionPanel campaignId={campaign.id} />
