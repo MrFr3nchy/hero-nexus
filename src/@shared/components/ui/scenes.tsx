@@ -389,17 +389,29 @@ export function HandoutScene({ className }: { className?: string }) {
         stroke="var(--line)"
         strokeWidth="1.2"
       />
-      <path
-        d="M20 18a6 20 0 0 0 0 40 6 20 0 0 0 0-40z"
+      <ellipse
+        cx="20"
+        cy="38"
+        rx="7"
+        ry="21"
+        fill="var(--surface-2)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      <ellipse
+        cx="76"
+        cy="38"
+        rx="7"
+        ry="21"
         fill="var(--surface-2)"
         stroke="var(--line)"
         strokeWidth="1.2"
       />
       <path
-        d="M76 18a6 20 0 0 1 0 40 6 20 0 0 1 0-40z"
-        fill="var(--surface-2)"
-        stroke="var(--line)"
-        strokeWidth="1.2"
+        d="M20 21v34M76 21v34"
+        stroke="var(--gold)"
+        strokeWidth="1"
+        opacity="0.45"
       />
       {[30, 38, 46].map((y, i) => (
         <path

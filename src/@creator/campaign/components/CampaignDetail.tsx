@@ -5,12 +5,14 @@ import { useCallback, useEffect, useState } from 'react';
 
 import {
   Fleuron,
+  Glyph,
   Ledger,
   Marginalia,
   PageHeader,
   PageShell,
   Ribbon,
   SectionCard,
+  type GlyphName,
 } from '@/@shared/components/ui';
 import { countdownWords, formatCalendarDate } from '@/@shared/lib/dates';
 import type { CampaignPulse } from '@/server/campaign-pulse';
@@ -35,12 +37,28 @@ function plural(count: number, one: string, many: string): string {
 }
 
 /**
- * A tab title with a count of things wanting attention. The count only ever
- * appears when there is something to do — a tab wearing a "0" is furniture.
+ * A tab title: a glyph, a one-word name, and a count of things wanting
+ * attention.
+ *
+ * The glyph is what makes seven tabs scannable rather than a wall of words,
+ * and it is the part that survives the horizontal scroll on a phone. The
+ * count only ever appears when there is something to do — a tab wearing a "0"
+ * is furniture — and `getCampaignPulse` already returns zero for the
+ * staff-facing queues when a player is asking, so a player never sees a badge
+ * for someone else's pending submission.
  */
-function TabTitle({ label, count }: { label: string; count?: number }) {
+function TabTitle({
+  glyph,
+  label,
+  count,
+}: {
+  glyph: GlyphName;
+  label: string;
+  count?: number;
+}) {
   return (
     <span className="flex items-center gap-1.5">
+      <Glyph name={glyph} size={15} className="opacity-70" />
       {label}
       {!!count && count > 0 && (
         <span className="rounded-full bg-gold/20 px-1.5 text-[0.65rem] font-medium tabular-nums text-gold-strong dark:text-gold">
@@ -169,14 +187,19 @@ export function CampaignDetail({
           aria-label="Campaign sections"
           variant="underlined"
           onSelectionChange={() => loadPulse()}
+          classNames={{
+            // Seven tabs overflow a phone. Let the list scroll rather than
+            // wrap into a second row that pushes the panel off-screen.
+            tabList: 'max-w-full overflow-x-auto',
+          }}
         >
-          <Tab key="table" title="The table">
+          <Tab key="table" title={<TabTitle glyph="die" label="Session" />}>
             <div className="pt-4">
               <SessionPanel campaignId={campaign.id} />
             </div>
           </Tab>
 
-          <Tab key="party" title="Party">
+          <Tab key="party" title={<TabTitle glyph="person" label="Party" />}>
             <div className="space-y-5 pt-4">
               <MembersPanel
                 campaignId={campaign.id}
@@ -218,10 +241,20 @@ export function CampaignDetail({
             </div>
           </Tab>
 
+          <Tab key="quests" title={<TabTitle glyph="scroll" label="Quests" />}>
+            <div className="pt-4">
+              <QuestPanel campaignId={campaign.id} viewerRole={campaign.role} />
+            </div>
+          </Tab>
+
           <Tab
             key="chronicle"
             title={
-              <TabTitle label="Chronicle" count={pulse?.unsentRecaps ?? 0} />
+              <TabTitle
+                glyph="notebook"
+                label="Chronicle"
+                count={pulse?.unsentRecaps ?? 0}
+              />
             }
           >
             <div className="pt-4">
@@ -232,13 +265,7 @@ export function CampaignDetail({
             </div>
           </Tab>
 
-          <Tab key="quests" title="Quests">
-            <div className="pt-4">
-              <QuestPanel campaignId={campaign.id} viewerRole={campaign.role} />
-            </div>
-          </Tab>
-
-          <Tab key="canon" title="Canon">
+          <Tab key="canon" title={<TabTitle glyph="tome" label="Canon" />}>
             <div className="pt-4">
               <CanonPanel
                 campaignId={campaign.id}
@@ -251,7 +278,11 @@ export function CampaignDetail({
           <Tab
             key="downtime"
             title={
-              <TabTitle label="Downtime" count={pulse?.openDowntime ?? 0} />
+              <TabTitle
+                glyph="hourglass"
+                label="Downtime"
+                count={pulse?.openDowntime ?? 0}
+              />
             }
           >
             <div className="pt-4">
@@ -266,7 +297,11 @@ export function CampaignDetail({
           <Tab
             key="homebrew"
             title={
-              <TabTitle label="Homebrew" count={pulse?.pendingApprovals ?? 0} />
+              <TabTitle
+                glyph="orb"
+                label="Homebrew"
+                count={pulse?.pendingApprovals ?? 0}
+              />
             }
           >
             <div className="pt-4">

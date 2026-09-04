@@ -127,8 +127,8 @@ export function HomebrewCreator() {
     <div className="space-y-6">
       {dialog}
       <SectionCard title="Create homebrew">
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="flex flex-col items-start gap-4">
+          <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
             <Input
               label="Name"
               value={form.name}
@@ -155,12 +155,15 @@ export function HomebrewCreator() {
             </Select>
           </div>
           <Textarea
+            className="w-full"
             label="Description"
             value={form.description}
             onValueChange={v => setForm(f => ({ ...f, description: v }))}
             minRows={4}
           />
           <Switch
+            className="max-w-full"
+            classNames={{ label: 'ml-2 text-sm text-ink-muted' }}
             isSelected={form.visibility === 'public'}
             onValueChange={v =>
               setForm(f => ({
@@ -169,13 +172,11 @@ export function HomebrewCreator() {
               }))
             }
           >
-            <span className="text-sm text-ink-muted">
-              Share to the public marketplace
-            </span>
+            Share to the public marketplace
           </Switch>
 
           {error && (
-            <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <p className="w-full rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
               {error}
             </p>
           )}

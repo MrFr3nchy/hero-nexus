@@ -5,7 +5,14 @@ import { useEffect, useState } from 'react';
 
 import { useAuth } from '@/@auth/context';
 import { AuthError } from '@/@auth/types';
-import { PageHeader, PageShell, SectionCard } from '@/@shared/components/ui';
+import {
+  CandleScene,
+  EmptyState,
+  Marginalia,
+  PageHeader,
+  PageShell,
+  SectionCard,
+} from '@/@shared/components/ui';
 
 export default function ProfilePage() {
   const { currentUser, updateProfile } = useAuth();
@@ -45,14 +52,16 @@ export default function ProfilePage() {
   if (!currentUser) {
     return (
       <PageShell width="narrow">
-        <div className="py-16 text-center">
-          <h1 className="font-display text-2xl text-ink">
-            Sign in to see your profile
-          </h1>
-          <Button as={Link} href="/login" color="primary" className="mt-4">
-            Go to sign in
-          </Button>
-        </div>
+        <EmptyState
+          scene={<CandleScene />}
+          title="No one is sitting here"
+          description="Sign in and your name, face and tables come back with you."
+          action={
+            <Button as={Link} href="/login" color="primary">
+              Sign in
+            </Button>
+          }
+        />
       </PageShell>
     );
   }
@@ -60,11 +69,15 @@ export default function ProfilePage() {
   return (
     <PageShell width="narrow">
       <PageHeader
+        rule={false}
         title="Your profile"
         description="The name and face other players see at the table."
       />
+      <Marginalia dash className="mb-5">
+        the party will use a nickname anyway
+      </Marginalia>
 
-      <SectionCard>
+      <SectionCard framed>
         <div className="mb-6 flex items-center gap-4">
           <Avatar
             src={currentUser.image || undefined}
@@ -116,9 +129,9 @@ export default function ProfilePage() {
         </form>
       </SectionCard>
 
-      <p className="mt-4 text-sm text-ink-subtle">
-        Signed in as {currentUser.email} · account {currentUser.id}
-      </p>
+      <Marginalia className="mt-5">
+        the portrait shows up on your card at every table you sit at
+      </Marginalia>
     </PageShell>
   );
 }

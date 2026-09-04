@@ -19,7 +19,8 @@ interface SectionCardProps {
 }
 
 function Corners() {
-  const base = 'pointer-events-none absolute h-3 w-3 border-gold/60 text-gold';
+  const base =
+    'pointer-events-none absolute z-10 h-3 w-3 border-gold/70 text-gold';
   return (
     <>
       <span className={`${base} left-1.5 top-1.5 border-l border-t`} />

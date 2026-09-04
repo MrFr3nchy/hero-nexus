@@ -44,7 +44,7 @@ export const DOWNTIME_KIND_GLYPHS: Record<DowntimeKind, GlyphName> = {
   travel: 'compass',
   scheming: 'candle',
   recovery: 'bed',
-  faith: 'dove',
+  faith: 'holy-symbol',
   other: 'question',
 };
 

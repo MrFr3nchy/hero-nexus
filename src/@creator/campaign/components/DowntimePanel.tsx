@@ -484,7 +484,13 @@ function ActionRow({
         </>
       }
       summary={action.body.split('\n')[0].slice(0, 160)}
-      defaultOpen={action.status === 'submitted'}
+      openLabel={
+        isStaff && action.status === 'submitted'
+          ? 'Answer'
+          : action.mine && action.status === 'submitted'
+            ? 'Edit'
+            : 'Read'
+      }
     >
       <div className="space-y-3 text-sm">
         {editing ? (
@@ -592,14 +598,12 @@ function ActionRow({
                 variant="flat"
                 color="danger"
                 isDisabled={!response.trim()}
+                title="Write a reason above first — a rejection without one tells the player nothing."
                 onPress={() => resolve('rejected')}
               >
                 Reject
               </Button>
             </div>
-            <p className="text-xs text-ink-subtle">
-              A rejection needs a written reason.
-            </p>
           </div>
         )}
       </div>

@@ -42,7 +42,7 @@ export type GlyphName =
   | 'compass'
   | 'candle'
   | 'bed'
-  | 'dove'
+  | 'holy-symbol'
   | 'question'
   // homebrew kinds
   | 'crossed-swords'
@@ -71,10 +71,13 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   ),
   dragon: (
     <>
-      <path d="M3 13.5c2-5 5.5-7.5 9.5-7.5 2.4 0 4 .9 4.9 2.2L21 6l-1.2 3.4 1.7 1.6-3.2.7c-.3 4.6-3.4 8-8.3 8" />
-      <path d="M12.5 6c.4-1.6-.2-3-1.8-4 2.6-.3 4.4.6 5.3 2.6" />
-      <path d="M6.5 17.5 3.5 21" />
-      <circle cx="15.6" cy="9.7" r=".9" fill="currentColor" stroke="none" />
+      {/* horns swept back over a tapering muzzle — a full dragon in profile
+          turns to mud at 16px, a horned head does not */}
+      <path d="M8.4 7.6 3.6 1.8l.7 6.6" />
+      <path d="M15.6 7.6 20.4 1.8l-.7 6.6" />
+      <path d="M12 6.1c3.6 0 6.4 2.3 6.4 5.3 0 1.9-1 3.6-2.6 4.7l-.6 4.4c0 .9-1.4 1.6-3.2 1.6s-3.2-.7-3.2-1.6l-.6-4.4c-1.6-1.1-2.6-2.8-2.6-4.7 0-3 2.8-5.3 6.4-5.3Z" />
+      <circle cx="9.9" cy="11.5" r=".95" fill="currentColor" stroke="none" />
+      <circle cx="14.1" cy="11.5" r=".95" fill="currentColor" stroke="none" />
     </>
   ),
   map: (
@@ -91,8 +94,9 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   ),
   sword: (
     <>
-      <path d="m14.5 3.5 6 0 0 6-9.2 9.2-6-6Z" />
-      <path d="m8.6 15.4-4.1 4.1M4 17l3 3" />
+      <path d="M12 2.2 14.6 7v8.2H9.4V7Z" />
+      <path d="M6.6 15.2h10.8M12 15.2v4.2" />
+      <circle cx="12" cy="20.8" r="1.5" />
     </>
   ),
   sparkle: (
@@ -103,10 +107,10 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   ),
   scroll: (
     <>
-      <path d="M6.5 3.5h11a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-11" />
-      <path d="M6.5 3.5a2 2 0 0 0-2 2v2h4v-2a2 2 0 0 0-2-2Z" />
-      <path d="M6.5 20.5a2 2 0 0 0 2-2v-2h-4v2a2 2 0 0 0 2 2Z" />
-      <path d="M10.5 8.5h6M10.5 12h6M10.5 15.5h3.5" />
+      <path d="M7.5 3.5h13" />
+      <path d="M20.5 3.5c-1.7 0-3 1.3-3 3v11c0 1.7-1.3 3-3 3h-11" />
+      <path d="M3.5 20.5c1.7 0 3-1.3 3-3V6.5c0-1.7 1.3-3 3-3" />
+      <path d="M10.5 9h6M10.5 12.5h6M10.5 16h3.5" />
     </>
   ),
   notebook: (
@@ -119,16 +123,16 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
 
   coins: (
     <>
-      <ellipse cx="9" cy="7" rx="5.5" ry="2.5" />
-      <path d="M3.5 7v3.5c0 1.4 2.5 2.5 5.5 2.5s5.5-1.1 5.5-2.5V7" />
-      <ellipse cx="15" cy="15.5" rx="5.5" ry="2.5" />
-      <path d="M9.5 15.5V19c0 1.4 2.5 2.5 5.5 2.5s5.5-1.1 5.5-2.5v-3.5" />
+      <ellipse cx="8.5" cy="7.5" rx="6.5" ry="2.6" />
+      <path d="M2 7.5v4.6c0 1.4 2.9 2.6 6.5 2.6s6.5-1.2 6.5-2.6V7.5" />
+      <circle cx="17" cy="16" r="4.8" />
     </>
   ),
   hammer: (
     <>
-      <path d="M13.5 3.5 8 9l2.5 2.5 5.5-5.5 3 1.5 2-2-4.5-4.5-2 2Z" />
-      <path d="M9.2 10.3 3.5 16v4.5H8l5.7-5.7" />
+      <rect x="2.5" y="3.5" width="13.5" height="6" rx="2" />
+      <path d="M16 5h3a1.5 1.5 0 0 1 1.5 1.5v.5A1.5 1.5 0 0 1 19 8.5h-3" />
+      <path d="M9.5 9.5v11" />
     </>
   ),
   magnifier: (
@@ -146,9 +150,10 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   ),
   tankard: (
     <>
-      <path d="M5.5 8h10v11a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2Z" />
-      <path d="M15.5 10.5h2a2.5 2.5 0 0 1 0 5h-2" />
-      <path d="M5.5 8c0-1.9 2.2-3 5-3s5 1.1 5 3" />
+      <path d="M4.5 8h10v10.5a2.5 2.5 0 0 1-2.5 2.5H7a2.5 2.5 0 0 1-2.5-2.5Z" />
+      <path d="M14.5 10.5H17a3 3 0 0 1 0 6h-2.5" />
+      <path d="M4.5 8c0-1.1.9-2 2.1-2.1.4-1.3 1.6-2.2 3-2.2s2.6.9 3 2.2c1.2.1 2.1 1 2.1 2.1" />
+      <path d="M4.5 11.5h10" />
     </>
   ),
   letter: (
@@ -172,15 +177,17 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   ),
   bed: (
     <>
-      <path d="M3.5 18.5v-11M3.5 12h17v6.5M20.5 18.5v2M3.5 18.5v2" />
-      <circle cx="8" cy="9.5" r="2" />
-      <path d="M11.5 12c0-1.4 1.1-2.5 2.5-2.5h4c1.4 0 2.5 1.1 2.5 2.5" />
+      <path d="M2.5 8.5v13M2.5 13h19v8.5M21.5 17.5h-19" />
+      <circle cx="7" cy="10" r="2.2" />
+      <path d="M11 13c0-1.4 1.1-2.5 2.5-2.5h5.5c1.4 0 2.5 1.1 2.5 2.5" />
     </>
   ),
-  dove: (
+  'holy-symbol': (
     <>
-      <path d="M20.5 5.5c-1.8 0-3.2.6-4.2 1.7-1.6-1.5-3.6-1.7-5.4-.7-2.4 1.3-3.2 4-2.4 6.3L3.5 18h5.7c3.9 0 7-2.7 7.6-6.4 1.8-1 2.9-2.7 3.7-6.1Z" />
-      <circle cx="17.4" cy="8.2" r=".8" fill="currentColor" stroke="none" />
+      {/* a holy symbol: prayer and ritual, and it survives 16px */}
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v3.5M12 18v3.5M2.5 12H6m12 0h3.5" />
+      <path d="m5.3 5.3 2.5 2.5m8.4 8.4 2.5 2.5m0-13.4-2.5 2.5M7.8 16.2l-2.5 2.5" />
     </>
   ),
   question: (
@@ -199,9 +206,9 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   ),
   orb: (
     <>
-      <circle cx="12" cy="10" r="6.5" />
-      <path d="M9.2 7.4a3.8 3.8 0 0 1 2.6-1.3" />
-      <path d="M7.5 16.5h9l1.5 4h-12Z" />
+      <circle cx="12" cy="9.5" r="6.5" />
+      <path d="m12 6 .95 2.55L15.5 9.5l-2.55.95L12 13l-.95-2.55L8.5 9.5l2.55-.95Z" />
+      <path d="M6.5 18h11c0 1.9-2.4 3.5-5.5 3.5S6.5 19.9 6.5 18Z" />
     </>
   ),
   shield: (
@@ -236,15 +243,15 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   ),
   chest: (
     <>
-      <path d="M3.5 10a8.5 8.5 0 0 1 17 0v10h-17Z" />
-      <path d="M3.5 12.5h17" />
-      <rect x="10.2" y="11" width="3.6" height="4.5" rx="1" />
+      <path d="M3.5 11.5a8.5 8.5 0 0 1 17 0v9h-17Z" />
+      <path d="M3.5 13h17" />
+      <rect x="10.3" y="11.5" width="3.4" height="4.5" rx="1" />
     </>
   ),
   anvil: (
     <>
-      <path d="M3.5 8.5h11l3.5 3H21l-1 3.5h-9c-4.1 0-7.5-2.9-7.5-6.5Z" />
-      <path d="M11 15v3M7 21h8l-1.5-3h-5Z" />
+      <path d="M2 9.8 5.5 7.5H19c0 2-1.6 3.6-3.6 3.6h-1.7l.6 3.4h1.9l1.3 4H6.5l1.3-4h1.9l.6-3.4H5.5A3.5 3.5 0 0 1 2 9.8Z" />
+      <path d="M4.5 21.5h15" />
     </>
   ),
   hourglass: (
@@ -264,6 +271,7 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   quill: (
     <>
       <path d="M20.5 3.5c-9 1-13.5 5-13.5 11 0 1 .2 1.9.5 2.7C10.4 15 14.9 11.2 20.5 3.5Z" />
+      <path d="M8.4 16.2C11.6 11.4 15.4 7.5 20.5 3.5" />
       <path d="M7.5 17.2 3.5 21" />
     </>
   ),
