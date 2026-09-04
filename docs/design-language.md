@@ -26,7 +26,7 @@ new page.
 **Show the artifact.** Every page leads with the thing itself — a character sheet, a
 spell block, a stack of party cards, a review queue — not a description of the thing.
 
-Seven rules, each phrased so a reviewer can point at a diff and say it's violated.
+Eight rules, each phrased so a reviewer can point at a diff and say it's violated.
 
 ### 1. The object is the hero
 
@@ -113,6 +113,29 @@ Every empty state names the thing that's missing in-world and offers the action 
 fills it. Loading states get the same care: `DiceSpinner` with a themed label
 ("Gathering your heroes…"), never a bare spinner.
 
+### 8. Icons are drawn, never typed
+
+Every glyph in the UI comes from `Glyph` — a 24x24 box stroked at 1.5 in
+`currentColor`. That is what lets one sit in `text-ink-subtle` and read as ink,
+or in `text-gold` and read as gold, in both palettes.
+
+**Emoji are banned in the UI.** They are rendered by the operating system, so
+the DM on a Mac and a player on Windows see visibly different apps; they are
+fixed full-colour bitmaps that ignore the tokens and shout over the parchment;
+and they have no relationship to the line art in `scenes.tsx`. If a kind or a
+status needs a mark, add a glyph to the set rather than reaching for a
+character.
+
+Drawing one: keep it iconic rather than illustrative, and **draw for 16px** —
+that is the size it renders at inside a `SelectItem` or an `EntryCard` kind
+label, and detail below that is mud. Scene-scale drawing that carries mood
+belongs in `scenes.tsx`, not here.
+
+- **Do** — `<Glyph name="dragon" size={13} />` beside the word "Creature".
+- **Don't** — an emoji in a kind label, or an icon fetched from a CDN at
+  runtime. Hero Nexus is self-hosted and makes no outbound calls; a CDN icon is
+  blank on a box without internet.
+
 ---
 
 ## Banned by default
@@ -128,6 +151,9 @@ Reach for one of these only with a stated reason in the PR/commit description.
   tied to an approval, fleurons between every section, coloured bars that mean nothing.
 - A page whose largest element is prose about a feature.
 - `confirm()` / `alert()` for destructive actions — use a themed dialog.
+- Emoji anywhere in the UI (rule 8). Add a `Glyph` instead.
+- `space-y-*` as the only thing between two HeroUI controls. Most of them render
+  `inline-flex` and will share a line regardless. Use a flex column.
 - Bare `—` or `0` flashing into place before data loads. Hold behind a skeleton or a
   `DiceSpinner`.
 
@@ -235,7 +261,10 @@ one gently-animated element max (the candle flame) that **stops** under
 `prefers-reduced-motion`. The set lives in `ui/scenes.tsx`: `CandleScene` (an absent
 party), `SealedLetterScene` (auth and mail), `ChronicleScene` (an unwritten chronicle),
 `QuestScene` (a bare notice board), `HoardScene` (an empty chest), `BattlefieldScene`
-(no fight running). `title` straight, `description` as the scrawl, one primary +
+(no fight running), `ForgeScene` (a cold anvil), `HourglassScene` (no downtime
+window open), `TomeScene` (an empty archive, and an unseeded compendium),
+`HandoutScene` (nothing passed across the table), `QuietDeskScene` (a review
+queue with nothing in it). `title` straight, `description` as the scrawl, one primary +
 optional ghost action.
 
 ### Pitch row (marketing)
@@ -307,6 +336,7 @@ Fonts (aliases in the `@theme inline` block):
 | Primitive      | Use                                                                                                                                                |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Marginalia`   | hand-lettered aside (rule 5). Content prop + optional `dash`. Renders `<p>`. Never load-bearing.                                                   |
+| `Glyph`        | the house icon set (rule 8). `name` + `size`, stroked in `currentColor`, so it takes whatever ink colour it sits in.                               |
 | `Ledger`       | prose count line (rule 2). `items: {value, label}[]`. Drops to subtle ink when every value is `0`/`—`.                                             |
 | `HeroCard`     | the party card (rule 1): `charClass`-coloured spine, portrait/initials, level badge, HP track, optional `note`. Dashboard, roster, campaign pages. |
 | `SheetPreview` | read-only character sheet card (rule 1). Plain-object driven so marketing can feed it fixtures. Exports `abilityMod`.                              |
@@ -323,16 +353,16 @@ What "following the guide" means for each route. `[x]` = done in this pass.
 | `/dashboard`                              | Dashboard       | Greeting + `em` name, scrawl line, `Ledger` behind skeleton, header d20, party `HeroCard` row + "roll a new one", rail (Recently forged / Tables you run), scene empty state. `[x]` |
 | `/characters`                             | Collection      | Leads with the roster as `HeroCard`s; `PageHeader rule={false}`; scene empty state; no eyebrow.                                                                                     |
 | `/campaigns`                              | Collection      | Leads with campaign cards showing real state (`Ribbon` status, member count); scene empty state.                                                                                    |
-| `/campaigns/[id]`                         | Single object   | The campaign (party + session tools) first; manage/settings secondary.                                                                                                              |
-| `/campaigns/[id]/manage`                  | Workspace       | Members/settings as the working surface; breadcrumb back-link, not eyebrow.                                                                                                         |
+| `/campaigns/[id]`                         | Single object   | The campaign (party + session tools) first; manage secondary. Tabs carry a glyph and a one-word name; counts are staff-only. `[x]`                                                  |
+| `/campaigns/[id]/manage`                  | Workspace       | Members/settings as the working surface; breadcrumb back-link, not eyebrow. `[x]`                                                                                                   |
 | `/campaigns/[id]/players/[characterId]`   | Single object   | The sheet full-bleed; `Ribbon` for homebrew; change log in one `framed` card. `[x]` breadcrumb                                                                                      |
 | `/campaigns/create`, `/campaigns/join`    | Form            | Form as a sheet; in-world scene; straight labels.                                                                                                                                   |
 | `/creator`                                | Workspace       | The three creators as entry cards that preview what they make — not blurbs.                                                                                                         |
 | `/creator/character`                      | Single object   | The sheet is the page; `Dice3DRoller` is the one toy.                                                                                                                               |
-| `/creator/homebrew`                       | Workspace       | The item being forged front and centre; `Seal` on submitted items.                                                                                                                  |
-| `/spells`, `/classes`                     | Collection      | The compendium list/table leads; container restyle, real rows.                                                                                                                      |
+| `/creator/homebrew`                       | Workspace       | The item being forged front and centre; `Seal` on submitted items. `[x]`                                                                                                            |
+| `/spells`, `/classes`                     | Collection      | The compendium leads — no rule, no card around the browser; `Ledger` only when there is something to count. `[x]`                                                                   |
 | `/marketplace`                            | Collection      | Public homebrew as real cards; honest empty state (still a placeholder feature).                                                                                                    |
-| `/account/profile`, `/account/settings`   | Form            | Framed form sheet; scene; no stat grids.                                                                                                                                            |
+| `/account/profile`, `/account/settings`   | Form            | Framed form sheet; an aside apiece; a scene on the signed-out state. `[x]`                                                                                                          |
 | `/about`, `/faq`                          | Reference prose | Short lede then asymmetric content; a `Marginalia` aside or two; no 3-up cards.                                                                                                     |
 | `/login`, `/register`, `/forgot-password` | Form            | Form as a framed sheet on one side, an in-world scene (candle / locked ledger / sealed letter) on the other.                                                                        |
 
@@ -355,7 +385,8 @@ Run this against any page diff:
    (rule 7).
 8. Any `eyebrow`, any `confirm()`/`alert()`, any `—`/`0` flash before load? Fail
    (banned list).
-9. Verified in light **and** dark, and with `prefers-reduced-motion: reduce`.
+9. Any emoji in the UI? Fail (rule 8). Does every new glyph still read at 16px?
+10. Verified in light **and** dark, and with `prefers-reduced-motion: reduce`.
 
 ---
 

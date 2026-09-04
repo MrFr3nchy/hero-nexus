@@ -15,6 +15,8 @@ import {
   DiceSpinner,
   EmptyState,
   EntryCard,
+  Glyph,
+  HourglassScene,
   Pill,
   SectionCard,
 } from '@/@shared/components/ui';
@@ -22,7 +24,7 @@ import type { CharacterRow } from '@/server/characters';
 import type { CampaignRole } from '@/server/campaigns';
 import {
   DOWNTIME_KINDS,
-  DOWNTIME_KIND_ICONS,
+  DOWNTIME_KIND_GLYPHS,
   DOWNTIME_KIND_LABELS,
   type DowntimeActionRow,
   type DowntimeKind,
@@ -174,7 +176,7 @@ export function DowntimePanel({
 
       {periods.length === 0 ? (
         <EmptyState
-          icon="🕰️"
+          scene={<HourglassScene />}
           title="No downtime windows yet"
           description={
             isStaff
@@ -309,11 +311,11 @@ function PeriodCard({
                 }
               >
                 {DOWNTIME_KINDS.map(k => (
-                  <SelectItem
-                    key={k}
-                    textValue={`${DOWNTIME_KIND_ICONS[k]} ${DOWNTIME_KIND_LABELS[k]}`}
-                  >
-                    {DOWNTIME_KIND_ICONS[k]} {DOWNTIME_KIND_LABELS[k]}
+                  <SelectItem key={k} textValue={DOWNTIME_KIND_LABELS[k]}>
+                    <span className="flex items-center gap-2">
+                      <Glyph name={DOWNTIME_KIND_GLYPHS[k]} size={15} />
+                      {DOWNTIME_KIND_LABELS[k]}
+                    </span>
                   </SelectItem>
                 ))}
               </Select>
@@ -446,9 +448,12 @@ function ActionRow({
   return (
     <EntryCard
       title={action.characterName || action.actorName || 'A player'}
-      kind={`${DOWNTIME_KIND_ICONS[kindKey] ?? '❔'} ${
-        DOWNTIME_KIND_LABELS[kindKey] ?? action.kind
-      }`}
+      kind={
+        <span className="flex items-center gap-1.5">
+          <Glyph name={DOWNTIME_KIND_GLYPHS[kindKey] ?? 'question'} size={13} />
+          {DOWNTIME_KIND_LABELS[kindKey] ?? action.kind}
+        </span>
+      }
       imageUrl={
         action.imageId
           ? `/api/campaigns/${campaignId}/images/${action.imageId}`
@@ -479,7 +484,13 @@ function ActionRow({
         </>
       }
       summary={action.body.split('\n')[0].slice(0, 160)}
-      defaultOpen={action.status === 'submitted'}
+      openLabel={
+        isStaff && action.status === 'submitted'
+          ? 'Answer'
+          : action.mine && action.status === 'submitted'
+            ? 'Edit'
+            : 'Read'
+      }
     >
       <div className="space-y-3 text-sm">
         {editing ? (
@@ -494,11 +505,11 @@ function ActionRow({
               }
             >
               {DOWNTIME_KINDS.map(k => (
-                <SelectItem
-                  key={k}
-                  textValue={`${DOWNTIME_KIND_ICONS[k]} ${DOWNTIME_KIND_LABELS[k]}`}
-                >
-                  {DOWNTIME_KIND_ICONS[k]} {DOWNTIME_KIND_LABELS[k]}
+                <SelectItem key={k} textValue={DOWNTIME_KIND_LABELS[k]}>
+                  <span className="flex items-center gap-2">
+                    <Glyph name={DOWNTIME_KIND_GLYPHS[k]} size={15} />
+                    {DOWNTIME_KIND_LABELS[k]}
+                  </span>
                 </SelectItem>
               ))}
             </Select>
@@ -587,14 +598,12 @@ function ActionRow({
                 variant="flat"
                 color="danger"
                 isDisabled={!response.trim()}
+                title="Write a reason above first — a rejection without one tells the player nothing."
                 onPress={() => resolve('rejected')}
               >
                 Reject
               </Button>
             </div>
-            <p className="text-xs text-ink-subtle">
-              A rejection needs a written reason.
-            </p>
           </div>
         )}
       </div>

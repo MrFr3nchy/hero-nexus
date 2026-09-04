@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { DeckledEdge, Fleuron } from '@/@shared/components/ui';
+import { DeckledEdge, Fleuron, Marginalia } from '@/@shared/components/ui';
 
 export default function NotFound() {
   return (
@@ -25,9 +25,6 @@ export default function NotFound() {
           />
         </svg>
 
-        <p className="mb-2 font-display-alt text-xs uppercase tracking-[0.24em] text-gold">
-          Off the edge of the map
-        </p>
         <h1 className="font-display-alt text-2xl text-ink">
           You wandered off the map
         </h1>
@@ -38,6 +35,9 @@ export default function NotFound() {
           There&apos;s nothing here — the trail runs out. Head back to safer
           roads.
         </p>
+        <Marginalia dash className="mt-3">
+          here be nothing in particular
+        </Marginalia>
         <Link
           href="/"
           className="mt-6 inline-block rounded-md bg-gold px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"

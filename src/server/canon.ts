@@ -3,6 +3,7 @@ import 'server-only';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db';
+import { isGlyphName, type GlyphName } from '@/@shared/components/ui/Glyph';
 import {
   canonCollections,
   canonEntries,
@@ -22,10 +23,19 @@ import {
   type CanonKind,
 } from '@/@creator/campaign/lib/canon';
 
+/**
+ * A shelf's spine is a `GlyphName`, not free text. Anything unrecognised —
+ * an emoji from before the glyph set landed, or a hand-written request —
+ * becomes the fallback rather than being stored and failing to draw later.
+ */
+function shelfGlyphOr(fallback: GlyphName, icon?: string | null): GlyphName {
+  return icon && isGlyphName(icon) ? icon : fallback;
+}
+
 export {
   CANON_KINDS,
   CANON_KIND_FIELDS,
-  CANON_KIND_ICONS,
+  CANON_KIND_GLYPHS,
   CANON_KIND_LABELS,
   type CanonCollectionInput,
   type CanonCollectionRow,
@@ -249,7 +259,7 @@ export async function createCanonCollection(
       campaignId,
       title: input.title.trim(),
       blurb: (input.blurb ?? '').trim(),
-      icon: (input.icon ?? '📚').slice(0, 8),
+      icon: shelfGlyphOr('books', input.icon),
       imageId: input.imageId ?? null,
       sortOrder: input.sortOrder ?? 0,
     })
@@ -270,7 +280,7 @@ export async function updateCanonCollection(
   const set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (patch.title !== undefined) set.title = patch.title.trim();
   if (patch.blurb !== undefined) set.blurb = patch.blurb.trim();
-  if (patch.icon !== undefined) set.icon = patch.icon.slice(0, 8);
+  if (patch.icon !== undefined) set.icon = shelfGlyphOr('books', patch.icon);
   if (patch.imageId !== undefined) set.imageId = patch.imageId;
   if (patch.sortOrder !== undefined) set.sortOrder = patch.sortOrder;
   await db

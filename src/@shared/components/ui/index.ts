@@ -19,9 +19,16 @@ export {
   BattlefieldScene,
   CandleScene,
   ChronicleScene,
+  ForgeScene,
+  HandoutScene,
   HoardScene,
+  HourglassScene,
   QuestScene,
+  QuietDeskScene,
   SealedLetterScene,
+  TomeScene,
 } from './scenes';
+export { Glyph, GLYPH_NAMES, isGlyphName } from './Glyph';
+export type { GlyphName } from './Glyph';
 export { useConfirm } from './ConfirmDialog';
 export { FormSpread } from './FormSpread';

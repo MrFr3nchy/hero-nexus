@@ -1,3 +1,5 @@
+import type { GlyphName } from '@/@shared/components/ui/Glyph';
+
 /**
  * Party canon — shared types and constants.
  *
@@ -35,15 +37,15 @@ export const CANON_KIND_LABELS: Record<CanonKind, string> = {
 };
 
 /** A glyph per kind, so a shelf of cards is scannable before it is read. */
-export const CANON_KIND_ICONS: Record<CanonKind, string> = {
-  npc: '👤',
-  creature: '🐉',
-  location: '🗺️',
-  faction: '🏳️',
-  item: '⚔️',
-  spell: '✨',
-  lore: '📜',
-  note: '📓',
+export const CANON_KIND_GLYPHS: Record<CanonKind, GlyphName> = {
+  npc: 'person',
+  creature: 'dragon',
+  location: 'map',
+  faction: 'banner',
+  item: 'sword',
+  spell: 'sparkle',
+  lore: 'scroll',
+  note: 'notebook',
 };
 
 export interface CanonFieldDef {

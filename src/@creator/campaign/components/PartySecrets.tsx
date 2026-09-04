@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { EntryCard, Pill, SectionCard } from '@/@shared/components/ui';
+import { EntryCard, Glyph, Pill, SectionCard } from '@/@shared/components/ui';
 import { listPartySecretsAction } from '@/@creator/character/notes-actions';
 
 interface PartySecret {
@@ -57,7 +57,15 @@ export function PartySecrets({ campaignId }: { campaignId: string }) {
           <EntryCard
             key={secret.id}
             title={secret.characterName || 'A character'}
-            kind={secret.authorRole === 'gm' ? '🎲 From the DM' : '🗝️ Player'}
+            kind={
+              <span className="flex items-center gap-1.5">
+                <Glyph
+                  name={secret.authorRole === 'gm' ? 'die' : 'key'}
+                  size={13}
+                />
+                {secret.authorRole === 'gm' ? 'From the DM' : 'Player'}
+              </span>
+            }
             tone="gold"
             badges={<Pill tone="gold">Told to the party</Pill>}
             summary={secret.body}

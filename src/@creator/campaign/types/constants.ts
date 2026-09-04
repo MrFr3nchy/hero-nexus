@@ -40,12 +40,6 @@ export const CAMPAIGN_STATUSES = [
   { id: 'archived', name: 'Archived', description: 'Campaign is archived' },
 ];
 
-export const HOMEBREW_TYPES = [
-  { id: 'class', name: 'Class', icon: '⚔️', description: 'Character classes' },
-  { id: 'spell', name: 'Spell', icon: '🔮', description: 'Magical spells' },
-  { id: 'item', name: 'Item', icon: '🛡️', description: 'Equipment and items' },
-];
-
 export const APPROVAL_STATUSES = [
   { id: 'pending', name: 'Pending', description: 'Awaiting GM approval' },
   { id: 'approved', name: 'Approved', description: 'Approved for use' },

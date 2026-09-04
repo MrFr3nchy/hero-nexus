@@ -19,6 +19,8 @@ import { listCampaignsAction } from '@/@creator/campaign/actions';
 import {
   DiceSpinner,
   EmptyState,
+  ForgeScene,
+  Glyph,
   Seal,
   SectionCard,
   useConfirm,
@@ -125,8 +127,8 @@ export function HomebrewCreator() {
     <div className="space-y-6">
       {dialog}
       <SectionCard title="Create homebrew">
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="flex flex-col items-start gap-4">
+          <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
             <Input
               label="Name"
               value={form.name}
@@ -143,19 +145,25 @@ export function HomebrewCreator() {
               }
             >
               {HOMEBREW_TYPES.map(t => (
-                <SelectItem key={t.id}>
-                  {t.icon} {t.name}
+                <SelectItem key={t.id} textValue={t.name}>
+                  <span className="flex items-center gap-2">
+                    <Glyph name={t.glyph} size={15} />
+                    {t.name}
+                  </span>
                 </SelectItem>
               ))}
             </Select>
           </div>
           <Textarea
+            className="w-full"
             label="Description"
             value={form.description}
             onValueChange={v => setForm(f => ({ ...f, description: v }))}
             minRows={4}
           />
           <Switch
+            className="max-w-full"
+            classNames={{ label: 'ml-2 text-sm text-ink-muted' }}
             isSelected={form.visibility === 'public'}
             onValueChange={v =>
               setForm(f => ({
@@ -164,13 +172,11 @@ export function HomebrewCreator() {
               }))
             }
           >
-            <span className="text-sm text-ink-muted">
-              Share to the public marketplace
-            </span>
+            Share to the public marketplace
           </Switch>
 
           {error && (
-            <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <p className="w-full rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
               {error}
             </p>
           )}
@@ -193,9 +199,9 @@ export function HomebrewCreator() {
           </div>
         ) : items.length === 0 ? (
           <EmptyState
-            icon="🧪"
-            title="Nothing brewed yet"
-            description="Create a class, spell or item above."
+            scene={<ForgeScene />}
+            title="The anvil is cold"
+            description="Whatever you make here — a class, a spell, a blade — lands on this shelf, and can be submitted to any table you play at."
           />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -210,7 +216,11 @@ export function HomebrewCreator() {
                 >
                   <div className="mb-2 flex items-center justify-between">
                     <span className="flex items-center gap-2 font-medium text-ink">
-                      <span>{typeMeta(item.type).icon}</span>
+                      <Glyph
+                        name={typeMeta(item.type).glyph}
+                        size={16}
+                        className="text-gold"
+                      />
                       {item.name}
                     </span>
                     <Chip size="sm" variant="flat" className="bg-surface-2">

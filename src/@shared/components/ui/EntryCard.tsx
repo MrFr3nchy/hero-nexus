@@ -22,6 +22,7 @@ export function EntryCard({
   actions,
   tone = 'default',
   defaultOpen = false,
+  openLabel = 'Read',
 }: {
   title: ReactNode;
   /** Small uppercase label — "NPC", "Spell", "Crafting". */
@@ -39,6 +40,9 @@ export function EntryCard({
   actions?: ReactNode;
   tone?: 'default' | 'arcane' | 'gold' | 'muted';
   defaultOpen?: boolean;
+  /** What the fold offers — "Read" for a card you look at, "Answer" for one
+   * with something waiting on you. */
+  openLabel?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -96,7 +100,7 @@ export function EntryCard({
               onClick={() => setOpen(o => !o)}
               className="mt-2 text-sm text-ink-muted underline-offset-2 hover:text-ink hover:underline"
             >
-              {open ? 'Close' : 'Read'}
+              {open ? 'Close' : openLabel}
             </button>
             {open && <div className="mt-2">{children}</div>}
           </>

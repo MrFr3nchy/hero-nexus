@@ -5,7 +5,14 @@ import { useEffect, useState } from 'react';
 
 import { useAuth } from '@/@auth/context';
 import { AuthError } from '@/@auth/types';
-import { PageHeader, PageShell, SectionCard } from '@/@shared/components/ui';
+import {
+  EmptyState,
+  Marginalia,
+  PageHeader,
+  PageShell,
+  SealedLetterScene,
+  SectionCard,
+} from '@/@shared/components/ui';
 
 type Tab = 'email' | 'password';
 
@@ -86,14 +93,16 @@ export default function SettingsPage() {
   if (!currentUser) {
     return (
       <PageShell width="narrow">
-        <div className="py-16 text-center">
-          <h1 className="font-display text-2xl text-ink">
-            Sign in to change your settings
-          </h1>
-          <Button as={Link} href="/login" color="primary" className="mt-4">
-            Go to sign in
-          </Button>
-        </div>
+        <EmptyState
+          scene={<SealedLetterScene />}
+          title="Nothing here to change yet"
+          description="Sign in first — these are the keys to your own account."
+          action={
+            <Button as={Link} href="/login" color="primary">
+              Sign in
+            </Button>
+          }
+        />
       </PageShell>
     );
   }
@@ -101,9 +110,13 @@ export default function SettingsPage() {
   return (
     <PageShell width="narrow">
       <PageHeader
+        rule={false}
         title="Account settings"
         description="Change the email and password you sign in with."
       />
+      <Marginalia dash className="mb-5">
+        the only two keys worth keeping safe
+      </Marginalia>
 
       <div className="mb-5 inline-flex rounded-md border border-line bg-surface-2 p-1">
         {(['email', 'password'] as Tab[]).map(t => (
@@ -126,7 +139,7 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      <SectionCard>
+      <SectionCard framed>
         {tab === 'email' ? (
           <form onSubmit={handleEmailUpdate} className="space-y-4">
             <p className="text-sm text-ink-muted">

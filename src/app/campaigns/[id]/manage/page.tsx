@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { CampaignManageForm } from '@/@creator/campaign/components';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
-import { PageHeader, PageShell } from '@/@shared/components/ui';
+import { Marginalia, PageHeader, PageShell } from '@/@shared/components/ui';
 import { getCampaign } from '@/server/campaigns';
 
 export const dynamic = 'force-dynamic';
@@ -28,9 +28,13 @@ export default async function ManageCampaignPage({
           ← {campaign.name}
         </Link>
         <PageHeader
+          rule={false}
           title="Manage the table"
-          description="Campaign details, status, and the join code."
+          description="Campaign details, the rules the builder enforces, and how this table ends."
         />
+        <Marginalia dash className="mb-5">
+          the players never see this page. they will feel it though.
+        </Marginalia>
         <CampaignManageForm campaign={campaign} />
       </PageShell>
     </ProtectedRoute>

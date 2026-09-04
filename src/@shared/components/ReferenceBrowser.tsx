@@ -3,7 +3,7 @@
 import { Chip, Input } from '@heroui/react';
 import { useMemo, useState } from 'react';
 
-import { EmptyState } from './ui';
+import { EmptyState, Marginalia, TomeScene } from './ui';
 
 export interface RefEntry {
   slug: string;
@@ -56,9 +56,9 @@ export function ReferenceBrowser({
   if (entries.length === 0) {
     return (
       <EmptyState
-        icon="📚"
-        title="No reference data"
-        description="Run `npm run db:seed` to sync content from Open5e."
+        scene={<TomeScene />}
+        title="The shelves are bare"
+        description="No SRD content has been synced into this instance yet. Run `npm run db:seed` to pull it from Open5e."
       />
     );
   }
@@ -93,7 +93,9 @@ export function ReferenceBrowser({
             </li>
           ))}
           {filtered.length === 0 && (
-            <li className="px-3 py-3 text-sm text-ink-subtle">No matches.</li>
+            <li className="px-3 py-4 text-center">
+              <Marginalia>nothing by that name in these pages</Marginalia>
+            </li>
           )}
         </ul>
       </div>

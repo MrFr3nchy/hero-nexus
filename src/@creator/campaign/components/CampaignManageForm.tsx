@@ -332,7 +332,10 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
         </Select>
       </SectionCard>
 
-      <SectionCard title="Danger zone">
+      <SectionCard
+        title="Ending the campaign"
+        description="Deleting takes every session, quest, canon entry and downtime record filed under this table with it. There is no undo."
+      >
         <Button color="danger" variant="flat" onPress={remove}>
           Delete campaign
         </Button>
