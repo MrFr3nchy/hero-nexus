@@ -11,7 +11,7 @@ import {
 } from '@heroui/react';
 import { useRef, useState } from 'react';
 
-import { EmptyState, SectionCard } from '@/@shared/components/ui';
+import { EmptyState, HandoutScene, SectionCard } from '@/@shared/components/ui';
 import type { SessionRow } from '@/server/campaign-sessions';
 import type { HandoutRow, LiveState } from '@/server/session';
 import { fileUnderSessionAction } from '../../chronicle-actions';
@@ -132,7 +132,7 @@ export function HandoutsPanel({
 
       {state.handouts.length === 0 ? (
         <EmptyState
-          icon="📜"
+          scene={<HandoutScene />}
           title="Nothing has been passed across the table"
           description={
             isStaff

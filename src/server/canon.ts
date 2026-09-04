@@ -25,7 +25,7 @@ import {
 export {
   CANON_KINDS,
   CANON_KIND_FIELDS,
-  CANON_KIND_ICONS,
+  CANON_KIND_GLYPHS,
   CANON_KIND_LABELS,
   type CanonCollectionInput,
   type CanonCollectionRow,

@@ -249,3 +249,212 @@ export function BattlefieldScene({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export function ForgeScene({ className }: { className?: string }) {
+  return (
+    <svg
+      width="98"
+      height="80"
+      viewBox="0 0 98 80"
+      aria-hidden="true"
+      className={className}
+    >
+      {/* a cold anvil, hammer resting across it */}
+      <path
+        d="M18 30h34l12 10h12l-4 12H36c-10 0-18-8-18-18z"
+        fill="var(--surface-2)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      <path d="M42 52v10" stroke="var(--line)" strokeWidth="3" />
+      <path
+        d="M28 72h28l-5-10H33z"
+        fill="var(--surface-2)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M56 18h18v8H56z"
+        fill="var(--ink-subtle)"
+        opacity="0.55"
+        transform="rotate(-18 65 22)"
+      />
+      <path
+        d="M56 24 34 34"
+        stroke="var(--ink-subtle)"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+        opacity="0.55"
+      />
+      {/* two cooling sparks — the only colour */}
+      <circle cx="70" cy="12" r="2.6" fill="var(--gold)" opacity="0.85" />
+      <circle cx="80" cy="20" r="1.6" fill="var(--gold)" opacity="0.6" />
+      <ellipse cx="42" cy="76" rx="26" ry="3.5" fill="var(--surface-2)" />
+    </svg>
+  );
+}
+
+export function HourglassScene({ className }: { className?: string }) {
+  return (
+    <svg
+      width="76"
+      height="90"
+      viewBox="0 0 76 90"
+      aria-hidden="true"
+      className={className}
+    >
+      {/* an hourglass with the sand already run through */}
+      <path d="M16 8h44M16 82h44" stroke="var(--line)" strokeWidth="3.4" />
+      <path
+        d="M22 8v12c0 10 16 17 16 25s-16 15-16 25v12"
+        fill="none"
+        stroke="var(--line)"
+        strokeWidth="1.6"
+      />
+      <path
+        d="M54 8v12c0 10-16 17-16 25s16 15 16 25v12"
+        fill="none"
+        stroke="var(--line)"
+        strokeWidth="1.6"
+      />
+      <path
+        d="M24 82c0-9 14-15 14-15s14 6 14 15z"
+        fill="var(--gold)"
+        opacity="0.75"
+      />
+    </svg>
+  );
+}
+
+export function TomeScene({ className }: { className?: string }) {
+  return (
+    <svg
+      width="100"
+      height="78"
+      viewBox="0 0 100 78"
+      aria-hidden="true"
+      className={className}
+    >
+      {/* a shut, clasped book — nothing in the archive yet */}
+      <path
+        d="M14 10h58a8 8 0 0 1 8 8v46a8 8 0 0 1-8 8H14z"
+        fill="var(--surface)"
+        stroke="var(--line)"
+        strokeWidth="1.4"
+      />
+      <path
+        d="M14 10h8v62h-8z"
+        fill="var(--surface-2)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      <rect
+        x="34"
+        y="26"
+        width="32"
+        height="30"
+        rx="2"
+        fill="none"
+        stroke="var(--gold)"
+        strokeWidth="1.4"
+        opacity="0.6"
+      />
+      <path
+        d="M50 30l3.4 7.6 7.6 3.4-7.6 3.4L50 52l-3.4-7.6L39 41l7.6-3.4z"
+        fill="var(--gold)"
+        opacity="0.55"
+      />
+      <path d="M80 34h6v14h-6z" fill="var(--danger)" opacity="0.8" />
+    </svg>
+  );
+}
+
+export function HandoutScene({ className }: { className?: string }) {
+  return (
+    <svg
+      width="96"
+      height="76"
+      viewBox="0 0 96 76"
+      aria-hidden="true"
+      className={className}
+    >
+      {/* a rolled scroll lying flat, never unrolled */}
+      <rect
+        x="20"
+        y="18"
+        width="56"
+        height="40"
+        rx="2"
+        fill="var(--surface)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M20 18a6 20 0 0 0 0 40 6 20 0 0 0 0-40z"
+        fill="var(--surface-2)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M76 18a6 20 0 0 1 0 40 6 20 0 0 1 0-40z"
+        fill="var(--surface-2)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      {[30, 38, 46].map((y, i) => (
+        <path
+          key={y}
+          d={`M32 ${y}h${i === 2 ? 20 : 32}`}
+          stroke="var(--line)"
+          strokeWidth="1.6"
+        />
+      ))}
+      <path d="M64 62l4-8 4 8-4 3z" fill="var(--gold)" opacity="0.7" />
+      <ellipse cx="48" cy="70" rx="30" ry="3.5" fill="var(--surface-2)" />
+    </svg>
+  );
+}
+
+export function QuietDeskScene({ className }: { className?: string }) {
+  return (
+    <svg
+      width="96"
+      height="80"
+      viewBox="0 0 96 80"
+      aria-hidden="true"
+      className={className}
+    >
+      {/* an inkwell and a resting quill — the review queue is clear */}
+      <path
+        d="M30 44h24l-3 22a4 4 0 0 1-4 4H37a4 4 0 0 1-4-4z"
+        fill="var(--surface-2)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      <ellipse
+        cx="42"
+        cy="44"
+        rx="12"
+        ry="4"
+        fill="var(--surface)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M86 8C60 14 46 28 44 44c10-2 24-12 42-36z"
+        fill="var(--surface)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M46 42 34 54"
+        stroke="var(--ink-subtle)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        opacity="0.6"
+      />
+      <circle cx="42" cy="44" r="3.4" fill="var(--arcane)" opacity="0.6" />
+      <path d="M14 74h68" stroke="var(--line)" strokeWidth="1.6" />
+    </svg>
+  );
+}

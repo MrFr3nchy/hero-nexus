@@ -19,6 +19,8 @@ import { listCampaignsAction } from '@/@creator/campaign/actions';
 import {
   DiceSpinner,
   EmptyState,
+  ForgeScene,
+  Glyph,
   Seal,
   SectionCard,
   useConfirm,
@@ -143,8 +145,11 @@ export function HomebrewCreator() {
               }
             >
               {HOMEBREW_TYPES.map(t => (
-                <SelectItem key={t.id}>
-                  {t.icon} {t.name}
+                <SelectItem key={t.id} textValue={t.name}>
+                  <span className="flex items-center gap-2">
+                    <Glyph name={t.glyph} size={15} />
+                    {t.name}
+                  </span>
                 </SelectItem>
               ))}
             </Select>
@@ -193,9 +198,9 @@ export function HomebrewCreator() {
           </div>
         ) : items.length === 0 ? (
           <EmptyState
-            icon="🧪"
-            title="Nothing brewed yet"
-            description="Create a class, spell or item above."
+            scene={<ForgeScene />}
+            title="The anvil is cold"
+            description="Whatever you make here — a class, a spell, a blade — lands on this shelf, and can be submitted to any table you play at."
           />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -210,7 +215,11 @@ export function HomebrewCreator() {
                 >
                   <div className="mb-2 flex items-center justify-between">
                     <span className="flex items-center gap-2 font-medium text-ink">
-                      <span>{typeMeta(item.type).icon}</span>
+                      <Glyph
+                        name={typeMeta(item.type).glyph}
+                        size={16}
+                        className="text-gold"
+                      />
                       {item.name}
                     </span>
                     <Chip size="sm" variant="flat" className="bg-surface-2">

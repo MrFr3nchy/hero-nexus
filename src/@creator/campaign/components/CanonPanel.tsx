@@ -7,14 +7,18 @@ import {
   DiceSpinner,
   EmptyState,
   EntryCard,
+  Glyph,
+  isGlyphName,
   Pill,
   SectionCard,
+  TomeScene,
+  type GlyphName,
 } from '@/@shared/components/ui';
 import type { CampaignMemberRow, CampaignRole } from '@/server/campaigns';
 import {
   CANON_KINDS,
   CANON_KIND_FIELDS,
-  CANON_KIND_ICONS,
+  CANON_KIND_GLYPHS,
   CANON_KIND_LABELS,
   type CanonCollectionRow,
   type CanonEntryRow,
@@ -38,6 +42,67 @@ import {
   updateCanonCollectionAction,
 } from '../canon-actions';
 import { ImagePicker } from './ImagePicker';
+
+/**
+ * Shelves used to store whatever emoji the DM typed. They store a glyph name
+ * now; anything older falls back to the stack of books rather than being
+ * migrated, since the old value was only ever decoration.
+ */
+function shelfGlyph(icon: string): GlyphName {
+  return isGlyphName(icon) ? icon : 'books';
+}
+
+/** What a DM can put on a shelf spine. Kept short — this is a spine, not a set. */
+const SHELF_GLYPHS: GlyphName[] = [
+  'books',
+  'tome',
+  'dragon',
+  'map',
+  'person',
+  'banner',
+  'sword',
+  'sparkle',
+  'scroll',
+  'notebook',
+  'chest',
+  'crown',
+];
+
+/** A row of glyph swatches — picking one beats typing an emoji into a box. */
+function ShelfGlyphPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (glyph: GlyphName) => void;
+}) {
+  const current = shelfGlyph(value);
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Shelf glyph"
+      className="flex flex-wrap gap-1.5"
+    >
+      {SHELF_GLYPHS.map(g => (
+        <button
+          key={g}
+          type="button"
+          role="radio"
+          aria-checked={current === g}
+          aria-label={g.replace(/-/g, ' ')}
+          onClick={() => onChange(g)}
+          className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors ${
+            current === g
+              ? 'border-gold bg-gold/15 text-gold-strong dark:text-gold'
+              : 'border-line text-ink-subtle hover:border-gold/60 hover:text-ink'
+          }`}
+        >
+          <Glyph name={g} size={18} />
+        </button>
+      ))}
+    </div>
+  );
+}
 import { RevealControls } from './RevealControls';
 
 /**
@@ -236,7 +301,9 @@ export function CanonPanel({
             size="sm"
             variant="bordered"
             className="border-line text-ink"
-            onPress={() => setShelfDraft({ title: '', blurb: '', icon: '📚' })}
+            onPress={() =>
+              setShelfDraft({ title: '', blurb: '', icon: 'books' })
+            }
           >
             New shelf
           </Button>
@@ -245,17 +312,19 @@ export function CanonPanel({
 
       {shelfDraft && (
         <SectionCard title="A new shelf">
-          <div className="grid gap-3 sm:grid-cols-[6rem_1fr]">
-            <Input
-              aria-label="Icon"
+          <Input
+            aria-label="Name"
+            placeholder="Bestiary, Spellbook, The party's notebook…"
+            value={shelfDraft.title}
+            onValueChange={v => setShelfDraft(d => d && { ...d, title: v })}
+          />
+          <div className="mt-3">
+            <p className="mb-1.5 font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+              Spine
+            </p>
+            <ShelfGlyphPicker
               value={shelfDraft.icon}
-              onValueChange={v => setShelfDraft(d => d && { ...d, icon: v })}
-            />
-            <Input
-              aria-label="Name"
-              placeholder="Bestiary, Spellbook, The party's notebook…"
-              value={shelfDraft.title}
-              onValueChange={v => setShelfDraft(d => d && { ...d, title: v })}
+              onChange={icon => setShelfDraft(d => d && { ...d, icon })}
             />
           </div>
           <Textarea
@@ -329,7 +398,10 @@ export function CanonPanel({
                   : 'border-line text-ink-muted hover:border-gold/60'
               }`}
             >
-              {CANON_KIND_ICONS[kind]} {CANON_KIND_LABELS[kind]}
+              <span className="flex items-center gap-1.5">
+                <Glyph name={CANON_KIND_GLYPHS[kind]} size={14} />
+                {CANON_KIND_LABELS[kind]}
+              </span>
             </button>
           ))}
         </div>
@@ -337,7 +409,7 @@ export function CanonPanel({
 
       {entries.length === 0 ? (
         <EmptyState
-          icon="📖"
+          scene={<TomeScene />}
           title="Nothing written down yet"
           description={
             isStaff
@@ -352,10 +424,13 @@ export function CanonPanel({
             return (
               <SectionCard
                 key={shelf.id}
-                framed
                 title={
                   <span className="flex items-center gap-2">
-                    <span aria-hidden>{shelf.icon}</span>
+                    <Glyph
+                      name={shelfGlyph(shelf.icon)}
+                      size={18}
+                      className="text-gold"
+                    />
                     <span>{shelf.title}</span>
                     <span className="font-sans text-sm text-ink-subtle">
                       ({rows.length})
@@ -390,7 +465,7 @@ export function CanonPanel({
             <SectionCard
               title={
                 <span className="flex items-center gap-2">
-                  <span aria-hidden>🗂️</span>
+                  <Glyph name="quill" size={18} className="text-ink-subtle" />
                   <span>Loose pages</span>
                   <span className="font-sans text-sm text-ink-subtle">
                     ({byShelf.get(LOOSE)?.length})
@@ -440,7 +515,12 @@ function CanonCard({
   return (
     <EntryCard
       title={entry.title || 'Untitled'}
-      kind={`${CANON_KIND_ICONS[entry.kind]} ${CANON_KIND_LABELS[entry.kind]}`}
+      kind={
+        <span className="flex items-center gap-1.5">
+          <Glyph name={CANON_KIND_GLYPHS[entry.kind]} size={13} />
+          {CANON_KIND_LABELS[entry.kind]}
+        </span>
+      }
       imageUrl={
         entry.imageId
           ? `/api/campaigns/${campaignId}/images/${entry.imageId}`
@@ -499,7 +579,12 @@ function CanonCard({
                 key={l.id}
                 className="rounded-md border border-line px-2 py-0.5 text-xs text-ink-muted"
               >
-                {CANON_KIND_ICONS[l.kind]} {l.title}
+                <Glyph
+                  name={CANON_KIND_GLYPHS[l.kind]}
+                  size={12}
+                  className="mr-1 align-[-1px]"
+                />
+                {l.title}
                 {isStaff && (
                   <button
                     type="button"
@@ -602,8 +687,11 @@ function CanonCard({
                   }}
                 >
                   {shelves.map(s => (
-                    <SelectItem key={s.id} textValue={`${s.icon} ${s.title}`}>
-                      {s.icon} {s.title}
+                    <SelectItem key={s.id} textValue={s.title}>
+                      <span className="flex items-center gap-2">
+                        <Glyph name={shelfGlyph(s.icon)} size={15} />
+                        {s.title}
+                      </span>
                     </SelectItem>
                   ))}
                 </Select>
@@ -712,11 +800,11 @@ function EntryEditor({
           }}
         >
           {CANON_KINDS.map(k => (
-            <SelectItem
-              key={k}
-              textValue={`${CANON_KIND_ICONS[k]} ${CANON_KIND_LABELS[k]}`}
-            >
-              {CANON_KIND_ICONS[k]} {CANON_KIND_LABELS[k]}
+            <SelectItem key={k} textValue={CANON_KIND_LABELS[k]}>
+              <span className="flex items-center gap-2">
+                <Glyph name={CANON_KIND_GLYPHS[k]} size={15} />
+                {CANON_KIND_LABELS[k]}
+              </span>
             </SelectItem>
           ))}
         </Select>
@@ -751,8 +839,11 @@ function EntryEditor({
               }}
             >
               {shelves.map(s => (
-                <SelectItem key={s.id} textValue={`${s.icon} ${s.title}`}>
-                  {s.icon} {s.title}
+                <SelectItem key={s.id} textValue={s.title}>
+                  <span className="flex items-center gap-2">
+                    <Glyph name={shelfGlyph(s.icon)} size={15} />
+                    {s.title}
+                  </span>
                 </SelectItem>
               ))}
             </Select>

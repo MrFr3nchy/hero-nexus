@@ -20,7 +20,7 @@ import type {
 
 export {
   DOWNTIME_KINDS,
-  DOWNTIME_KIND_ICONS,
+  DOWNTIME_KIND_GLYPHS,
   DOWNTIME_KIND_LABELS,
   type DowntimeVisibility,
   type DowntimeActionInput,

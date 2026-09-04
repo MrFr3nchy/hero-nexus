@@ -6,21 +6,14 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   DiceSpinner,
   EmptyState,
+  Glyph,
+  QuietDeskScene,
   Seal,
   SectionCard,
 } from '@/@shared/components/ui';
+import { homebrewGlyph } from '@/@creator/homebrew/schema';
 import type { ApprovalRow } from '@/server/approvals';
 import { listApprovalsAction, reviewApprovalAction } from '../actions';
-
-const typeIcon: Record<string, string> = {
-  class: '⚔️',
-  spell: '🔮',
-  item: '🛡️',
-  species: '🧬',
-  subclass: '🎓',
-  background: '📜',
-  feat: '⭐',
-};
 
 interface HomebrewTraitView {
   name: string;
@@ -73,8 +66,13 @@ function ApprovalCard({
     <div className="rounded-[var(--radius-card)] border border-line bg-surface p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-medium text-ink">
-            {typeIcon[approval.homebrewType] ?? '📄'} {approval.homebrewName}
+          <p className="flex items-center gap-2 font-medium text-ink">
+            <Glyph
+              name={homebrewGlyph(approval.homebrewType)}
+              size={16}
+              className="text-gold"
+            />
+            {approval.homebrewName}
           </p>
           <p className="text-xs text-ink-muted">
             {approval.homebrewType} · from{' '}
@@ -211,7 +209,7 @@ export function HomebrewApprovalPanel({
       <SectionCard title={`Pending (${pending.length})`}>
         {pending.length === 0 ? (
           <EmptyState
-            icon="✅"
+            scene={<QuietDeskScene />}
             title="Nothing to review"
             description="Player homebrew submitted to this campaign shows up here."
           />

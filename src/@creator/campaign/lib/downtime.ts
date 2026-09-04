@@ -1,3 +1,5 @@
+import type { GlyphName } from '@/@shared/components/ui/Glyph';
+
 /**
  * Between-session downtime — shared types and constants. Client-safe.
  */
@@ -32,18 +34,18 @@ export const DOWNTIME_KIND_LABELS: Record<DowntimeKind, string> = {
 };
 
 /** A glyph per kind, so a period reads as a week of activity at a glance. */
-export const DOWNTIME_KIND_ICONS: Record<DowntimeKind, string> = {
-  shopping: '🪙',
-  crafting: '🔨',
-  research: '🔍',
-  training: '🎯',
-  carousing: '🍺',
-  letter: '✉️',
-  travel: '🧭',
-  scheming: '🕯️',
-  recovery: '🛏️',
-  faith: '🕊️',
-  other: '❔',
+export const DOWNTIME_KIND_GLYPHS: Record<DowntimeKind, GlyphName> = {
+  shopping: 'coins',
+  crafting: 'hammer',
+  research: 'magnifier',
+  training: 'target',
+  carousing: 'tankard',
+  letter: 'letter',
+  travel: 'compass',
+  scheming: 'candle',
+  recovery: 'bed',
+  faith: 'dove',
+  other: 'question',
 };
 
 /** Who may read an action and the DM's answer to it. */
