@@ -1232,3 +1232,35 @@ export const encounterPlanLines = sqliteTable(
   },
   t => [index('encounter_plan_lines_plan_idx').on(t.planId)]
 );
+
+/* --- The screen each person built for themselves (0020) --------------- */
+
+/**
+ * Which panels one person keeps on their screen at one table.
+ *
+ * Keyed on `(campaign_id, user_id)` rather than on the member row, for the
+ * same reason as `canon_reveals`: the GM has no member row, and the GM is who
+ * this exists for.
+ *
+ * One JSON blob rather than a row per panel. It is read whole, written whole,
+ * and never queried by its contents — "which players keep initiative up" is
+ * not a question anything asks — so a row per panel would buy joins nobody
+ * performs and turn a reorder into a diff.
+ */
+export const campaignScreenLayouts = sqliteTable(
+  'campaign_screen_layouts',
+  {
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** `{ main: string[], rail: string[] }` — panel keys, in order. */
+    layout: text('layout', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [primaryKey({ columns: [t.campaignId, t.userId] })]
+);
