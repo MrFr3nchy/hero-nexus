@@ -11,6 +11,7 @@ export { EncounterPlanner } from './EncounterPlanner';
 export { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 export { ImagePicker } from './ImagePicker';
 export { JoinCampaignForm } from './JoinCampaignForm';
+export { JournalPanel } from './JournalPanel';
 export { LedgerPanel } from './LedgerPanel';
 export { MembersPanel } from './MembersPanel';
 export { NotebookPanel, SharedNotes } from './NotebookPanel';

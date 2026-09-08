@@ -1389,3 +1389,49 @@ export const campaignClocks = sqliteTable(
   },
   t => [index('campaign_clocks_campaign_idx').on(t.campaignId)]
 );
+
+/* --- The players' own notebook (0026) --------------------------------- */
+
+/**
+ * A page a player writes about this campaign.
+ *
+ * Every other note surface in this app belongs to the DM. A player who wants
+ * to write down what they think the reeve is up to has had nowhere to do it,
+ * and has been doing it in a text file.
+ *
+ * Three audiences rather than the usual two, because a player has one the DM
+ * does not: `private` means the author alone, and **staff cannot read it**.
+ * That is the point of the feature — a notebook a DM can read is not a
+ * notebook, and a player who suspects it is will go back to the text file.
+ *
+ * Campaign-scoped rather than character-scoped on purpose: a player's thinking
+ * outlives the character who died in session six.
+ */
+export const playerJournals = sqliteTable(
+  'player_journals',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** The author. Cascade rather than set-null: an orphan page has no reader. */
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    body: text('body').notNull().default(''),
+    visibility: text('visibility', { enum: ['private', 'dm', 'party'] })
+      .notNull()
+      .default('private'),
+    /** The sitting it is about. Null is a standing page. */
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('player_journals_campaign_idx').on(t.campaignId),
+    index('player_journals_author_idx').on(t.campaignId, t.userId),
+  ]
+);
