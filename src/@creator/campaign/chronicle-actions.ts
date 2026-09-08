@@ -12,7 +12,9 @@ import {
   nextSession,
   setAttendance,
   setRecapVisibility,
+  setRsvp,
   updateSession,
+  type RsvpStatus,
   type SessionRow,
 } from '@/server/campaign-sessions';
 import { getCampaignPulse, type CampaignPulse } from '@/server/campaign-pulse';
@@ -30,6 +32,8 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     FORBIDDEN: 'You do not have permission to do that.',
     NOT_A_MEMBER: 'That person is not at this table.',
     RECAP_EMPTY: 'Write the recap before handing it to the party.',
+    SESSION_NOT_PLANNED:
+      'That sitting is not still ahead — the register is what says who was there.',
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
   // invisible in a bug report. Keep the real one in the server log.
@@ -126,6 +130,24 @@ export async function setRecapVisibilityAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Failed to change who can read the recap.');
+  }
+}
+
+/**
+ * Say whether you are coming. You answer for yourself — which is why this
+ * takes no user id, unlike `setAttendanceAction`.
+ */
+export async function setRsvpAction(
+  campaignId: string,
+  sessionId: string,
+  rsvp: RsvpStatus
+): Promise<Result> {
+  try {
+    await setRsvp(sessionId, rsvp);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to answer.');
   }
 }
 

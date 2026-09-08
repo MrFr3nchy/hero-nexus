@@ -847,9 +847,24 @@ export const campaignSessionAttendance = sqliteTable(
     characterId: text('character_id').references(() => characters.id, {
       onDelete: 'set null',
     }),
+    /**
+     * The register, written by the DM after the night. Only meaningful once
+     * the sitting has been played — a row created by an RSVP a fortnight
+     * early carries this column's default and asserts nothing.
+     */
     status: text('status', { enum: ['present', 'absent', 'late'] })
       .notNull()
       .default('present'),
+    /**
+     * What they said when asked, before the night. 'unknown' is the honest
+     * default: silence is not a no, and a DM chasing four maybes needs to see
+     * which of them never answered.
+     */
+    rsvp: text('rsvp', { enum: ['yes', 'no', 'maybe', 'unknown'] })
+      .notNull()
+      .default('unknown'),
+    /** When they said it — a yes from a month ago reads differently. */
+    rsvpAt: text('rsvp_at'),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [

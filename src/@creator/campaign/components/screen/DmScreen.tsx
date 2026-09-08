@@ -155,6 +155,7 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
       return (
         <ChroniclePanel
           campaignId={ctx.campaignId}
+          viewerId={ctx.viewerId}
           viewerRole={ctx.viewerRole}
         />
       );
