@@ -2,6 +2,7 @@ export { CampaignCreationForm } from './CampaignCreationForm';
 export { CampaignDashboard } from './CampaignDashboard';
 export { CampaignDetail } from './CampaignDetail';
 export { CampaignManageForm } from './CampaignManageForm';
+export { DmScreen } from './screen/DmScreen';
 export { ChroniclePanel } from './ChroniclePanel';
 export { CampaignContentPanel } from './CampaignContentPanel';
 export { EncounterPlanner } from './EncounterPlanner';

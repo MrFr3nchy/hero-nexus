@@ -124,6 +124,15 @@ export function CampaignDetail({
             <Ribbon tone={ROLE_TONE[campaign.role]}>
               {ROLE_LABEL[campaign.role]}
             </Ribbon>
+            <Button
+              as={Link}
+              href={`/campaigns/${campaign.id}/screen`}
+              size="sm"
+              variant="flat"
+              color="primary"
+            >
+              Open the screen
+            </Button>
             {isStaff && (
               <Button
                 as={Link}
