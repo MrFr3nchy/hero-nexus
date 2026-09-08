@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Marginalia, Stat } from '@/@shared/components/ui';
 import type { PlayState } from '@/server/play';
 import { conditionDef } from '../lib/conditions';
-import { applyPlayPatchAction } from '../play-actions';
+import { applyPlayPatchAction, spendHitDiceAction } from '../play-actions';
 
 /** Signed modifier — "+3", "−1", "+0". */
 function mod(value: number): string {
@@ -157,6 +157,25 @@ export function PlayCard({
     onChange(res.data);
   };
 
+  /**
+   * Spending a hit die is a roll, not a counter.
+   *
+   * The old control only marked the die spent — the player then worked out
+   * the healing themselves and typed it into the HP box, which is two steps
+   * and one silent source of arithmetic nobody checks. The server rolls it,
+   * heals, and puts the dice in the shared log.
+   */
+  const spendDie = async () => {
+    setBusy(true);
+    const res = await spendHitDiceAction(state.characterId, campaignId, 1);
+    setBusy(false);
+    if (!res.ok) {
+      onError(res.error);
+      return;
+    }
+    onChange(res.data);
+  };
+
   const down = state.hpCurrent <= 0;
   const hpPercent =
     state.hpMax > 0
@@ -296,7 +315,7 @@ export function PlayCard({
                 aria-label="Spend a hit die"
                 className="min-w-0 px-2 text-ink-muted"
                 isDisabled={locked || state.hitDiceSpent >= state.hitDiceMax}
-                onPress={() => patch({ hitDiceSpent: state.hitDiceSpent + 1 })}
+                onPress={spendDie}
               >
                 spend
               </Button>
@@ -313,6 +332,53 @@ export function PlayCard({
             </div>
           )}
         </div>
+
+        {(state.exhaustion > 0 || state.canEdit) && (
+          <div className="flex items-center gap-2">
+            <span className="text-[0.65rem] uppercase tracking-[0.1em] text-ink-subtle">
+              Exhaustion
+            </span>
+            <span
+              className={`font-display text-sm tabular-nums ${
+                state.exhaustion > 0 ? 'text-danger' : 'text-ink-subtle'
+              }`}
+            >
+              {state.exhaustion}
+              <span className="text-ink-subtle">/6</span>
+            </span>
+            {state.exhaustion > 0 && (
+              <span className="text-xs text-ink-subtle">
+                {state.exhaustion >= 6
+                  ? 'dead'
+                  : `−${state.exhaustion * 2} on d20 tests, −${state.exhaustion * 5} ft.`}
+              </span>
+            )}
+            {state.canEdit && (
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="light"
+                  aria-label="One more level of exhaustion"
+                  className="min-w-0 px-2 text-ink-muted"
+                  isDisabled={locked || state.exhaustion >= 6}
+                  onPress={() => patch({ exhaustionDelta: 1 })}
+                >
+                  +
+                </Button>
+                <Button
+                  size="sm"
+                  variant="light"
+                  aria-label="One less level of exhaustion"
+                  className="min-w-0 px-2 text-ink-subtle"
+                  isDisabled={locked || state.exhaustion === 0}
+                  onPress={() => patch({ exhaustionDelta: -1 })}
+                >
+                  −
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
 
         {down && (
           <>
@@ -397,7 +463,8 @@ export function PlayCard({
             Long rest
           </Button>
           <span className="ml-2 text-xs text-ink-subtle">
-            Full HP, slots back, half your hit dice returned.
+            Full HP, slots back, half your hit dice returned, one level of
+            exhaustion gone.
           </span>
         </div>
       )}

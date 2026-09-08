@@ -8,8 +8,10 @@ import {
   EmptyState,
   SectionCard,
 } from '@/@shared/components/ui';
+import { Button } from '@heroui/react';
+
 import type { PlayState } from '@/server/play';
-import { listPartyPlayStateAction } from '../play-actions';
+import { listPartyPlayStateAction, restPartyAction } from '../play-actions';
 import { PlayCard } from './PlayCard';
 
 /**
@@ -42,6 +44,15 @@ export function PartyPlayPanel({
   useEffect(() => {
     load();
   }, [load]);
+
+  const callRest = async (kind: 'short' | 'long') => {
+    const res = await restPartyAction(campaignId, kind);
+    if (!res.ok) {
+      onError(res.error);
+      return;
+    }
+    await load();
+  };
 
   const replace = (next: PlayState) =>
     setParty(
@@ -82,6 +93,20 @@ export function PartyPlayPanel({
       title="The party"
       description="Hit points, hit dice, slots — the numbers that move mid-fight."
       bodyClassName="space-y-3"
+      actions={
+        isStaff && (
+          <>
+            {/* "You take a long rest" is one sentence at the table and was
+                five separate presses here, with the fifth forgotten. */}
+            <Button size="sm" variant="flat" onPress={() => callRest('short')}>
+              Short rest
+            </Button>
+            <Button size="sm" variant="flat" onPress={() => callRest('long')}>
+              Long rest
+            </Button>
+          </>
+        )
+      }
     >
       {mine.map(p => (
         <PlayCard
