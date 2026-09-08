@@ -1169,3 +1169,66 @@ export const campaignRevealTargets = sqliteTable(
     index('campaign_reveal_targets_user_idx').on(t.userId),
   ]
 );
+
+/* --- Fights, built before anyone is at the table (0019) --------------- */
+
+/**
+ * A fight the DM is planning.
+ *
+ * Deliberately not an `initiative_encounters` row with a draft flag. A plan
+ * and a fight have different lifetimes: a plan is reusable — the same ambush
+ * runs twice, or at two tables — while an encounter is one evening with hit
+ * points on it. Folding them together would make a finished fight still a
+ * plan, and re-running one would mean resetting every hit point rather than
+ * dealing a fresh copy.
+ */
+export const encounterPlans = sqliteTable(
+  'encounter_plans',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    name: text('name').notNull().default(''),
+    /** How it starts. Prep, so never party-visible — there is no shared half. */
+    notes: text('notes').notNull().default(''),
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('encounter_plans_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * "Three goblin warriors" — one row per kind of monster in a plan.
+ *
+ * `contentSource` + `contentKey` are the two halves of a `ContentRef` whose
+ * type is always `creature`, since nothing else goes in a fight. `name` beside
+ * them is the denormalisation the content model allows on `inventory[].name`
+ * (rule 1): stats are resolved at read time and never copied here, but a
+ * homebrew monster its author deleted still has to render as a word.
+ */
+export const encounterPlanLines = sqliteTable(
+  'encounter_plan_lines',
+  {
+    id: uuid(),
+    planId: text('plan_id')
+      .notNull()
+      .references(() => encounterPlans.id, { onDelete: 'cascade' }),
+    contentSource: text('content_source', { enum: ['srd', 'homebrew'] })
+      .notNull()
+      .default('srd'),
+    contentKey: text('content_key').notNull(),
+    /** For the deleted-homebrew case only. Never a source of stats. */
+    name: text('name').notNull().default(''),
+    count: integer('count').notNull().default(1),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('encounter_plan_lines_plan_idx').on(t.planId)]
+);

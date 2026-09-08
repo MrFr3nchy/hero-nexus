@@ -4,6 +4,7 @@ export { CampaignDetail } from './CampaignDetail';
 export { CampaignManageForm } from './CampaignManageForm';
 export { ChroniclePanel } from './ChroniclePanel';
 export { CampaignContentPanel } from './CampaignContentPanel';
+export { EncounterPlanner } from './EncounterPlanner';
 export { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 export { ImagePicker } from './ImagePicker';
 export { JoinCampaignForm } from './JoinCampaignForm';

@@ -27,6 +27,14 @@ import { resolveContentRefs } from './content';
 /** How much of the roll log the live view carries. */
 const ROLL_LOG_LIMIT = 40;
 
+/**
+ * How many copies of one monster may be dealt into a fight at once.
+ *
+ * Shared with the encounter planner so a line saying 30 kobolds does not
+ * quietly become 20 when it is dealt out.
+ */
+export const MAX_CREATURE_COPIES = 50;
+
 export interface EncounterRow {
   id: string;
   name: string;
@@ -515,7 +523,10 @@ export async function addCreaturesToEncounter(
   if (!entry) throw new Error('NO_SUCH_CREATURE');
 
   const d = parseContentData('creature', entry.data) as CreatureData;
-  const count = Math.max(1, Math.min(20, Math.trunc(copies) || 1));
+  const count = Math.max(
+    1,
+    Math.min(MAX_CREATURE_COPIES, Math.trunc(copies) || 1)
+  );
 
   for (let i = 0; i < count; i++) {
     await addEntry(encounterId, {
