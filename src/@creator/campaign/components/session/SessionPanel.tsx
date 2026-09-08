@@ -13,6 +13,7 @@ import {
   fileUnderSessionAction,
   listSessionsAction,
 } from '../../chronicle-actions';
+import { EncounterPlanner } from '../EncounterPlanner';
 import { PartyPlayPanel } from '../PartyPlayPanel';
 import { HandoutsPanel } from './HandoutsPanel';
 import { InitiativeTracker } from './InitiativeTracker';
@@ -181,6 +182,11 @@ export function SessionPanel({ campaignId }: { campaignId: string }) {
         refresh={refresh}
         onError={setError}
       />
+
+      {/* Prep, not play — so it sits under everything the table uses during a
+          session rather than above it. A DM building next week's ambush is not
+          also tracking a round. */}
+      {isStaff && <EncounterPlanner campaignId={campaignId} />}
     </div>
   );
 }
