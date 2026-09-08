@@ -21,6 +21,7 @@ export const CONTENT_TYPES = [
   'feat',
   'spell',
   'item',
+  'creature',
 ] as const;
 
 export type ContentType = (typeof CONTENT_TYPES)[number];

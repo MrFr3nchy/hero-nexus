@@ -104,6 +104,7 @@ export function NumberField({
   onChange,
   min = 0,
   max = 999,
+  step,
   description,
 }: {
   label: string;
@@ -111,6 +112,8 @@ export function NumberField({
   onChange: (v: number) => void;
   min?: number;
   max?: number;
+  /** Set it where fractions are real values — a challenge rating of 1/4. */
+  step?: number;
   description?: string;
 }) {
   return (
@@ -119,6 +122,7 @@ export function NumberField({
       type="number"
       label={label}
       value={String(value)}
+      step={step}
       description={description}
       onValueChange={v => {
         const n = Number(v);

@@ -13,6 +13,7 @@ import {
   type BackgroundData,
   type ClassData,
   type ContentType,
+  type CreatureData,
   type FeatData,
   type ItemData,
   type SpeciesData,
@@ -935,6 +936,312 @@ function ItemForm({ d, onChange }: { d: ItemData; onChange: Patch<ItemData> }) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Creature
+ * ------------------------------------------------------------------ */
+
+const CREATURE_SIZE_OPTIONS = opts([
+  'tiny',
+  'small',
+  'medium',
+  'large',
+  'huge',
+  'gargantuan',
+]);
+
+const blankPassage = () => ({ name: '', desc: '' });
+
+/**
+ * Traits, actions, bonus actions, reactions, legendary actions — the same two
+ * fields four times over, because on a stat block they are the same thing
+ * printed under different headings.
+ */
+function PassageRepeater({
+  label,
+  hint,
+  addLabel,
+  rows,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  addLabel: string;
+  rows: CreatureData['actions'];
+  onChange: (next: CreatureData['actions']) => void;
+}) {
+  return (
+    <Repeater
+      label={label}
+      hint={hint}
+      items={rows}
+      blank={blankPassage}
+      onChange={onChange}
+      addLabel={addLabel}
+      render={(row, patch) => (
+        <>
+          <TextField
+            label="Name"
+            value={row.name}
+            onChange={v => patch({ name: v })}
+          />
+          <LongTextField
+            label="What it does"
+            value={row.desc}
+            onChange={v => patch({ desc: v })}
+          />
+        </>
+      )}
+    />
+  );
+}
+
+function CreatureForm({
+  d,
+  onChange,
+}: {
+  d: CreatureData;
+  onChange: Patch<CreatureData>;
+}) {
+  const set = (next: Partial<CreatureData>) => onChange({ ...d, ...next });
+
+  return (
+    <>
+      <FieldGroup title="What it is">
+        <Row>
+          <PickOne
+            label="Size"
+            value={d.size}
+            options={CREATURE_SIZE_OPTIONS}
+            onChange={v => set({ size: v as CreatureData['size'] })}
+          />
+          <TextField
+            label="Type"
+            value={d.creature_type}
+            onChange={v => set({ creature_type: v })}
+            description="Dragon, undead, humanoid…"
+          />
+        </Row>
+        <TextField
+          label="Alignment"
+          value={d.alignment}
+          onChange={v => set({ alignment: v })}
+        />
+      </FieldGroup>
+
+      <FieldGroup title="What it takes to kill">
+        <Row>
+          <NumberField
+            label="Armour class"
+            value={d.armor_class}
+            onChange={v => set({ armor_class: v })}
+          />
+          <TextField
+            label="Armour from"
+            value={d.armor_detail}
+            onChange={v => set({ armor_detail: v })}
+            description="Natural armour, plate, shield…"
+          />
+        </Row>
+        <Row>
+          <NumberField
+            label="Hit points"
+            value={d.hit_points}
+            onChange={v => set({ hit_points: v })}
+            max={2000}
+          />
+          <TextField
+            label="Hit dice"
+            value={d.hit_dice}
+            onChange={v => set({ hit_dice: v })}
+            description="e.g. 8d10 + 16"
+          />
+        </Row>
+      </FieldGroup>
+
+      <FieldGroup
+        title="How dangerous"
+        hint="Challenge rating takes a fraction for the weakest monsters — 0.25 prints as 1/4."
+      >
+        <Row>
+          <NumberField
+            label="Challenge rating"
+            value={d.challenge_rating}
+            onChange={v => set({ challenge_rating: v })}
+            max={30}
+            step={0.125}
+          />
+          <NumberField
+            label="XP"
+            value={d.experience_points}
+            onChange={v => set({ experience_points: v })}
+            max={1_000_000}
+          />
+        </Row>
+        <Row>
+          <NumberField
+            label="Proficiency bonus"
+            value={d.proficiency_bonus}
+            onChange={v => set({ proficiency_bonus: v })}
+          />
+          <NumberField
+            label="Initiative bonus"
+            value={d.initiative_bonus}
+            onChange={v => set({ initiative_bonus: v })}
+            min={-20}
+            max={40}
+          />
+        </Row>
+      </FieldGroup>
+
+      <FieldGroup title="Ability scores">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {ABILITY_KEYS.map(key => (
+            <NumberField
+              key={key}
+              label={ABILITY_LABELS[key]}
+              value={d.ability_scores[key]}
+              onChange={v =>
+                set({ ability_scores: { ...d.ability_scores, [key]: v } })
+              }
+              max={50}
+            />
+          ))}
+        </div>
+      </FieldGroup>
+
+      <FieldGroup
+        title="How it moves"
+        hint="Feet. Leave a speed at 0 if it has none."
+      >
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(
+            [
+              ['walk', 'Walk'],
+              ['fly', 'Fly'],
+              ['swim', 'Swim'],
+              ['climb', 'Climb'],
+              ['burrow', 'Burrow'],
+            ] as const
+          ).map(([key, label]) => (
+            <NumberField
+              key={key}
+              label={label}
+              value={d.speed[key]}
+              onChange={v => set({ speed: { ...d.speed, [key]: v } })}
+              max={1000}
+            />
+          ))}
+        </div>
+        <BoolField
+          label="Hovers"
+          value={d.speed.hover}
+          onChange={v => set({ speed: { ...d.speed, hover: v } })}
+        />
+      </FieldGroup>
+
+      <FieldGroup title="What it shrugs off">
+        <Row>
+          <PickMany
+            label="Damage immunities"
+            values={d.damage_immunities}
+            options={DAMAGE_OPTIONS}
+            onChange={v => set({ damage_immunities: v })}
+          />
+          <PickMany
+            label="Damage resistances"
+            values={d.damage_resistances}
+            options={DAMAGE_OPTIONS}
+            onChange={v => set({ damage_resistances: v })}
+          />
+        </Row>
+        <PickMany
+          label="Damage vulnerabilities"
+          values={d.damage_vulnerabilities}
+          options={DAMAGE_OPTIONS}
+          onChange={v => set({ damage_vulnerabilities: v })}
+        />
+      </FieldGroup>
+
+      <FieldGroup
+        title="What it can see"
+        hint="Feet. Zero means it does not have that sense."
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NumberField
+            label="Darkvision"
+            value={d.darkvision}
+            onChange={v => set({ darkvision: v })}
+            max={1000}
+          />
+          <NumberField
+            label="Blindsight"
+            value={d.blindsight}
+            onChange={v => set({ blindsight: v })}
+            max={1000}
+          />
+          <NumberField
+            label="Tremorsense"
+            value={d.tremorsense}
+            onChange={v => set({ tremorsense: v })}
+            max={1000}
+          />
+          <NumberField
+            label="Truesight"
+            value={d.truesight}
+            onChange={v => set({ truesight: v })}
+            max={1000}
+          />
+        </div>
+        <Row>
+          <NumberField
+            label="Passive Perception"
+            value={d.passive_perception}
+            onChange={v => set({ passive_perception: v })}
+          />
+          <TextField
+            label="Languages"
+            value={d.languages}
+            onChange={v => set({ languages: v })}
+            description="Common, Draconic; telepathy 120 ft."
+          />
+        </Row>
+      </FieldGroup>
+
+      <PassageRepeater
+        label="Traits"
+        hint="Always-on things — Amphibious, Pack Tactics, Legendary Resistance."
+        addLabel="Add trait"
+        rows={d.traits}
+        onChange={v => set({ traits: v })}
+      />
+      <PassageRepeater
+        label="Actions"
+        addLabel="Add action"
+        rows={d.actions}
+        onChange={v => set({ actions: v })}
+      />
+      <PassageRepeater
+        label="Bonus actions"
+        addLabel="Add bonus action"
+        rows={d.bonus_actions}
+        onChange={v => set({ bonus_actions: v })}
+      />
+      <PassageRepeater
+        label="Reactions"
+        addLabel="Add reaction"
+        rows={d.reactions}
+        onChange={v => set({ reactions: v })}
+      />
+      <PassageRepeater
+        label="Legendary actions"
+        addLabel="Add legendary action"
+        rows={d.legendary_actions}
+        onChange={v => set({ legendary_actions: v })}
+      />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * The switch
  * ------------------------------------------------------------------ */
 
@@ -962,6 +1269,8 @@ export function ContentDataForm({
       return <SpellForm d={value as SpellData} onChange={onChange} />;
     case 'item':
       return <ItemForm d={value as ItemData} onChange={onChange} />;
+    case 'creature':
+      return <CreatureForm d={value as CreatureData} onChange={onChange} />;
     default:
       return null;
   }

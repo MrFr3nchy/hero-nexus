@@ -15,6 +15,7 @@ export {
   type BackgroundData,
   type ClassData,
   type ContentDataFor,
+  type CreatureData,
   type FeatData,
   type ItemData,
   type SpeciesData,
@@ -32,5 +33,6 @@ export {
   contentChips,
   contentGlyph,
   contentMeta,
+  formatChallenge,
   type ContentTypeMeta,
 } from './registry';

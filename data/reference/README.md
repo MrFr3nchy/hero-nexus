@@ -1,8 +1,8 @@
 # Reference data
 
 D&D reference data (classes, species, backgrounds, feats, conditions, alignments,
-languages, skills, spells, magic items, weapons, armor) is **not vendored** in the
-repo. It is synced from the [Open5e v2 API](https://api.open5e.com/v2/) into the
+languages, skills, spells, magic items, weapons, armor, creatures) is **not
+vendored** in the repo. It is synced from the [Open5e v2 API](https://api.open5e.com/v2/) into the
 local SQLite table `reference_data` by:
 
 ```bash
@@ -28,6 +28,10 @@ consistently tag a source document (e.g. `skills`) fall back to the full set.
 Open5e is also mid-migration to namespaced keys, so many entries exist twice
 under the same document (a short legacy key and a `srd-2024_`-prefixed key,
 identical name) — the sync collapses those to one row per name.
+
+`creature` rows are the bestiary — 331 monsters in SRD 5.2. They are the largest
+category by payload (every trait and action as prose), which is why the initiative
+tracker's picker reads `listCombatantChoices` rather than whole entries.
 
 `class` and `species` rows include both base entries and subclasses/subspecies
 (`data.subclass_of` / `data.is_subspecies`); the character creator's dropdowns

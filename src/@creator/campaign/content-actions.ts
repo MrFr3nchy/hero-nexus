@@ -9,6 +9,7 @@ import {
   setCampaignContentNote,
   type LibraryEntry,
 } from '@/server/campaign-content';
+import { listCombatantChoices, type CombatantChoice } from '@/server/content';
 import { listHomebrew, type HomebrewRow } from '@/server/homebrew';
 
 /**
@@ -89,4 +90,14 @@ export async function setCampaignContentNoteAction(
   } catch (err) {
     return fail(err, 'Failed to save the note.');
   }
+}
+
+/**
+ * The monsters this table can put in a fight: the SRD bestiary, the DM's own
+ * homebrew, and whatever is in the campaign's library.
+ */
+export async function listCombatantChoicesAction(
+  campaignId: string
+): Promise<CombatantChoice[]> {
+  return listCombatantChoices(campaignId);
 }

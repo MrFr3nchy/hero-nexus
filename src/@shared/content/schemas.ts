@@ -305,6 +305,118 @@ export const itemData = z.object({
 });
 
 /* ------------------------------------------------------------------ *
+ * Creature
+ * ------------------------------------------------------------------ */
+
+const CREATURE_SIZES = [
+  'tiny',
+  'small',
+  'medium',
+  'large',
+  'huge',
+  'gargantuan',
+] as const;
+
+/** A named passage on a stat block: a trait, an action, a reaction. */
+const creatureFeature = z.object({
+  name: text(120),
+  desc: text(4000),
+});
+
+/**
+ * How fast it moves, in feet. Zero means it cannot: a shark has no walk speed
+ * and printing "0 ft walk" is more honest than printing nothing, but the
+ * renderer decides that — the schema only refuses to invent a number.
+ */
+const creatureSpeed = z.object({
+  walk: count(1000),
+  fly: count(1000),
+  swim: count(1000),
+  climb: count(1000),
+  burrow: count(1000),
+  hover: flag,
+});
+
+const creatureAbilities = z.object(
+  Object.fromEntries(ABILITY_KEYS.map(k => [k, count(50, 10)])) as Record<
+    (typeof ABILITY_KEYS)[number],
+    ReturnType<typeof count>
+  >
+);
+
+/**
+ * Bonuses the creature is proficient in. A *partial* record on purpose: an
+ * absent save is not a +0 save, and printing every ability on every stat block
+ * is how a screen full of monsters stops being readable.
+ */
+const signedBonus = z.number().int().min(-20).max(40).default(0).catch(0);
+
+const bonusMap = <T extends readonly string[]>(keys: T) =>
+  z
+    .record(z.string(), z.any())
+    .default({})
+    .catch({})
+    .transform(raw => {
+      const out: Partial<Record<T[number], number>> = {};
+      for (const key of keys) {
+        const value = raw[key];
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          out[key as T[number]] = Math.trunc(value);
+        }
+      }
+      return out;
+    });
+
+/**
+ * A monster, in the raw Open5e field names — the same choice as spell and item
+ * (content model rule 3). These rows have never been through `srd/parse.ts`,
+ * so renaming `armor_class` to `armorClass` here would fork the one shape the
+ * data already arrives in for no gain.
+ */
+export const creatureData = z.object({
+  size: z.enum(CREATURE_SIZES).default('medium').catch('medium'),
+  /** 'dragon', 'undead', 'humanoid' — free text, since homebrew invents these. */
+  creature_type: text(60),
+  alignment: text(60),
+
+  armor_class: count(40, 10),
+  /** 'natural armor', 'plate, shield' — what the number is made of. */
+  armor_detail: text(120),
+  hit_points: count(2000, 1),
+  hit_dice: text(60),
+  /** Fractional for the weakest monsters: 1/8, 1/4, 1/2 are all real CRs. */
+  challenge_rating: z.number().min(0).max(30).default(0).catch(0),
+  experience_points: count(1_000_000),
+  proficiency_bonus: count(20, 2),
+  initiative_bonus: signedBonus,
+  passive_perception: count(50, 10),
+
+  speed: creatureSpeed,
+  ability_scores: creatureAbilities,
+  saving_throws: bonusMap(ABILITY_KEYS),
+  skill_bonuses: bonusMap(SKILL_KEYS),
+
+  damage_immunities: listOf(text(40), 20),
+  damage_resistances: listOf(text(40), 20),
+  damage_vulnerabilities: listOf(text(40), 20),
+  condition_immunities: listOf(text(40), 20),
+
+  /** Feet. Zero is "does not have it" for every one of these. */
+  darkvision: count(1000),
+  blindsight: count(1000),
+  tremorsense: count(1000),
+  truesight: count(1000),
+
+  languages: text(300),
+
+  traits: listOf(creatureFeature, 40),
+  actions: listOf(creatureFeature, 40),
+  bonus_actions: listOf(creatureFeature, 20),
+  reactions: listOf(creatureFeature, 20),
+  legendary_actions: listOf(creatureFeature, 20),
+});
+
+/* ------------------------------------------------------------------ *
  * The lookup
  * ------------------------------------------------------------------ */
 
@@ -316,6 +428,7 @@ export const CONTENT_SCHEMAS = {
   feat: featData,
   spell: spellData,
   item: itemData,
+  creature: creatureData,
 } as const satisfies Record<ContentType, z.ZodTypeAny>;
 
 export type ClassData = z.infer<typeof classData>;
@@ -325,6 +438,7 @@ export type BackgroundData = z.infer<typeof backgroundData>;
 export type FeatData = z.infer<typeof featData>;
 export type SpellData = z.infer<typeof spellData>;
 export type ItemData = z.infer<typeof itemData>;
+export type CreatureData = z.infer<typeof creatureData>;
 
 export type ContentDataFor<T extends ContentType> = z.infer<
   (typeof CONTENT_SCHEMAS)[T]

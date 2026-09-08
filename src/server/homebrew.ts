@@ -15,9 +15,9 @@ import { homebrew } from '@/db/schema';
 /**
  * Homebrew rows are typed content, not free text.
  *
- * `HomebrewType` covers all seven kinds the `homebrew.type` enum declares —
- * it used to be three, which left `species`, `subclass`, `background` and
- * `feat` authorable nowhere even though the approval queue could receive them.
+ * `HomebrewType` covers every kind the `homebrew.type` enum declares — it used
+ * to be three, which left `species`, `subclass`, `background` and `feat`
+ * authorable nowhere even though the approval queue could receive them.
  * `data` is validated against that type's schema in `@/@shared/content` on
  * every write, so a malformed blob never reaches a stat block.
  */
@@ -28,7 +28,8 @@ export type HomebrewType =
   | 'background'
   | 'feat'
   | 'spell'
-  | 'item';
+  | 'item'
+  | 'creature';
 
 export interface HomebrewRow {
   id: string;

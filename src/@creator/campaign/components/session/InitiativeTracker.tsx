@@ -1,6 +1,8 @@
 'use client';
 
 import {
+  Autocomplete,
+  AutocompleteItem,
   Button,
   Input,
   NumberInput,
@@ -8,7 +10,7 @@ import {
   SelectItem,
   Tooltip,
 } from '@heroui/react';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { motion } from '@/@shared/components/motion';
 import {
@@ -17,8 +19,12 @@ import {
   Marginalia,
   SectionCard,
 } from '@/@shared/components/ui';
+import { formatChallenge } from '@/@shared/content';
+import type { CombatantChoice } from '@/server/content';
 import type { EntryRow, EntrySide, LiveState } from '@/server/session';
+import { listCombatantChoicesAction } from '../../content-actions';
 import {
+  addCreaturesAction,
   addEntryAction,
   addPartyAction,
   advanceTurnAction,
@@ -31,6 +37,99 @@ import {
 import { ConditionChips, ConditionPicker } from './ConditionPicker';
 
 type Act = (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
+
+/**
+ * Drop a monster in with the numbers it already has.
+ *
+ * The stats are on the stat block the app is already holding, so a DM adding
+ * three goblins should not be retyping AC 15 and 7 hit points three times.
+ * Initiative is rolled on the server, once per copy — three goblins sharing
+ * one initiative are one goblin with three health bars.
+ *
+ * The list is the SRD bestiary plus this table's own library, so a homebrew
+ * monster the DM approved drops in exactly like a published one.
+ */
+function BestiaryPicker({
+  campaignId,
+  encounterId,
+  act,
+}: {
+  campaignId: string;
+  encounterId: string;
+  act: Act;
+}) {
+  const [choices, setChoices] = useState<CombatantChoice[] | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [copies, setCopies] = useState(1);
+
+  const load = useCallback(async () => {
+    setChoices(
+      await listCombatantChoicesAction(campaignId).catch(
+        () => [] as CombatantChoice[]
+      )
+    );
+  }, [campaignId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Nothing synced yet is a real state on a fresh database: `npm run db:sync`
+  // fills the bestiary, and until it does this control would be an empty box
+  // with no explanation.
+  if (choices !== null && choices.length === 0) return null;
+
+  const chosen = choices?.find(c => c.key === picked) ?? null;
+
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <Autocomplete
+        size="sm"
+        label="From the bestiary"
+        placeholder={choices ? 'Goblin' : 'Reading the bestiary…'}
+        isDisabled={!choices}
+        className="min-w-52 flex-1"
+        defaultItems={choices ?? []}
+        selectedKey={picked}
+        onSelectionChange={key => setPicked(key ? String(key) : null)}
+      >
+        {choice => (
+          <AutocompleteItem key={choice.key} textValue={choice.name}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span>{choice.name}</span>
+              <span className="text-xs text-ink-subtle">
+                CR {formatChallenge(choice.challengeRating)} · AC{' '}
+                {choice.armorClass} · {choice.hitPoints} HP
+              </span>
+            </div>
+          </AutocompleteItem>
+        )}
+      </Autocomplete>
+      <NumberInput
+        size="sm"
+        label="How many"
+        minValue={1}
+        maxValue={20}
+        className="w-24"
+        value={copies}
+        onValueChange={v => setCopies(Number(v) || 1)}
+      />
+      <Button
+        size="sm"
+        variant="flat"
+        isDisabled={!chosen}
+        onPress={() => {
+          if (!chosen) return;
+          act(addCreaturesAction(encounterId, chosen.ref, copies));
+          setPicked(null);
+          setCopies(1);
+        }}
+      >
+        Send them in
+      </Button>
+    </div>
+  );
+}
 
 /** What a player is told about a foe's health, since they get no numbers. */
 function hpWord(cur: number | null, max: number | null): string {
@@ -250,11 +349,13 @@ function EntryLine({
 /* --- the tracker ------------------------------------------------------ */
 
 export function InitiativeTracker({
+  campaignId,
   state,
   isStaff,
   refresh,
   onError,
 }: {
+  campaignId: string;
   state: LiveState;
   isStaff: boolean;
   refresh: () => Promise<void> | void;
@@ -392,6 +493,12 @@ export function InitiativeTracker({
               Roll for anyone at 0
             </Button>
           </div>
+
+          <BestiaryPicker
+            campaignId={campaignId}
+            encounterId={enc.id}
+            act={act}
+          />
 
           <div className="flex flex-wrap items-end gap-2">
             <Input
