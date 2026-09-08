@@ -18,13 +18,26 @@ import { requireCampaignRole, type CampaignRole } from './campaigns';
 
 export type SessionStatus = 'planned' | 'played' | 'cancelled';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
+export type RsvpStatus = 'yes' | 'no' | 'maybe' | 'unknown';
 
 export interface AttendanceRow {
   userId: string;
   name: string | null;
   characterId: string | null;
   characterName: string | null;
-  status: AttendanceStatus;
+  /**
+   * The register. Null until the sitting has actually been played.
+   *
+   * The column is `NOT NULL DEFAULT 'present'`, and an RSVP written a
+   * fortnight early creates the row — so reporting it verbatim would have a
+   * planned session claiming everyone turned up. It only means something once
+   * there was a night to turn up to.
+   */
+  status: AttendanceStatus | null;
+  /** What they said when asked. */
+  rsvp: RsvpStatus;
+  /** When they said it, so a yes from a month ago reads as one. */
+  rsvpAt: string | null;
 }
 
 /** One thing that happened at a sitting, for the "what this session held" list. */
@@ -113,6 +126,8 @@ export async function listSessions(campaignId: string): Promise<SessionRow[]> {
       sessionId: campaignSessionAttendance.sessionId,
       userId: campaignSessionAttendance.userId,
       status: campaignSessionAttendance.status,
+      rsvp: campaignSessionAttendance.rsvp,
+      rsvpAt: campaignSessionAttendance.rsvpAt,
       characterId: campaignSessionAttendance.characterId,
       name: users.name,
       characterName: characters.name,
@@ -195,7 +210,9 @@ export async function listSessions(campaignId: string): Promise<SessionRow[]> {
         name: a.name,
         characterId: a.characterId,
         characterName: a.characterName,
-        status: a.status,
+        status: row.status === 'played' ? a.status : null,
+        rsvp: a.rsvp,
+        rsvpAt: a.rsvpAt,
       })),
     links: linksFor(row.id),
     createdAt: row.createdAt,
@@ -344,6 +361,82 @@ export async function setRecapVisibility(
     .update(campaignSessions)
     .set({ recapVisibility: visibility, updatedAt: new Date().toISOString() })
     .where(eq(campaignSessions.id, sessionId));
+}
+
+/**
+ * Say whether you are coming.
+ *
+ * You answer for yourself and nobody else — including the DM, who marks the
+ * register afterwards but does not get to decide in advance who is coming.
+ * That is the whole difference between this and `setAttendance`.
+ *
+ * Only a planned sitting can be answered. An RSVP for a night that has already
+ * happened is either a mistake or an argument, and neither should be written
+ * over the record of who was there.
+ */
+export async function setRsvp(
+  sessionId: string,
+  rsvp: RsvpStatus
+): Promise<void> {
+  const session = await db.query.campaignSessions.findFirst({
+    where: eq(campaignSessions.id, sessionId),
+  });
+  if (!session) throw new Error('NOT_FOUND');
+
+  const { userId } = await requireCampaignRole(session.campaignId, [
+    'gm',
+    'co-gm',
+    'player',
+  ]);
+  if (session.status !== 'planned') throw new Error('SESSION_NOT_PLANNED');
+
+  const member = await db.query.campaignMembers.findFirst({
+    where: and(
+      eq(campaignMembers.campaignId, session.campaignId),
+      eq(campaignMembers.userId, userId)
+    ),
+  });
+
+  const existing = await db.query.campaignSessionAttendance.findFirst({
+    where: and(
+      eq(campaignSessionAttendance.sessionId, sessionId),
+      eq(campaignSessionAttendance.userId, userId)
+    ),
+  });
+
+  const rsvpAt = new Date().toISOString();
+
+  // The register starts from what people said, so a DM marking it after the
+  // night is correcting a sensible guess rather than filling in five rows.
+  //
+  // Safe to write here because the register means nothing until the sitting
+  // has been played, and an RSVP is refused once it has — so this can never
+  // overwrite a register the DM has actually marked. Without it, a row created
+  // by an RSVP carried the column's 'present' default and the played sitting
+  // then claimed the person who said no had turned up.
+  const status: AttendanceStatus = rsvp === 'no' ? 'absent' : 'present';
+
+  if (existing) {
+    await db
+      .update(campaignSessionAttendance)
+      .set({
+        rsvp,
+        rsvpAt,
+        status,
+        characterId: member?.characterId ?? existing.characterId,
+      })
+      .where(eq(campaignSessionAttendance.id, existing.id));
+    return;
+  }
+
+  await db.insert(campaignSessionAttendance).values({
+    sessionId,
+    userId,
+    characterId: member?.characterId ?? null,
+    rsvp,
+    rsvpAt,
+    status,
+  });
 }
 
 export async function setAttendance(

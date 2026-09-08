@@ -275,6 +275,7 @@ export function CampaignDetail({
             <div className="pt-4">
               <ChroniclePanel
                 campaignId={campaign.id}
+                viewerId={viewerId}
                 viewerRole={campaign.role}
               />
             </div>

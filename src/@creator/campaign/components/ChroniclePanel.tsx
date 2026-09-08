@@ -14,7 +14,11 @@ import {
 } from '@/@shared/components/ui';
 import { formatCalendarDate, toDateInputValue } from '@/@shared/lib/dates';
 import type { CampaignRole } from '@/server/campaigns';
-import type { AttendanceStatus, SessionRow } from '@/server/campaign-sessions';
+import type {
+  AttendanceStatus,
+  RsvpStatus,
+  SessionRow,
+} from '@/server/campaign-sessions';
 import {
   createSessionAction,
   deleteSessionAction,
@@ -22,8 +26,20 @@ import {
   markSessionPlayedAction,
   setAttendanceAction,
   setRecapVisibilityAction,
+  setRsvpAction,
   updateSessionAction,
 } from '../chronicle-actions';
+
+/**
+ * Asked before the night, answered by the person themselves. Deliberately
+ * separate words from the register below — "There" is a record, "In" is a
+ * promise, and a table that confuses them stops trusting either.
+ */
+const RSVP: { key: RsvpStatus; label: string }[] = [
+  { key: 'yes', label: 'In' },
+  { key: 'maybe', label: 'Maybe' },
+  { key: 'no', label: 'Out' },
+];
 
 const ATTENDANCE: { key: AttendanceStatus; label: string }[] = [
   { key: 'present', label: 'There' },
@@ -41,12 +57,14 @@ const LINK_LABEL: Record<string, string> = {
 
 function SessionEntry({
   campaignId,
+  viewerId,
   session,
   isStaff,
   refresh,
   onError,
 }: {
   campaignId: string;
+  viewerId: string;
   session: SessionRow;
   isStaff: boolean;
   refresh: () => Promise<void>;
@@ -108,7 +126,18 @@ function SessionEntry({
           'No date set'
         );
 
-  const present = session.attendance.filter(a => a.status !== 'absent');
+  // Only a played sitting has a register: `status` is null before the night,
+  // so "at the table" would otherwise list everyone who had merely answered.
+  const present =
+    session.status === 'played'
+      ? session.attendance.filter(a => a.status !== 'absent')
+      : [];
+
+  const coming = session.attendance.filter(a => a.rsvp === 'yes');
+  const maybe = session.attendance.filter(a => a.rsvp === 'maybe');
+  const declined = session.attendance.filter(a => a.rsvp === 'no');
+  const mine =
+    session.attendance.find(a => a.userId === viewerId)?.rsvp ?? 'unknown';
 
   return (
     <article className="relative rounded-[var(--radius-card)] border border-line bg-surface p-4 [box-shadow:var(--shadow-card)]">
@@ -319,48 +348,95 @@ function SessionEntry({
             </div>
           )}
 
-          {isStaff && session.attendance.length > 0 && !editing && (
-            <div className="mt-3 space-y-1.5 border-t border-line pt-3">
-              <p className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
-                Who was there
-              </p>
-              {session.attendance.map(a => (
-                <div
-                  key={a.userId}
-                  className="flex flex-wrap items-center gap-2 text-sm"
-                >
-                  <span className="min-w-0 flex-1 truncate text-ink-muted">
-                    {a.characterName || a.name || 'Someone'}
-                  </span>
-                  <div className="flex gap-1">
-                    {ATTENDANCE.map(opt => (
-                      <button
-                        key={opt.key}
-                        type="button"
-                        onClick={() =>
-                          act(
-                            setAttendanceAction(
-                              campaignId,
-                              session.id,
-                              a.userId,
-                              opt.key
-                            )
-                          )
-                        }
-                        className={`rounded-sm border px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] transition-colors ${
-                          a.status === opt.key
-                            ? 'border-gold/60 bg-gold/10 text-gold-strong dark:text-gold'
-                            : 'border-line text-ink-subtle hover:text-ink'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
+          {session.status === 'planned' && !editing && (
+            <div className="mt-3 border-t border-line pt-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+                  Coming?
+                </span>
+                <div className="flex gap-1">
+                  {RSVP.map(opt => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() =>
+                        act(setRsvpAction(campaignId, session.id, opt.key))
+                      }
+                      className={`rounded-md border px-2 py-1 text-xs transition-colors ${
+                        mine === opt.key
+                          ? 'border-gold bg-gold/15 text-ink'
+                          : 'border-line text-ink-muted hover:border-gold/60 hover:text-ink'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
                 </div>
-              ))}
+
+                {/* The headcount everyone can see — a table decides whether to
+                    play off this, so it is not staff-only. */}
+                <span className="text-xs text-ink-subtle">
+                  {coming.length} in, {maybe.length} unsure, {declined.length}{' '}
+                  out
+                </span>
+              </div>
+
+              {coming.length > 0 && (
+                <p className="mt-1 text-xs text-ink-subtle">
+                  In:{' '}
+                  {coming
+                    .map(a => a.characterName || a.name || 'Someone')
+                    .join(', ')}
+                </p>
+              )}
             </div>
           )}
+
+          {isStaff &&
+            session.status === 'played' &&
+            session.attendance.length > 0 &&
+            !editing && (
+              <div className="mt-3 space-y-1.5 border-t border-line pt-3">
+                <p className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+                  Who was there
+                </p>
+                {session.attendance.map(a => (
+                  <div
+                    key={a.userId}
+                    className="flex flex-wrap items-center gap-2 text-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-ink-muted">
+                      {a.characterName || a.name || 'Someone'}
+                    </span>
+                    <div className="flex gap-1">
+                      {ATTENDANCE.map(opt => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() =>
+                            act(
+                              setAttendanceAction(
+                                campaignId,
+                                session.id,
+                                a.userId,
+                                opt.key
+                              )
+                            )
+                          }
+                          className={`rounded-sm border px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] transition-colors ${
+                            a.status === opt.key
+                              ? 'border-gold/60 bg-gold/10 text-gold-strong dark:text-gold'
+                              : 'border-line text-ink-subtle hover:text-ink'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
         </div>
       </div>
     </article>
@@ -371,9 +447,11 @@ function SessionEntry({
 
 export function ChroniclePanel({
   campaignId,
+  viewerId,
   viewerRole,
 }: {
   campaignId: string;
+  viewerId: string;
   viewerRole: CampaignRole;
 }) {
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
@@ -512,6 +590,7 @@ export function ChroniclePanel({
               <SessionEntry
                 key={s.id}
                 campaignId={campaignId}
+                viewerId={viewerId}
                 session={s}
                 isStaff={isStaff}
                 refresh={refresh}
