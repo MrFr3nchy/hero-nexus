@@ -11,6 +11,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -1434,4 +1435,75 @@ export const playerJournals = sqliteTable(
     index('player_journals_campaign_idx').on(t.campaignId),
     index('player_journals_author_idx').on(t.campaignId, t.userId),
   ]
+);
+
+/* --- Maps, and things marked on them (0028) --------------------------- */
+
+/**
+ * A picture the table treats as a map.
+ *
+ * Deliberately not a battle grid. Tokens that move, fog of war and a square
+ * lattice are a different feature with a different failure mode — one that has
+ * to stay right while five people drag things at once. This is the other half
+ * of what a table uses a map for: knowing where places are, and being told
+ * about them one at a time.
+ */
+export const campaignMaps = sqliteTable(
+  'campaign_maps',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** Cascade: a map with no image is not a map. */
+    imageId: text('image_id')
+      .notNull()
+      .references(() => campaignImages.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_maps_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * Something marked on a map.
+ *
+ * `x` and `y` are **fractions of the image**, 0..1, not pixels. A pin placed
+ * on a DM's 2560-wide monitor has to land in the same place on a player's
+ * phone, and a pixel coordinate is a promise about a viewport nobody else has.
+ *
+ * `canonEntryId` is the point of the feature rather than a nicety: a pin that
+ * opens the innkeeper's entry makes this a view of the world the campaign
+ * already wrote down, instead of a second place to write the same names. No
+ * reference, following `canon_entries.image_id` — a dangling link reads as a
+ * pin with nothing behind it rather than breaking the map.
+ */
+export const campaignMapPins = sqliteTable(
+  'campaign_map_pins',
+  {
+    id: uuid(),
+    mapId: text('map_id')
+      .notNull()
+      .references(() => campaignMaps.id, { onDelete: 'cascade' }),
+    x: real('x').notNull().default(0.5),
+    y: real('y').notNull().default(0.5),
+    label: text('label').notNull().default(''),
+    /** What the DM knows about it. Never travels to a player. */
+    dmNote: text('dm_note').notNull().default(''),
+    canonEntryId: text('canon_entry_id'),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_map_pins_map_idx').on(t.mapId)]
 );
