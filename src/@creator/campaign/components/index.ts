@@ -5,6 +5,7 @@ export { CampaignDetail } from './CampaignDetail';
 export { CampaignManageForm } from './CampaignManageForm';
 export { DmScreen } from './screen/DmScreen';
 export { ChroniclePanel } from './ChroniclePanel';
+export { ClocksPanel } from './ClocksPanel';
 export { CampaignContentPanel } from './CampaignContentPanel';
 export { EncounterPlanner } from './EncounterPlanner';
 export { HomebrewApprovalPanel } from './HomebrewApprovalPanel';

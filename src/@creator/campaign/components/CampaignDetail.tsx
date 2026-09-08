@@ -21,6 +21,7 @@ import { getCampaignPulseAction } from '../chronicle-actions';
 import { CanonPanel } from './CanonPanel';
 import { AwardsPanel } from './AwardsPanel';
 import { ChroniclePanel } from './ChroniclePanel';
+import { ClocksPanel } from './ClocksPanel';
 import { DowntimePanel } from './DowntimePanel';
 import { CampaignContentPanel } from './CampaignContentPanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
@@ -258,8 +259,16 @@ export function CampaignDetail({
           </Tab>
 
           <Tab key="quests" title={<TabTitle glyph="scroll" label="Quests" />}>
-            <div className="pt-4">
+            <div className="space-y-5 pt-4">
               <QuestPanel campaignId={campaign.id} viewerRole={campaign.role} />
+
+              {/* Threads the party pulls on, and the ones pulling back. They
+                  belong on the same tab: a clock is a quest with a deadline
+                  the party has not been told about. */}
+              <ClocksPanel
+                campaignId={campaign.id}
+                viewerRole={campaign.role}
+              />
             </div>
           </Tab>
 

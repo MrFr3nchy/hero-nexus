@@ -1347,3 +1347,45 @@ export const sessionAwardGrants = sqliteTable(
     index('session_award_grants_character_idx').on(t.characterId),
   ]
 );
+
+/* --- The things happening anyway (0025) ------------------------------- */
+
+/**
+ * A countdown with segments: the ritual is five-eighths done, the guard is
+ * three-quarters convinced.
+ *
+ * The two audiences are shaped differently from `canon_entries` here. A clock
+ * has one body and a *hidden* half — the party can be shown that something is
+ * at 5/8 without being told what happens at 8/8, and that is precisely the
+ * pressure a clock exists to create. So the title and the segments are what a
+ * shared clock reveals, and `dmNote` never leaves staff.
+ */
+export const campaignClocks = sqliteTable(
+  'campaign_clocks',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    /** What happens when it fills. Staff only. */
+    dmNote: text('dm_note').notNull().default(''),
+    /** 4, 6, 8 or 12 — a clock is read as a fraction at a glance. */
+    segments: integer('segments').notNull().default(6),
+    filled: integer('filled').notNull().default(0),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    /** 'done' has gone off, and is kept as a record of that. */
+    status: text('status', { enum: ['running', 'done'] })
+      .notNull()
+      .default('running'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_clocks_campaign_idx').on(t.campaignId)]
+);
