@@ -7,6 +7,7 @@ import {
   deleteCharacter,
   getCharacter,
   listCharacters,
+  RULES_ERROR,
   updateCharacter,
   type CharacterRow,
   type CharacterWithSheet,
@@ -46,6 +47,12 @@ const SAVE_ERRORS: Record<string, string> = {
  */
 function saveError(err: unknown): string {
   const code = err instanceof Error ? err.message : '';
+
+  // A rules refusal is already a sentence written for the player — which table
+  // and which rule. Mapping it to "Failed to save character." is how the one
+  // thing they need to know got thrown away.
+  if (code.startsWith(RULES_ERROR)) return code.slice(RULES_ERROR.length);
+
   const mapped = SAVE_ERRORS[code];
   if (!mapped) console.error('[action] Failed to save character.', err);
   return mapped ?? 'Failed to save character.';

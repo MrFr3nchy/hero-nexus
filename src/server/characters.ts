@@ -362,6 +362,17 @@ export async function createCharacter(input: unknown): Promise<string> {
 }
 
 /**
+ * Marks an error whose message is written for the player, not for a log.
+ *
+ * Errors out of this module are codes (`NOT_FOUND`, `FORBIDDEN`) that the
+ * action layer maps to sentences, so a message that is already a sentence fell
+ * through to the generic "Failed to save character." — which is how a save
+ * refused for breaking a table's rules told the player nothing about which
+ * rule, or even that a table was involved.
+ */
+export const RULES_ERROR = 'RULES:';
+
+/**
  * A character linked to one or more campaigns must stay legal for each of
  * those tables. Throws with a reader-facing message naming the campaign(s) and
  * the broken rules; the character can always be unlinked and edited freely.
@@ -411,7 +422,7 @@ async function assertSheetLegalForLinkedCampaigns(
 
   if (problems.length) {
     throw new Error(
-      `This character can't be saved while linked to a table it breaks the rules of — ${problems.join(' | ')}`
+      `${RULES_ERROR}This character can't be saved while linked to a table it breaks the rules of — ${problems.join(' | ')}`
     );
   }
 }
