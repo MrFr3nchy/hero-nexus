@@ -114,13 +114,25 @@ third state.
 **The multiclass rule is a heuristic.** `rules.ts` detects multiclassing with
 `identity.class.includes('/')`.
 
-## Not verified
+## Verified
 
-Rendered output. There was no browser in the session this was built in, and every new
-surface is a client component whose data never appears in fetched HTML. Everything
-underneath — storage, validation, adaptation, derivation, permissions, logging — was
-verified against the running app; see
-[verifying-without-a-browser.md](verifying-without-a-browser.md).
+Phases 1–3, and everything underneath phase 4, were verified against the running app
+with no browser — see [verifying-without-a-browser.md](verifying-without-a-browser.md).
+Phase 4's chain was proven end to end through real server actions with real sessions: a
+GM forges a class and puts it on a table; a player at that table sees it in the wizard
+with a homebrew pill and it resolves to real features; the player saves; the GM takes it
+out of play; **the player's next save is refused, naming the table and the rule**; a
+player at another table never sees it at all. Both directions of the approve/deny switch
+were checked, as were the negative controls — an SRD-only character at the same table
+still saves, and putting the content back lets the refused save through.
 
-Someone should click through: the Forge's typed forms and live preview, the campaign
-Content tab, the inventory and spell sections, and the content picker.
+Phase 4 and 5's new surfaces were then checked in a browser: the guide page and its
+reveal control, the Forge's link to it, a homebrew class sitting inline in the wizard's
+class grid with its pill, its full stat detail loading on selection, and the
+"unavailable" card a pick shows once its content leaves the table.
+
+## Still not verified
+
+Rendered output for the phase 1–3 surfaces: the Forge's typed forms and live preview,
+the campaign Content tab, the inventory and spell sections, and the content picker.
+Someone should click through those.
