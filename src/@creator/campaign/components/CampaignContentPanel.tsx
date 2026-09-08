@@ -50,7 +50,19 @@ const SOURCE_LABEL: Record<LibraryEntry['source'], string> = {
   'approved-submission': 'Approved',
 };
 
-function EntryRow({
+/**
+ * The body of one shelf row.
+ *
+ * Deliberately NOT the `AccordionItem` itself. HeroUI's Accordion is a
+ * react-aria collection: it builds its children by calling
+ * `getCollectionNode` on each child's element *type*, which only
+ * `AccordionItem` carries. A component that merely returns an `AccordionItem`
+ * has no such static, and the collection builder threw
+ * `TypeError: i.getCollectionNode is not a function` — taking the whole
+ * campaign page down with it. The crash needed a non-empty shelf to fire,
+ * which is why it survived until a table actually had content on it.
+ */
+function EntryBody({
   item,
   isStaff,
   onRemove,
@@ -59,51 +71,45 @@ function EntryRow({
   isStaff: boolean;
   onRemove: (item: LibraryEntry) => void;
 }) {
+  return (
+    <div className="space-y-4 pb-2">
+      {item.note && (
+        <p className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-ink-muted">
+          <span className="font-medium text-ink">At this table: </span>
+          {item.note}
+        </p>
+      )}
+      <StatBlock entry={item.entry} headless />
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
+        <p className="text-xs text-ink-subtle">
+          Added by {item.addedByName ?? 'someone since departed'}
+        </p>
+        {isStaff && (
+          <Button
+            size="sm"
+            variant="light"
+            className="text-ink-muted data-[hover=true]:text-danger"
+            onPress={() => onRemove(item)}
+          >
+            Take out of play
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The title row of one shelf entry. */
+function entryTitle(item: LibraryEntry) {
   const meta = contentMeta(item.entry.type);
   return (
-    <AccordionItem
-      key={item.id}
-      textValue={item.entry.name}
-      title={
-        <span className="flex flex-wrap items-center gap-2">
-          <Glyph name={meta.glyph} size={16} className="text-gold" />
-          <span className="font-display text-ink">{item.entry.name}</span>
-          <Pill tone={item.source === 'gm-authored' ? 'gold' : 'success'}>
-            {SOURCE_LABEL[item.source]}
-          </Pill>
-        </span>
-      }
-      subtitle={
-        <span className="text-xs text-ink-subtle">
-          {contentChips(item.entry).join(' · ')}
-        </span>
-      }
-    >
-      <div className="space-y-4 pb-2">
-        {item.note && (
-          <p className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-ink-muted">
-            <span className="font-medium text-ink">At this table: </span>
-            {item.note}
-          </p>
-        )}
-        <StatBlock entry={item.entry} headless />
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
-          <p className="text-xs text-ink-subtle">
-            Added by {item.addedByName ?? 'someone since departed'}
-          </p>
-          {isStaff && (
-            <Button
-              size="sm"
-              variant="light"
-              className="text-ink-muted data-[hover=true]:text-danger"
-              onPress={() => onRemove(item)}
-            >
-              Take out of play
-            </Button>
-          )}
-        </div>
-      </div>
-    </AccordionItem>
+    <span className="flex flex-wrap items-center gap-2">
+      <Glyph name={meta.glyph} size={16} className="text-gold" />
+      <span className="font-display text-ink">{item.entry.name}</span>
+      <Pill tone={item.source === 'gm-authored' ? 'gold' : 'success'}>
+        {SOURCE_LABEL[item.source]}
+      </Pill>
+    </span>
   );
 }
 
@@ -289,12 +295,22 @@ export function CampaignContentPanel({
                 </h3>
                 <Accordion selectionMode="multiple" className="px-0">
                   {group.entries.map(item => (
-                    <EntryRow
+                    <AccordionItem
                       key={item.id}
-                      item={item}
-                      isStaff={isStaff}
-                      onRemove={remove}
-                    />
+                      textValue={item.entry.name}
+                      title={entryTitle(item)}
+                      subtitle={
+                        <span className="text-xs text-ink-subtle">
+                          {contentChips(item.entry).join(' · ')}
+                        </span>
+                      }
+                    >
+                      <EntryBody
+                        item={item}
+                        isStaff={isStaff}
+                        onRemove={remove}
+                      />
+                    </AccordionItem>
                   ))}
                 </Accordion>
               </div>
