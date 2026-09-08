@@ -1061,3 +1061,110 @@ export const campaignHomebrew = sqliteTable(
     index('campaign_homebrew_homebrew_idx').on(t.homebrewId),
   ]
 );
+
+/* --- The DM's notebook, and reveals (0017) ---------------------------- */
+
+/**
+ * A page of the DM's prep.
+ *
+ * Every other note in this schema is attached to something — a session, a
+ * quest, a canon entry. Real prep is not shaped like that, and before this it
+ * had one home: `campaigns.settings.sessionNotes`, a single textarea. A page
+ * has a title, tags, and its own visibility, and can be filed under a sitting
+ * or left standing.
+ */
+export const campaignNotes = sqliteTable(
+  'campaign_notes',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    body: text('body').notNull().default(''),
+    /** Comma-separated and lower-cased; read whole, never joined against. */
+    tags: text('tags').notNull().default(''),
+    pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+    /** The sitting this page is prep for. Null is a standing note. */
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_notes_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * One thing the party was told.
+ *
+ * `body` is the excerpt **copied at the moment it was revealed**, not a
+ * pointer into the note it came from. Offsets into a living document rewrite
+ * themselves the next time the DM edits it, and a record of what the party was
+ * told last week cannot be allowed to change this week. `sourceId` is a
+ * back-reference only, and is allowed to dangle: the note may be deleted and
+ * the reveal still happened.
+ *
+ * This is the one place in the schema where copying text is right, and it is
+ * the mirror of the content model's rule 1 rather than a violation of it —
+ * there a copy forks a live thing that must stay in sync, here a copy freezes
+ * a dead one that must not move.
+ */
+export const campaignReveals = sqliteTable(
+  'campaign_reveals',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    sourceKind: text('source_kind', {
+      enum: ['note', 'session', 'quest', 'canon', 'free'],
+    })
+      .notNull()
+      .default('note'),
+    /** Deliberately no reference — see the note above. */
+    sourceId: text('source_id'),
+    body: text('body').notNull().default(''),
+    revealedBy: text('revealed_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    /** 'party' reaches the table; 'selected' reaches only the target rows. */
+    visibility: text('visibility', { enum: ['party', 'selected'] })
+      .notNull()
+      .default('party'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_reveals_campaign_idx').on(t.campaignId, t.createdAt)]
+);
+
+/**
+ * Who a 'selected' reveal reached. Keyed on `user_id` for the same reason as
+ * `canon_reveals`: the GM has no member row, and a player who later leaves the
+ * table was still told.
+ */
+export const campaignRevealTargets = sqliteTable(
+  'campaign_reveal_targets',
+  {
+    id: uuid(),
+    revealId: text('reveal_id')
+      .notNull()
+      .references(() => campaignReveals.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('campaign_reveal_targets_pair_idx').on(t.revealId, t.userId),
+    index('campaign_reveal_targets_user_idx').on(t.userId),
+  ]
+);

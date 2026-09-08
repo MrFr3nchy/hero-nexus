@@ -25,8 +25,10 @@ import { CampaignContentPanel } from './CampaignContentPanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { LedgerPanel } from './LedgerPanel';
 import { MembersPanel } from './MembersPanel';
+import { NotebookPanel, SharedNotes } from './NotebookPanel';
 import { PartySecrets } from './PartySecrets';
 import { QuestPanel } from './QuestPanel';
+import { RevealTimeline } from './RevealTimeline';
 import { SessionPanel } from './session/SessionPanel';
 
 const ROLE_LABEL = { gm: 'DM', 'co-gm': 'Co-DM', player: 'Player' } as const;
@@ -86,6 +88,9 @@ export function CampaignDetail({
 }) {
   const isStaff = campaign.role === 'gm' || campaign.role === 'co-gm';
   const [pulse, setPulse] = useState<CampaignPulse | null>(null);
+  // Bumped when the notebook reveals something, so the timeline beside it
+  // re-reads without the DM having to leave the tab and come back.
+  const [revealSeq, setRevealSeq] = useState(0);
 
   const loadPulse = useCallback(async () => {
     setPulse(await getCampaignPulseAction(campaign.id));
@@ -263,6 +268,30 @@ export function CampaignDetail({
                 campaignId={campaign.id}
                 viewerRole={campaign.role}
               />
+            </div>
+          </Tab>
+
+          <Tab key="notes" title={<TabTitle glyph="quill" label="Notes" />}>
+            <div className="space-y-5 pt-4">
+              {isStaff ? (
+                <NotebookPanel
+                  campaignId={campaign.id}
+                  onRevealed={async () => setRevealSeq(n => n + 1)}
+                />
+              ) : (
+                <SharedNotes campaignId={campaign.id} />
+              )}
+
+              <SectionCard
+                title="What the party knows"
+                description="Every line handed over, in the order it was told."
+              >
+                <RevealTimeline
+                  campaignId={campaign.id}
+                  viewerRole={campaign.role}
+                  reloadKey={revealSeq}
+                />
+              </SectionCard>
             </div>
           </Tab>
 
