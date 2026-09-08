@@ -6,7 +6,11 @@ import type { UseFormGetValues, UseFormSetValue } from 'react-hook-form';
 import { getClassBuildAction } from '../../actions';
 import { composeSheet, type BuildRefs } from '../../lib/compose';
 import { syncLevels } from '../../lib/advancement';
-import type { BuildCatalog, ClassDef } from '../../lib/srd/types';
+import type {
+  BuildCatalog,
+  ClassDef,
+  ContentSource,
+} from '../../lib/srd/types';
 import type { CharacterBuild, CharacterSheet } from '../../schema';
 
 /** The sheet groups a guided build owns; everything else is left alone. */
@@ -26,6 +30,8 @@ interface Options {
   getValues: UseFormGetValues<CharacterSheet>;
   setValue: UseFormSetValue<CharacterSheet>;
   catalog: BuildCatalog;
+  /** The table being built for; a homebrew class may live only in its library. */
+  campaignId?: string;
 }
 
 /**
@@ -37,7 +43,12 @@ interface Options {
  * a Wizard for a Barbarian and the spell slots, hit dice, saves, features and
  * starting gear all move in the same tick, with no render loop to guard.
  */
-export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
+export function useGuidedBuild({
+  getValues,
+  setValue,
+  catalog,
+  campaignId,
+}: Options) {
   const [classDef, setClassDef] = useState<ClassDef | null>(null);
   const [loadingClass, setLoadingClass] = useState(false);
   const classDefRef = useRef<ClassDef | null>(null);
@@ -99,10 +110,10 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
    * hit die.
    */
   const chooseClass = useCallback(
-    async (key: string, name: string) => {
+    async (key: string, name: string, source: ContentSource = 'srd') => {
       setLoadingClass(true);
       try {
-        const def = key ? await getClassBuildAction(key) : null;
+        const def = key ? await getClassBuildAction(key, campaignId) : null;
         classDefRef.current = def;
         setClassDef(def);
 
@@ -113,8 +124,10 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
           ...build,
           classKey: key,
           className: name,
+          classSource: source,
           subclassKey: changed ? '' : build.subclassKey,
           subclassName: changed ? '' : build.subclassName,
+          subclassSource: changed ? 'srd' : build.subclassSource,
           classSkills: changed ? [] : build.classSkills,
           equipment: {
             ...build.equipment,
@@ -129,6 +142,7 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
             ...l,
             subclassKey: '',
             subclassName: '',
+            subclassSource: 'srd' as const,
           }));
         }
         setValue('build', nextBuild, { shouldDirty: true });
@@ -137,7 +151,7 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
         setLoadingClass(false);
       }
     },
-    [getValues, setValue, recompute]
+    [getValues, setValue, recompute, campaignId]
   );
 
   /** Re-attach the class definition when an existing character is reopened. */
@@ -146,7 +160,7 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
       if (!key || classDefRef.current?.key === key) return;
       setLoadingClass(true);
       try {
-        const def = await getClassBuildAction(key);
+        const def = await getClassBuildAction(key, campaignId);
         classDefRef.current = def;
         setClassDef(def);
         recompute(def);
@@ -154,7 +168,7 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
         setLoadingClass(false);
       }
     },
-    [recompute]
+    [recompute, campaignId]
   );
 
   return {

@@ -50,6 +50,8 @@ interface CharacterWizardProps {
   onCustomField: CustomFieldHandler;
   /** What the chosen campaign allows. Defaults to an unconstrained build. */
   limits?: BuildLimits;
+  /** The table being built for, so a class picked from its library resolves. */
+  campaignId?: string;
   /** Campaign picker and anything else that belongs above the first step. */
   header?: ReactNode;
   /**
@@ -90,6 +92,7 @@ export function CharacterWizard({
   log,
   onCustomField,
   limits = OPEN_LIMITS,
+  campaignId,
   header,
   footer,
   onSwitchToSheet,
@@ -97,7 +100,7 @@ export function CharacterWizard({
   const sheet = useWatch({ control }) as CharacterSheet;
   const [stepId, setStepId] = useState<StepId>('class');
 
-  const guided = useGuidedBuild({ getValues, setValue, catalog });
+  const guided = useGuidedBuild({ getValues, setValue, catalog, campaignId });
   const {
     classDef,
     loadingClass,
@@ -178,7 +181,7 @@ export function CharacterWizard({
     patchBuild,
     setOverride,
     setLevel,
-    chooseClass: (key, name) => void chooseClass(key, name),
+    chooseClass: (key, name, source) => void chooseClass(key, name, source),
     log,
     onCustomField,
   };

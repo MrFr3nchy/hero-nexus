@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
+import { addCampaignContent, listCampaignContentIds } from './campaign-content';
 import { requireUserId } from './session-user';
 import { db } from '@/db';
 import {
@@ -368,6 +369,12 @@ export async function listMembers(
   const isStaff = role === 'gm' || role === 'co-gm';
   const settings = mergeCampaignSettings(campaign.settings);
 
+  // Only fetched for the staff view, which is the only one shown rule issues.
+  const inPlay =
+    isStaff && settings.requireHomebrewApproval
+      ? await listCampaignContentIds(campaignId)
+      : undefined;
+
   const gm = await db.query.users.findFirst({
     where: eq(users.id, campaign.gmId),
   });
@@ -411,6 +418,7 @@ export async function listMembers(
     if (!parsed.success) return [];
     return checkSheetAgainstRules(parsed.data, settings.rules, {
       allowHomebrew: settings.allowHomebrew,
+      contentInPlay: inPlay,
     }).map(v => v.message);
   };
 
@@ -601,8 +609,13 @@ export async function setMemberCharacter(
   const settings = mergeCampaignSettings(campaign?.settings);
   const parsed = characterSheetSchema.safeParse(character.sheet);
   if (!parsed.success) return [];
+  // Read after the submission above, so homebrew a table auto-approves is
+  // already in the library and does not come back as an unapproved violation.
   return checkSheetAgainstRules(parsed.data, settings.rules, {
     allowHomebrew: settings.allowHomebrew,
+    contentInPlay: settings.requireHomebrewApproval
+      ? await listCampaignContentIds(campaignId)
+      : undefined,
   });
 }
 
@@ -661,6 +674,18 @@ export async function submitCharacterHomebrewForApproval(
         : {}),
     }))
   );
+
+  // An approval that does not reach the library changes nothing: the library
+  // is what the builder and the rules check read. `reviewApproval` does this
+  // when a DM says yes, and an auto-approval is a yes with nobody to click it.
+  if (autoApprove) {
+    for (const link of fresh) {
+      await addCampaignContent(campaignId, link.homebrewId, {
+        source: 'approved-submission',
+        actorUserId: userId,
+      });
+    }
+  }
 }
 
 /* --- Invites ----------------------------------------------------------- */

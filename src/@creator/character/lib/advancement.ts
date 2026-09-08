@@ -158,6 +158,7 @@ export function syncLevels(
           hpRoll: 0,
           subclassKey: '',
           subclassName: '',
+          subclassSource: 'srd',
           note: '',
         }),
         level: 1,
@@ -186,6 +187,7 @@ export function syncLevels(
       hpRoll: 0,
       subclassKey: '',
       subclassName: '',
+      subclassSource: 'srd',
       note: '',
     });
   }

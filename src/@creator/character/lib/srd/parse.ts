@@ -381,6 +381,7 @@ export function parseClass(
     spellSlots,
     tableColumns,
     asiLevels: asiFeature?.levels ?? [],
+    source: 'srd',
   };
 }
 
@@ -398,6 +399,8 @@ export function toClassSummary(def: ClassDef): ClassSummary {
     subclassLevel: def.subclassLevel,
     subclassNames: def.subclasses.map(s => s.name),
     blurb: first ? firstSentence(first.desc) : '',
+    source: def.source,
+    homebrewId: def.homebrewId,
   };
 }
 
@@ -486,6 +489,7 @@ export function parseSpecies(raw: RawSpecies): SpeciesDef {
       .map(t => t.name)
       .slice(0, 4)
       .join(' · '),
+    source: 'srd',
   };
 }
 
@@ -511,6 +515,7 @@ export function parseBackground(raw: RawBackground): BackgroundDef {
     equipment: parseEquipmentOptions(
       raw.benefits?.find(b => b.type === 'equipment')?.desc ?? ''
     ),
+    source: 'srd',
   };
 }
 
@@ -524,5 +529,6 @@ export function parseFeat(raw: RawFeat): FeatDef {
       .map(b => mendText(b.desc ?? ''))
       .filter(Boolean)
       .join('\n\n'),
+    source: 'srd',
   };
 }

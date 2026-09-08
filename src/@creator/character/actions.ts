@@ -13,8 +13,8 @@ import {
 } from '@/server/characters';
 import { listPickableContent, resolveContentRefs } from '@/server/content';
 import type { ContentEntry, ContentRef, ContentType } from '@/@shared/content';
-import { loadClassDef } from './lib/srd/catalog';
-import type { ClassDef } from './lib/srd/types';
+import { loadBuildCatalog, loadClassDef } from './lib/srd/catalog';
+import type { BuildCatalog, ClassDef } from './lib/srd/types';
 import type { CharacterSheet } from './schema';
 
 export async function listCharactersAction(): Promise<CharacterRow[]> {
@@ -81,12 +81,31 @@ export async function deleteCharacterAction(id: string): Promise<void> {
  * One class in full — features by level, spell slots, subclasses. Fetched when
  * the player picks a class rather than shipped with the page: the raw class
  * rows are ~280 KB of JSON and the builder only ever needs one of them.
+ *
+ * The campaign is passed along because a homebrew class may live only in that
+ * table's library; without it, a class the player can see in the wizard would
+ * resolve to nothing on the way back.
  */
 export async function getClassBuildAction(
-  key: string
+  key: string,
+  campaignId?: string
 ): Promise<ClassDef | null> {
   if (!key) return null;
-  return loadClassDef(key);
+  return loadClassDef(key, { campaignId });
+}
+
+/**
+ * The wizard's options, for one table.
+ *
+ * The page loads this once for the campaign it opened with, but the campaign
+ * picker sits inside the builder — switching tables has to fetch the new
+ * table's library, or the player keeps being offered homebrew from the table
+ * they just left.
+ */
+export async function getBuildCatalogAction(
+  campaignId?: string
+): Promise<BuildCatalog> {
+  return loadBuildCatalog({ campaignId });
 }
 
 /**

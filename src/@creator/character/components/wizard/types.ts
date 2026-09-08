@@ -2,7 +2,11 @@ import type { Control } from 'react-hook-form';
 
 import type { ProvenanceInput } from '../../lib/provenance';
 import type { BuildLimits } from '../../lib/validate-build';
-import type { BuildCatalog, ClassDef } from '../../lib/srd/types';
+import type {
+  BuildCatalog,
+  ClassDef,
+  ContentSource,
+} from '../../lib/srd/types';
 import type { CharacterBuild, CharacterSheet } from '../../schema';
 import type { CustomFieldHandler } from '../sections';
 
@@ -20,7 +24,7 @@ export interface StepProps {
   /** Write a sheet field by hand and mark it as the player's, not the build's. */
   setOverride: (path: string, value: unknown) => void;
   setLevel: (level: number) => void;
-  chooseClass: (key: string, name: string) => void;
+  chooseClass: (key: string, name: string, source: ContentSource) => void;
   log: (input: ProvenanceInput) => void;
   onCustomField: CustomFieldHandler;
 }

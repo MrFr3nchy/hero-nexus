@@ -287,6 +287,16 @@ export const HP_MODES = ['average', 'roll', 'manual'] as const;
 export type HpMode = (typeof HP_MODES)[number];
 
 /** An Ability Score Improvement taken as +2/+1+1, or traded for a feat. */
+/**
+ * Where a build pick came from.
+ *
+ * Defaulted to 'srd' rather than made optional, so an existing sheet — every
+ * pick on which predates homebrew being pickable — parses as SRD without a
+ * migration. A homebrew `*Key` is the `homebrew.id`, which is what the server
+ * checks against the table's library before a save.
+ */
+const buildSource = z.enum(['srd', 'homebrew']).default('srd').catch('srd');
+
 const asiChoice = z.object({
   mode: z.enum(['ability', 'feat']).default('ability'),
   /** '' until chosen; otherwise an AbilityKey. */
@@ -294,6 +304,7 @@ const asiChoice = z.object({
   plusOnes: z.array(z.string().max(20)).max(2).default([]),
   featKey: z.string().max(80).default(''),
   featName: z.string().max(120).default(''),
+  featSource: buildSource,
 });
 export type AsiChoice = z.infer<typeof asiChoice>;
 
@@ -307,6 +318,7 @@ const levelEntry = z.object({
   hpRoll: z.number().int().min(0).max(12).default(0),
   subclassKey: z.string().max(80).default(''),
   subclassName: z.string().max(120).default(''),
+  subclassSource: buildSource,
   asi: asiChoice.optional(),
   note: z.string().trim().max(400).default(''),
 });
@@ -325,12 +337,16 @@ export const buildSchema = z
 
     classKey: z.string().max(80).default(''),
     className: z.string().max(120).default(''),
+    classSource: buildSource,
     subclassKey: z.string().max(80).default(''),
     subclassName: z.string().max(120).default(''),
+    subclassSource: buildSource,
     speciesKey: z.string().max(80).default(''),
     speciesName: z.string().max(120).default(''),
+    speciesSource: buildSource,
     backgroundKey: z.string().max(80).default(''),
     backgroundName: z.string().max(120).default(''),
+    backgroundSource: buildSource,
 
     /** Scores before background increases and ASIs. */
     baseAbilities: z
@@ -383,12 +399,16 @@ export const buildSchema = z
     mode: 'manual',
     classKey: '',
     className: '',
+    classSource: 'srd',
     subclassKey: '',
     subclassName: '',
+    subclassSource: 'srd',
     speciesKey: '',
     speciesName: '',
+    speciesSource: 'srd',
     backgroundKey: '',
     backgroundName: '',
+    backgroundSource: 'srd',
     baseAbilities: {
       strength: 10,
       dexterity: 10,

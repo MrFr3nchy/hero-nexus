@@ -22,6 +22,7 @@ import {
   submitCharacterHomebrewForApproval,
 } from '@/server/campaigns';
 import { checkSheetAgainstRules } from '@/@creator/campaign/lib/rules';
+import { listContentIdsForCampaigns } from './campaign-content';
 import { migrateStoredSheet } from '@/@creator/character/lib/migrate-sheet';
 import {
   ABILITY_KEYS,
@@ -377,6 +378,7 @@ async function assertSheetLegalForLinkedCampaigns(
 
   const camps = await db
     .select({
+      id: campaigns.id,
       name: campaigns.name,
       settings: campaigns.settings,
     })
@@ -388,11 +390,19 @@ async function assertSheetLegalForLinkedCampaigns(
       )
     );
 
+  // What each table has in play, in one query rather than one per campaign.
+  const inPlay = await listContentIdsForCampaigns(camps.map(c => c.id));
+
   const problems: string[] = [];
   for (const c of camps) {
     const settings = mergeCampaignSettings(c.settings);
     const violations = checkSheetAgainstRules(sheet, settings.rules, {
       allowHomebrew: settings.allowHomebrew,
+      // A table that does not review homebrew has no decision to enforce, so
+      // it is handed nothing and the check is skipped.
+      contentInPlay: settings.requireHomebrewApproval
+        ? (inPlay.get(c.id) ?? new Set<string>())
+        : undefined,
     });
     if (violations.length) {
       problems.push(`${c.name}: ${violations.map(v => v.message).join(' ')}`);

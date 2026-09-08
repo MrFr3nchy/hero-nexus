@@ -15,7 +15,7 @@ import {
   addCampaignContent,
   removeCampaignContentByHomebrew,
 } from './campaign-content';
-import { requireCampaignRole } from './campaigns';
+import { mergeCampaignSettings, requireCampaignRole } from './campaigns';
 
 export type ApprovalStatus = 'pending' | 'approved' | 'denied';
 
@@ -73,6 +73,54 @@ export async function requestApproval(
   });
   if (!item || item.ownerId !== userId) throw new Error('NOT_YOUR_HOMEBREW');
   if (!(await isMember(campaignId, userId))) throw new Error('NOT_A_MEMBER');
+
+  // A table with homebrew switched off has nothing to review, so a submission
+  // to it would sit pending forever with no queue to appear in.
+  // `submitCharacterHomebrewForApproval` has always refused this; the two
+  // paths into the queue now agree.
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(campaigns.id, campaignId),
+  });
+  const settings = mergeCampaignSettings(campaign?.settings);
+  if (!settings.allowHomebrew) throw new Error('HOMEBREW_NOT_ALLOWED');
+
+  // A table that does not review homebrew says yes on arrival — the same
+  // decision `submitCharacterHomebrewForApproval` records, and for the same
+  // reason: an approval that never reaches the library changes nothing.
+  if (!settings.requireHomebrewApproval) {
+    const now = new Date().toISOString();
+    const seen = await db.query.homebrewApprovals.findFirst({
+      where: and(
+        eq(homebrewApprovals.homebrewId, homebrewId),
+        eq(homebrewApprovals.campaignId, campaignId)
+      ),
+    });
+    const values = {
+      status: 'approved' as const,
+      reviewNotes:
+        'Auto-approved — this table does not require homebrew review.',
+      reviewedByUserId: userId,
+      reviewedAt: now,
+    };
+    if (seen) {
+      await db
+        .update(homebrewApprovals)
+        .set(values)
+        .where(eq(homebrewApprovals.id, seen.id));
+    } else {
+      await db.insert(homebrewApprovals).values({
+        campaignId,
+        homebrewId,
+        requestedByUserId: userId,
+        ...values,
+      });
+    }
+    await addCampaignContent(campaignId, homebrewId, {
+      source: 'approved-submission',
+      actorUserId: userId,
+    });
+    return;
+  }
 
   const existing = await db.query.homebrewApprovals.findFirst({
     where: and(

@@ -99,6 +99,8 @@ export async function submitHomebrewToCampaignAction(
       NOT_YOUR_HOMEBREW: 'That homebrew is not yours.',
       NOT_A_MEMBER: 'You are not a member of that campaign.',
       NOT_AUTHENTICATED: 'You are not signed in.',
+      HOMEBREW_NOT_ALLOWED:
+        'That table does not allow homebrew, so there is nothing to submit to.',
     };
     return { ok: false, error: messages[code] ?? 'Failed to submit.' };
   }

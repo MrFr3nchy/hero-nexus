@@ -3,14 +3,14 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button, Select, SelectItem, Tab, Tabs } from '@heroui/react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm, useWatch, type Resolver } from 'react-hook-form';
 
 import { setMemberCharacterAction } from '@/@creator/campaign/actions';
 import { describeRules } from '@/@creator/campaign/lib/rules';
 import type { BuilderCampaignRow } from '@/server/campaigns';
 
-import { saveCharacterAction } from '../actions';
+import { getBuildCatalogAction, saveCharacterAction } from '../actions';
 import {
   characterSheetSchema,
   makeEmptySheet,
@@ -46,8 +46,10 @@ import { CharacterWizard } from './wizard/CharacterWizard';
 
 interface CharacterFormProps {
   reference: ReferenceOptions;
-  /** Parsed SRD data the guided builder runs on. */
+  /** SRD and homebrew build data the guided builder runs on. */
   catalog: BuildCatalog;
+  /** The table `catalog` was loaded for. Changing tables refetches it. */
+  catalogCampaignId?: string;
   characterId?: string;
   initialSheet?: CharacterSheet;
   /** Campaigns the player belongs to and can attach this character to. */
@@ -81,7 +83,8 @@ type SheetTab = (typeof SHEET_TABS)[number]['key'];
 
 export function CharacterForm({
   reference,
-  catalog,
+  catalog: initialCatalog,
+  catalogCampaignId,
   characterId,
   initialSheet,
   campaigns,
@@ -95,6 +98,25 @@ export function CharacterForm({
   const [campaignId, setCampaignId] = useState(
     campaigns.some(c => c.id === initialCampaignId) ? initialCampaignId! : ''
   );
+
+  /**
+   * The wizard's options. Server-rendered for the table the page opened with,
+   * refetched when the player switches tables — a campaign's homebrew library
+   * is part of the catalog, so the options change with the table.
+   */
+  const [catalog, setCatalog] = useState(initialCatalog);
+  const catalogFor = useRef(catalogCampaignId ?? '');
+  useEffect(() => {
+    if (catalogFor.current === campaignId) return;
+    let live = true;
+    catalogFor.current = campaignId;
+    void getBuildCatalogAction(campaignId || undefined).then(next => {
+      if (live) setCatalog(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [campaignId]);
 
   const campaign = campaigns.find(c => c.id === campaignId) ?? null;
   /** The table this character already sits at, if it is a saved one. */
@@ -384,6 +406,7 @@ export function CharacterForm({
           log={log}
           onCustomField={handleCustomField}
           limits={limits}
+          campaignId={campaignId || undefined}
           header={campaignPicker}
           footer={actions}
           onSwitchToSheet={enterSheet}

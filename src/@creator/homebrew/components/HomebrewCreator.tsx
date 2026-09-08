@@ -144,6 +144,29 @@ export function HomebrewCreator() {
     [campaigns]
   );
 
+  /**
+   * Tables this item cannot be sent to again, and why.
+   *
+   * Filtering the dropdown to tables that allow homebrew was only half the
+   * job: an item already in play there, or already waiting in the queue, has
+   * nothing to submit. Re-sending an approved one resets it to pending and
+   * takes it out of the library, which reads to the player as their own
+   * approved content being revoked.
+   */
+  const blockedFor = useCallback(
+    (homebrewId: string): Map<string, string> => {
+      const out = new Map<string, string>();
+      for (const a of approvals) {
+        if (a.homebrewId !== homebrewId) continue;
+        if (a.status === 'approved') out.set(a.campaignId, 'already in play');
+        else if (a.status === 'pending')
+          out.set(a.campaignId, 'awaiting the DM');
+      }
+      return out;
+    },
+    [approvals]
+  );
+
   const submitTo = async (homebrewId: string, campaignId: string) => {
     const res = await submitHomebrewToCampaignAction(homebrewId, campaignId);
     if (!res.ok) setError(res.error ?? 'Failed to submit.');
@@ -380,23 +403,40 @@ export function HomebrewCreator() {
                     >
                       Edit
                     </Button>
-                    {submittableCampaigns.length > 0 && (
-                      <Dropdown>
-                        <DropdownTrigger>
-                          <Button size="sm" variant="flat" className="flex-1">
-                            Submit to…
-                          </Button>
-                        </DropdownTrigger>
-                        <DropdownMenu
-                          aria-label="Submit to campaign"
-                          onAction={key => submitTo(item.id, String(key))}
-                        >
-                          {submittableCampaigns.map(c => (
-                            <DropdownItem key={c.id}>{c.name}</DropdownItem>
-                          ))}
-                        </DropdownMenu>
-                      </Dropdown>
-                    )}
+                    {submittableCampaigns.length > 0 &&
+                      (() => {
+                        const blocked = blockedFor(item.id);
+                        return (
+                          <Dropdown>
+                            <DropdownTrigger>
+                              <Button
+                                size="sm"
+                                variant="flat"
+                                className="flex-1"
+                                isDisabled={
+                                  blocked.size >= submittableCampaigns.length
+                                }
+                              >
+                                Submit to…
+                              </Button>
+                            </DropdownTrigger>
+                            <DropdownMenu
+                              aria-label="Submit to campaign"
+                              disabledKeys={[...blocked.keys()]}
+                              onAction={key => submitTo(item.id, String(key))}
+                            >
+                              {submittableCampaigns.map(c => (
+                                <DropdownItem
+                                  key={c.id}
+                                  description={blocked.get(c.id)}
+                                >
+                                  {c.name}
+                                </DropdownItem>
+                              ))}
+                            </DropdownMenu>
+                          </Dropdown>
+                        );
+                      })()}
                     <Button
                       size="sm"
                       variant="light"

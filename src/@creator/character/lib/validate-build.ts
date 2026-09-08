@@ -87,15 +87,22 @@ export function findBuildIssues(
   }
   if (!build.backgroundName) add('background', 'No background chosen.');
 
-  // Homebrew written before a no-homebrew table was picked.
+  // Homebrew chosen before a no-homebrew table was picked. Two shapes count:
+  // a forged entry from the library (a key with `source: 'homebrew'`) and a
+  // name typed into the "of your own" card (a name with no key at all).
   if (!limits.allowHomebrew) {
-    if (!build.classKey && build.className) {
+    const brewed = (key: string, name: string, source: string) =>
+      Boolean(name) && (source === 'homebrew' || !key);
+
+    if (brewed(build.classKey, build.className, build.classSource)) {
       add('class', 'This table does not allow a homebrew class.');
     }
-    if (!build.speciesKey && build.speciesName) {
+    if (brewed(build.speciesKey, build.speciesName, build.speciesSource)) {
       add('species', 'This table does not allow a homebrew species.');
     }
-    if (!build.backgroundKey && build.backgroundName) {
+    if (
+      brewed(build.backgroundKey, build.backgroundName, build.backgroundSource)
+    ) {
       add('background', 'This table does not allow a homebrew background.');
     }
     if (sheet.homebrew.isHomebrew || sheet.homebrew.entries.length > 0) {
