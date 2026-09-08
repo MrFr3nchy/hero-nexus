@@ -26,6 +26,7 @@ import { DowntimePanel } from './DowntimePanel';
 import { CampaignContentPanel } from './CampaignContentPanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { LedgerPanel } from './LedgerPanel';
+import { JournalPanel } from './JournalPanel';
 import { MembersPanel } from './MembersPanel';
 import { NotebookPanel, SharedNotes } from './NotebookPanel';
 import { PartySecrets } from './PartySecrets';
@@ -320,6 +321,15 @@ export function CampaignDetail({
                   reloadKey={revealSeq}
                 />
               </SectionCard>
+            </div>
+          </Tab>
+
+          <Tab key="journal" title={<TabTitle glyph="quill" label="Journal" />}>
+            <div className="pt-4">
+              <JournalPanel
+                campaignId={campaign.id}
+                viewerRole={campaign.role}
+              />
             </div>
           </Tab>
 
