@@ -16,21 +16,24 @@ export default async function CharacterCreationPage({
   searchParams,
 }: PageProps) {
   const { id, campaign: campaignId } = await searchParams;
-  const [reference, catalog, campaigns] = await Promise.all([
+  const [reference, campaigns, existing] = await Promise.all([
     loadReferenceOptions(),
-    loadBuildCatalog(),
     // Signed out, this page renders only to hand off to ProtectedRoute's
     // client-side redirect, so a missing session must not throw here.
     listBuilderCampaignsAction().catch(() => []),
+    id ? getCharacterAction(id) : Promise.resolve(null),
   ]);
-
-  const existing = id ? await getCharacterAction(id) : null;
   if (id && !existing) notFound();
 
   // A campaign is optional. `?campaign=` preselects one; reopening a character
   // that already plays somewhere preselects that table instead.
   const linked = campaigns.find(c => c.linkedCharacterId === existing?.id);
   const selected = linked?.id ?? campaignId;
+
+  // Loaded after the table is known rather than alongside it: the catalog
+  // carries that table's homebrew library, so building it against `?campaign=`
+  // alone would open a linked character with the wrong table's options.
+  const catalog = await loadBuildCatalog({ campaignId: selected });
 
   return (
     <ProtectedRoute>
@@ -53,6 +56,7 @@ export default async function CharacterCreationPage({
           initialSheet={existing?.sheet}
           campaigns={campaigns}
           initialCampaignId={selected}
+          catalogCampaignId={selected}
         />
       </PageShell>
     </ProtectedRoute>

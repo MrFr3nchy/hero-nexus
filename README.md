@@ -57,6 +57,37 @@ Registration: `POST /api/register`. Password reset is not self-service on a
 self-hosted instance — change your password from **Account → Settings** while
 signed in.
 
+## Email in development
+
+Nothing is delivered from a dev machine. With `RESEND_API_KEY` unset, every
+message the app sends is captured to `data/outbox/` and printed to the dev
+server console, and **<http://localhost:3000/dev/mail>** renders the pile as an
+inbox with the verification and reset links clickable. Sign-in is not required
+— you are signed out exactly when you need those links.
+
+Set `MAIL_TRANSPORT=outbox` to capture mail locally even with a real Resend key
+in `.env`. The sink is development-only: the page 404s in a production build,
+and the transport refuses to run there at all.
+
+## Homebrew
+
+Custom classes, spells and items are typed content, not free text — one
+vocabulary shared with the SRD, so one renderer and one picker serve both.
+[docs/content-model.md](docs/content-model.md) is the contract that describes;
+`/creator/homebrew/guide` is the same thing written for the player filling in
+the form.
+
+## Documentation
+
+|                                                    |                                                                     |
+| -------------------------------------------------- | ------------------------------------------------------------------- |
+| [CLAUDE.md](CLAUDE.md)                             | The index every agent loads first, and the commands that must pass. |
+| [docs/design-language.md](docs/design-language.md) | How every page must look and be laid out.                           |
+| [docs/content-model.md](docs/content-model.md)     | How game content is shaped, stored, referenced, and put in play.    |
+| [docs/handoff/](docs/handoff/README.md)            | State of the typed-homebrew work and how it was verified.           |
+| [src/db/README.md](src/db/README.md)               | Schema and migrations — hand-written, edited together.              |
+| [docs/ops/](docs/ops/deploy.md)                    | Deploy, restore, and the security decisions behind them.            |
+
 ## Status
 
 **Phase 1 (done):** SQLite foundation, Auth.js, rebuilt character creator,

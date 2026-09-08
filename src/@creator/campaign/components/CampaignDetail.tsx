@@ -21,6 +21,7 @@ import { getCampaignPulseAction } from '../chronicle-actions';
 import { CanonPanel } from './CanonPanel';
 import { ChroniclePanel } from './ChroniclePanel';
 import { DowntimePanel } from './DowntimePanel';
+import { CampaignContentPanel } from './CampaignContentPanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { LedgerPanel } from './LedgerPanel';
 import { MembersPanel } from './MembersPanel';
@@ -290,6 +291,15 @@ export function CampaignDetail({
                 campaignId={campaign.id}
                 viewerId={viewerId}
                 viewerRole={campaign.role}
+              />
+            </div>
+          </Tab>
+
+          <Tab key="content" title={<TabTitle glyph="tome" label="Content" />}>
+            <div className="pt-4">
+              <CampaignContentPanel
+                campaignId={campaign.id}
+                isStaff={isStaff}
               />
             </div>
           </Tab>

@@ -20,7 +20,7 @@ import {
   type CharacterSheet,
   type SkillKey,
 } from '../schema';
-import { abilityModifier } from './derive';
+import { abilityModifier, armorClass, type ResolvedContent } from './derive';
 import { planLevels, slotsAtLevel } from './advancement';
 import type { BackgroundDef, ClassDef, SpeciesDef } from './srd/types';
 
@@ -28,6 +28,17 @@ export interface BuildRefs {
   classDef: ClassDef | null;
   species: SpeciesDef | null;
   background: BackgroundDef | null;
+  /**
+   * Content the sheet's inventory points at, once the caller has loaded it.
+   *
+   * **Undefined means "not known yet", not "nothing".** Armour class is the
+   * only thing that needs it, and the difference matters: treating an absent
+   * map as an empty one made every recompute assert the *unarmoured* AC, so a
+   * character in plate and a shield dropped from 19 to 10 + Dex the moment
+   * anything in the build changed. When this is undefined the composed sheet
+   * leaves `combat.armorClass` exactly as it found it.
+   */
+  content?: ResolvedContent;
 }
 
 const isAbilityKey = (value: string): value is AbilityKey =>
@@ -228,7 +239,6 @@ export function composeSheet(
   const abilities = finalAbilities(sheet);
   const saves = refs.classDef?.coreTraits.savingThrows ?? [];
   const skills = grantedSkills(sheet, refs);
-  const dexMod = abilityModifier(abilities.dexterity);
   const level = sheet.identity.level;
 
   const slots = slotsAtLevel(refs.classDef, level);
@@ -283,7 +293,12 @@ export function composeSheet(
       ),
       armorClass: keep(
         'combat.armorClass',
-        10 + dexMod,
+        // Was a flat `10 + dexMod`, which gave a character in plate the same
+        // AC as one in a shirt. Only asserted once the inventory has actually
+        // been resolved — see `BuildRefs.content`.
+        refs.content
+          ? armorClass(sheet, refs.content)
+          : sheet.combat.armorClass,
         sheet.combat.armorClass
       ),
       hitDieSize: refs.classDef?.hitDie ?? sheet.combat.hitDieSize,
@@ -314,6 +329,7 @@ export function composeSheet(
       ),
     },
     spellcasting: {
+      ...sheet.spellcasting,
       ability: spellcastingAbility(refs.classDef),
       slots: nextSlots,
     },

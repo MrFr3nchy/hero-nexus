@@ -1,12 +1,17 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UseFormGetValues, UseFormSetValue } from 'react-hook-form';
 
 import { getClassBuildAction } from '../../actions';
 import { composeSheet, type BuildRefs } from '../../lib/compose';
+import type { ResolvedContent } from '../useResolvedContent';
 import { syncLevels } from '../../lib/advancement';
-import type { BuildCatalog, ClassDef } from '../../lib/srd/types';
+import type {
+  BuildCatalog,
+  ClassDef,
+  ContentSource,
+} from '../../lib/srd/types';
 import type { CharacterBuild, CharacterSheet } from '../../schema';
 
 /** The sheet groups a guided build owns; everything else is left alone. */
@@ -26,6 +31,14 @@ interface Options {
   getValues: UseFormGetValues<CharacterSheet>;
   setValue: UseFormSetValue<CharacterSheet>;
   catalog: BuildCatalog;
+  /** The table being built for; a homebrew class may live only in its library. */
+  campaignId?: string;
+  /**
+   * Stats for what the sheet carries. Armour class is composed from this, so
+   * until it is 'ready' the composed sheet leaves the stored AC alone rather
+   * than asserting the unarmoured value over it.
+   */
+  content?: ResolvedContent;
 }
 
 /**
@@ -37,10 +50,22 @@ interface Options {
  * a Wizard for a Barbarian and the spell slots, hit dice, saves, features and
  * starting gear all move in the same tick, with no render loop to guard.
  */
-export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
+export function useGuidedBuild({
+  getValues,
+  setValue,
+  catalog,
+  campaignId,
+  content,
+}: Options) {
   const [classDef, setClassDef] = useState<ClassDef | null>(null);
   const [loadingClass, setLoadingClass] = useState(false);
   const classDefRef = useRef<ClassDef | null>(null);
+
+  // Read through a ref so that content arriving does not re-create every
+  // callback below it — the recompute it needs to trigger is the effect at the
+  // end of this hook, not a new identity for `patchBuild`.
+  const contentRef = useRef<ResolvedContent | undefined>(content);
+  contentRef.current = content;
 
   const refsFor = useCallback(
     (build: CharacterBuild, def: ClassDef | null): BuildRefs => ({
@@ -48,6 +73,13 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
       species: catalog.species.find(s => s.key === build.speciesKey) ?? null,
       background:
         catalog.backgrounds.find(b => b.key === build.backgroundKey) ?? null,
+      // Only once it has actually resolved. `BuildRefs.content` treats
+      // undefined as "not known", which is what keeps a recompute from
+      // overwriting a worn character's armour class with the unarmoured one.
+      content:
+        contentRef.current?.status === 'ready'
+          ? contentRef.current.entries
+          : undefined,
     }),
     [catalog]
   );
@@ -99,10 +131,10 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
    * hit die.
    */
   const chooseClass = useCallback(
-    async (key: string, name: string) => {
+    async (key: string, name: string, source: ContentSource = 'srd') => {
       setLoadingClass(true);
       try {
-        const def = key ? await getClassBuildAction(key) : null;
+        const def = key ? await getClassBuildAction(key, campaignId) : null;
         classDefRef.current = def;
         setClassDef(def);
 
@@ -113,8 +145,10 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
           ...build,
           classKey: key,
           className: name,
+          classSource: source,
           subclassKey: changed ? '' : build.subclassKey,
           subclassName: changed ? '' : build.subclassName,
+          subclassSource: changed ? 'srd' : build.subclassSource,
           classSkills: changed ? [] : build.classSkills,
           equipment: {
             ...build.equipment,
@@ -129,6 +163,7 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
             ...l,
             subclassKey: '',
             subclassName: '',
+            subclassSource: 'srd' as const,
           }));
         }
         setValue('build', nextBuild, { shouldDirty: true });
@@ -137,8 +172,21 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
         setLoadingClass(false);
       }
     },
-    [getValues, setValue, recompute]
+    [getValues, setValue, recompute, campaignId]
   );
+
+  /**
+   * Recompose when the inventory finishes resolving.
+   *
+   * The fetch is asynchronous, so the first few composes run without it and
+   * deliberately leave armour class alone. This is the pass that finally sets
+   * it — without it, a reopened character in plate kept whatever AC was
+   * stored until the player happened to change something else.
+   */
+  useEffect(() => {
+    if (content?.status !== 'ready') return;
+    recompute();
+  }, [content, recompute]);
 
   /** Re-attach the class definition when an existing character is reopened. */
   const restoreClass = useCallback(
@@ -146,7 +194,7 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
       if (!key || classDefRef.current?.key === key) return;
       setLoadingClass(true);
       try {
-        const def = await getClassBuildAction(key);
+        const def = await getClassBuildAction(key, campaignId);
         classDefRef.current = def;
         setClassDef(def);
         recompute(def);
@@ -154,7 +202,7 @@ export function useGuidedBuild({ getValues, setValue, catalog }: Options) {
         setLoadingClass(false);
       }
     },
-    [recompute]
+    [recompute, campaignId]
   );
 
   return {

@@ -39,6 +39,12 @@ Drizzle does not generate or verify the SQL for us. When you add a column:
 1. Write an `ALTER TABLE` in a new `migrations/NNNN_*.sql`.
 2. Add the matching column to `schema.ts`.
 
+`0016_campaign_content.sql` is the most recent example — it adds
+`campaign_homebrew`, the table that says what homebrew is in play at a campaign
+(see [docs/content-model.md](../../docs/content-model.md), rule 6), and its
+Drizzle definition landed in `schema.ts` in the same commit. Nothing generated
+it; nothing checks that the two agree except the person writing them.
+
 ## Real-time
 
 Live views (initiative tracker, handouts) use **short polling** —

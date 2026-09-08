@@ -5,6 +5,7 @@
  * where the gaps are without duplicating any of this logic.
  */
 
+import { MAX_ATTUNED } from '../schema';
 import type { AbilityMethod, CharacterSheet } from '../schema';
 import { speciesSkillGrant } from './srd/parse';
 import type { BuildRefs } from './compose';
@@ -86,15 +87,22 @@ export function findBuildIssues(
   }
   if (!build.backgroundName) add('background', 'No background chosen.');
 
-  // Homebrew written before a no-homebrew table was picked.
+  // Homebrew chosen before a no-homebrew table was picked. Two shapes count:
+  // a forged entry from the library (a key with `source: 'homebrew'`) and a
+  // name typed into the "of your own" card (a name with no key at all).
   if (!limits.allowHomebrew) {
-    if (!build.classKey && build.className) {
+    const brewed = (key: string, name: string, source: string) =>
+      Boolean(name) && (source === 'homebrew' || !key);
+
+    if (brewed(build.classKey, build.className, build.classSource)) {
       add('class', 'This table does not allow a homebrew class.');
     }
-    if (!build.speciesKey && build.speciesName) {
+    if (brewed(build.speciesKey, build.speciesName, build.speciesSource)) {
       add('species', 'This table does not allow a homebrew species.');
     }
-    if (!build.backgroundKey && build.backgroundName) {
+    if (
+      brewed(build.backgroundKey, build.backgroundName, build.backgroundSource)
+    ) {
       add('background', 'This table does not allow a homebrew background.');
     }
     if (sheet.homebrew.isHomebrew || sheet.homebrew.entries.length > 0) {
@@ -209,6 +217,17 @@ export function findBuildIssues(
     !build.equipment.backgroundOption
   ) {
     add('equipment', 'Pick your background equipment package.');
+  }
+
+  // Attunement is a hard cap in the rules, and now that attunement is a real
+  // per-item flag rather than a number a player typed, it can actually be
+  // checked.
+  const attuned = sheet.inventory.filter(i => i.attuned).length;
+  if (attuned > MAX_ATTUNED) {
+    add(
+      'equipment',
+      `Attuned to ${attuned} items — a character can hold ${MAX_ATTUNED}.`
+    );
   }
 
   return issues;

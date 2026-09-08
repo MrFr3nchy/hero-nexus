@@ -7,7 +7,14 @@ import { DiceSpinner } from '@/@shared/components/ui';
 
 import { ABILITY_LABELS, SKILL_LABELS, type SkillKey } from '../../../schema';
 import { planLevels } from '../../../lib/advancement';
-import { ChoiceCard, ChoiceGrid, Fact, FactRow, StepHeading } from '../parts';
+import {
+  ChoiceCard,
+  ChoiceGrid,
+  Fact,
+  FactRow,
+  MissingChoiceCard,
+  StepHeading,
+} from '../parts';
 import type { StepProps } from '../types';
 
 const CASTER_LABEL: Record<string, string> = {
@@ -39,20 +46,40 @@ export function ClassStep({
 
   const commitCustom = (value: string) => {
     setCustomName(value);
-    patchBuild(b => ({ ...b, classKey: '', className: value }));
+    patchBuild(b => ({
+      ...b,
+      classKey: '',
+      className: value,
+      classSource: 'srd',
+    }));
     onCustomField('identity.class', 'class', value, value.trim().length > 0);
   };
 
-  const pick = (key: string, name: string) => {
+  const pick = (option: (typeof classes)[number]) => {
     setCustom(false);
-    chooseClass(key, name);
-    log({ kind: 'field', label: 'Class', detail: `Class: ${name}` });
+    chooseClass(option.key, option.name, option.source);
+    log({ kind: 'field', label: 'Class', detail: `Class: ${option.name}` });
   };
 
   const banned = new Set(limits.bannedClasses.map(n => n.trim().toLowerCase()));
   const classes = catalog.classes.filter(
-    option => !banned.has(option.name.trim().toLowerCase())
+    option =>
+      !banned.has(option.name.trim().toLowerCase()) &&
+      // Forged classes are real picks, but not at a table that has turned
+      // homebrew off — there they are not on the menu at all.
+      (limits.allowHomebrew || option.source === 'srd')
   );
+
+  // A key the catalog can't offer any more: homebrew that left the table.
+  const missing =
+    Boolean(build.classKey) &&
+    !catalog.classes.some(o => o.key === build.classKey);
+
+  const dropLink = () => {
+    setCustom(true);
+    setCustomName(build.className);
+    chooseClass('', build.className, 'srd');
+  };
 
   const skillChoice = classDef?.coreTraits.skillChoice;
   const steps = classDef
@@ -71,8 +98,9 @@ export function ClassStep({
           <ChoiceCard
             key={option.key}
             title={option.name}
+            homebrew={option.source === 'homebrew'}
             selected={build.classKey === option.key}
-            onSelect={() => pick(option.key, option.name)}
+            onSelect={() => pick(option)}
             meta={
               <>
                 d{option.hitDie} · {CASTER_LABEL[option.casterType]} ·{' '}
@@ -95,6 +123,16 @@ export function ClassStep({
           />
         )}
       </ChoiceGrid>
+
+      {missing && (
+        <div className="mt-4">
+          <MissingChoiceCard
+            name={build.className || 'A forged class'}
+            kind="class"
+            onClear={dropLink}
+          />
+        </div>
+      )}
 
       {banned.size > 0 && (
         <p className="mt-3 text-sm text-ink-subtle">

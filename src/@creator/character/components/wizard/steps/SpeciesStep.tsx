@@ -3,7 +3,14 @@
 import { useState } from 'react';
 import { Input } from '@heroui/react';
 
-import { ChoiceCard, ChoiceGrid, Fact, FactRow, StepHeading } from '../parts';
+import {
+  ChoiceCard,
+  ChoiceGrid,
+  Fact,
+  FactRow,
+  MissingChoiceCard,
+  StepHeading,
+} from '../parts';
 import type { StepProps } from '../types';
 
 export function SpeciesStep({
@@ -27,7 +34,9 @@ export function SpeciesStep({
 
   const banned = new Set(limits.bannedSpecies.map(n => n.trim().toLowerCase()));
   const options = catalog.species.filter(
-    option => !banned.has(option.name.trim().toLowerCase())
+    option =>
+      !banned.has(option.name.trim().toLowerCase()) &&
+      (limits.allowHomebrew || option.source === 'srd')
   );
 
   const pick = (key: string, name: string) => {
@@ -37,6 +46,7 @@ export function SpeciesStep({
       ...b,
       speciesKey: key,
       speciesName: name,
+      speciesSource: next?.source ?? 'srd',
       // Lineage picks and the free skill belong to the species that granted them.
       speciesChoices: b.speciesKey === key ? b.speciesChoices : [],
       bonusSkills: b.speciesKey === key ? b.bonusSkills : [],
@@ -47,13 +57,28 @@ export function SpeciesStep({
 
   const commitCustom = (value: string) => {
     setCustomName(value);
-    patchBuild(b => ({ ...b, speciesKey: '', speciesName: value }));
+    patchBuild(b => ({
+      ...b,
+      speciesKey: '',
+      speciesName: value,
+      speciesSource: 'srd',
+    }));
     onCustomField(
       'identity.species',
       'species',
       value,
       value.trim().length > 0
     );
+  };
+
+  const missing =
+    Boolean(build.speciesKey) &&
+    !catalog.species.some(o => o.key === build.speciesKey);
+
+  const dropLink = () => {
+    setCustom(true);
+    setCustomName(build.speciesName);
+    commitCustom(build.speciesName);
   };
 
   const chooseTrait = (trait: string, option: string, detail: string) => {
@@ -86,6 +111,7 @@ export function SpeciesStep({
           <ChoiceCard
             key={option.key}
             title={option.name}
+            homebrew={option.source === 'homebrew'}
             selected={build.speciesKey === option.key}
             onSelect={() => pick(option.key, option.name)}
             meta={`${option.sizes.join(' or ')} · ${option.speed} ft`}
@@ -103,6 +129,16 @@ export function SpeciesStep({
           />
         )}
       </ChoiceGrid>
+
+      {missing && (
+        <div className="mt-4">
+          <MissingChoiceCard
+            name={build.speciesName || 'A forged species'}
+            kind="species"
+            onClear={dropLink}
+          />
+        </div>
+      )}
 
       {banned.size > 0 && (
         <p className="mt-3 text-sm text-ink-subtle">

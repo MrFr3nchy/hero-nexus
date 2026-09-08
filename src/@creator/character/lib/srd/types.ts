@@ -13,6 +13,17 @@ import type { AbilityKey, SkillKey } from '../../schema';
 /** Open5e's spellcasting progression tag on a class row. */
 export type CasterType = 'NONE' | 'FULL' | 'HALF' | 'THIRD' | 'PACT';
 
+/**
+ * Where a build option came from.
+ *
+ * The wizard used to offer the SRD and nothing else, so every option in a
+ * `BuildCatalog` was implicitly SRD. Homebrew is merged into the same lists
+ * now, and a pick has to remember which it was: the server gates a save on
+ * whether the homebrew a sheet points at is in play at the table, and it can
+ * only ask that question if the sheet says which picks are homebrew.
+ */
+export type ContentSource = 'srd' | 'homebrew';
+
 /** A choice a player has to make, extracted from prose (lineages, ancestries). */
 export interface TraitChoice {
   label: string;
@@ -37,6 +48,10 @@ export interface SpeciesDef {
   grantsSkillChoice: boolean;
   /** Short line for the picker card. */
   blurb: string;
+  /** Which source this came from. Homebrew is merged in by `loadBuildCatalog`. */
+  source: ContentSource;
+  /** Set when `source` is 'homebrew'. The `homebrew.id`, which is also `key`. */
+  homebrewId?: string;
 }
 
 export interface BackgroundDef {
@@ -50,6 +65,10 @@ export interface BackgroundDef {
   /** Origin feat name, e.g. "Magic Initiate (Cleric)". */
   feat: string;
   equipment: EquipmentOption[];
+  /** Which source this came from. Homebrew is merged in by `loadBuildCatalog`. */
+  source: ContentSource;
+  /** Set when `source` is 'homebrew'. The `homebrew.id`, which is also `key`. */
+  homebrewId?: string;
 }
 
 /** One lettered starting-equipment package. */
@@ -113,6 +132,10 @@ export interface ClassDef {
   tableColumns: { name: string; byLevel: Record<number, string> }[];
   /** Levels that grant an Ability Score Improvement. */
   asiLevels: number[];
+  /** Which source this came from. Homebrew is merged in by `loadBuildCatalog`. */
+  source: ContentSource;
+  /** Set when `source` is 'homebrew'. The `homebrew.id`, which is also `key`. */
+  homebrewId?: string;
 }
 
 /** The slim per-class row shipped with the page for the picker grid. */
@@ -128,6 +151,10 @@ export interface ClassSummary {
   subclassLevel: number;
   subclassNames: string[];
   blurb: string;
+  /** Which source this came from. Homebrew is merged in by `loadBuildCatalog`. */
+  source: ContentSource;
+  /** Set when `source` is 'homebrew'. The `homebrew.id`, which is also `key`. */
+  homebrewId?: string;
 }
 
 export interface FeatDef {
@@ -136,6 +163,10 @@ export interface FeatDef {
   type: string;
   prerequisite: string;
   desc: string;
+  /** Which source this came from. Homebrew is merged in by `loadBuildCatalog`. */
+  source: ContentSource;
+  /** Set when `source` is 'homebrew'. The `homebrew.id`, which is also `key`. */
+  homebrewId?: string;
 }
 
 /**

@@ -29,6 +29,7 @@ import {
 import type { ProvenanceInput } from '../../lib/provenance';
 import type { CustomFieldHandler } from '../sections';
 
+import type { ResolvedContent } from '../useResolvedContent';
 import { useGuidedBuild } from './useGuidedBuild';
 import type { StepProps } from './types';
 import { AbilitiesStep } from './steps/AbilitiesStep';
@@ -50,6 +51,10 @@ interface CharacterWizardProps {
   onCustomField: CustomFieldHandler;
   /** What the chosen campaign allows. Defaults to an unconstrained build. */
   limits?: BuildLimits;
+  /** The table being built for, so a class picked from its library resolves. */
+  campaignId?: string;
+  /** Stats for what the sheet carries; armour class is composed from it. */
+  content?: ResolvedContent;
   /** Campaign picker and anything else that belongs above the first step. */
   header?: ReactNode;
   /**
@@ -90,6 +95,8 @@ export function CharacterWizard({
   log,
   onCustomField,
   limits = OPEN_LIMITS,
+  campaignId,
+  content,
   header,
   footer,
   onSwitchToSheet,
@@ -97,7 +104,13 @@ export function CharacterWizard({
   const sheet = useWatch({ control }) as CharacterSheet;
   const [stepId, setStepId] = useState<StepId>('class');
 
-  const guided = useGuidedBuild({ getValues, setValue, catalog });
+  const guided = useGuidedBuild({
+    getValues,
+    setValue,
+    catalog,
+    campaignId,
+    content,
+  });
   const {
     classDef,
     loadingClass,
@@ -178,7 +191,7 @@ export function CharacterWizard({
     patchBuild,
     setOverride,
     setLevel,
-    chooseClass: (key, name) => void chooseClass(key, name),
+    chooseClass: (key, name, source) => void chooseClass(key, name, source),
     log,
     onCustomField,
   };

@@ -186,14 +186,21 @@ export function SheetComboBox<T extends FieldValues>({
       name={name}
       render={({ field, fieldState }) => {
         const value = (field.value as string) ?? '';
-        const commit = (next: string) => {
-          field.onChange(next);
-          onResolved?.(
-            next,
-            next.trim().length > 0 &&
-              !options.some(o => o.value.toLowerCase() === next.toLowerCase())
-          );
-        };
+        const isCustom = (next: string) =>
+          next.trim().length > 0 &&
+          !options.some(o => o.value.toLowerCase() === next.toLowerCase());
+
+        /**
+         * Resolve what was typed into "this is SRD" or "this is homebrew".
+         *
+         * Deliberately NOT called on every keystroke. `onResolved` spawns a
+         * homebrew entry on the sheet, so typing "Aetherborn" used to create
+         * an entry called "A" and rename it nine times, writing a provenance
+         * row and re-rendering the form at each step. Resolution happens when
+         * the player has finished: on selection, or on blur.
+         */
+        const resolve = (next: string) => onResolved?.(next, isCustom(next));
+
         return (
           <Autocomplete
             label={label}
@@ -203,11 +210,16 @@ export function SheetComboBox<T extends FieldValues>({
             defaultItems={options}
             inputValue={value}
             selectedKey={options.some(o => o.value === value) ? value : null}
-            onInputChange={commit}
+            onInputChange={field.onChange}
             onSelectionChange={key => {
-              if (key != null) commit(String(key));
+              if (key == null) return;
+              field.onChange(String(key));
+              resolve(String(key));
             }}
-            onBlur={field.onBlur}
+            onBlur={() => {
+              field.onBlur();
+              resolve(value);
+            }}
             isInvalid={Boolean(fieldState.error)}
             errorMessage={fieldState.error?.message}
             inputProps={{ classNames: inputClassNames }}

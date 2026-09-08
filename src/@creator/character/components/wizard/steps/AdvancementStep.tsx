@@ -40,6 +40,7 @@ const EMPTY_ASI: AsiChoice = {
   plusOnes: [],
   featKey: '',
   featName: '',
+  featSource: 'srd',
 };
 
 function LevelBadge({ level, current }: { level: number; current: boolean }) {
@@ -78,7 +79,12 @@ function LevelCard({
   conMod: number;
   subclasses: { key: string; name: string; blurb: string }[];
   subclassLabel: string;
-  feats: { key: string; name: string; prerequisite: string }[];
+  feats: {
+    key: string;
+    name: string;
+    prerequisite: string;
+    source: 'srd' | 'homebrew';
+  }[];
   isTop: boolean;
   onHpMode: (mode: HpMode) => void;
   onHpValue: (value: number) => void;
@@ -322,6 +328,7 @@ function LevelCard({
                       mode: 'feat',
                       featKey: feat?.key ?? '',
                       featName: feat?.name ?? '',
+                      featSource: feat?.source ?? 'srd',
                     });
                   }}
                   className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
@@ -331,6 +338,7 @@ function LevelCard({
                   {feats.map(feat => (
                     <option key={feat.key} value={feat.key}>
                       {feat.name}
+                      {feat.source === 'homebrew' ? ' (homebrew)' : ''}
                       {feat.prerequisite ? ` — ${feat.prerequisite}` : ''}
                     </option>
                   ))}
@@ -400,6 +408,12 @@ export function AdvancementStep({
   const hitDie = classDef?.hitDie ?? sheet.combat.hitDieSize;
   const conMod = abilityModifier(finalAbilities(sheet).constitution);
   const steps = planLevels(classDef, level, build.subclassKey);
+
+  // Forged feats are offered inline with the SRD's, unless the table has
+  // turned homebrew off — there they are not on the list at all.
+  const feats = catalog.feats.filter(
+    feat => limits.allowHomebrew || feat.source === 'srd'
+  );
   const entryFor = (lvl: number) =>
     build.levels.find(l => l.level === lvl) ?? {
       level: lvl,
@@ -408,6 +422,7 @@ export function AdvancementStep({
       hpRoll: 0,
       subclassKey: '',
       subclassName: '',
+      subclassSource: 'srd' as const,
       note: '',
     };
 
@@ -446,12 +461,23 @@ export function AdvancementStep({
   };
 
   const setSubclass = (lvl: number, key: string, name: string) => {
+    // A subclass hangs off exactly one class, so it is homebrew precisely when
+    // the class it came from is.
+    const source = classDef?.source ?? 'srd';
     patchBuild(b => ({
       ...b,
       subclassKey: key,
       subclassName: name,
+      subclassSource: source,
       levels: b.levels.map(l =>
-        l.level === lvl ? { ...l, subclassKey: key, subclassName: name } : l
+        l.level === lvl
+          ? {
+              ...l,
+              subclassKey: key,
+              subclassName: name,
+              subclassSource: source,
+            }
+          : l
       ),
     }));
     log({
@@ -559,7 +585,7 @@ export function AdvancementStep({
             conMod={conMod}
             subclasses={classDef?.subclasses ?? []}
             subclassLabel={subclassLabel}
-            feats={catalog.feats}
+            feats={feats}
             isTop={step.level === steps.length}
             onHpMode={mode => setHpMode(step.level, mode)}
             onHpValue={value =>

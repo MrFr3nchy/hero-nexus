@@ -7,12 +7,15 @@ import {
   deleteCharacter,
   getCharacter,
   listCharacters,
+  RULES_ERROR,
   updateCharacter,
   type CharacterRow,
   type CharacterWithSheet,
 } from '@/server/characters';
-import { loadClassDef } from './lib/srd/catalog';
-import type { ClassDef } from './lib/srd/types';
+import { listPickableContent, resolveContentRefs } from '@/server/content';
+import type { ContentEntry, ContentRef, ContentType } from '@/@shared/content';
+import { loadBuildCatalog, loadClassDef } from './lib/srd/catalog';
+import type { BuildCatalog, ClassDef } from './lib/srd/types';
 import type { CharacterSheet } from './schema';
 
 export async function listCharactersAction(): Promise<CharacterRow[]> {
@@ -44,6 +47,12 @@ const SAVE_ERRORS: Record<string, string> = {
  */
 function saveError(err: unknown): string {
   const code = err instanceof Error ? err.message : '';
+
+  // A rules refusal is already a sentence written for the player — which table
+  // and which rule. Mapping it to "Failed to save character." is how the one
+  // thing they need to know got thrown away.
+  if (code.startsWith(RULES_ERROR)) return code.slice(RULES_ERROR.length);
+
   const mapped = SAVE_ERRORS[code];
   if (!mapped) console.error('[action] Failed to save character.', err);
   return mapped ?? 'Failed to save character.';
@@ -79,10 +88,50 @@ export async function deleteCharacterAction(id: string): Promise<void> {
  * One class in full — features by level, spell slots, subclasses. Fetched when
  * the player picks a class rather than shipped with the page: the raw class
  * rows are ~280 KB of JSON and the builder only ever needs one of them.
+ *
+ * The campaign is passed along because a homebrew class may live only in that
+ * table's library; without it, a class the player can see in the wizard would
+ * resolve to nothing on the way back.
  */
 export async function getClassBuildAction(
-  key: string
+  key: string,
+  campaignId?: string
 ): Promise<ClassDef | null> {
   if (!key) return null;
-  return loadClassDef(key);
+  return loadClassDef(key, { campaignId });
+}
+
+/**
+ * The wizard's options, for one table.
+ *
+ * The page loads this once for the campaign it opened with, but the campaign
+ * picker sits inside the builder — switching tables has to fetch the new
+ * table's library, or the player keeps being offered homebrew from the table
+ * they just left.
+ */
+export async function getBuildCatalogAction(
+  campaignId?: string
+): Promise<BuildCatalog> {
+  return loadBuildCatalog({ campaignId });
+}
+
+/**
+ * Everything a player may add to a sheet, for one content type.
+ *
+ * Pass the campaign the character is being built for and its library comes
+ * along — that is how approved homebrew reaches a character.
+ */
+export async function listPickableContentAction(
+  type: ContentType,
+  campaignId?: string
+): Promise<ContentEntry[]> {
+  return listPickableContent(type, campaignId);
+}
+
+/** Stats for the refs already on a sheet, so it can render its own content. */
+export async function resolveContentAction(
+  refs: ContentRef[]
+): Promise<ContentEntry[]> {
+  const resolved = await resolveContentRefs(refs);
+  return [...resolved.values()];
 }

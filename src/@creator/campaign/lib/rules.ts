@@ -67,6 +67,58 @@ export interface RuleViolation {
 
 const norm = (s: string): string => s.trim().toLowerCase();
 
+/** What the table allows, alongside the structured rules blob. */
+export interface RuleContext {
+  allowHomebrew: boolean;
+  /**
+   * The homebrew ids in play at this table — `listCampaignContentIds`.
+   *
+   * **Omit it to skip the approval check.** This module is deliberately pure
+   * and shared by the builder and the server (see the header), so it cannot
+   * ask the database what a DM decided; the answer is passed in. A table with
+   * `requireHomebrewApproval` off has nothing to enforce and passes nothing,
+   * and so does a builder with no table picked.
+   */
+  contentInPlay?: Set<string>;
+}
+
+/**
+ * Every homebrew id a sheet points at.
+ *
+ * Refs only. `sheet.homebrew.entries` is deliberately not included: an entry
+ * there is a sketch a player is still writing — a name and some prose typed
+ * into the builder — and refusing a save over one would make the builder
+ * unusable for the case it was built for. What is checked is content the sheet
+ * *points at*, which is content somebody forged, submitted, and a DM ruled on.
+ */
+export function homebrewRefsOnSheet(sheet: CharacterSheet): Set<string> {
+  const ids = new Set<string>();
+
+  for (const item of sheet.inventory) {
+    if (item.ref?.source === 'homebrew') ids.add(item.ref.key);
+  }
+  for (const spell of sheet.spellcasting.spells) {
+    if (spell.ref.source === 'homebrew') ids.add(spell.ref.key);
+  }
+
+  const build = sheet.build;
+  const picks: [string, string][] = [
+    [build.classSource, build.classKey],
+    [build.subclassSource, build.subclassKey],
+    [build.speciesSource, build.speciesKey],
+    [build.backgroundSource, build.backgroundKey],
+  ];
+  for (const level of build.levels) {
+    picks.push([level.subclassSource, level.subclassKey]);
+    if (level.asi) picks.push([level.asi.featSource, level.asi.featKey]);
+  }
+  for (const [source, key] of picks) {
+    if (source === 'homebrew' && key) ids.add(key);
+  }
+
+  return ids;
+}
+
 /**
  * Check a character sheet against a table's rules. Returns one entry per
  * broken rule; an empty array means the sheet is legal for the table.
@@ -77,7 +129,7 @@ const norm = (s: string): string => s.trim().toLowerCase();
 export function checkSheetAgainstRules(
   sheet: CharacterSheet,
   rules: CampaignRules,
-  opts: { allowHomebrew: boolean }
+  opts: RuleContext
 ): RuleViolation[] {
   const out: RuleViolation[] = [];
 
@@ -136,6 +188,22 @@ export function checkSheetAgainstRules(
       message:
         'This table does not allow homebrew content on character sheets.',
     });
+  }
+
+  // A DM's decision has to reach the character. Denying a submission takes it
+  // out of the campaign's library, and the library is the answer to "may this
+  // be used here?" — so anything the sheet points at that is not in it is
+  // content this table has not agreed to.
+  if (opts.contentInPlay) {
+    const missing = [...homebrewRefsOnSheet(sheet)].filter(
+      id => !opts.contentInPlay!.has(id)
+    );
+    if (missing.length) {
+      out.push({
+        code: 'homebrew-unapproved',
+        message: `${missing.length} piece${missing.length === 1 ? '' : 's'} of homebrew on this sheet ${missing.length === 1 ? 'is' : 'are'} not approved for play at this table.`,
+      });
+    }
   }
 
   return out;

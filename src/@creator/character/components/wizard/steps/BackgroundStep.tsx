@@ -4,7 +4,14 @@ import { useState } from 'react';
 import { Input } from '@heroui/react';
 
 import { ABILITY_LABELS, SKILL_LABELS, type AbilityKey } from '../../../schema';
-import { ChoiceCard, ChoiceGrid, Fact, FactRow, StepHeading } from '../parts';
+import {
+  ChoiceCard,
+  ChoiceGrid,
+  Fact,
+  FactRow,
+  MissingChoiceCard,
+  StepHeading,
+} from '../parts';
 import type { StepProps } from '../types';
 
 /**
@@ -31,12 +38,18 @@ export function BackgroundStep({
     catalog.backgrounds.find(b => b.key === build.backgroundKey) ?? null;
   const boost = build.backgroundBoost;
 
+  const options = catalog.backgrounds.filter(
+    option => limits.allowHomebrew || option.source === 'srd'
+  );
+
   const pick = (key: string, name: string) => {
     setCustom(false);
+    const next = catalog.backgrounds.find(b => b.key === key);
     patchBuild(b => ({
       ...b,
       backgroundKey: key,
       backgroundName: name,
+      backgroundSource: next?.source ?? 'srd',
       backgroundBoost:
         b.backgroundKey === key
           ? b.backgroundBoost
@@ -52,13 +65,28 @@ export function BackgroundStep({
 
   const commitCustom = (value: string) => {
     setCustomName(value);
-    patchBuild(b => ({ ...b, backgroundKey: '', backgroundName: value }));
+    patchBuild(b => ({
+      ...b,
+      backgroundKey: '',
+      backgroundName: value,
+      backgroundSource: 'srd',
+    }));
     onCustomField(
       'identity.background',
       'background',
       value,
       value.trim().length > 0
     );
+  };
+
+  const missing =
+    Boolean(build.backgroundKey) &&
+    !catalog.backgrounds.some(o => o.key === build.backgroundKey);
+
+  const dropLink = () => {
+    setCustom(true);
+    setCustomName(build.backgroundName);
+    commitCustom(build.backgroundName);
   };
 
   const setMode = (mode: 'two-one' | 'three') =>
@@ -118,10 +146,11 @@ export function BackgroundStep({
       />
 
       <ChoiceGrid>
-        {catalog.backgrounds.map(option => (
+        {options.map(option => (
           <ChoiceCard
             key={option.key}
             title={option.name}
+            homebrew={option.source === 'homebrew'}
             selected={build.backgroundKey === option.key}
             onSelect={() => pick(option.key, option.name)}
             meta={option.abilityOptions
@@ -141,6 +170,16 @@ export function BackgroundStep({
           />
         )}
       </ChoiceGrid>
+
+      {missing && (
+        <div className="mt-4">
+          <MissingChoiceCard
+            name={build.backgroundName || 'A forged background'}
+            kind="background"
+            onClear={dropLink}
+          />
+        </div>
+      )}
 
       {custom && (
         <div className="mt-4 rounded-[var(--radius-card)] border border-arcane/40 bg-arcane/5 p-4">

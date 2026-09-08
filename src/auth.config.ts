@@ -37,7 +37,13 @@ export const authConfig = {
         PUBLIC_API_PATHS.includes(pathname) ||
         pathname.startsWith('/api/auth') ||
         pathname.startsWith('/_next') ||
-        pathname === '/favicon.ico';
+        pathname === '/favicon.ico' ||
+        // The local mail sink. You are signed *out* when you go looking for a
+        // verification or reset link, so requiring a session would make it
+        // useless. Development only — in production the page itself 404s and
+        // the outbox transport refuses to run at all.
+        (process.env.NODE_ENV !== 'production' &&
+          pathname.startsWith('/dev/mail'));
       if (isPublic) return true;
       return Boolean(auth?.user);
     },

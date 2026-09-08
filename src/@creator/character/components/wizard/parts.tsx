@@ -39,12 +39,29 @@ export function ChoiceGrid({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Marks an option as somebody's homebrew rather than the SRD.
+ *
+ * Homebrew is offered inline in the same grid as the SRD — it is a real pick
+ * with real mechanics, not a footnote — so the only thing that has to be
+ * different is that a player can see where it came from. Same wording and
+ * accent as `StatBlock`'s homebrew mark, which is where they will see it next.
+ */
+export function HomebrewPill() {
+  return (
+    <span className="rounded-sm border border-arcane/40 bg-arcane/10 px-1.5 py-0.5 font-display-alt text-[0.55rem] uppercase tracking-[0.14em] text-arcane">
+      Homebrew
+    </span>
+  );
+}
+
 export function ChoiceCard({
   title,
   meta,
   blurb,
   selected,
   custom,
+  homebrew,
   onSelect,
   footer,
 }: {
@@ -54,15 +71,18 @@ export function ChoiceCard({
   selected: boolean;
   /** Homebrew / "write your own" cards take the arcane accent. */
   custom?: boolean;
+  /** Somebody's forged content — shows the pill beside the name. */
+  homebrew?: boolean;
   onSelect: () => void;
   footer?: ReactNode;
 }) {
   // Tailwind only ships classes it can see, so the accent is picked from
   // whole class strings rather than interpolated.
-  const selectedRing = custom
+  const accent = custom || homebrew;
+  const selectedRing = accent
     ? 'border-arcane [box-shadow:0_0_0_1px_var(--arcane),var(--shadow-card)]'
     : 'border-gold [box-shadow:0_0_0_1px_var(--gold),var(--shadow-card)]';
-  const idleRing = custom
+  const idleRing = accent
     ? 'border-arcane/40 hover:border-arcane'
     : 'border-line hover:border-gold/60 hover:[box-shadow:var(--shadow-card)]';
   return (
@@ -75,11 +95,14 @@ export function ChoiceCard({
       }`}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-display text-lg text-ink">{title}</span>
+        <span className="flex items-baseline gap-2">
+          <span className="font-display text-lg text-ink">{title}</span>
+          {homebrew && <HomebrewPill />}
+        </span>
         {selected && (
           <span
             className={`font-display-alt text-[0.6rem] uppercase tracking-[0.16em] ${
-              custom ? 'text-arcane' : 'text-gold-strong'
+              accent ? 'text-arcane' : 'text-gold-strong'
             }`}
           >
             chosen
@@ -94,6 +117,50 @@ export function ChoiceCard({
       {blurb && <p className="mt-2 text-sm text-ink-muted">{blurb}</p>}
       {footer && <div className="mt-3">{footer}</div>}
     </button>
+  );
+}
+
+/**
+ * A pick the catalog can no longer offer.
+ *
+ * Homebrew comes and goes: a DM takes a forged class out of the library, or
+ * its author deletes it, and a character built on it reopens with a key that
+ * resolves to nothing. The sheet view and the content pickers already render
+ * a dangling ref as "unavailable" rather than dropping it, and the wizard owes
+ * the player the same — a silently unselected grid reads as a bug, and losing
+ * the name would lose the only record of what they had chosen.
+ */
+export function MissingChoiceCard({
+  name,
+  kind,
+  onClear,
+}: {
+  name: string;
+  /** "class", "species", "background" — used in the explanation. */
+  kind: string;
+  onClear: () => void;
+}) {
+  return (
+    <div className="rounded-[var(--radius-card)] border border-dashed border-danger/50 bg-danger/5 p-4">
+      <div className="flex items-baseline gap-2">
+        <span className="font-display text-lg text-ink">{name}</span>
+        <span className="rounded-sm border border-danger/40 px-1.5 py-0.5 font-display-alt text-[0.55rem] uppercase tracking-[0.14em] text-danger">
+          Unavailable
+        </span>
+      </div>
+      <p className="mt-2 text-sm text-ink-muted">
+        This {kind} is homebrew that is no longer in play here — the table
+        removed it, or its author deleted it. Nothing it granted is filled in.
+        Pick another, or keep the name and fill the details in by hand.
+      </p>
+      <button
+        type="button"
+        onClick={onClear}
+        className="mt-3 text-sm text-arcane underline underline-offset-2"
+      >
+        Keep the name, drop the link
+      </button>
+    </div>
   );
 }
 
