@@ -1279,3 +1279,71 @@ export const campaignScreenLayouts = sqliteTable(
   },
   t => [primaryKey({ columns: [t.campaignId, t.userId] })]
 );
+
+/* --- What the party got for the night (0022) -------------------------- */
+
+/**
+ * One handout of experience, or one milestone level.
+ *
+ * The sheets remain the source of truth for a character's experience and
+ * level; these rows are the receipt, not the balance. The change itself goes
+ * through the character write path and lands in `character_history`, so the
+ * player's own log shows it in the DM's wording (content model rule 7).
+ */
+export const sessionAwards = sqliteTable(
+  'session_awards',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** Null for an award between sittings, or one nobody filed. */
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    kind: text('kind', { enum: ['xp', 'milestone'] })
+      .notNull()
+      .default('xp'),
+    /** Experience each recipient received. Zero for a milestone. */
+    xp: integer('xp').notNull().default(0),
+    /** Levels each recipient gained. Zero for an experience award. */
+    levels: integer('levels').notNull().default(0),
+    /** What it was for. Party-visible — nobody is levelled up in secret. */
+    note: text('note').notNull().default(''),
+    awardedBy: text('awarded_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('session_awards_campaign_idx').on(t.campaignId, t.createdAt)]
+);
+
+/**
+ * Who actually took an award.
+ *
+ * Not derivable from attendance: a player who missed the night sometimes still
+ * gets it and a guest sometimes does not, and "did Pip get the XP for session
+ * 9?" is a question the record should answer a year later. `characterName` is
+ * the denormalisation rule 1 allows on `inventory[].name` — a deleted
+ * character still renders as a word, and never as a source of stats.
+ */
+export const sessionAwardGrants = sqliteTable(
+  'session_award_grants',
+  {
+    id: uuid(),
+    awardId: text('award_id')
+      .notNull()
+      .references(() => sessionAwards.id, { onDelete: 'cascade' }),
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    characterName: text('character_name').notNull().default(''),
+    xp: integer('xp').notNull().default(0),
+    levels: integer('levels').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('session_award_grants_award_idx').on(t.awardId),
+    index('session_award_grants_character_idx').on(t.characterId),
+  ]
+);
