@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UseFormGetValues, UseFormSetValue } from 'react-hook-form';
 
 import { getClassBuildAction } from '../../actions';
 import { composeSheet, type BuildRefs } from '../../lib/compose';
+import type { ResolvedContent } from '../useResolvedContent';
 import { syncLevels } from '../../lib/advancement';
 import type {
   BuildCatalog,
@@ -32,6 +33,12 @@ interface Options {
   catalog: BuildCatalog;
   /** The table being built for; a homebrew class may live only in its library. */
   campaignId?: string;
+  /**
+   * Stats for what the sheet carries. Armour class is composed from this, so
+   * until it is 'ready' the composed sheet leaves the stored AC alone rather
+   * than asserting the unarmoured value over it.
+   */
+  content?: ResolvedContent;
 }
 
 /**
@@ -48,10 +55,17 @@ export function useGuidedBuild({
   setValue,
   catalog,
   campaignId,
+  content,
 }: Options) {
   const [classDef, setClassDef] = useState<ClassDef | null>(null);
   const [loadingClass, setLoadingClass] = useState(false);
   const classDefRef = useRef<ClassDef | null>(null);
+
+  // Read through a ref so that content arriving does not re-create every
+  // callback below it — the recompute it needs to trigger is the effect at the
+  // end of this hook, not a new identity for `patchBuild`.
+  const contentRef = useRef<ResolvedContent | undefined>(content);
+  contentRef.current = content;
 
   const refsFor = useCallback(
     (build: CharacterBuild, def: ClassDef | null): BuildRefs => ({
@@ -59,6 +73,13 @@ export function useGuidedBuild({
       species: catalog.species.find(s => s.key === build.speciesKey) ?? null,
       background:
         catalog.backgrounds.find(b => b.key === build.backgroundKey) ?? null,
+      // Only once it has actually resolved. `BuildRefs.content` treats
+      // undefined as "not known", which is what keeps a recompute from
+      // overwriting a worn character's armour class with the unarmoured one.
+      content:
+        contentRef.current?.status === 'ready'
+          ? contentRef.current.entries
+          : undefined,
     }),
     [catalog]
   );
@@ -153,6 +174,19 @@ export function useGuidedBuild({
     },
     [getValues, setValue, recompute, campaignId]
   );
+
+  /**
+   * Recompose when the inventory finishes resolving.
+   *
+   * The fetch is asynchronous, so the first few composes run without it and
+   * deliberately leave armour class alone. This is the pass that finally sets
+   * it — without it, a reopened character in plate kept whatever AC was
+   * stored until the player happened to change something else.
+   */
+  useEffect(() => {
+    if (content?.status !== 'ready') return;
+    recompute();
+  }, [content, recompute]);
 
   /** Re-attach the class definition when an existing character is reopened. */
   const restoreClass = useCallback(

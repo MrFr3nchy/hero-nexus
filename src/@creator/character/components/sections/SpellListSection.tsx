@@ -6,14 +6,10 @@ import type { Control, UseFormSetValue } from 'react-hook-form';
 import { useWatch } from 'react-hook-form';
 
 import { Glyph, Pill, SectionCard } from '@/@shared/components/ui';
-import {
-  contentChips,
-  parseContentData,
-  refKey,
-  type ContentEntry,
-} from '@/@shared/content';
+import { contentChips, parseContentData, refKey } from '@/@shared/content';
 
 import type { CharacterSheet, SheetSpell } from '../../schema';
+import type { ResolvedContent } from '../useResolvedContent';
 import { ContentPicker } from './ContentPicker';
 
 /**
@@ -47,7 +43,8 @@ export function SpellListSection({
   control: Control<CharacterSheet>;
   setValue: UseFormSetValue<CharacterSheet>;
   campaignId?: string;
-  resolved?: Map<string, ContentEntry>;
+  /** Stats for the spells on the list, and whether they arrived. */
+  resolved?: ResolvedContent;
 }) {
   const watched = useWatch({ control, name: 'spellcasting.spells' });
   const spells = useMemo(() => (watched ?? []) as SheetSpell[], [watched]);
@@ -71,7 +68,7 @@ export function SpellListSection({
   const byLevel = useMemo(() => {
     const groups = new Map<number, SheetSpell[]>();
     for (const spell of spells) {
-      const entry = resolved?.get(refKey(spell.ref));
+      const entry = resolved?.entries.get(refKey(spell.ref));
       const level = entry
         ? parseContentData('spell', entry.data).level
         : // Unresolvable spells sort to the end rather than pretending to be
@@ -143,7 +140,7 @@ export function SpellListSection({
               <ul className="space-y-1.5">
                 {list.map(spell => {
                   const key = refKey(spell.ref);
-                  const entry = resolved?.get(key);
+                  const entry = resolved?.entries.get(key);
                   return (
                     <li
                       key={key}
@@ -155,16 +152,27 @@ export function SpellListSection({
                         {spell.ref.source === 'homebrew' && (
                           <Pill tone="arcane">Homebrew</Pill>
                         )}
+                        {/* Three states — see the note in InventorySection. */}
                         {entry ? (
                           <span className="ml-2 text-xs text-ink-subtle">
                             {contentChips(entry).slice(1, 4).join(' · ')}
                           </span>
-                        ) : (
+                        ) : resolved?.status === 'ready' ? (
                           <Tooltip content="This spell is no longer available — it may have been deleted, or taken out of play at your table.">
                             <span className="ml-2 text-xs text-warning">
                               unavailable
                             </span>
                           </Tooltip>
+                        ) : resolved?.status === 'failed' ? (
+                          <Tooltip content="Its stats could not be loaded just now. The spell is still on the list — reload to try again.">
+                            <span className="ml-2 text-xs text-ink-subtle">
+                              stats unavailable
+                            </span>
+                          </Tooltip>
+                        ) : (
+                          <span className="ml-2 text-xs text-ink-subtle/60">
+                            …
+                          </span>
                         )}
                       </span>
 

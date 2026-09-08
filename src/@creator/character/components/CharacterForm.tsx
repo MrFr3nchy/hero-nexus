@@ -407,6 +407,7 @@ export function CharacterForm({
           onCustomField={handleCustomField}
           limits={limits}
           campaignId={campaignId || undefined}
+          content={resolved}
           header={campaignPicker}
           footer={actions}
           onSwitchToSheet={enterSheet}

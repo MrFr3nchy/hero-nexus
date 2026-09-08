@@ -6,18 +6,14 @@ import type { Control, UseFormSetValue } from 'react-hook-form';
 import { useWatch } from 'react-hook-form';
 
 import { Glyph, Pill, SectionCard } from '@/@shared/components/ui';
-import {
-  contentChips,
-  contentMeta,
-  refKey,
-  type ContentEntry,
-} from '@/@shared/content';
+import { contentChips, contentMeta, refKey } from '@/@shared/content';
 
 import {
   MAX_ATTUNED,
   type CharacterSheet,
   type InventoryItem,
 } from '../../schema';
+import type { ResolvedContent } from '../useResolvedContent';
 import { ContentPicker } from './ContentPicker';
 
 /**
@@ -57,8 +53,8 @@ export function InventorySection({
   control: Control<CharacterSheet>;
   setValue: UseFormSetValue<CharacterSheet>;
   campaignId?: string;
-  /** Stats for the rows that point at content, keyed by `refKey`. */
-  resolved?: Map<string, ContentEntry>;
+  /** Stats for the rows that point at content, and whether they arrived. */
+  resolved?: ResolvedContent;
 }) {
   const watched = useWatch({ control, name: 'inventory' });
   const inventory = useMemo(
@@ -84,7 +80,7 @@ export function InventorySection({
   /** Whether a row's content requires attunement, when we can tell. */
   const needsAttunement = (item: InventoryItem): boolean => {
     if (!item.ref || !resolved) return false;
-    const entry = resolved.get(refKey(item.ref));
+    const entry = resolved.entries.get(refKey(item.ref));
     if (!entry || entry.type !== 'item') return false;
     return Boolean(
       (entry.data as { requires_attunement?: boolean }).requires_attunement
@@ -149,7 +145,7 @@ export function InventorySection({
       ) : (
         <ul className="space-y-2">
           {inventory.map(item => {
-            const entry = item.ref && resolved?.get(refKey(item.ref));
+            const entry = item.ref && resolved?.entries.get(refKey(item.ref));
             const attunable = needsAttunement(item);
             return (
               <li
@@ -182,16 +178,30 @@ export function InventorySection({
                       {item.ref.source === 'homebrew' && (
                         <Pill tone="arcane">Homebrew</Pill>
                       )}
+                      {/*
+                        Three states, not two. "Unavailable" is a claim about
+                        the DM's table — that the item was deleted or taken out
+                        of play — and it must not be made because a request
+                        failed or has not answered yet.
+                      */}
                       {entry ? (
                         <span className="text-xs text-ink-subtle">
                           {contentChips(entry).slice(0, 3).join(' · ')}
                         </span>
-                      ) : (
+                      ) : resolved?.status === 'ready' ? (
                         <Tooltip content="This item is no longer available — it may have been deleted, or taken out of play at your table.">
                           <span className="text-xs text-warning">
                             unavailable
                           </span>
                         </Tooltip>
+                      ) : resolved?.status === 'failed' ? (
+                        <Tooltip content="Its stats could not be loaded just now. The item is still on the sheet — reload to try again.">
+                          <span className="text-xs text-ink-subtle">
+                            stats unavailable
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        <span className="text-xs text-ink-subtle/60">…</span>
                       )}
                     </span>
                   ) : (

@@ -29,12 +29,14 @@ export interface BuildRefs {
   species: SpeciesDef | null;
   background: BackgroundDef | null;
   /**
-   * Content the sheet's inventory points at, when the caller has loaded it.
+   * Content the sheet's inventory points at, once the caller has loaded it.
    *
-   * Optional because armour class is the only thing that needs it: without it
-   * `armorClass` returns the unarmoured value, which is exactly what this file
-   * computed before inventory existed. So a caller that has not resolved
-   * content gets the old behaviour rather than a wrong number.
+   * **Undefined means "not known yet", not "nothing".** Armour class is the
+   * only thing that needs it, and the difference matters: treating an absent
+   * map as an empty one made every recompute assert the *unarmoured* AC, so a
+   * character in plate and a shield dropped from 19 to 10 + Dex the moment
+   * anything in the build changed. When this is undefined the composed sheet
+   * leaves `combat.armorClass` exactly as it found it.
    */
   content?: ResolvedContent;
 }
@@ -292,8 +294,11 @@ export function composeSheet(
       armorClass: keep(
         'combat.armorClass',
         // Was a flat `10 + dexMod`, which gave a character in plate the same
-        // AC as one in a shirt.
-        armorClass(sheet, refs.content),
+        // AC as one in a shirt. Only asserted once the inventory has actually
+        // been resolved — see `BuildRefs.content`.
+        refs.content
+          ? armorClass(sheet, refs.content)
+          : sheet.combat.armorClass,
         sheet.combat.armorClass
       ),
       hitDieSize: refs.classDef?.hitDie ?? sheet.combat.hitDieSize,
