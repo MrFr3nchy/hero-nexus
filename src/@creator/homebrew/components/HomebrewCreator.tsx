@@ -13,6 +13,7 @@ import {
   Switch,
   Textarea,
 } from '@heroui/react';
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { listCampaignsAction } from '@/@creator/campaign/actions';
@@ -233,15 +234,28 @@ export function HomebrewCreator() {
         }
         description={meta.description}
         actions={
-          draft.id ? (
+          <div className="flex items-center gap-2">
+            {/* Somebody staring at an empty form is exactly who needs this. */}
             <Button
+              as={Link}
+              href="/creator/homebrew/guide"
               size="sm"
-              variant="flat"
-              onPress={() => setDraft(newDraft())}
+              variant="light"
+              className="text-ink-muted data-[hover=true]:text-gold-strong"
+              startContent={<Glyph name="tome" size={15} />}
             >
-              New draft
+              How this works
             </Button>
-          ) : undefined
+            {draft.id && (
+              <Button
+                size="sm"
+                variant="flat"
+                onPress={() => setDraft(newDraft())}
+              >
+                New draft
+              </Button>
+            )}
+          </div>
         }
       >
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">

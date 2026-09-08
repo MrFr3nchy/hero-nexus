@@ -1,17 +1,20 @@
 # Handoff — typed homebrew content
 
-Branch: `feat/typed-homebrew-content`. Nothing is committed; the work sits in the
-working tree.
+Branch: `feat/typed-homebrew-content`.
 
 This directory is the state of play for one piece of work: making homebrew content
-typed, usable at a table, and attachable to characters. Phases 1–3 are built and
-verified. Phases 4 and 5 are not started, and each has its own file here.
+typed, usable at a table, and attachable to characters. **All five phases are built.**
+The phase files are kept as the record of what each set out to do and why.
 
-|                                                                    |                                                                                    |
-| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| [phase-4-builder-and-approval.md](phase-4-builder-and-approval.md) | Homebrew as a first-class pick in the wizard; approval that actually gates a save  |
-| [phase-5-documentation.md](phase-5-documentation.md)               | The rules doc agents follow, and the guide players read                            |
-| [verifying-without-a-browser.md](verifying-without-a-browser.md)   | How the first three phases were verified. Read this before claiming anything works |
+|                                                                    |                                                                                   |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| [phase-4-builder-and-approval.md](phase-4-builder-and-approval.md) | Homebrew as a first-class pick in the wizard; approval that actually gates a save |
+| [phase-5-documentation.md](phase-5-documentation.md)               | The rules doc agents follow, and the guide players read                           |
+| [verifying-without-a-browser.md](verifying-without-a-browser.md)   | How this work was verified. Read this before claiming anything works              |
+
+The contract that came out of phase 5 lives at
+[docs/content-model.md](../content-model.md), and [CLAUDE.md](../../CLAUDE.md) is the
+index that makes both it and the design language findable without being told.
 
 ---
 
@@ -55,6 +58,17 @@ Pre-existing sheets migrate on read via `character/lib/migrate-sheet.ts` — add
 lossless: the prose box is kept, and migration is triggered by `inventory` being
 _absent_, so emptying it on purpose is respected.
 
+**Phase 4 — the builder and the gate.** `loadBuildCatalog` takes a campaign and merges
+the SRD, the player's own homebrew and the campaign library through
+`listPickableContent`, so the wizard offers forged classes, species, backgrounds and
+feats inline with the SRD's, each marked with a `Homebrew` pill.
+`character/lib/srd/from-content.ts` is the re-labelling that makes that a concat rather
+than a conversion. `checkSheetAgainstRules` now takes `contentInPlay` and reports
+`homebrew-unapproved`, so a denied item stops working on the character carrying it.
+
+**Phase 5 — the documents.** `CLAUDE.md`, `docs/content-model.md`, and the player-facing
+guide at `/creator/homebrew/guide`.
+
 ## Bugs fixed on the way
 
 Worth knowing about, because several were long-standing and none are obvious from the
@@ -85,6 +99,11 @@ Next 15.5.25, not app code — `notFound()` is the correct API here. No data lea
 non-member sees no campaign name, description or join code; the not-found page renders,
 only the status is wrong). Fixing it likely means a Next upgrade. Left alone rather
 than hacked around.
+
+**A build records which picks are homebrew.** `build.classSource` and its four
+siblings, defaulted to `'srd'` so every existing sheet parses unchanged. The server
+needs them: a homebrew `*Key` is a `homebrew.id`, and without the source there is no way
+to tell one from an SRD slug when asking the library whether it is in play.
 
 **`allowPublicHomebrew` is a dead flag.** It exists in `CampaignSettings`, its default,
 the zod schema and a switch in the manage form, and is read by nothing. It is waiting

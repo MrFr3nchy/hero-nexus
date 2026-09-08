@@ -97,10 +97,17 @@ without losing information. Never more than ~2 hand-lettered lines in one eyeful
 - Class colour (`--oxblood` / `--arcane` / `--verdigris` / `--gold` / `--info`) on a
   `HeroCard` spine and an HP-track fill means something. A coloured bar with no
   meaning behind it gets cut.
+- **Source marks** — a small arcane-bordered `Homebrew` label means "somebody forged
+  this", and a danger-bordered `Unavailable` one means "this reference no longer
+  resolves". Both say where content stands, so both are ornament that earns its place;
+  neither is ever the only way a surface communicates the fact.
 - Corner brackets, wax, and fleurons that mean nothing get cut.
 
-- **Do** — `Seal variant={approval.status}` on a homebrew review row.
-- **Don't** — a `framed` card wrapping routine content because it "looked plain".
+- **Do** — `Seal variant={approval.status}` on a homebrew review row. The `Homebrew`
+  pill on an option in the class step, beside SRD options in the same grid.
+- **Don't** — a `framed` card wrapping routine content because it "looked plain". A
+  separate "homebrew" section below the real list: the mark is the difference, and
+  segregating the options implies they are lesser picks.
 
 ### 7. Empty states are invitations with a scene, not apologies
 
@@ -171,11 +178,17 @@ Every route is one of these. The archetype decides what the page leads with.
 | **Single object**   | The object, full-bleed; metadata second               | `/campaigns/[id]`, `/campaigns/[id]/players/[characterId]`, `/creator/character`                |
 | **Workspace**       | The thing being built/managed; controls in a rail     | `/creator/homebrew`, `/campaigns/[id]/manage`                                                   |
 | **Form / utility**  | The form as a framed sheet, plus an in-world scene    | `/login`, `/register`, `/forgot-password`, `/campaigns/create`, `/campaigns/join`, `/account/*` |
-| **Reference prose** | A short lede, then asymmetric content (rule 3)        | `/about`, `/faq`                                                                                |
+| **Reference prose** | A short lede, then asymmetric content (rule 3)        | `/about`, `/faq`, `/creator/homebrew/guide`                                                     |
 
 Rules that always apply regardless of archetype: no eyebrow; `PageHeader rule={false}`
 when the page leads with an object; calm motion; empty/loading states get a scene and
 a themed label; hand-lettered voice only in the margin.
+
+**Reference prose still leads with the object.** `/creator/homebrew/guide` explains a
+form, so it opens with a finished stat block rendered by the real `StatBlock` and one
+control that reveals the fields behind it — not with a paragraph about stat blocks. A
+documentation page is the easiest place to violate rule 1 and the least excusable: if a
+page is teaching what the product produces, it can show one.
 
 ---
 

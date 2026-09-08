@@ -69,14 +69,24 @@ Set `MAIL_TRANSPORT=outbox` to capture mail locally even with a real Resend key
 in `.env`. The sink is development-only: the page 404s in a production build,
 and the transport refuses to run there at all.
 
+## Homebrew
+
+Custom classes, spells and items are typed content, not free text — one
+vocabulary shared with the SRD, so one renderer and one picker serve both.
+[docs/content-model.md](docs/content-model.md) is the contract that describes;
+`/creator/homebrew/guide` is the same thing written for the player filling in
+the form.
+
 ## Documentation
 
-|                                                    |                                                                   |
-| -------------------------------------------------- | ----------------------------------------------------------------- |
-| [docs/design-language.md](docs/design-language.md) | How every page must look and be laid out.                         |
-| [docs/handoff/](docs/handoff/README.md)            | State of the typed-homebrew work, and the two phases still to do. |
-| [src/db/README.md](src/db/README.md)               | Schema and migrations — hand-written, edited together.            |
-| [docs/ops/](docs/ops/deploy.md)                    | Deploy, restore, and the security decisions behind them.          |
+|                                                    |                                                                     |
+| -------------------------------------------------- | ------------------------------------------------------------------- |
+| [CLAUDE.md](CLAUDE.md)                             | The index every agent loads first, and the commands that must pass. |
+| [docs/design-language.md](docs/design-language.md) | How every page must look and be laid out.                           |
+| [docs/content-model.md](docs/content-model.md)     | How game content is shaped, stored, referenced, and put in play.    |
+| [docs/handoff/](docs/handoff/README.md)            | State of the typed-homebrew work and how it was verified.           |
+| [src/db/README.md](src/db/README.md)               | Schema and migrations — hand-written, edited together.              |
+| [docs/ops/](docs/ops/deploy.md)                    | Deploy, restore, and the security decisions behind them.            |
 
 ## Status
 
