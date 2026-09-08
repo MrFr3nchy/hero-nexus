@@ -19,6 +19,7 @@ import type { CampaignPulse } from '@/server/campaign-pulse';
 import type { CampaignRow } from '@/server/campaigns';
 import { getCampaignPulseAction } from '../chronicle-actions';
 import { CanonPanel } from './CanonPanel';
+import { AwardsPanel } from './AwardsPanel';
 import { ChroniclePanel } from './ChroniclePanel';
 import { DowntimePanel } from './DowntimePanel';
 import { CampaignContentPanel } from './CampaignContentPanel';
@@ -276,6 +277,14 @@ export function CampaignDetail({
               <ChroniclePanel
                 campaignId={campaign.id}
                 viewerId={viewerId}
+                viewerRole={campaign.role}
+              />
+
+              {/* Awards belong beside the sittings they were earned at, not on
+                  a tab of their own — a DM hands out experience while marking
+                  the register. */}
+              <AwardsPanel
+                campaignId={campaign.id}
                 viewerRole={campaign.role}
               />
             </div>

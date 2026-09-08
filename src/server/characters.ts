@@ -510,6 +510,18 @@ function diffSheets(
     `Alignment: ${dash(b.alignment)} → ${dash(a.alignment)}`
   );
 
+  if (b.xp !== a.xp) {
+    push(
+      'level',
+      'identity.xp',
+      b.xp,
+      a.xp,
+      a.xp > b.xp
+        ? `Experience: ${b.xp} → ${a.xp} (+${a.xp - b.xp})`
+        : `Experience: ${b.xp} → ${a.xp}`
+    );
+  }
+
   if (b.level !== a.level) {
     push(
       'level',
@@ -750,6 +762,42 @@ async function recordCharacterHistory(
   } catch {
     // history is a nice-to-have; swallow and move on
   }
+}
+
+/**
+ * Write a sheet on behalf of somebody who does not own it, with history.
+ *
+ * **This function does not authorize.** The caller has already decided the
+ * writer is allowed — the DM handing out experience is the case it exists for
+ * — and passes its own `actorUserId` so the history row names the right
+ * person. Anything reachable from a player's browser must go through
+ * `updateCharacter`, which checks ownership.
+ *
+ * Table rules are still enforced: a DM cannot push a character into a state
+ * their own table would reject.
+ */
+export async function writeSheetAsStaff(
+  characterId: string,
+  actorUserId: string,
+  sheet: CharacterSheet
+): Promise<void> {
+  const existing = await db.query.characters.findFirst({
+    where: eq(characters.id, characterId),
+  });
+  if (!existing) throw new Error('NOT_FOUND');
+
+  await assertSheetLegalForLinkedCampaigns(characterId, sheet);
+
+  await db
+    .update(characters)
+    .set({
+      ...denormalize(sheet),
+      sheet,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(characters.id, characterId));
+
+  await recordCharacterHistory(characterId, actorUserId, existing.sheet, sheet);
 }
 
 export async function updateCharacter(

@@ -1,5 +1,6 @@
 export { CampaignCreationForm } from './CampaignCreationForm';
 export { CampaignDashboard } from './CampaignDashboard';
+export { AwardsPanel } from './AwardsPanel';
 export { CampaignDetail } from './CampaignDetail';
 export { CampaignManageForm } from './CampaignManageForm';
 export { DmScreen } from './screen/DmScreen';
