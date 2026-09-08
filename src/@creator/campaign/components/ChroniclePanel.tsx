@@ -22,6 +22,7 @@ import type {
 import {
   createSessionAction,
   deleteSessionAction,
+  draftRecapAction,
   listSessionsAction,
   markSessionPlayedAction,
   setAttendanceAction,
@@ -78,6 +79,7 @@ function SessionEntry({
   const [playedOn, setPlayedOn] = useState(toDateInputValue(session.playedOn));
   const [prep, setPrep] = useState(session.prepBody ?? '');
   const [recap, setRecap] = useState(session.recapBody ?? '');
+  const [drafting, setDrafting] = useState(false);
   const [saving, setSaving] = useState(false);
   const { confirm, dialog } = useConfirm();
 
@@ -222,6 +224,41 @@ function SessionEntry({
                 onValueChange={setRecap}
                 minRows={3}
               />
+              {/* Appended rather than replacing: a DM who has already written
+                  three sentences should not lose them to a draft. */}
+              <div>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  isLoading={drafting}
+                  onPress={async () => {
+                    setDrafting(true);
+                    const res = await draftRecapAction(session.id);
+                    setDrafting(false);
+                    if (!res.ok) {
+                      onError(res.error);
+                      return;
+                    }
+                    if (!res.data.body) {
+                      onError(
+                        'Nothing was recorded under this sitting to draft from.'
+                      );
+                      return;
+                    }
+                    setRecap(prev =>
+                      prev.trim()
+                        ? `${prev}\n\n${res.data.body}`
+                        : res.data.body
+                    );
+                  }}
+                >
+                  Draft it from the night
+                </Button>
+                <span className="ml-2 text-xs text-ink-subtle">
+                  The fights, the handouts, who was there, and what changed on
+                  their sheets. Yours to rewrite.
+                </span>
+              </div>
               <div className="flex gap-2">
                 <Button
                   size="sm"

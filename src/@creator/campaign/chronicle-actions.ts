@@ -18,6 +18,7 @@ import {
   type SessionRow,
 } from '@/server/campaign-sessions';
 import { getCampaignPulse, type CampaignPulse } from '@/server/campaign-pulse';
+import { draftRecap, type RecapDraft } from '@/server/recap';
 
 type Result<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
@@ -148,6 +149,21 @@ export async function setRsvpAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Failed to answer.');
+  }
+}
+
+/**
+ * Build a recap out of what the app already recorded — the fights, the
+ * handouts, who was there, and the changes that landed on the party's sheets.
+ * A starting point for the DM to edit, never something to post as it stands.
+ */
+export async function draftRecapAction(
+  sessionId: string
+): Promise<Result<RecapDraft>> {
+  try {
+    return { ok: true, data: await draftRecap(sessionId) };
+  } catch (err) {
+    return fail(err, 'Failed to put a draft together.');
   }
 }
 
