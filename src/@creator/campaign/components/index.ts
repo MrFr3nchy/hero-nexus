@@ -3,6 +3,7 @@ export { CampaignDashboard } from './CampaignDashboard';
 export { AwardsPanel } from './AwardsPanel';
 export { CampaignDetail } from './CampaignDetail';
 export { CampaignManageForm } from './CampaignManageForm';
+export { CampaignSearch } from './CampaignSearch';
 export { DmScreen } from './screen/DmScreen';
 export { ChroniclePanel } from './ChroniclePanel';
 export { ClocksPanel } from './ClocksPanel';

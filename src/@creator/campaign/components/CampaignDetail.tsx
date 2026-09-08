@@ -18,6 +18,7 @@ import { countdownWords, formatCalendarDate } from '@/@shared/lib/dates';
 import type { CampaignPulse } from '@/server/campaign-pulse';
 import type { CampaignRow } from '@/server/campaigns';
 import { getCampaignPulseAction } from '../chronicle-actions';
+import { CampaignSearch } from './CampaignSearch';
 import { CanonPanel } from './CanonPanel';
 import { AwardsPanel } from './AwardsPanel';
 import { ChroniclePanel } from './ChroniclePanel';
@@ -198,6 +199,10 @@ export function CampaignDetail({
       <Fleuron />
 
       <div className="mt-5">
+        {/* Above the tabs, because the whole point is not having to know which
+            tab the answer is on. */}
+        <CampaignSearch campaignId={campaign.id} />
+
         {/* Moving tabs re-reads the counts: a quest pinned or a recap handed
             over changes the ledger line, and a stale number is worse than a
             slightly late one. */}
