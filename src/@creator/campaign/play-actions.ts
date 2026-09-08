@@ -6,7 +6,9 @@ import {
   applyPlayPatch,
   getPlayState,
   listPartyPlayState,
+  restParty,
   setPlayConditions,
+  spendHitDice,
   type PlayState,
 } from '@/server/play';
 
@@ -20,6 +22,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_AUTHENTICATED: 'You are not signed in.',
     SESSION_STALE: 'Your session is out of date. Sign in again.',
     NOT_FOUND: 'That character no longer exists.',
+    NO_HIT_DICE: 'There are no hit dice left to spend.',
     FORBIDDEN: 'That sheet is not yours to change.',
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
@@ -41,6 +44,7 @@ const patchSchema = z.object({
     })
     .optional(),
   longRest: z.boolean().optional(),
+  exhaustionDelta: z.number().int().min(-1).max(1).optional(),
 });
 
 export async function getPlayStateAction(
@@ -74,6 +78,36 @@ export async function applyPlayPatchAction(
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Failed to update the sheet.');
+  }
+}
+
+/**
+ * Spend hit dice on a short rest. The dice are rolled on the server and land
+ * in the shared log, so the table sees what was rolled.
+ */
+export async function spendHitDiceAction(
+  characterId: string,
+  campaignId: string | null,
+  count: number
+): Promise<Result<PlayState>> {
+  try {
+    const data = await spendHitDice(characterId, campaignId, count);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Failed to spend the hit dice.');
+  }
+}
+
+/** Rest the whole party at once. Staff only. */
+export async function restPartyAction(
+  campaignId: string,
+  kind: 'short' | 'long'
+): Promise<Result<{ rested: number }>> {
+  try {
+    const rested = await restParty(campaignId, kind);
+    return { ok: true, data: { rested } };
+  } catch (err) {
+    return fail(err, 'Failed to call the rest.');
   }
 }
 

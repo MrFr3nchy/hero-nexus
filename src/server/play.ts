@@ -17,8 +17,14 @@ import type {
   CharacterSheet,
   SpellSlotLevel,
 } from '@/@creator/character/schema';
+import { rollDie } from '@/@shared/lib/dice';
 import { db } from '@/db';
-import { campaignMembers, characters, initiativeEntries } from '@/db/schema';
+import {
+  campaignMembers,
+  campaignRolls,
+  characters,
+  initiativeEntries,
+} from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
 import { requireUserId } from './session-user';
 
@@ -50,6 +56,8 @@ export interface PlayState {
   hitDieSize: number;
   deathSaveSuccesses: number;
   deathSaveFailures: number;
+  /** 0–6. Six is death, which is why it is a number and not a chip. */
+  exhaustion: number;
 
   armorClass: number;
   speed: number;
@@ -87,6 +95,8 @@ export interface PlayPatch {
   slot?: { level: number; expended: number };
   /** Clears both death-save tracks and restores HP to max. */
   longRest?: boolean;
+  /** Up or down one level of exhaustion at a time. */
+  exhaustionDelta?: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -154,6 +164,7 @@ function toPlayState(
     hitDieSize: sheet.combat?.hitDieSize ?? 8,
     deathSaveSuccesses: sheet.combat?.deathSaveSuccesses ?? 0,
     deathSaveFailures: sheet.combat?.deathSaveFailures ?? 0,
+    exhaustion: sheet.combat?.exhaustion ?? 0,
 
     armorClass: sheet.combat?.armorClass ?? 10,
     speed: sheet.combat?.speed ?? 30,
@@ -251,6 +262,17 @@ export async function applyPlayPatch(
     // down, minimum one — 2024 PHB.
     const back = Math.max(1, Math.floor(combat.hitDiceMax / 2));
     combat.hitDiceSpent = Math.max(0, combat.hitDiceSpent - back);
+    // And it removes one level of exhaustion. Forgetting this is how a party
+    // carries a −2 on every roll for three sessions without noticing.
+    combat.exhaustion = Math.max(0, (combat.exhaustion ?? 0) - 1);
+  }
+
+  if (patch.exhaustionDelta) {
+    combat.exhaustion = clamp(
+      (combat.exhaustion ?? 0) + patch.exhaustionDelta,
+      0,
+      6
+    );
   }
 
   if (patch.hpCurrentDelta) {
@@ -334,6 +356,171 @@ export async function applyPlayPatch(
     canEdit,
     await conditionsFor(characterId)
   );
+}
+
+/**
+ * Spend hit dice on a short rest.
+ *
+ * The dice are rolled **on the server** and written to the shared roll log, so
+ * the table watches a rogue roll 3 and 2 on their d8s rather than being told a
+ * number. That is the same rule `campaign_rolls` exists for: a total the
+ * browser produced is a claim about a roll, not a record of one.
+ *
+ * Each die heals its roll plus the character's Constitution modifier, never
+ * below zero for that die — a Con of 6 costs you nothing extra, it just stops
+ * helping (2024 PHB).
+ */
+export async function spendHitDice(
+  characterId: string,
+  campaignId: string | null,
+  count: number
+): Promise<PlayState> {
+  const { character, canEdit } = await authorize(characterId, campaignId);
+  if (!canEdit) throw new Error('FORBIDDEN');
+
+  const sheet = character.sheet as CharacterSheet;
+  const combat = { ...sheet.combat };
+
+  const available = Math.max(0, combat.hitDiceMax - combat.hitDiceSpent);
+  const spending = Math.max(0, Math.min(available, Math.trunc(count) || 0));
+  if (spending === 0) throw new Error('NO_HIT_DICE');
+
+  const conMod = abilityModifier(sheet.abilities?.constitution?.score ?? 10);
+  const size = combat.hitDieSize || 8;
+
+  const dice: number[] = [];
+  let healed = 0;
+  for (let i = 0; i < spending; i++) {
+    const roll = rollDie(size);
+    dice.push(roll);
+    healed += Math.max(0, roll + conMod);
+  }
+
+  combat.hitDiceSpent = combat.hitDiceSpent + spending;
+  combat.hitPointsCurrent = Math.min(
+    combat.hitPointsMax,
+    combat.hitPointsCurrent + healed
+  );
+  // Back on your feet, so the death-save tracks go — the same rule the rest of
+  // the play patch follows.
+  if (combat.hitPointsCurrent > 0) {
+    combat.deathSaveSuccesses = 0;
+    combat.deathSaveFailures = 0;
+  }
+
+  const next: CharacterSheet = { ...sheet, combat };
+
+  await db
+    .update(characters)
+    .set({ sheet: next, updatedAt: new Date().toISOString() })
+    .where(eq(characters.id, characterId));
+
+  await db
+    .update(initiativeEntries)
+    .set({
+      hpCurrent: combat.hitPointsCurrent,
+      hpMax: combat.hitPointsMax,
+      hpTemp: combat.hitPointsTemp,
+    })
+    .where(eq(initiativeEntries.characterId, characterId));
+
+  if (campaignId) {
+    await db.insert(campaignRolls).values({
+      campaignId,
+      actorUserId: character.ownerId,
+      characterId,
+      actorName: character.name,
+      label: `Short rest — ${spending} hit di${spending === 1 ? 'e' : 'ce'}`,
+      notation: `${spending}d${size}${conMod >= 0 ? '+' : ''}${conMod * spending}`,
+      dice,
+      dropped: [],
+      modifier: conMod * spending,
+      total: healed,
+      visibility: 'table',
+    });
+  }
+
+  return toPlayState(
+    { ...character, sheet: next },
+    canEdit,
+    await conditionsFor(characterId)
+  );
+}
+
+/**
+ * Rest the whole party.
+ *
+ * A DM saying "you take a long rest" is one sentence at the table and was five
+ * separate presses here, one per sheet, with the fifth forgotten. Staff only,
+ * because it moves everybody's numbers.
+ *
+ * A short rest here does *not* spend anyone's hit dice: how many to burn is
+ * each player's own decision, and spending them for somebody is the one part
+ * of a rest that is not the DM's call.
+ */
+export async function restParty(
+  campaignId: string,
+  kind: 'short' | 'long'
+): Promise<number> {
+  await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+
+  const rows = await db
+    .select({ character: characters })
+    .from(campaignMembers)
+    .innerJoin(characters, eq(characters.id, campaignMembers.characterId))
+    .where(
+      and(
+        eq(campaignMembers.campaignId, campaignId),
+        eq(campaignMembers.status, 'active')
+      )
+    );
+
+  let rested = 0;
+  for (const row of rows) {
+    const sheet = row.character.sheet as CharacterSheet;
+    const combat = { ...sheet.combat };
+    const spellcasting = {
+      ...sheet.spellcasting,
+      slots: { ...sheet.spellcasting.slots },
+    };
+
+    if (kind === 'long') {
+      combat.hitPointsCurrent = combat.hitPointsMax;
+      combat.hitPointsTemp = 0;
+      combat.deathSaveSuccesses = 0;
+      combat.deathSaveFailures = 0;
+      combat.hitDiceSpent = Math.max(
+        0,
+        combat.hitDiceSpent - Math.max(1, Math.floor(combat.hitDiceMax / 2))
+      );
+      combat.exhaustion = Math.max(0, (combat.exhaustion ?? 0) - 1);
+      for (const key of SLOT_KEYS) {
+        spellcasting.slots[key] = { ...spellcasting.slots[key], expended: 0 };
+      }
+    } else {
+      // A short rest restores temporary hit points to nobody and slots to
+      // nobody: what it actually clears is the fight, and the hit dice are
+      // spent by their owners.
+      combat.hitPointsTemp = 0;
+    }
+
+    const next: CharacterSheet = { ...sheet, combat, spellcasting };
+    await db
+      .update(characters)
+      .set({ sheet: next, updatedAt: new Date().toISOString() })
+      .where(eq(characters.id, row.character.id));
+    await db
+      .update(initiativeEntries)
+      .set({
+        hpCurrent: combat.hitPointsCurrent,
+        hpMax: combat.hitPointsMax,
+        hpTemp: combat.hitPointsTemp,
+      })
+      .where(eq(initiativeEntries.characterId, row.character.id));
+    rested += 1;
+  }
+
+  return rested;
 }
 
 /** Set the conditions the tracker has this character under. Staff only. */

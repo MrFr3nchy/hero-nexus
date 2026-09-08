@@ -472,6 +472,12 @@ export const characterSheetSchema = z.object({
     hitDieSize: z.number().int().min(4).max(12).default(8),
     deathSaveSuccesses: z.number().int().min(0).max(3).default(0),
     deathSaveFailures: z.number().int().min(0).max(3).default(0),
+    /**
+     * Exhaustion level, 0–6. Its own number rather than a condition, because
+     * it is the one condition that stacks and the one whose sixth level kills
+     * you — a chip that says "Exhausted" and nothing else is unusable.
+     */
+    exhaustion: z.number().int().min(0).max(6).default(0),
   }),
 
   abilities,
@@ -596,6 +602,7 @@ export function makeEmptySheet(): CharacterSheet {
       hitDieSize: 8,
       deathSaveSuccesses: 0,
       deathSaveFailures: 0,
+      exhaustion: 0,
     },
     abilities: {
       strength: { score: 10, proficientSave: false },
