@@ -14,6 +14,7 @@ export { ImagePicker } from './ImagePicker';
 export { JoinCampaignForm } from './JoinCampaignForm';
 export { JournalPanel } from './JournalPanel';
 export { LedgerPanel } from './LedgerPanel';
+export { MapPanel } from './MapPanel';
 export { MembersPanel } from './MembersPanel';
 export { NotebookPanel, SharedNotes } from './NotebookPanel';
 export { PartyPlayPanel } from './PartyPlayPanel';

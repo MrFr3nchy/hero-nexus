@@ -28,6 +28,7 @@ import { CampaignContentPanel } from './CampaignContentPanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { LedgerPanel } from './LedgerPanel';
 import { JournalPanel } from './JournalPanel';
+import { MapPanel } from './MapPanel';
 import { MembersPanel } from './MembersPanel';
 import { NotebookPanel, SharedNotes } from './NotebookPanel';
 import { PartySecrets } from './PartySecrets';
@@ -339,12 +340,16 @@ export function CampaignDetail({
           </Tab>
 
           <Tab key="canon" title={<TabTitle glyph="tome" label="Canon" />}>
-            <div className="pt-4">
+            <div className="space-y-5 pt-4">
               <CanonPanel
                 campaignId={campaign.id}
                 viewerId={viewerId}
                 viewerRole={campaign.role}
               />
+
+              {/* Maps sit with the canon because a pin is a way into it: the
+                  places are already written down, this says where they are. */}
+              <MapPanel campaignId={campaign.id} viewerRole={campaign.role} />
             </div>
           </Tab>
 
