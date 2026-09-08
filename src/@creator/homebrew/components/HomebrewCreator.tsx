@@ -308,31 +308,45 @@ export function HomebrewCreator() {
               />
             </div>
 
-            <Switch
-              className="max-w-full"
-              classNames={{ label: 'ml-2 text-sm text-ink-muted' }}
-              isSelected={draft.visibility === 'public'}
-              onValueChange={v =>
-                setDraft(d => ({ ...d, visibility: v ? 'public' : 'private' }))
-              }
-            >
-              Share to the public marketplace
-            </Switch>
+            {/*
+              A flex column, not `space-y-4`: HeroUI renders both the Switch
+              and the Button `inline-flex`, so vertical spacing does nothing
+              between them and the two shared a line with the button sitting
+              flush against the end of the switch's label. This is the case
+              the design language bans by name.
+            */}
+            <div className="flex flex-col items-start gap-4">
+              <Switch
+                className="max-w-full"
+                classNames={{ label: 'ml-2 text-sm text-ink-muted' }}
+                isSelected={draft.visibility === 'public'}
+                onValueChange={v =>
+                  setDraft(d => ({
+                    ...d,
+                    visibility: v ? 'public' : 'private',
+                  }))
+                }
+              >
+                Share to the public marketplace
+              </Switch>
 
-            {error && (
-              <p className="w-full rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-                {error}
-              </p>
-            )}
+              {error && (
+                <p className="w-full rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+                  {error}
+                </p>
+              )}
 
-            <Button
-              color="primary"
-              isLoading={saving}
-              isDisabled={!draft.name.trim()}
-              onPress={handleSave}
-            >
-              {draft.id ? 'Save changes' : `Forge ${meta.label.toLowerCase()}`}
-            </Button>
+              <Button
+                color="primary"
+                isLoading={saving}
+                isDisabled={!draft.name.trim()}
+                onPress={handleSave}
+              >
+                {draft.id
+                  ? 'Save changes'
+                  : `Forge ${meta.label.toLowerCase()}`}
+              </Button>
+            </div>
           </div>
 
           {/* The thing itself */}
