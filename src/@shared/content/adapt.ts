@@ -26,6 +26,7 @@ import {
   type BackgroundData,
   type ClassData,
   type FeatData,
+  type CreatureData,
   type ItemData,
   type SpeciesData,
   type SpellData,
@@ -42,6 +43,7 @@ export const REFERENCE_CATEGORIES: Record<string, ContentType> = {
   'magic-item': 'item',
   weapon: 'item',
   armor: 'item',
+  creature: 'creature',
 };
 
 interface ReferenceRow {
@@ -235,6 +237,121 @@ function itemFromSrd(category: string, raw: Record<string, unknown>): ItemData {
 }
 
 /**
+ * Open5e keeps every kind of turn in one `actions` array, distinguished by
+ * `action_type`. A stat block reads them as separate headings, so they are
+ * split here rather than in the renderer — the split is a fact about the data,
+ * not a choice about the layout.
+ *
+ * The values arrive SHOUTED (`LEGENDARY_ACTION`), which is why this compares
+ * case-insensitively: matching them literally silently filed all 989 actions
+ * in the SRD under nothing and printed 331 monsters that do not attack.
+ */
+function creatureActions(
+  raw: Record<string, unknown>,
+  wanted: string
+): { name: string; desc: string }[] {
+  const rows = Array.isArray(raw.actions)
+    ? (raw.actions as Record<string, unknown>[])
+    : [];
+  return rows
+    .filter(a => (str(a.action_type) || 'action').toLowerCase() === wanted)
+    .map(a => ({ name: str(a.name), desc: str(a.desc) }));
+}
+
+/** `[{ name: 'Acid', key: 'acid' }]` -> `['acid']`. */
+function keyList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(v => keyOf(v) || nameOf(v)).filter(Boolean);
+}
+
+/**
+ * The proficiency bonus a monster fights with.
+ *
+ * Open5e leaves `proficiency_bonus` null on the SRD rows, and a stat block
+ * without one cannot explain its own attack bonuses. It is a pure function of
+ * challenge rating in the 2024 rules, so derive it rather than shipping a null
+ * that renders as a hole.
+ */
+function proficiencyForChallenge(cr: number): number {
+  if (cr < 5) return 2;
+  return 2 + Math.floor((Math.ceil(cr) - 1) / 4);
+}
+
+function creatureFromSrd(raw: Record<string, unknown>): CreatureData {
+  const speed = (raw.speed ?? {}) as Record<string, unknown>;
+  const abilities = (raw.ability_scores ?? {}) as Record<string, unknown>;
+  const resist = (raw.resistances_and_immunities ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const cr = Number(raw.challenge_rating ?? 0) || 0;
+
+  return parseContentData('creature', {
+    size: keyOf(raw.size) || 'medium',
+    creature_type: nameOf(raw.type),
+    alignment: str(raw.alignment ?? ''),
+
+    armor_class: Number(raw.armor_class ?? 10) || 10,
+    armor_detail: str(raw.armor_detail ?? ''),
+    hit_points: Number(raw.hit_points ?? 1) || 1,
+    hit_dice: str(raw.hit_dice ?? ''),
+    challenge_rating: cr,
+    experience_points: Number(raw.experience_points ?? 0) || 0,
+    proficiency_bonus:
+      Number(raw.proficiency_bonus ?? 0) || proficiencyForChallenge(cr),
+    initiative_bonus: Number(raw.initiative_bonus ?? 0) || 0,
+    passive_perception: Number(raw.passive_perception ?? 10) || 10,
+
+    speed: {
+      walk: Number(speed.walk ?? 0) || 0,
+      fly: Number(speed.fly ?? 0) || 0,
+      swim: Number(speed.swim ?? 0) || 0,
+      climb: Number(speed.climb ?? 0) || 0,
+      burrow: Number(speed.burrow ?? 0) || 0,
+      hover: Boolean(speed.hover),
+    },
+    ability_scores: {
+      strength: Number(abilities.strength ?? 10) || 10,
+      dexterity: Number(abilities.dexterity ?? 10) || 10,
+      constitution: Number(abilities.constitution ?? 10) || 10,
+      intelligence: Number(abilities.intelligence ?? 10) || 10,
+      wisdom: Number(abilities.wisdom ?? 10) || 10,
+      charisma: Number(abilities.charisma ?? 10) || 10,
+    },
+    // Open5e's `saving_throws` holds only the proficient ones, which is the
+    // distinction the schema keeps; `saving_throws_all` fills in the rest and
+    // is deliberately ignored.
+    saving_throws: raw.saving_throws ?? {},
+    skill_bonuses: raw.skill_bonuses ?? {},
+
+    damage_immunities: keyList(resist.damage_immunities),
+    damage_resistances: keyList(resist.damage_resistances),
+    damage_vulnerabilities: keyList(resist.damage_vulnerabilities),
+    condition_immunities: keyList(resist.condition_immunities),
+
+    darkvision: Number(raw.darkvision_range ?? 0) || 0,
+    blindsight: Number(raw.blindsight_range ?? 0) || 0,
+    tremorsense: Number(raw.tremorsense_range ?? 0) || 0,
+    truesight: Number(raw.truesight_range ?? 0) || 0,
+
+    languages: str(
+      (raw.languages as { as_string?: unknown } | undefined)?.as_string ?? ''
+    ),
+
+    traits: Array.isArray(raw.traits)
+      ? (raw.traits as Record<string, unknown>[]).map(t => ({
+          name: str(t.name),
+          desc: str(t.desc),
+        }))
+      : [],
+    actions: creatureActions(raw, 'action'),
+    bonus_actions: creatureActions(raw, 'bonus_action'),
+    reactions: creatureActions(raw, 'reaction'),
+    legendary_actions: creatureActions(raw, 'legendary_action'),
+  });
+}
+
+/**
  * One SRD row as a `ContentEntry`. Returns null for a category this app does
  * not model as content (alignments, languages, skills, conditions) and for a
  * subclass row, which Open5e mixes into `classes` — the caller decides how to
@@ -270,6 +387,9 @@ export function fromReference(
       break;
     case 'item':
       data = itemFromSrd(category, raw);
+      break;
+    case 'creature':
+      data = creatureFromSrd(raw);
       break;
     default:
       return null;

@@ -6,10 +6,12 @@ import { type ReactNode } from 'react';
 import {
   contentChips,
   contentMeta,
+  formatChallenge,
   parseContentData,
   type BackgroundData,
   type ClassData,
   type ContentEntry,
+  type CreatureData,
   type FeatData,
   type ItemData,
   type SpeciesData,
@@ -401,12 +403,160 @@ function FeatBody({ d }: { d: FeatData }) {
   );
 }
 
+/** `+3` / `-1` — a bonus is only readable with its sign. */
+const signed = (n: number): string => (n >= 0 ? `+${n}` : String(n));
+
+const abilityMod = (score: number): number => Math.floor((score - 10) / 2);
+
+const ABILITY_ORDER = [
+  ['strength', 'STR'],
+  ['dexterity', 'DEX'],
+  ['constitution', 'CON'],
+  ['intelligence', 'INT'],
+  ['wisdom', 'WIS'],
+  ['charisma', 'CHA'],
+] as const;
+
+function CreatureBody({ d }: { d: CreatureData }) {
+  const speeds = [
+    d.speed.walk > 0 ? `${d.speed.walk} ft.` : null,
+    d.speed.fly > 0
+      ? `fly ${d.speed.fly} ft.${d.speed.hover ? ' (hover)' : ''}`
+      : null,
+    d.speed.swim > 0 ? `swim ${d.speed.swim} ft.` : null,
+    d.speed.climb > 0 ? `climb ${d.speed.climb} ft.` : null,
+    d.speed.burrow > 0 ? `burrow ${d.speed.burrow} ft.` : null,
+  ].filter(Boolean) as string[];
+
+  const senses = [
+    d.darkvision > 0 ? `darkvision ${d.darkvision} ft.` : null,
+    d.blindsight > 0 ? `blindsight ${d.blindsight} ft.` : null,
+    d.tremorsense > 0 ? `tremorsense ${d.tremorsense} ft.` : null,
+    d.truesight > 0 ? `truesight ${d.truesight} ft.` : null,
+    `passive Perception ${d.passive_perception}`,
+  ].filter(Boolean) as string[];
+
+  const saves = Object.entries(d.saving_throws ?? {}).filter(
+    ([, v]) => typeof v === 'number'
+  );
+  const skills = Object.entries(d.skill_bonuses ?? {}).filter(
+    ([, v]) => typeof v === 'number'
+  );
+
+  return (
+    <>
+      <div className="grid gap-1.5 sm:grid-cols-2">
+        <Fact label="AC">
+          {d.armor_class}
+          {d.armor_detail ? ` (${d.armor_detail})` : ''}
+        </Fact>
+        <Fact label="HP">
+          {d.hit_points}
+          {d.hit_dice ? ` (${d.hit_dice})` : ''}
+        </Fact>
+        {speeds.length > 0 && <Fact label="Speed">{speeds.join(', ')}</Fact>}
+        <Fact label="Initiative">{signed(d.initiative_bonus)}</Fact>
+      </div>
+
+      {/* The six scores as the ability line every stat block opens with —
+          score first, then the modifier that actually gets rolled. */}
+      <div className="grid grid-cols-3 gap-2 rounded-md border border-line bg-surface-2 p-3 sm:grid-cols-6">
+        {ABILITY_ORDER.map(([key, label]) => {
+          const score = d.ability_scores[key];
+          return (
+            <div key={key} className="text-center">
+              <div className="font-display-alt text-[0.6rem] uppercase tracking-[0.14em] text-ink-subtle">
+                {label}
+              </div>
+              <div className="text-sm text-ink">{score}</div>
+              <div className="text-xs text-ink-muted">
+                {signed(abilityMod(score))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-1.5 sm:grid-cols-2">
+        {saves.length > 0 && (
+          <Fact label="Saves">
+            {saves
+              .map(
+                ([k, v]) => `${titleCase(k).slice(0, 3)} ${signed(v as number)}`
+              )
+              .join(', ')}
+          </Fact>
+        )}
+        {skills.length > 0 && (
+          <Fact label="Skills">
+            {skills
+              .map(([k, v]) => `${titleCase(k)} ${signed(v as number)}`)
+              .join(', ')}
+          </Fact>
+        )}
+        {d.damage_vulnerabilities.length > 0 && (
+          <Fact label="Vulnerable">{listOf(d.damage_vulnerabilities)}</Fact>
+        )}
+        {d.damage_resistances.length > 0 && (
+          <Fact label="Resistant">{listOf(d.damage_resistances)}</Fact>
+        )}
+        {d.damage_immunities.length > 0 && (
+          <Fact label="Immune">{listOf(d.damage_immunities)}</Fact>
+        )}
+        {d.condition_immunities.length > 0 && (
+          <Fact label="Cond. immune">{listOf(d.condition_immunities)}</Fact>
+        )}
+        <Fact label="Senses">{senses.join(', ')}</Fact>
+        {d.languages && <Fact label="Languages">{d.languages}</Fact>}
+        <Fact label="CR">
+          {formatChallenge(d.challenge_rating)}
+          {d.experience_points > 0
+            ? ` (${d.experience_points.toLocaleString()} XP)`
+            : ''}
+          {`, PB ${signed(d.proficiency_bonus)}`}
+        </Fact>
+      </div>
+
+      {d.traits.length > 0 && (
+        <Group title="Traits">
+          <div className="space-y-3">
+            {d.traits.map((t, i) => (
+              <Passage key={`${t.name}-${i}`} name={t.name} body={t.desc} />
+            ))}
+          </div>
+        </Group>
+      )}
+
+      {(
+        [
+          ['Actions', d.actions],
+          ['Bonus actions', d.bonus_actions],
+          ['Reactions', d.reactions],
+          ['Legendary actions', d.legendary_actions],
+        ] as const
+      ).map(([title, rows]) =>
+        rows.length > 0 ? (
+          <Group key={title} title={title}>
+            <div className="space-y-3">
+              {rows.map((a, i) => (
+                <Passage key={`${a.name}-${i}`} name={a.name} body={a.desc} />
+              ))}
+            </div>
+          </Group>
+        ) : null
+      )}
+    </>
+  );
+}
+
 function Body({ entry }: { entry: ContentEntry }) {
   switch (entry.type) {
     case 'spell':
       return <SpellBody d={parseContentData('spell', entry.data)} />;
     case 'item':
       return <ItemBody d={parseContentData('item', entry.data)} />;
+    case 'creature':
+      return <CreatureBody d={parseContentData('creature', entry.data)} />;
     case 'class':
       return <ClassBody d={parseContentData('class', entry.data)} />;
     case 'subclass':

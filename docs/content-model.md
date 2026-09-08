@@ -10,7 +10,8 @@ typed defs, and `homebrew.data` held `{}` and was never read. One renderer, one 
 and one validator cannot serve two vocabularies. So both sources adapt into
 `ContentEntry`, and nothing downstream knows or cares which it is looking at.
 
-The seven types are **class, subclass, species, background, feat, spell, item**.
+The eight types are **class, subclass, species, background, feat, spell, item,
+creature**.
 
 ---
 
@@ -50,10 +51,11 @@ interfaces in `@/@creator/character/lib/srd/types.ts`. `srd/parse.ts` exists onl
 mechanics out of Open5e's prose — a form has no prose to parse, so a homebrew author
 fills the parsed fields directly and no parser sits in the middle.
 
-Homebrew `data` for **spell and item** mirrors the _raw_ Open5e field names
-(`casting_time`, `damage_types`, `requires_attunement`, `ac_base`). Those rows were
-never parsed; the compendium and `ReferenceBrowser` have always read them raw. Renaming
-them here would fork the one shape the app already displays.
+Homebrew `data` for **spell, item and creature** mirrors the _raw_ Open5e field names
+(`casting_time`, `damage_types`, `requires_attunement`, `ac_base`, `armor_class`,
+`hit_points`, `challenge_rating`). Those rows were never parsed; the compendium and
+`ReferenceBrowser` have always read them raw. Renaming them here would fork the one
+shape the app already displays.
 
 The payoff is that `from-content.ts` is a re-labelling — it fills in the `key`, `name`
 and `source` that live on the entry rather than in its `data` — and the wizard consumes

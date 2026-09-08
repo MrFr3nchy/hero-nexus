@@ -27,6 +27,7 @@ const COMPENDIUM: NavItem[] = [
   { name: 'Forge', href: '/creator', icon: 'ph:sparkle-bold' },
   { name: 'Classes', href: '/classes', icon: 'ph:shield-bold' },
   { name: 'Spells', href: '/spells', icon: 'ph:magic-wand-bold' },
+  { name: 'Bestiary', href: '/bestiary', icon: 'ph:paw-print-bold' },
   { name: 'Market', href: '/marketplace', icon: 'ph:storefront-bold' },
 ];
 

@@ -16,6 +16,7 @@ import {
   type BackgroundData,
   type ClassData,
   type FeatData,
+  type CreatureData,
   type ItemData,
   type SpeciesData,
   type SpellData,
@@ -57,6 +58,20 @@ const titleCase = (s: string): string => {
 };
 
 const list = (values: string[]): string => values.map(titleCase).join(', ');
+
+/**
+ * `0.125` is a real challenge rating and reads as 1/8 on every stat block ever
+ * printed. Rendering it as a decimal is how a monster manual stops looking
+ * like one.
+ */
+const FRACTIONAL_CR: Record<string, string> = {
+  '0.125': '1/8',
+  '0.25': '1/4',
+  '0.5': '1/2',
+};
+
+export const formatChallenge = (cr: number): string =>
+  FRACTIONAL_CR[String(cr)] ?? String(cr);
 
 const plural = (n: number, word: string): string =>
   `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -186,6 +201,26 @@ export const CONTENT_REGISTRY: Record<ContentType, ContentTypeMeta> = {
       ].filter(Boolean) as string[];
     },
   },
+
+  creature: {
+    id: 'creature',
+    label: 'Creature',
+    plural: 'Bestiary',
+    glyph: 'dragon',
+    description:
+      'What the party is fighting — CR, AC, hit points, what it does on its turn.',
+    chips: entry => {
+      const d = parseContentData('creature', entry.data) as CreatureData;
+      return [
+        `CR ${formatChallenge(d.challenge_rating)}`,
+        [titleCase(d.size), titleCase(d.creature_type)]
+          .filter(Boolean)
+          .join(' ') || null,
+        `AC ${d.armor_class}`,
+        `${d.hit_points} HP`,
+      ].filter(Boolean) as string[];
+    },
+  },
 };
 
 /** Ordered for pickers: what a character is, then what it carries. */
@@ -197,6 +232,7 @@ export const CONTENT_TYPE_ORDER: ContentType[] = [
   'feat',
   'spell',
   'item',
+  'creature',
 ];
 
 export function contentMeta(type: ContentType): ContentTypeMeta {

@@ -223,6 +223,7 @@ export const homebrew = sqliteTable(
         'subclass',
         'background',
         'feat',
+        'creature',
       ],
     }).notNull(),
     name: text('name').notNull(),

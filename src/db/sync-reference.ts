@@ -41,6 +41,7 @@ const ENDPOINTS: Record<string, string> = {
   skill: 'skills',
   spell: 'spells',
   'magic-item': 'magicitems',
+  creature: 'creatures',
   weapon: 'weapons',
   armor: 'armor',
 };

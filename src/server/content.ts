@@ -2,11 +2,13 @@ import 'server-only';
 
 import {
   fromReference,
+  parseContentData,
   refKey,
   REFERENCE_CATEGORIES,
   type ContentEntry,
   type ContentRef,
   type ContentType,
+  type CreatureData,
 } from '@/@shared/content';
 
 import { listCampaignContent } from './campaign-content';
@@ -33,6 +35,7 @@ const CATEGORIES_FOR: Record<ContentType, string[]> = {
   feat: ['feat'],
   spell: ['spell'],
   item: ['magic-item', 'weapon', 'armor'],
+  creature: ['creature'],
 };
 
 /** Every SRD entry of one type, adapted and sorted by name. */
@@ -141,4 +144,44 @@ export async function listPickableContent(
   }
 
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * One line per monster a DM might drop into a fight.
+ *
+ * Deliberately not `ContentEntry[]`: the tracker's picker needs a name and the
+ * four numbers that go on an initiative row, and shipping 300 full stat blocks
+ * — every trait, every action, every legendary action — down to a dropdown is
+ * megabytes to render a list of names.
+ */
+export interface CombatantChoice {
+  /** `refKey` of the creature — unique, so it keys the list. */
+  key: string;
+  /** Sent straight back when the DM picks it; never rebuilt from `key`. */
+  ref: ContentRef;
+  name: string;
+  challengeRating: number;
+  armorClass: number;
+  hitPoints: number;
+  initiativeBonus: number;
+  isHomebrew: boolean;
+}
+
+export async function listCombatantChoices(
+  campaignId?: string
+): Promise<CombatantChoice[]> {
+  const entries = await listPickableContent('creature', campaignId);
+  return entries.map(entry => {
+    const d = parseContentData('creature', entry.data) as CreatureData;
+    return {
+      key: refKey(entry.ref),
+      ref: entry.ref,
+      name: entry.name,
+      challengeRating: d.challenge_rating,
+      armorClass: d.armor_class,
+      hitPoints: d.hit_points,
+      initiativeBonus: d.initiative_bonus,
+      isHomebrew: entry.ref.source === 'homebrew',
+    };
+  });
 }

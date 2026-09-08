@@ -157,6 +157,7 @@ export function SessionPanel({ campaignId }: { campaignId: string }) {
       />
 
       <InitiativeTracker
+        campaignId={campaignId}
         state={state}
         isStaff={isStaff}
         refresh={refresh}

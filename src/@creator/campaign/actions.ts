@@ -9,8 +9,10 @@ import {
   type ApprovalRow,
 } from '@/server/approvals';
 import { ABILITY_METHODS } from '@/@creator/character/schema';
+import type { ContentRef } from '@/@shared/content';
 import {
   addEntry,
+  addCreaturesToEncounter,
   addPartyToEncounter,
   advanceTurn,
   applyHp,
@@ -111,6 +113,8 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_YOUR_CHARACTER: 'That character is not yours.',
     NOT_A_MEMBER: 'You are not a member of this campaign.',
     INVITE_NOT_PENDING: 'That invite is no longer pending.',
+    NOT_A_CREATURE: 'Only a creature can be sent into a fight.',
+    NO_SUCH_CREATURE: 'That creature is no longer in the bestiary.',
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
   // invisible in a bug report. Keep the real one in the server log.
@@ -402,6 +406,13 @@ export async function addEntryAction(
 }
 export async function addPartyAction(encounterId: string): Promise<Result> {
   return sessionAction(() => addPartyToEncounter(encounterId));
+}
+export async function addCreaturesAction(
+  encounterId: string,
+  ref: ContentRef,
+  copies: number
+): Promise<Result> {
+  return sessionAction(() => addCreaturesToEncounter(encounterId, ref, copies));
 }
 export async function updateEntryAction(
   entryId: string,

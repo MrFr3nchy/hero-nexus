@@ -5,6 +5,11 @@ import { and, desc, eq } from 'drizzle-orm';
 import { serializeConditions } from '@/@creator/campaign/lib/conditions';
 import { abilityModifier } from '@/@creator/character/lib/derive';
 import type { CharacterSheet } from '@/@creator/character/schema';
+import {
+  parseContentData,
+  type ContentRef,
+  type CreatureData,
+} from '@/@shared/content';
 import { rollDie, rollNotation } from '@/@shared/lib/dice';
 import { db } from '@/db';
 import {
@@ -17,6 +22,7 @@ import {
   users,
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
+import { resolveContentRefs } from './content';
 
 /** How much of the roll log the live view carries. */
 const ROLL_LOG_LIMIT = 40;
@@ -479,6 +485,50 @@ export async function addPartyToEncounter(encounterId: string): Promise<void> {
  * the order. Foes get a flat d20 — a DM adding "Goblin" mid-fight has not told
  * the app the goblin's Dexterity, and a made-up modifier is worse than none.
  */
+
+/**
+ * Put a monster in the fight, with the numbers it already has.
+ *
+ * A DM adding three goblins was retyping AC 15 and 7 hit points three times
+ * from a stat block the app was already holding. The creature is resolved
+ * through `resolveContentRefs`, so a homebrew monster in the campaign's
+ * library drops in exactly like an SRD one.
+ *
+ * Initiative is rolled here rather than in the browser, for the same reason
+ * the shared roll log is: a number the client produced is a claim about a
+ * roll, not a record of one. Each copy rolls separately — three goblins that
+ * share one initiative are one goblin with three health bars.
+ */
+export async function addCreaturesToEncounter(
+  encounterId: string,
+  ref: ContentRef,
+  copies: number
+): Promise<void> {
+  await staff(await encounterCampaign(encounterId));
+  if (ref.type !== 'creature') throw new Error('NOT_A_CREATURE');
+
+  const resolved = await resolveContentRefs([ref]);
+  const entry = [...resolved.values()][0];
+  // Its own code, not NOT_FOUND: the campaign and the encounter are both fine,
+  // and telling the DM "campaign not found" when a monster is missing sends
+  // them looking in the wrong place.
+  if (!entry) throw new Error('NO_SUCH_CREATURE');
+
+  const d = parseContentData('creature', entry.data) as CreatureData;
+  const count = Math.max(1, Math.min(20, Math.trunc(copies) || 1));
+
+  for (let i = 0; i < count; i++) {
+    await addEntry(encounterId, {
+      label: entry.name,
+      initiative: rollDie(20) + d.initiative_bonus,
+      hpCurrent: d.hit_points,
+      hpMax: d.hit_points,
+      armorClass: d.armor_class,
+      side: 'foe',
+    });
+  }
+}
+
 export async function rollInitiative(encounterId: string): Promise<void> {
   await staff(await encounterCampaign(encounterId));
   const rows = await db
