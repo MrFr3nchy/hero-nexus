@@ -37,6 +37,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local dev mail sink (see src/server/mail-outbox.ts)
+/data/outbox/
+
 # local database + user uploads (data/srd/ IS committed)
 /data/hero-nexus.db
 /data/hero-nexus.db-*

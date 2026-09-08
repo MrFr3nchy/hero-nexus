@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
+import { CONTENT_TYPES } from '@/@shared/content';
+
 import {
   listMyApprovals,
   requestApproval,
@@ -19,9 +21,9 @@ import {
 } from '@/server/homebrew';
 
 const homebrewInputSchema = z.object({
-  type: z.enum(['class', 'spell', 'item']),
+  type: z.enum(CONTENT_TYPES),
   name: z.string().trim().min(1).max(120),
-  description: z.string().max(4000).optional(),
+  description: z.string().max(8000).optional(),
   data: z.unknown().optional(),
   visibility: z.enum(['private', 'public']).optional(),
   rpgSystem: z.string().max(40).optional(),

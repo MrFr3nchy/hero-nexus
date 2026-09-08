@@ -13,9 +13,10 @@ import {
   Switch,
   Textarea,
 } from '@heroui/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { listCampaignsAction } from '@/@creator/campaign/actions';
+import { StatBlock } from '@/@shared/components/StatBlock';
 import {
   DiceSpinner,
   EmptyState,
@@ -25,9 +26,17 @@ import {
   SectionCard,
   useConfirm,
 } from '@/@shared/components/ui';
+import {
+  contentMeta,
+  emptyContentData,
+  parseContentData,
+  type ContentEntry,
+  type ContentType,
+} from '@/@shared/content';
 import type { ApprovalRow } from '@/server/approvals';
 import type { CampaignRow } from '@/server/campaigns';
-import type { HomebrewRow, HomebrewType } from '@/server/homebrew';
+import type { HomebrewRow } from '@/server/homebrew';
+
 import {
   deleteHomebrewAction,
   listHomebrewAction,
@@ -35,7 +44,62 @@ import {
   saveHomebrewAction,
   submitHomebrewToCampaignAction,
 } from '../actions';
-import { HOMEBREW_TYPES, homebrewSchema } from '../schema';
+import { HOMEBREW_TYPES } from '../schema';
+import { ContentDataForm } from './forms/ContentDataForm';
+
+/**
+ * The Forge.
+ *
+ * Every type gets the fields its SRD equivalent has, and the stat block beside
+ * the form is the real renderer — what you see while writing a spell is
+ * exactly what the DM sees in the approval queue and what a player sees on a
+ * sheet. Design rule 1: the object is the hero, so the object is on screen the
+ * whole time rather than described by the form.
+ */
+
+interface Draft {
+  id: string | null;
+  type: ContentType;
+  name: string;
+  description: string;
+  visibility: 'private' | 'public';
+  data: unknown;
+}
+
+function newDraft(type: ContentType = 'spell'): Draft {
+  return {
+    id: null,
+    type,
+    name: '',
+    description: '',
+    visibility: 'private',
+    data: emptyContentData(type),
+  };
+}
+
+function draftFromRow(row: HomebrewRow): Draft {
+  return {
+    id: row.id,
+    type: row.type,
+    name: row.name,
+    description: row.description,
+    visibility: row.visibility,
+    data: parseContentData(row.type, row.data),
+  };
+}
+
+/** The draft as the thing it will become, so the preview is never a mock-up. */
+function draftEntry(draft: Draft): ContentEntry {
+  return {
+    ref: { source: 'homebrew', type: draft.type, key: draft.id ?? 'draft' },
+    type: draft.type,
+    name:
+      draft.name.trim() ||
+      `Unnamed ${contentMeta(draft.type).label.toLowerCase()}`,
+    description: draft.description,
+    data: draft.data,
+  };
+}
 
 export function HomebrewCreator() {
   const [items, setItems] = useState<HomebrewRow[]>([]);
@@ -44,13 +108,7 @@ export function HomebrewCreator() {
   const [saving, setSaving] = useState(false);
   const { confirm, dialog } = useConfirm();
 
-  const [form, setForm] = useState({
-    type: 'item' as HomebrewType,
-    name: '',
-    description: '',
-    visibility: 'private' as 'private' | 'public',
-  });
-
+  const [draft, setDraft] = useState<Draft>(() => newDraft());
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRow[]>([]);
 
@@ -72,36 +130,54 @@ export function HomebrewCreator() {
     }
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  /**
+   * Only tables that actually allow homebrew. Offering to submit to a table
+   * whose DM has switched homebrew off wastes everybody's time — the request
+   * would queue and sit there.
+   */
+  const submittableCampaigns = useMemo(
+    () => campaigns.filter(c => c.settings.allowHomebrew),
+    [campaigns]
+  );
+
   const submitTo = async (homebrewId: string, campaignId: string) => {
     const res = await submitHomebrewToCampaignAction(homebrewId, campaignId);
     if (!res.ok) setError(res.error ?? 'Failed to submit.');
     setApprovals(await listMyApprovalsAction());
   };
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const changeType = (type: ContentType) =>
+    // A spell's fields mean nothing to an item, so the stat data resets while
+    // the prose the author has already written is kept.
+    setDraft(d => ({ ...d, type, data: emptyContentData(type) }));
 
-  const handleCreate = async () => {
+  const handleSave = async () => {
     setError(null);
-    const parsed = homebrewSchema.safeParse({ ...form, data: {} });
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Invalid input.');
+    if (!draft.name.trim()) {
+      setError('Name is required.');
       return;
     }
     setSaving(true);
     try {
-      const result = await saveHomebrewAction(parsed.data);
+      const result = await saveHomebrewAction(
+        {
+          type: draft.type,
+          name: draft.name,
+          description: draft.description,
+          visibility: draft.visibility,
+          data: draft.data,
+        },
+        draft.id ?? undefined
+      );
       if (!result.ok) {
         setError(result.error ?? 'Failed to save.');
         return;
       }
-      setForm({
-        type: 'item',
-        name: '',
-        description: '',
-        visibility: 'private',
-      });
+      setDraft(newDraft(draft.type));
       await load();
     } finally {
       setSaving(false);
@@ -118,77 +194,119 @@ export function HomebrewCreator() {
     if (!ok) return;
     await deleteHomebrewAction(id);
     setItems(prev => prev.filter(i => i.id !== id));
+    if (draft.id === id) setDraft(newDraft());
   };
 
-  const typeMeta = (type: HomebrewType) =>
-    HOMEBREW_TYPES.find(t => t.id === type) ?? HOMEBREW_TYPES[2];
+  const meta = contentMeta(draft.type);
 
   return (
     <div className="space-y-6">
       {dialog}
-      <SectionCard title="Create homebrew">
-        <div className="flex flex-col items-start gap-4">
-          <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
-            <Input
-              label="Name"
-              value={form.name}
-              onValueChange={v => setForm(f => ({ ...f, name: v }))}
+
+      <SectionCard
+        framed
+        title={
+          draft.id ? `Editing ${draft.name || meta.label}` : 'Forge homebrew'
+        }
+        description={meta.description}
+        actions={
+          draft.id ? (
+            <Button
+              size="sm"
+              variant="flat"
+              onPress={() => setDraft(newDraft())}
+            >
+              New draft
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+          {/* The form */}
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input
+                size="sm"
+                label="Name"
+                value={draft.name}
+                onValueChange={v => setDraft(d => ({ ...d, name: v }))}
+              />
+              <Select
+                size="sm"
+                label="Type"
+                selectedKeys={[draft.type]}
+                isDisabled={draft.id !== null}
+                description={
+                  draft.id ? 'Type is fixed once forged.' : undefined
+                }
+                onSelectionChange={keys =>
+                  changeType(Array.from(keys)[0] as ContentType)
+                }
+              >
+                {HOMEBREW_TYPES.map(t => (
+                  <SelectItem key={t.id} textValue={t.name}>
+                    <span className="flex items-center gap-2">
+                      <Glyph name={t.glyph} size={15} />
+                      {t.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </Select>
+            </div>
+
+            <Textarea
+              size="sm"
+              label="Description"
+              value={draft.description}
+              onValueChange={v => setDraft(d => ({ ...d, description: v }))}
+              minRows={3}
+              placeholder="What it is, in the voice of the rulebook."
             />
-            <Select
-              label="Type"
-              selectedKeys={[form.type]}
-              onSelectionChange={keys =>
-                setForm(f => ({
-                  ...f,
-                  type: Array.from(keys)[0] as HomebrewType,
-                }))
+
+            <div className="border-t border-line pt-4">
+              <ContentDataForm
+                type={draft.type}
+                value={draft.data}
+                onChange={data => setDraft(d => ({ ...d, data }))}
+              />
+            </div>
+
+            <Switch
+              className="max-w-full"
+              classNames={{ label: 'ml-2 text-sm text-ink-muted' }}
+              isSelected={draft.visibility === 'public'}
+              onValueChange={v =>
+                setDraft(d => ({ ...d, visibility: v ? 'public' : 'private' }))
               }
             >
-              {HOMEBREW_TYPES.map(t => (
-                <SelectItem key={t.id} textValue={t.name}>
-                  <span className="flex items-center gap-2">
-                    <Glyph name={t.glyph} size={15} />
-                    {t.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </Select>
+              Share to the public marketplace
+            </Switch>
+
+            {error && (
+              <p className="w-full rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+                {error}
+              </p>
+            )}
+
+            <Button
+              color="primary"
+              isLoading={saving}
+              isDisabled={!draft.name.trim()}
+              onPress={handleSave}
+            >
+              {draft.id ? 'Save changes' : `Forge ${meta.label.toLowerCase()}`}
+            </Button>
           </div>
-          <Textarea
-            className="w-full"
-            label="Description"
-            value={form.description}
-            onValueChange={v => setForm(f => ({ ...f, description: v }))}
-            minRows={4}
-          />
-          <Switch
-            className="max-w-full"
-            classNames={{ label: 'ml-2 text-sm text-ink-muted' }}
-            isSelected={form.visibility === 'public'}
-            onValueChange={v =>
-              setForm(f => ({
-                ...f,
-                visibility: v ? 'public' : 'private',
-              }))
-            }
-          >
-            Share to the public marketplace
-          </Switch>
 
-          {error && (
-            <p className="w-full rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-              {error}
-            </p>
-          )}
-
-          <Button
-            color="primary"
-            isLoading={saving}
-            isDisabled={!form.name.trim()}
-            onPress={handleCreate}
-          >
-            Create {typeMeta(form.type).name.toLowerCase()}
-          </Button>
+          {/* The thing itself */}
+          <aside className="lg:sticky lg:top-4 lg:self-start">
+            <div className="rounded-[var(--radius-card)] border border-line bg-surface-2/40 p-4">
+              <p className="mb-3 font-display-alt text-[0.65rem] uppercase tracking-[0.14em] text-ink-subtle">
+                As it will be read
+              </p>
+              <StatBlock entry={draftEntry(draft)} showSource={false} />
+            </div>
+          </aside>
         </div>
       </SectionCard>
 
@@ -209,22 +327,23 @@ export function HomebrewCreator() {
               const itemApprovals = approvals.filter(
                 a => a.homebrewId === item.id
               );
+              const itemMeta = contentMeta(item.type);
               return (
                 <div
                   key={item.id}
                   className="flex flex-col rounded-[var(--radius-card)] border border-line bg-surface p-4"
                 >
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="flex items-center gap-2 font-medium text-ink">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2 font-medium text-ink">
                       <Glyph
-                        name={typeMeta(item.type).glyph}
+                        name={itemMeta.glyph}
                         size={16}
                         className="text-gold"
                       />
-                      {item.name}
+                      <span className="truncate">{item.name}</span>
                     </span>
                     <Chip size="sm" variant="flat" className="bg-surface-2">
-                      {item.visibility}
+                      {itemMeta.label}
                     </Chip>
                   </div>
                   <p className="mb-3 line-clamp-3 text-sm text-ink-muted">
@@ -250,8 +369,18 @@ export function HomebrewCreator() {
                     </ul>
                   )}
 
-                  <div className="mt-auto flex gap-2">
-                    {campaigns.length > 0 && (
+                  <div className="mt-auto flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      onPress={() => {
+                        setDraft(draftFromRow(item));
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                    >
+                      Edit
+                    </Button>
+                    {submittableCampaigns.length > 0 && (
                       <Dropdown>
                         <DropdownTrigger>
                           <Button size="sm" variant="flat" className="flex-1">
@@ -262,7 +391,7 @@ export function HomebrewCreator() {
                           aria-label="Submit to campaign"
                           onAction={key => submitTo(item.id, String(key))}
                         >
-                          {campaigns.map(c => (
+                          {submittableCampaigns.map(c => (
                             <DropdownItem key={c.id}>{c.name}</DropdownItem>
                           ))}
                         </DropdownMenu>

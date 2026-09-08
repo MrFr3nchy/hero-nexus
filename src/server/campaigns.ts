@@ -616,7 +616,7 @@ export async function setMemberCharacter(
  *  - `requireHomebrewApproval: false` — entries are recorded already approved,
  *    so the queue stays empty for tables that do not want to review homebrew.
  */
-async function submitCharacterHomebrewForApproval(
+export async function submitCharacterHomebrewForApproval(
   campaignId: string,
   characterId: string,
   userId: string

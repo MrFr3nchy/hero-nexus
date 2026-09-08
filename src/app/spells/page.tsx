@@ -5,20 +5,16 @@ import {
   PageHeader,
   PageShell,
 } from '@/@shared/components/ui';
-import { getReference } from '@/server/reference';
+import { listSrdContent } from '@/server/content';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SpellsPage() {
-  const spells = await getReference('spell');
-  const entries = spells.map(s => ({
-    slug: s.slug,
-    name: s.name,
-    data: s.data as Record<string, unknown>,
-  }));
-
-  const cantrips = entries.filter(e => e.data.level === 0).length;
-  const rituals = entries.filter(e => e.data.ritual).length;
+  const entries = await listSrdContent('spell');
+  const data = (e: (typeof entries)[number]) =>
+    e.data as { level?: number; ritual?: boolean };
+  const cantrips = entries.filter(e => data(e).level === 0).length;
+  const rituals = entries.filter(e => data(e).ritual).length;
 
   return (
     <PageShell width="wide">
@@ -45,7 +41,7 @@ export default async function SpellsPage() {
           </Marginalia>
         </>
       )}
-      <ReferenceBrowser variant="spell" entries={entries} />
+      <ReferenceBrowser type="spell" entries={entries} />
     </PageShell>
   );
 }

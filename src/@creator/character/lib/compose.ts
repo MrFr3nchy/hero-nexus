@@ -20,7 +20,7 @@ import {
   type CharacterSheet,
   type SkillKey,
 } from '../schema';
-import { abilityModifier } from './derive';
+import { abilityModifier, armorClass, type ResolvedContent } from './derive';
 import { planLevels, slotsAtLevel } from './advancement';
 import type { BackgroundDef, ClassDef, SpeciesDef } from './srd/types';
 
@@ -28,6 +28,15 @@ export interface BuildRefs {
   classDef: ClassDef | null;
   species: SpeciesDef | null;
   background: BackgroundDef | null;
+  /**
+   * Content the sheet's inventory points at, when the caller has loaded it.
+   *
+   * Optional because armour class is the only thing that needs it: without it
+   * `armorClass` returns the unarmoured value, which is exactly what this file
+   * computed before inventory existed. So a caller that has not resolved
+   * content gets the old behaviour rather than a wrong number.
+   */
+  content?: ResolvedContent;
 }
 
 const isAbilityKey = (value: string): value is AbilityKey =>
@@ -228,7 +237,6 @@ export function composeSheet(
   const abilities = finalAbilities(sheet);
   const saves = refs.classDef?.coreTraits.savingThrows ?? [];
   const skills = grantedSkills(sheet, refs);
-  const dexMod = abilityModifier(abilities.dexterity);
   const level = sheet.identity.level;
 
   const slots = slotsAtLevel(refs.classDef, level);
@@ -283,7 +291,9 @@ export function composeSheet(
       ),
       armorClass: keep(
         'combat.armorClass',
-        10 + dexMod,
+        // Was a flat `10 + dexMod`, which gave a character in plate the same
+        // AC as one in a shirt.
+        armorClass(sheet, refs.content),
         sheet.combat.armorClass
       ),
       hitDieSize: refs.classDef?.hitDie ?? sheet.combat.hitDieSize,
@@ -314,6 +324,7 @@ export function composeSheet(
       ),
     },
     spellcasting: {
+      ...sheet.spellcasting,
       ability: spellcastingAbility(refs.classDef),
       slots: nextSlots,
     },

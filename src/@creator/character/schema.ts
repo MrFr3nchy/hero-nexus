@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+// Only `content/types` — importing the barrel would cycle, because
+// `content/schemas` reads ABILITY_KEYS/SKILL_KEYS back out of this file.
+import { CONTENT_TYPES } from '@/@shared/content/types';
+
 /**
  * The character sheet schema is the single source of truth for the sheet shape.
  * `CharacterSheet` is inferred from it; the DB stores this JSON in
@@ -131,6 +135,72 @@ const spellSlot = z.object({
   total: z.number().int().min(0).max(9),
   expended: z.number().int().min(0).max(9),
 });
+
+/* ------------------------------------------------------------------ *
+ * Content the sheet points at
+ * ------------------------------------------------------------------ */
+
+/**
+ * A pointer to one piece of content — never a copy of it.
+ *
+ * See `@/@shared/content/types`. Copying a stat block onto a sheet forks it:
+ * the DM's correction to a homebrew item never reaches the character carrying
+ * it, and the same item on two sheets drifts apart. `key` is the SRD slug or
+ * the homebrew row id.
+ */
+export const contentRef = z.object({
+  source: z.enum(['srd', 'homebrew']),
+  key: z.string().min(1).max(120),
+  /** Denormalised so a deleted or un-approved ref still renders as a name. */
+  name: z.string().trim().max(160).default(''),
+  type: z.enum(CONTENT_TYPES),
+});
+export type SheetContentRef = z.infer<typeof contentRef>;
+
+/** One spell on a character's list. */
+const sheetSpell = z.object({
+  ref: contentRef,
+  /** Prepared today. Cantrips and always-prepared spells ignore this. */
+  prepared: z.boolean().default(false),
+  /** Granted by a subclass or item — always available, never counted. */
+  alwaysPrepared: z.boolean().default(false),
+  notes: z.string().trim().max(500).default(''),
+});
+export type SheetSpell = z.infer<typeof sheetSpell>;
+
+/**
+ * One line of the inventory.
+ *
+ * `ref` is null for something typed by hand — "50 ft of rope", loot the DM
+ * described and never wrote up. Those are first-class: most of what a party
+ * carries has no stat block, and forcing every line to resolve to content
+ * would make the inventory useless for exactly the things people write down.
+ */
+const inventoryItem = z.object({
+  /** Client-stable, so a row survives reordering and edits. */
+  id: z.string().min(1).max(64),
+  ref: contentRef.nullable().default(null),
+  /** Always set; for a ref'd row it mirrors the content's name. */
+  name: z.string().trim().min(1, 'An item needs a name').max(160),
+  quantity: z.number().int().min(0).max(9999).default(1),
+  equipped: z.boolean().default(false),
+  attuned: z.boolean().default(false),
+  notes: z.string().trim().max(500).default(''),
+  /**
+   * Where the row came from — a class or background name for a starting
+   * package, empty for anything picked up since.
+   *
+   * The inventory is deliberately *not* a composed path: loot accumulates, and
+   * a recompute that rebuilt the list would delete everything the party has
+   * found. Instead a package grant replaces only the rows carrying its own
+   * label, so re-choosing a package swaps its kit and touches nothing else.
+   */
+  grantedBy: z.string().trim().max(60).default(''),
+});
+export type InventoryItem = z.infer<typeof inventoryItem>;
+
+/** How many items a character may be attuned to at once. */
+export const MAX_ATTUNED = 3;
 
 /* ------------------------------------------------------------------ *
  * Custom / homebrew content + provenance
@@ -406,6 +476,8 @@ export const characterSheetSchema = z.object({
         'charisma',
       ])
       .default(''),
+    /** The character's spell list — SRD and homebrew alike, by reference. */
+    spells: z.array(sheetSpell).max(500).default([]),
     slots: z.object({
       level1: spellSlot,
       level2: spellSlot,
@@ -428,9 +500,26 @@ export const characterSheetSchema = z.object({
     feats: z.string().max(4000).default(''),
   }),
 
+  /**
+   * What the character is carrying, one row per line.
+   *
+   * Replaces the free-text `equipment.items` box as the *structured* record.
+   * That box is kept below and is no longer load-bearing: it holds the prose
+   * a player wants to keep (a description, a bundle they never itemised), and
+   * anything already written there is migrated into rows on first read by
+   * `migrateSheet`. Deleting it would have thrown away real data.
+   */
+  inventory: z.array(inventoryItem).max(500).default([]),
+
   equipment: z.object({
+    /** Prose notes. The structured record is `inventory`. */
     items: z.string().max(8000).default(''),
     magicItems: z.string().max(4000).default(''),
+    /**
+     * Superseded by `inventory[].attuned`, which is the truth. Kept so an old
+     * sheet's number is not silently discarded; `attunedCount(sheet)` in
+     * `./lib/derive` is what anything should read.
+     */
     attunedCount: z.number().int().min(0).max(3).default(0),
   }),
 
@@ -519,6 +608,7 @@ export function makeEmptySheet(): CharacterSheet {
     proficiencies: { armor: '', weapons: '', tools: '', languages: '' },
     spellcasting: {
       ability: '',
+      spells: [],
       slots: {
         level1: { ...emptySlot },
         level2: { ...emptySlot },
@@ -539,6 +629,7 @@ export function makeEmptySheet(): CharacterSheet {
       speciesTraits: '',
       feats: '',
     },
+    inventory: [],
     equipment: { items: '', magicItems: '', attunedCount: 0 },
     currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
   };

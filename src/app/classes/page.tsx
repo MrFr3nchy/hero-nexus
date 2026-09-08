@@ -5,22 +5,19 @@ import {
   PageHeader,
   PageShell,
 } from '@/@shared/components/ui';
+import { listSrdContent } from '@/server/content';
 import { getReference } from '@/server/reference';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ClassesPage() {
-  const classes = await getReference('class');
-  const all = classes.map(c => ({
-    slug: c.slug,
-    name: c.name,
-    data: c.data as Record<string, unknown>,
-  }));
-
-  const entries = all.filter(
-    c => !(c.data as { subclass_of?: unknown })?.subclass_of
-  );
-  const subclasses = all.length - entries.length;
+  // `listSrdContent` already drops the subclass rows Open5e mixes into
+  // `classes`; the raw rows are still counted, for the ledger line.
+  const [entries, rawClasses] = await Promise.all([
+    listSrdContent('class'),
+    getReference('class'),
+  ]);
+  const subclasses = rawClasses.length - entries.length;
 
   return (
     <PageShell width="wide">
@@ -44,7 +41,7 @@ export default async function ClassesPage() {
           </Marginalia>
         </>
       )}
-      <ReferenceBrowser variant="class" entries={entries} />
+      <ReferenceBrowser type="class" entries={entries} />
     </PageShell>
   );
 }

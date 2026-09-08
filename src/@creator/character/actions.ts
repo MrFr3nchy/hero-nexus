@@ -11,6 +11,8 @@ import {
   type CharacterRow,
   type CharacterWithSheet,
 } from '@/server/characters';
+import { listPickableContent, resolveContentRefs } from '@/server/content';
+import type { ContentEntry, ContentRef, ContentType } from '@/@shared/content';
 import { loadClassDef } from './lib/srd/catalog';
 import type { ClassDef } from './lib/srd/types';
 import type { CharacterSheet } from './schema';
@@ -85,4 +87,25 @@ export async function getClassBuildAction(
 ): Promise<ClassDef | null> {
   if (!key) return null;
   return loadClassDef(key);
+}
+
+/**
+ * Everything a player may add to a sheet, for one content type.
+ *
+ * Pass the campaign the character is being built for and its library comes
+ * along — that is how approved homebrew reaches a character.
+ */
+export async function listPickableContentAction(
+  type: ContentType,
+  campaignId?: string
+): Promise<ContentEntry[]> {
+  return listPickableContent(type, campaignId);
+}
+
+/** Stats for the refs already on a sheet, so it can render its own content. */
+export async function resolveContentAction(
+  refs: ContentRef[]
+): Promise<ContentEntry[]> {
+  const resolved = await resolveContentRefs(refs);
+  return [...resolved.values()];
 }

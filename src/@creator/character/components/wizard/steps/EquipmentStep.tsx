@@ -2,6 +2,10 @@
 
 import { Textarea } from '@heroui/react';
 
+import {
+  inventoryFromPackage,
+  regrantInventory,
+} from '../../../lib/migrate-sheet';
 import type { EquipmentOption } from '../../../lib/srd/types';
 import { StepHeading } from '../parts';
 import type { StepProps } from '../types';
@@ -81,6 +85,19 @@ export function EquipmentStep({
       // The gold that rides along with a package is the build's to set again.
       overrides: b.overrides.filter(p => p !== 'currency.gp'),
     }));
+
+    // The package becomes real inventory rows. Only rows this same source
+    // granted are replaced, so swapping a class package cannot take away the
+    // sword the party looted in session three.
+    setOverride(
+      'inventory',
+      regrantInventory(
+        sheet.inventory ?? [],
+        source,
+        inventoryFromPackage(source, desc)
+      )
+    );
+
     log({
       kind: 'field',
       label: `${source} equipment`,

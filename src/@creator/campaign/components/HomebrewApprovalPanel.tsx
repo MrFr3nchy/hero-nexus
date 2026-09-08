@@ -3,32 +3,31 @@
 import { Button, Textarea } from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { StatBlock } from '@/@shared/components/StatBlock';
 import {
   DiceSpinner,
   EmptyState,
-  Glyph,
   QuietDeskScene,
   Seal,
   SectionCard,
 } from '@/@shared/components/ui';
-import { homebrewGlyph } from '@/@creator/homebrew/schema';
+import { fromHomebrew, type ContentEntry } from '@/@shared/content';
 import type { ApprovalRow } from '@/server/approvals';
 import { listApprovalsAction, reviewApprovalAction } from '../actions';
 
-interface HomebrewTraitView {
-  name: string;
-  description?: string;
-  mechanic?: string;
-}
-
-function readTraits(data: unknown): HomebrewTraitView[] {
-  if (!data || typeof data !== 'object') return [];
-  const traits = (data as { traits?: unknown }).traits;
-  if (!Array.isArray(traits)) return [];
-  return traits.filter(
-    (t): t is HomebrewTraitView =>
-      Boolean(t) && typeof (t as HomebrewTraitView).name === 'string'
-  );
+/**
+ * The submission as the content it is. A DM deciding on a homebrew spell needs
+ * to see its level, damage and save — not a paragraph — so this renders the
+ * same `StatBlock` the player saw in the Forge.
+ */
+function approvalEntry(approval: ApprovalRow): ContentEntry | null {
+  return fromHomebrew({
+    id: approval.homebrewId,
+    type: approval.homebrewType,
+    name: approval.homebrewName,
+    description: approval.homebrewDescription,
+    data: approval.homebrewData,
+  });
 }
 
 function ApprovalCard({
@@ -43,7 +42,7 @@ function ApprovalCard({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const traits = readTraits(approval.homebrewData);
+  const entry = approvalEntry(approval);
 
   const decide = async (status: 'approved' | 'denied') => {
     setBusy(true);
@@ -64,48 +63,18 @@ function ApprovalCard({
 
   return (
     <div className="rounded-[var(--radius-card)] border border-line bg-surface p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="flex items-center gap-2 font-medium text-ink">
-            <Glyph
-              name={homebrewGlyph(approval.homebrewType)}
-              size={16}
-              className="text-gold"
-            />
-            {approval.homebrewName}
-          </p>
-          <p className="text-xs text-ink-muted">
-            {approval.homebrewType} · from{' '}
-            {approval.requestedByName ?? 'a player'}
-          </p>
-        </div>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <p className="text-xs text-ink-muted">
+          from {approval.requestedByName ?? 'a player'}
+        </p>
         <Seal variant={approval.status} />
       </div>
 
-      {traits.length > 0 ? (
-        <ul className="mt-3 space-y-2">
-          {traits.map((t, i) => (
-            <li
-              key={i}
-              className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm"
-            >
-              <p className="font-medium text-ink">{t.name}</p>
-              {t.description && (
-                <p className="mt-0.5 whitespace-pre-wrap text-ink-muted">
-                  {t.description}
-                </p>
-              )}
-              {t.mechanic && (
-                <p className="mt-1 text-xs italic text-ink-subtle">
-                  {t.mechanic}
-                </p>
-              )}
-            </li>
-          ))}
-        </ul>
+      {entry ? (
+        <StatBlock entry={entry} showSource={false} />
       ) : (
         approval.homebrewDescription && (
-          <p className="mt-3 whitespace-pre-wrap text-sm text-ink-muted">
+          <p className="whitespace-pre-wrap text-sm text-ink-muted">
             {approval.homebrewDescription}
           </p>
         )

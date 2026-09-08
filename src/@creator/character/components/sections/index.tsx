@@ -34,6 +34,9 @@ import {
 
 export { AbilityScoresSection } from './AbilityScoresSection';
 export { HomebrewSection } from './HomebrewSection';
+export { InventorySection } from './InventorySection';
+export { SpellListSection } from './SpellListSection';
+export { ContentPicker, ContentLine } from './ContentPicker';
 export { ChangeLogSection } from './ChangeLogSection';
 
 export interface SelectOption {

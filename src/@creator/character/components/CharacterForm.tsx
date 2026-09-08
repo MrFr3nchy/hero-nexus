@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Button, Select, SelectItem, Tab, Tabs } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
-import { useForm, type Resolver } from 'react-hook-form';
+import { useForm, useWatch, type Resolver } from 'react-hook-form';
 
 import { setMemberCharacterAction } from '@/@creator/campaign/actions';
 import { describeRules } from '@/@creator/campaign/lib/rules';
@@ -19,6 +19,7 @@ import {
 } from '../schema';
 import type { BuildCatalog } from '../lib/srd/types';
 import { OPEN_LIMITS, type BuildLimits } from '../lib/validate-build';
+import { useResolvedContent } from './useResolvedContent';
 import {
   genUid,
   makeProvenanceLogger,
@@ -33,11 +34,13 @@ import {
   DetailsSection,
   EquipmentSection,
   HomebrewSection,
+  InventorySection,
   IdentitySection,
   ProficienciesSection,
   type ReferenceOptions,
   SkillsSection,
   SpellcastingSection,
+  SpellListSection,
 } from './sections';
 import { CharacterWizard } from './wizard/CharacterWizard';
 
@@ -134,6 +137,17 @@ export function CharacterForm({
     !initialSheet || initialSheet.build.mode === 'guided' ? 'guided' : 'sheet'
   );
   const [sheetTab, setSheetTab] = useState<SheetTab>('core');
+
+  // Stats for the content the sheet points at — the inventory and spell list
+  // hold references, so their numbers are fetched rather than stored.
+  const watchedInventory = useWatch({ control, name: 'inventory' });
+  const watchedSpells = useWatch({ control, name: 'spellcasting.spells' });
+  const resolved = useResolvedContent({
+    inventory: watchedInventory ?? [],
+    spellcasting: {
+      spells: watchedSpells ?? [],
+    } as CharacterSheet['spellcasting'],
+  });
 
   const log = useCallback(
     (input: ProvenanceInput) =>
@@ -421,21 +435,37 @@ export function CharacterForm({
           )}
 
           {sheetTab === 'magic' && (
-            <div className="grid gap-5 lg:grid-cols-2">
-              <SpellcastingSection control={control} />
-              <ProficienciesSection control={control} />
+            <div className="space-y-5">
+              <SpellListSection
+                control={control}
+                setValue={setValue}
+                campaignId={campaignId || undefined}
+                resolved={resolved}
+              />
+              <div className="grid gap-5 lg:grid-cols-2">
+                <SpellcastingSection control={control} />
+                <ProficienciesSection control={control} />
+              </div>
             </div>
           )}
 
           {sheetTab === 'story' && (
-            <div className="grid gap-5 lg:grid-cols-2">
-              <DetailsSection control={control} />
-              <div className="space-y-5">
-                <EquipmentSection control={control} />
-                <CurrencySection control={control} />
-                {limits.allowHomebrew && (
-                  <HomebrewSection control={control} setValue={setValue} />
-                )}
+            <div className="space-y-5">
+              <InventorySection
+                control={control}
+                setValue={setValue}
+                campaignId={campaignId || undefined}
+                resolved={resolved}
+              />
+              <div className="grid gap-5 lg:grid-cols-2">
+                <DetailsSection control={control} />
+                <div className="space-y-5">
+                  <EquipmentSection control={control} />
+                  <CurrencySection control={control} />
+                  {limits.allowHomebrew && (
+                    <HomebrewSection control={control} setValue={setValue} />
+                  )}
+                </div>
               </div>
             </div>
           )}

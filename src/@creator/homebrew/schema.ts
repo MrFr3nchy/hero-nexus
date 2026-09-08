@@ -1,55 +1,44 @@
 import { z } from 'zod';
 
+import {
+  CONTENT_REGISTRY,
+  CONTENT_TYPES,
+  CONTENT_TYPE_ORDER,
+  contentGlyph,
+} from '@/@shared/content';
 import type { GlyphName } from '@/@shared/components/ui/Glyph';
 
-export const HOMEBREW_TYPES = [
-  {
-    id: 'class',
-    name: 'Class',
-    glyph: 'crossed-swords',
-    description: 'Character classes',
-  },
-  { id: 'spell', name: 'Spell', glyph: 'orb', description: 'Magical spells' },
-  {
-    id: 'item',
-    name: 'Item',
-    glyph: 'shield',
-    description: 'Equipment and items',
-  },
-] as const satisfies readonly {
+/**
+ * Every kind of homebrew the Forge can author.
+ *
+ * This used to be three (class, spell, item) beside a wider `HOMEBREW_GLYPHS`
+ * map, because the approval queue could receive a species the Forge could not
+ * make. Both lists now come from `@/@shared/content`, so the Forge, the queue
+ * and the character sheet cannot disagree about what types exist.
+ */
+export const HOMEBREW_TYPES = CONTENT_TYPE_ORDER.map(id => ({
+  id,
+  name: CONTENT_REGISTRY[id].label,
+  glyph: CONTENT_REGISTRY[id].glyph,
+  description: CONTENT_REGISTRY[id].description,
+})) satisfies readonly {
   id: string;
   name: string;
   glyph: GlyphName;
   description: string;
 }[];
 
-/**
- * Every kind of homebrew a campaign can be asked to approve. Wider than
- * `HOMEBREW_TYPES`, which is only what the Forge can author today — an
- * approval row can still carry a species or a feat submitted elsewhere.
- */
-export const HOMEBREW_GLYPHS: Record<string, GlyphName> = {
-  class: 'crossed-swords',
-  spell: 'orb',
-  item: 'shield',
-  species: 'helix',
-  subclass: 'crown',
-  background: 'scroll',
-  feat: 'star',
-};
-
 /** The glyph for a homebrew kind, falling back for anything unrecognised. */
-export function homebrewGlyph(type: string): GlyphName {
-  return HOMEBREW_GLYPHS[type] ?? 'notebook';
-}
+export const homebrewGlyph = contentGlyph;
 
 export const homebrewSchema = z.object({
-  type: z.enum(['class', 'spell', 'item']),
+  type: z.enum(CONTENT_TYPES),
   name: z.string().trim().min(1, 'Name is required').max(120),
-  description: z.string().trim().max(4000).default(''),
+  description: z.string().trim().max(8000).default(''),
   visibility: z.enum(['private', 'public']).default('private'),
   rpgSystem: z.string().max(40).default('dnd5e2024'),
-  data: z.record(z.string(), z.unknown()).default({}),
+  /** Validated against the type's own schema server-side, on write. */
+  data: z.unknown().default({}),
 });
 
 export type HomebrewFormValues = z.infer<typeof homebrewSchema>;

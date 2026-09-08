@@ -1013,3 +1013,51 @@ export const campaignImages = sqliteTable(
   },
   t => [index('campaign_images_campaign_idx').on(t.campaignId)]
 );
+
+/* --- Campaign content library (0016) ---------------------------------- */
+
+/**
+ * Homebrew that is actually in play at a table.
+ *
+ * `homebrew_approvals` records a *decision*; this records the *consequence*.
+ * Before it existed, `homebrew_approvals.status` was written by the review
+ * panel and read by nothing, so approving an item changed no behaviour
+ * anywhere. Every "may this character use that?" question is answered from
+ * here.
+ *
+ * A DM's own content has no submission behind it, which is why `source`
+ * distinguishes the two ways a row appears rather than this being a view over
+ * approvals.
+ */
+export const campaignHomebrew = sqliteTable(
+  'campaign_homebrew',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    homebrewId: text('homebrew_id')
+      .notNull()
+      .references(() => homebrew.id, { onDelete: 'cascade' }),
+    /** Null once that user is deleted, as elsewhere. */
+    addedBy: text('added_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    source: text('source', {
+      enum: ['gm-authored', 'approved-submission'],
+    })
+      .notNull()
+      .default('gm-authored'),
+    /** The DM's line about it. Party-visible — there is no secret half here. */
+    note: text('note').notNull().default(''),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('campaign_homebrew_campaign_entry_idx').on(
+      t.campaignId,
+      t.homebrewId
+    ),
+    index('campaign_homebrew_campaign_idx').on(t.campaignId),
+    index('campaign_homebrew_homebrew_idx').on(t.homebrewId),
+  ]
+);

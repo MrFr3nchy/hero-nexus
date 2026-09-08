@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react';
 
-import { SectionCard, Stat, StatBlock } from '@/@shared/components/ui';
+import {
+  Glyph,
+  Pill,
+  SectionCard,
+  Stat,
+  StatBlock,
+} from '@/@shared/components/ui';
 import {
   abilityModifier,
   fmtBonus,
@@ -184,6 +190,32 @@ export function CharacterSheetView({
               );
             })}
           </div>
+          {sheet.spellcasting.spells.length > 0 && (
+            <div className="mt-4 border-t border-line pt-3">
+              <h3 className="mb-2 font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-arcane">
+                Spells known ({sheet.spellcasting.spells.length})
+              </h3>
+              <ul className="grid gap-1 sm:grid-cols-2">
+                {sheet.spellcasting.spells.map(spell => (
+                  <li
+                    key={`${spell.ref.source}:${spell.ref.key}`}
+                    className="flex items-center gap-1.5 text-sm text-ink-muted"
+                  >
+                    <Glyph name="orb" size={13} className="text-gold" />
+                    <span className="truncate">{spell.ref.name}</span>
+                    {spell.ref.source === 'homebrew' && (
+                      <Pill tone="arcane">HB</Pill>
+                    )}
+                    {(spell.prepared || spell.alwaysPrepared) && (
+                      <Pill tone="gold">
+                        {spell.alwaysPrepared ? 'Always' : 'Prepared'}
+                      </Pill>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {slots?.spellcasting}
         </SectionCard>
       )}
@@ -212,7 +244,37 @@ export function CharacterSheetView({
 
       <SectionCard framed title="Equipment & currency">
         <div className="space-y-3">
-          <Prose label="Equipment" value={sheet.equipment.items} />
+          {sheet.inventory.length > 0 && (
+            <div>
+              <h3 className="mb-2 font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-gold/80">
+                Carried ({sheet.inventory.length})
+              </h3>
+              <ul className="space-y-1">
+                {sheet.inventory.map(item => (
+                  <li
+                    key={item.id}
+                    className="flex flex-wrap items-center gap-1.5 text-sm text-ink-muted"
+                  >
+                    <span className="tabular-nums text-ink-subtle">
+                      {item.quantity}&times;
+                    </span>
+                    <span className="text-ink">{item.name}</span>
+                    {item.ref?.source === 'homebrew' && (
+                      <Pill tone="arcane">HB</Pill>
+                    )}
+                    {item.equipped && <Pill tone="gold">Equipped</Pill>}
+                    {item.attuned && <Pill tone="success">Attuned</Pill>}
+                    {item.grantedBy && (
+                      <span className="text-xs text-ink-subtle">
+                        from {item.grantedBy}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <Prose label="Equipment notes" value={sheet.equipment.items} />
           <Prose label="Magic items" value={sheet.equipment.magicItems} />
           <div className="grid grid-cols-5 gap-2">
             {(['cp', 'sp', 'ep', 'gp', 'pp'] as const).map(c => (

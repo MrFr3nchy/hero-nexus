@@ -5,6 +5,7 @@
  * where the gaps are without duplicating any of this logic.
  */
 
+import { MAX_ATTUNED } from '../schema';
 import type { AbilityMethod, CharacterSheet } from '../schema';
 import { speciesSkillGrant } from './srd/parse';
 import type { BuildRefs } from './compose';
@@ -209,6 +210,17 @@ export function findBuildIssues(
     !build.equipment.backgroundOption
   ) {
     add('equipment', 'Pick your background equipment package.');
+  }
+
+  // Attunement is a hard cap in the rules, and now that attunement is a real
+  // per-item flag rather than a number a player typed, it can actually be
+  // checked.
+  const attuned = sheet.inventory.filter(i => i.attuned).length;
+  if (attuned > MAX_ATTUNED) {
+    add(
+      'equipment',
+      `Attuned to ${attuned} items — a character can hold ${MAX_ATTUNED}.`
+    );
   }
 
   return issues;

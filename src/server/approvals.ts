@@ -11,6 +11,10 @@ import {
   homebrewApprovals,
   users,
 } from '@/db/schema';
+import {
+  addCampaignContent,
+  removeCampaignContentByHomebrew,
+} from './campaign-content';
 import { requireCampaignRole } from './campaigns';
 
 export type ApprovalStatus = 'pending' | 'approved' | 'denied';
@@ -172,4 +176,21 @@ export async function reviewApproval(
       reviewedAt: new Date().toISOString(),
     })
     .where(eq(homebrewApprovals.id, approvalId));
+
+  // Saying yes has to change something. Until the content library existed this
+  // flipped a status that nothing read, so an approved item was no more usable
+  // than a denied one. Approving puts it on the table; denying takes it off,
+  // including for a previously-approved item the DM has changed their mind
+  // about.
+  if (status === 'approved') {
+    await addCampaignContent(approval.campaignId, approval.homebrewId, {
+      source: 'approved-submission',
+      actorUserId: userId,
+    });
+  } else {
+    await removeCampaignContentByHomebrew(
+      approval.campaignId,
+      approval.homebrewId
+    );
+  }
 }

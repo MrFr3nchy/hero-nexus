@@ -5,6 +5,7 @@ import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
 import { requireUserId } from './session-user';
 import { db } from '@/db';
 import {
+  campaignHomebrew,
   campaignMembers,
   campaigns,
   characterAuditLog,
@@ -12,10 +13,16 @@ import {
   characterHomebrew,
   characters,
   homebrew,
+  homebrewApprovals,
   users,
 } from '@/db/schema';
-import { mergeCampaignSettings, requireCampaignRole } from '@/server/campaigns';
+import {
+  mergeCampaignSettings,
+  requireCampaignRole,
+  submitCharacterHomebrewForApproval,
+} from '@/server/campaigns';
 import { checkSheetAgainstRules } from '@/@creator/campaign/lib/rules';
+import { migrateStoredSheet } from '@/@creator/character/lib/migrate-sheet';
 import {
   ABILITY_KEYS,
   ABILITY_LABELS,
@@ -110,7 +117,7 @@ export async function getCharacter(
     hasHomebrew: row.hasHomebrew,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    sheet: characterSheetSchema.parse(row.sheet),
+    sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
   };
 }
 
@@ -149,7 +156,7 @@ export async function getCharacterForCampaign(
     hasHomebrew: row.hasHomebrew,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    sheet: characterSheetSchema.parse(row.sheet),
+    sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
   };
 }
 
@@ -203,21 +210,54 @@ async function syncCharacterHomebrew(
   const linkByEntry = new Map(links.map(l => [l.entryId, l]));
   const keepEntryIds = new Set(entries.map(e => e.id));
 
-  // Drop links (and their spawned homebrew rows) for removed entries.
+  /*
+   * Unlink removed entries — and delete the homebrew row they spawned only if
+   * nothing else still points at it.
+   *
+   * This used to delete the row unconditionally, which cascaded away the DM's
+   * approval decision and (now) pulled the content out of every campaign
+   * library it had been approved into. Two consequences a player could trigger
+   * by editing their own sheet: a decision the DM had made vanished, and
+   * removing then re-adding an entry minted a fresh id whose approval state
+   * was back to "never submitted".
+   */
   const stale = links.filter(l => !keepEntryIds.has(l.entryId));
   if (stale.length) {
+    const staleHomebrewIds = stale.map(l => l.homebrewId);
+
     await db.delete(characterHomebrew).where(
       inArray(
         characterHomebrew.id,
         stale.map(l => l.id)
       )
     );
-    await db.delete(homebrew).where(
-      inArray(
-        homebrew.id,
-        stale.map(l => l.homebrewId)
-      )
-    );
+
+    const [reviewed, inPlay, stillLinked] = await Promise.all([
+      db
+        .select({ id: homebrewApprovals.homebrewId })
+        .from(homebrewApprovals)
+        .where(inArray(homebrewApprovals.homebrewId, staleHomebrewIds)),
+      db
+        .select({ id: campaignHomebrew.homebrewId })
+        .from(campaignHomebrew)
+        .where(inArray(campaignHomebrew.homebrewId, staleHomebrewIds)),
+      // Another character of this player's may have spawned a link to the
+      // same row.
+      db
+        .select({ id: characterHomebrew.homebrewId })
+        .from(characterHomebrew)
+        .where(inArray(characterHomebrew.homebrewId, staleHomebrewIds)),
+    ]);
+
+    const spokenFor = new Set([
+      ...reviewed.map(r => r.id),
+      ...inPlay.map(r => r.id),
+      ...stillLinked.map(r => r.id),
+    ]);
+    const orphans = staleHomebrewIds.filter(id => !spokenFor.has(id));
+    if (orphans.length) {
+      await db.delete(homebrew).where(inArray(homebrew.id, orphans));
+    }
   }
 
   for (const entry of entries) {
@@ -489,14 +529,49 @@ function diffSheets(
 
   const beforeEntries = new Map(before.homebrew.entries.map(e => [e.id, e]));
   const afterEntries = new Map(after.homebrew.entries.map(e => [e.id, e]));
+  const traitSummary = (entry: { traits: { name: string }[] }): string =>
+    entry.traits
+      .map(t => t.name)
+      .filter(Boolean)
+      .join(', ');
+
   for (const [eid, e] of afterEntries) {
-    if (!beforeEntries.has(eid)) {
+    const was = beforeEntries.get(eid);
+    if (!was) {
       push(
         'homebrew',
         `homebrew.${eid}`,
         null,
         e.name,
         `Added homebrew ${e.kind}: "${e.name}"`
+      );
+      continue;
+    }
+    // Renames and trait edits used to pass unnoticed: only adds and removes
+    // were diffed, so a player could rename an approved entry or rewrite what
+    // it does and the DM's log would say nothing.
+    if (was.name !== e.name) {
+      push(
+        'homebrew',
+        `homebrew.${eid}.name`,
+        was.name,
+        e.name,
+        `Renamed homebrew ${e.kind}: "${was.name}" → "${e.name}"`
+      );
+    }
+    const wasTraits = traitSummary(was);
+    const nowTraits = traitSummary(e);
+    if (JSON.stringify(was.traits) !== JSON.stringify(e.traits)) {
+      push(
+        'homebrew',
+        `homebrew.${eid}.traits`,
+        wasTraits || 'none',
+        nowTraits || 'none',
+        `Edited what "${e.name}" does${
+          wasTraits !== nowTraits
+            ? ` (${wasTraits || 'none'} → ${nowTraits || 'none'})`
+            : ''
+        }`
       );
     }
   }
@@ -508,6 +583,110 @@ function diffSheets(
         e.name,
         null,
         `Removed homebrew ${e.kind}: "${e.name}"`
+      );
+    }
+  }
+
+  /* ---- spells ---- */
+  const spellKey = (r: { source: string; key: string }) =>
+    `${r.source}:${r.key}`;
+  const beforeSpells = new Map(
+    before.spellcasting.spells.map(s => [spellKey(s.ref), s])
+  );
+  const afterSpells = new Map(
+    after.spellcasting.spells.map(s => [spellKey(s.ref), s])
+  );
+
+  for (const [key, spell] of afterSpells) {
+    const was = beforeSpells.get(key);
+    if (!was) {
+      push(
+        'spell',
+        `spell.${key}`,
+        null,
+        spell.ref.name,
+        `Learned ${spell.ref.source === 'homebrew' ? 'homebrew ' : ''}spell: "${spell.ref.name}"`
+      );
+      continue;
+    }
+    if (was.prepared !== spell.prepared) {
+      push(
+        'spell',
+        `spell.${key}.prepared`,
+        was.prepared ? 'prepared' : 'unprepared',
+        spell.prepared ? 'prepared' : 'unprepared',
+        `${spell.prepared ? 'Prepared' : 'Unprepared'} "${spell.ref.name}"`
+      );
+    }
+  }
+  for (const [key, spell] of beforeSpells) {
+    if (!afterSpells.has(key)) {
+      push(
+        'spell',
+        `spell.${key}`,
+        spell.ref.name,
+        null,
+        `Forgot spell: "${spell.ref.name}"`
+      );
+    }
+  }
+
+  /* ---- inventory ---- */
+  const beforeItems = new Map(before.inventory.map(i => [i.id, i]));
+  const afterItems = new Map(after.inventory.map(i => [i.id, i]));
+
+  for (const [id, item] of afterItems) {
+    const was = beforeItems.get(id);
+    if (!was) {
+      const qty = item.quantity === 1 ? '' : ` x${item.quantity}`;
+      push(
+        'inventory',
+        `inventory.${id}`,
+        null,
+        item.name,
+        `Picked up: "${item.name}"${qty}${
+          item.ref?.source === 'homebrew' ? ' (homebrew)' : ''
+        }`
+      );
+      continue;
+    }
+    if (was.quantity !== item.quantity) {
+      push(
+        'inventory',
+        `inventory.${id}.quantity`,
+        was.quantity,
+        item.quantity,
+        `"${item.name}": ${was.quantity} → ${item.quantity}`
+      );
+    }
+    if (was.equipped !== item.equipped) {
+      push(
+        'inventory',
+        `inventory.${id}.equipped`,
+        was.equipped ? 'equipped' : 'stowed',
+        item.equipped ? 'equipped' : 'stowed',
+        `${item.equipped ? 'Equipped' : 'Stowed'} "${item.name}"`
+      );
+    }
+    // Attunement is the one a DM most often wants to have noticed.
+    if (was.attuned !== item.attuned) {
+      push(
+        'inventory',
+        `inventory.${id}.attuned`,
+        was.attuned ? 'attuned' : 'not attuned',
+        item.attuned ? 'attuned' : 'not attuned',
+        `${item.attuned ? 'Attuned to' : 'Broke attunement with'} "${item.name}"`
+      );
+    }
+  }
+  for (const [id, item] of beforeItems) {
+    if (!afterItems.has(id)) {
+      push(
+        'inventory',
+        `inventory.${id}`,
+        item.name,
+        null,
+        `Dropped: "${item.name}"`
       );
     }
   }
@@ -526,7 +705,11 @@ async function recordCharacterHistory(
   nextSheet: CharacterSheet
 ): Promise<void> {
   try {
-    const parsed = characterSheetSchema.safeParse(storedSheet);
+    // The baseline is a stored sheet, so it migrates too — otherwise every
+    // pre-inventory character would diff as "added 12 items" on its next save.
+    const parsed = characterSheetSchema.safeParse(
+      migrateStoredSheet(storedSheet)
+    );
     if (!parsed.success) return;
     const drafts = diffSheets(parsed.data, nextSheet);
     if (drafts.length === 0) return;
@@ -575,6 +758,40 @@ export async function updateCharacter(
   await syncCharacterHomebrew(id, userId, sheet);
   await syncCharacterAuditLog(id, sheet);
   await recordCharacterHistory(id, userId, owned.sheet, sheet);
+  await queueHomebrewForLinkedCampaigns(id, userId);
+}
+
+/**
+ * Put any not-yet-reviewed homebrew on this character into the queues of the
+ * tables it is linked to.
+ *
+ * Queueing used to happen only when a character was *linked* to a campaign, so
+ * homebrew added afterwards never reached the DM at all: a player could join a
+ * table with a clean sheet and then invent anything they liked. Running it on
+ * every save closes that. `submitCharacterHomebrewForApproval` is idempotent —
+ * it skips homebrew the campaign has already seen — so re-running it is free.
+ *
+ * Best-effort, like history: a failure here must not cost a player their save.
+ */
+async function queueHomebrewForLinkedCampaigns(
+  characterId: string,
+  userId: string
+): Promise<void> {
+  try {
+    const links = await db
+      .select({ campaignId: campaignMembers.campaignId })
+      .from(campaignMembers)
+      .where(eq(campaignMembers.characterId, characterId));
+    for (const link of links) {
+      await submitCharacterHomebrewForApproval(
+        link.campaignId,
+        characterId,
+        userId
+      );
+    }
+  } catch {
+    // The character is saved either way; the queue catches up on the next save.
+  }
 }
 
 /**
