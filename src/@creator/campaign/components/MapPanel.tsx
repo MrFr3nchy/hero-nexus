@@ -1,6 +1,8 @@
 'use client';
 
 import { Button, Input, Select, SelectItem } from '@heroui/react';
+
+import { PublishPicture } from '@/@creator/library/components';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -115,6 +117,12 @@ function MapSheet({
             >
               {map.visibility === 'shared' ? 'Take it back' : 'Show the party'}
             </Button>
+            {/* The picture, not the map: pins carry the DM's private notes and
+                have no business on a public shelf. */}
+            <PublishPicture
+              campaignImageId={map.imageId}
+              defaultTitle={map.title}
+            />
             <Button
               size="sm"
               variant="light"

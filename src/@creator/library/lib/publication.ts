@@ -151,6 +151,8 @@ export interface PublicationCard {
    * there is not. `null` for the kinds that have no stat block to draw.
    */
   preview: ContentEntry | null;
+  /** The picture drawn on the card, when the listing has one. */
+  coverUrl: string | null;
 }
 
 /**

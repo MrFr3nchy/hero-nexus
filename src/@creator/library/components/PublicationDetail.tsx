@@ -17,13 +17,11 @@ import { contentMeta } from '@/@shared/content';
 import type { PublicationDetail as Detail } from '@/server/library';
 
 import {
-  adoptAction,
   deletePublicationAction,
-  forkAction,
   setPublicationStatusAction,
-  unadoptAction,
 } from '../actions';
 import { publicationKindMeta } from '../lib/publication';
+import { AdoptControls } from './AdoptControls';
 
 /**
  * One listing, full-bleed.
@@ -66,6 +64,19 @@ export function PublicationDetail({ detail }: { detail: Detail }) {
           <SectionCard framed>
             <StatBlock entry={entry} />
           </SectionCard>
+        ) : detail.assets.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            {detail.assets.map(asset => (
+              // Our own route, so not next/image — see EntryCard.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={asset.id}
+                src={asset.url}
+                alt={asset.alt || card.title}
+                className="w-full rounded-[var(--radius-card)] border border-line"
+              />
+            ))}
+          </div>
         ) : (
           <SectionCard>
             <p className="text-sm text-ink-subtle">
@@ -120,34 +131,15 @@ export function PublicationDetail({ detail }: { detail: Detail }) {
 
         {!card.mine && (
           <div className="flex flex-col gap-2">
-            {card.adopted === null ? (
-              <>
-                <Button
-                  color="primary"
-                  isLoading={busy}
-                  onPress={() => run(() => adoptAction(card.id))}
-                >
-                  Take it
-                </Button>
-                <Button
-                  variant="bordered"
-                  isDisabled={busy}
-                  onPress={() => run(() => forkAction(card.id))}
-                >
-                  Copy it to my Forge
-                </Button>
-                <Marginalia>
-                  take it and it stays theirs; copy it and it stops changing
-                </Marginalia>
-              </>
-            ) : (
-              <Button
-                variant="light"
-                isLoading={busy}
-                onPress={() => run(() => unadoptAction(card.id))}
-              >
-                Put it back
-              </Button>
+            <AdoptControls
+              card={card}
+              layout="column"
+              onDone={() => router.refresh()}
+            />
+            {card.adopted === null && card.kind === 'homebrew' && (
+              <Marginalia>
+                take it and it stays theirs; copy it and it stops changing
+              </Marginalia>
             )}
           </div>
         )}

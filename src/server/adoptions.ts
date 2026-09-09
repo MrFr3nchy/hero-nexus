@@ -7,6 +7,7 @@ import { fromHomebrew, type ContentEntry } from '@/@shared/content';
 
 import { db } from '@/db';
 import { adoptions, homebrew, publications } from '@/db/schema';
+import { copyAssetToCampaign } from './library-assets';
 import { freezeHomebrew, thawContent } from './library';
 import { requireUserId } from './session-user';
 
@@ -71,14 +72,52 @@ async function loadTakeable(publicationId: string, userId: string) {
  * forked copy stays in the reader's forge, because it is theirs and deleting
  * somebody's work to satisfy a mode change would be indefensible.
  */
-export async function adopt(publicationId: string): Promise<void> {
+export async function adopt(
+  publicationId: string,
+  /**
+   * Where a picture should land. Required for the `image` kind and meaningless
+   * for the rest: images belong to campaigns in this app, and an adopter has to
+   * say which of theirs receives it — see the README on why there is no
+   * user-level image store to default to.
+   */
+  targetCampaignId?: string
+): Promise<void> {
   const userId = await requireUserId();
   const row = await loadTakeable(publicationId, userId);
 
+  if (row.kind === 'image') {
+    if (!targetCampaignId) throw new Error('CAMPAIGN_REQUIRED');
+    if (!row.coverAssetId) throw new Error('CONTENT_GONE');
+    // The bytes are copied into the adopter's campaign, so what they end up with
+    // is a `campaign_images` row indistinguishable from one they uploaded. That
+    // is why the map panel and the canon portraits need to learn nothing.
+    await copyAssetToCampaign(row.coverAssetId, targetCampaignId);
+    await db
+      .insert(adoptions)
+      .values({
+        userId,
+        publicationId,
+        // A copied picture is a fork by any honest reading: the file is theirs
+        // now and nothing the author does reaches it.
+        mode: 'forked',
+        campaignId: targetCampaignId,
+        version: row.version,
+      })
+      .onConflictDoUpdate({
+        target: [adoptions.userId, adoptions.publicationId],
+        set: {
+          mode: 'forked',
+          campaignId: targetCampaignId,
+          version: row.version,
+        },
+      });
+    return;
+  }
+
   if (row.kind !== 'homebrew') {
-    // Heroes, campaigns, pictures and bundles are snapshots and each mints
-    // different rows; they arrive with their own phases. Refusing loudly beats
-    // writing an adoption row that resolves to nothing.
+    // Heroes, campaigns and bundles are snapshots and each mints different
+    // rows; they arrive with their own phases. Refusing loudly beats writing an
+    // adoption row that resolves to nothing.
     throw new Error('KIND_NOT_ADOPTABLE_YET');
   }
   if (!row.homebrewId) throw new Error('CONTENT_GONE');
@@ -116,6 +155,10 @@ export async function adopt(publicationId: string): Promise<void> {
 export async function fork(publicationId: string): Promise<string> {
   const userId = await requireUserId();
   const row = await loadTakeable(publicationId, userId);
+  // Forking means "a homebrew row of your own". A picture is copied by adopting
+  // it, and the snapshot kinds mint their own rows; none of them has a second
+  // mode to offer.
+  if (row.kind !== 'homebrew') throw new Error('KIND_NOT_ADOPTABLE_YET');
 
   const live = row.homebrewId
     ? await db.query.homebrew.findFirst({

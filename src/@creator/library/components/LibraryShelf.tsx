@@ -21,18 +21,14 @@ import {
   type ContentType,
 } from '@/@shared/content';
 
-import {
-  adoptAction,
-  forkAction,
-  listShelfAction,
-  unadoptAction,
-} from '../actions';
+import { listShelfAction } from '../actions';
 import {
   publicationKindMeta,
   PUBLICATION_KIND_ORDER,
   type PublicationCard,
   type PublicationKind,
 } from '../lib/publication';
+import { AdoptControls } from './AdoptControls';
 
 /**
  * The Wandering Library.
@@ -71,9 +67,7 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
   const [query, setQuery] = useState('');
   const [tag, setTag] = useState<string | null>(null);
   const [sort, setSort] = useState<'newest' | 'adopted'>('newest');
-  const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -99,18 +93,6 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
     const timer = setTimeout(refresh, query ? 300 : 0);
     return () => clearTimeout(timer);
   }, [refresh, query]);
-
-  const act = async (
-    id: string,
-    run: (id: string) => Promise<{ ok: boolean; error?: string }>
-  ) => {
-    setBusy(id);
-    setError(null);
-    const result = await run(id);
-    if (!result.ok) setError(result.error ?? 'That did not work.');
-    await refresh();
-    setBusy(null);
-  };
 
   const taken = cards.filter(c => c.adopted !== null).length;
   const mine = cards.filter(c => c.mine).length;
@@ -219,8 +201,6 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
         )}
       </div>
 
-      {error && <p className="text-sm text-danger">{error}</p>}
-
       {refreshing && cards.length === 0 ? (
         <DiceSpinner label="Reading the shelf…" />
       ) : cards.length === 0 ? (
@@ -237,14 +217,7 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {cards.map(card => (
-            <ShelfCard
-              key={card.id}
-              card={card}
-              busy={busy === card.id}
-              onAdopt={() => act(card.id, adoptAction)}
-              onFork={() => act(card.id, forkAction)}
-              onReturn={() => act(card.id, unadoptAction)}
-            />
+            <ShelfCard key={card.id} card={card} onChanged={refresh} />
           ))}
         </div>
       )}
@@ -254,16 +227,10 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
 
 function ShelfCard({
   card,
-  busy,
-  onAdopt,
-  onFork,
-  onReturn,
+  onChanged,
 }: {
   card: PublicationCard;
-  busy: boolean;
-  onAdopt: () => void;
-  onFork: () => void;
-  onReturn: () => void;
+  onChanged: () => Promise<void> | void;
 }) {
   const kindMeta = publicationKindMeta(card.kind);
   const typeMeta = card.contentType ? contentMeta(card.contentType) : null;
@@ -271,6 +238,8 @@ function ShelfCard({
   return (
     <EntryCard
       title={card.title}
+      imageUrl={card.coverUrl}
+      imageAlt={card.title}
       kind={
         <span className="inline-flex items-center gap-1.5">
           <Glyph name={kindMeta.glyph} size={12} />
@@ -304,37 +273,23 @@ function ShelfCard({
     >
       {card.preview ? (
         <StatBlock entry={card.preview} />
+      ) : card.coverUrl ? (
+        // A picture listing has no stat block; the picture is the whole of it.
+        // Not next/image: the file is served by our own route, and the optimiser
+        // would fetch and re-encode a copy of every map on the shelf.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={card.coverUrl}
+          alt={card.title}
+          className="w-full rounded-md border border-line"
+        />
       ) : (
         <p className="text-sm text-ink-subtle">
           Whatever this listing pointed at is no longer readable.
         </p>
       )}
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        {!card.mine && card.adopted === null && (
-          <>
-            <Button
-              size="sm"
-              color="primary"
-              isLoading={busy}
-              onPress={onAdopt}
-            >
-              Take it
-            </Button>
-            <Button
-              size="sm"
-              variant="bordered"
-              isDisabled={busy}
-              onPress={onFork}
-            >
-              Copy it to my Forge
-            </Button>
-          </>
-        )}
-        {card.adopted !== null && (
-          <Button size="sm" variant="light" isLoading={busy} onPress={onReturn}>
-            Put it back
-          </Button>
-        )}
+        <AdoptControls card={card} onDone={() => void onChanged()} />
         <Button
           as={Link}
           href={`/library/${card.id}`}
@@ -344,11 +299,6 @@ function ShelfCard({
           Open
         </Button>
       </div>
-      {card.adopted === 'linked' && (
-        <Marginalia dash className="mt-2">
-          theirs still — their corrections find you
-        </Marginalia>
-      )}
     </EntryCard>
   );
 }

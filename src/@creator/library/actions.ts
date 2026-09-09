@@ -18,6 +18,7 @@ import {
   listShelf,
   publicationForHomebrew,
   publishHomebrew,
+  publishImage,
   setPublicationStatus,
   updatePublication,
   type PublicationDetail,
@@ -75,7 +76,12 @@ const MESSAGES: Record<string, string> = {
   WITHDRAWN: 'The author has taken this off the shelf.',
   CONTENT_GONE: 'The author has deleted what this listing pointed at.',
   KIND_NOT_ADOPTABLE_YET:
-    'Taking this kind home is not built yet. Homebrew is.',
+    'Taking this kind home is not built yet. Homebrew and pictures are.',
+  CAMPAIGN_REQUIRED: 'Choose which of your tables the picture should go to.',
+  IMAGE_NOT_FOUND: 'That picture is no longer there.',
+  UNSUPPORTED_TYPE: 'That file is not a kind of image this app serves.',
+  TOO_LARGE: 'That file is too big.',
+  NOT_STAFF: 'Only a table’s DM can do that.',
 };
 
 function fail(err: unknown): LibraryResult {
@@ -134,6 +140,27 @@ export async function publishHomebrewAction(
   }
 }
 
+/** Put one of a campaign's pictures on the shelf. Staff of that table only. */
+export async function publishImageAction(
+  campaignImageId: string,
+  input: unknown
+): Promise<LibraryResult> {
+  const parsed = publicationInput.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Give the listing a title.',
+    };
+  }
+  try {
+    const id = await publishImage(campaignImageId, parsed.data);
+    revalidatePath('/library');
+    return { ok: true, id };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 export async function updatePublicationAction(
   id: string,
   input: unknown
@@ -180,12 +207,17 @@ export async function deletePublicationAction(
   }
 }
 
-/** Take it as a link — the author's corrections keep reaching you. */
+/**
+ * Take it. A homebrew listing arrives as a link — the author's corrections keep
+ * reaching you. A picture is copied into `targetCampaignId`, which that kind
+ * requires.
+ */
 export async function adoptAction(
-  publicationId: string
+  publicationId: string,
+  targetCampaignId?: string
 ): Promise<LibraryResult> {
   try {
-    await adopt(publicationId);
+    await adopt(publicationId, targetCampaignId);
     revalidatePath('/library');
     revalidatePath(`/library/${publicationId}`);
     return { ok: true, id: publicationId };

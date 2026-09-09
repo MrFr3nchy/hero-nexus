@@ -27,6 +27,14 @@ import {
   publications,
   users,
 } from '@/db/schema';
+import { getCampaignImage } from './campaign-images';
+import { requireCampaignRole } from './campaigns';
+import {
+  attachCampaignImage,
+  deletePublicationFiles,
+  listPublicationAssets,
+  type PublicationAssetRow,
+} from './library-assets';
 import { optionalUserId, requireUserId } from './session-user';
 
 /**
@@ -85,6 +93,8 @@ export interface PublicationDetail {
   /** True when `entry` came out of the frozen payload rather than a live row. */
   fromSnapshot: boolean;
   items: PublicationItemRow[];
+  /** The pictures the listing carries, cover first. */
+  assets: PublicationAssetRow[];
 }
 
 export interface PublicationItemRow {
@@ -178,6 +188,7 @@ const cardColumns = {
   updatedAt: publications.updatedAt,
   homebrewId: publications.homebrewId,
   payload: publications.payload,
+  coverAssetId: publications.coverAssetId,
   liveId: homebrew.id,
   liveOwnerId: homebrew.ownerId,
   liveType: homebrew.type,
@@ -232,6 +243,7 @@ type CardQueryRow = {
   updatedAt: string;
   homebrewId: string | null;
   payload: unknown;
+  coverAssetId: string | null;
   liveId: string | null;
   liveOwnerId: string | null;
   liveType: string | null;
@@ -317,6 +329,9 @@ function toCard(
     adopted: mine.get(row.id) ?? null,
     itemCount: items.get(row.id) ?? 0,
     preview: previewOf(row),
+    coverUrl: row.coverAssetId
+      ? `/api/library/${row.id}/assets/${row.coverAssetId}`
+      : null,
   };
 }
 
@@ -399,11 +414,14 @@ export async function getPublication(
 
   const [card] = await decorate([row], readerId);
 
-  const itemRows = await db
-    .select()
-    .from(publicationItems)
-    .where(eq(publicationItems.publicationId, id))
-    .orderBy(publicationItems.sortOrder);
+  const [itemRows, assets] = await Promise.all([
+    db
+      .select()
+      .from(publicationItems)
+      .where(eq(publicationItems.publicationId, id))
+      .orderBy(publicationItems.sortOrder),
+    listPublicationAssets(id),
+  ]);
 
   return {
     card,
@@ -421,6 +439,11 @@ export async function getPublication(
       payload: item.payload,
       sortOrder: item.sortOrder,
     })),
+    // Cover first: it is the picture the card already showed, so it is the one a
+    // reader opening the listing expects to be looking at.
+    assets: [...assets].sort((a, b) =>
+      a.id === row.coverAssetId ? -1 : b.id === row.coverAssetId ? 1 : 0
+    ),
   };
 }
 
@@ -611,7 +634,49 @@ export async function setPublicationStatus(
  */
 export async function deletePublication(id: string): Promise<void> {
   const userId = await requireUserId();
-  await db
+  const removed = await db
     .delete(publications)
-    .where(and(eq(publications.id, id), eq(publications.ownerId, userId)));
+    .where(and(eq(publications.id, id), eq(publications.ownerId, userId)))
+    .returning({ id: publications.id });
+  // Only once the row is actually gone. Removing the directory first would
+  // strip a listing of its pictures on a failed ownership check.
+  if (removed.length > 0) await deletePublicationFiles(id);
+}
+
+/**
+ * Put a picture on the shelf.
+ *
+ * A snapshot kind: the bytes are copied out of the campaign they came from, so
+ * the listing survives that campaign being archived and does not need the
+ * role-checked campaign image route relaxed to be readable. The copy is also the
+ * cover, because a picture listing whose card draws nothing would be absurd.
+ */
+export async function publishImage(
+  campaignImageId: string,
+  input: PublicationInput
+): Promise<string> {
+  const userId = await requireUserId();
+
+  const image = await getCampaignImage(campaignImageId);
+  if (!image) throw new Error('IMAGE_NOT_FOUND');
+  // Staff only: publishing a picture out of a table you merely play at is not
+  // your call, whoever uploaded it.
+  await requireCampaignRole(image.campaignId, ['gm', 'co-gm']);
+
+  const [created] = await db
+    .insert(publications)
+    .values({
+      ownerId: userId,
+      kind: 'image',
+      credit: await creditFor(userId),
+      title: input.title.trim() || image.alt || 'A picture',
+      summary: input.summary?.trim() ?? '',
+      tags: normaliseTags(input.tags),
+      visibility: input.visibility ?? 'public',
+      payload: { alt: image.alt, mime: image.mime },
+    })
+    .returning({ id: publications.id });
+
+  await attachCampaignImage(created.id, campaignImageId, { asCover: true });
+  return created.id;
 }

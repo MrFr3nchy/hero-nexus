@@ -1584,6 +1584,12 @@ export const publications = sqliteTable(
     payload: text('payload', { mode: 'json' })
       .notNull()
       .default(sql`'{}'`),
+    /**
+     * The picture drawn on the card. No reference, following
+     * `campaign_map_pins.canon_entry_id`: a deleted cover should read as a card
+     * with no picture rather than break the listing.
+     */
+    coverAssetId: text('cover_asset_id'),
     version: integer('version').notNull().default(1),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
@@ -1684,4 +1690,41 @@ export const adoptions = sqliteTable(
     index('adoptions_publication_idx').on(t.publicationId),
     index('adoptions_user_idx').on(t.userId),
   ]
+);
+
+/**
+ * A file a listing carries.
+ *
+ * The bytes are copied on publish rather than pointed at: `campaign_images` is
+ * read behind a `requireCampaignRole` check, so a listing pointing at one would
+ * be unreadable to everybody not at that table — and bypassing the check on the
+ * route that serves campaign files is the last place to put a bypass. Copying
+ * also means archiving the campaign a picture came from cannot take the listing's
+ * picture with it.
+ *
+ * Files live under `UPLOADS_DIR/library/<publicationId>/`, so a deleted listing
+ * is one directory to remove.
+ */
+export const publicationAssets = sqliteTable(
+  'publication_assets',
+  {
+    id: uuid(),
+    publicationId: text('publication_id')
+      .notNull()
+      .references(() => publications.id, { onDelete: 'cascade' }),
+    /** Path under `UPLOADS_DIR`, e.g. `library/<publicationId>/<uuid>.webp`. */
+    filePath: text('file_path').notNull(),
+    mime: text('mime').notNull(),
+    bytes: integer('bytes').notNull().default(0),
+    alt: text('alt').notNull().default(''),
+    /**
+     * Which piece of the package this picture belongs to. No reference: items
+     * are rewritten wholesale when a package is re-frozen, and an asset
+     * outliving that beats a re-freeze failing on a constraint.
+     */
+    itemLocalKey: text('item_local_key').notNull().default(''),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('publication_assets_publication_idx').on(t.publicationId)]
 );
