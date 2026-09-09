@@ -81,12 +81,14 @@ const MESSAGES: Record<string, string> = {
   CONTENT_GONE: 'The author has deleted what this listing pointed at.',
   KIND_NOT_ADOPTABLE_YET:
     'Taking a bundle home is not built yet — everything else on the shelf is.',
-  NOT_STAFF_OF_CAMPAIGN: 'Only a table’s DM can publish it.',
   CAMPAIGN_REQUIRED: 'Choose which of your tables the picture should go to.',
   IMAGE_NOT_FOUND: 'That picture is no longer there.',
   UNSUPPORTED_TYPE: 'That file is not a kind of image this app serves.',
   TOO_LARGE: 'That file is too big.',
-  NOT_STAFF: 'Only a table’s DM can do that.',
+  // `requireCampaignRole` throws this when the reader is at the table but not
+  // staff, and when they are not at it at all. Publishing a picture out of a
+  // table you merely play at is the case that will actually hit it.
+  FORBIDDEN: 'Only a table’s DM can do that.',
 };
 
 function fail(err: unknown): LibraryResult {

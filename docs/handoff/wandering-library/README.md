@@ -13,11 +13,11 @@ six-month campaign and run it at your own table.
 
 ## Contents
 
-| Document                                       | Holds                                                       |
-| ---------------------------------------------- | ----------------------------------------------------------- |
-| This file                                      | The model, the phases, and what each phase must prove.      |
-| [phases.md](phases.md)                         | Per-phase task lists, in build order, with their status.    |
-| [../../sharing-model.md](../../sharing-model.md) | The binding contract, written as phase 6 lands.           |
+| Document                                         | Holds                                                    |
+| ------------------------------------------------ | -------------------------------------------------------- |
+| This file                                        | The model, the phases, and the run that proved them.     |
+| [phases.md](phases.md)                           | Per-phase task lists, in build order, with their status. |
+| [../../sharing-model.md](../../sharing-model.md) | The binding contract that came out of this work.         |
 
 ---
 
@@ -27,11 +27,11 @@ six-month campaign and run it at your own table.
 would make every sentence in `docs/content-model.md` ambiguous. The three terms, kept
 apart deliberately:
 
-| Term                     | Is                                                            | Lives in                             |
-| ------------------------ | ------------------------------------------------------------- | ------------------------------------ |
-| **the Wandering Library** | The public shelf. What everyone published, for anyone to take. | `publications`, `/library`          |
-| **your shelf**            | One reader's own collection — SRD, forged, adopted.            | `ShelfItem` / `listShelfContent`     |
-| **a campaign library**    | What is in play at one table (content-model rule 6).           | `campaign_homebrew`                  |
+| Term                      | Is                                                             | Lives in                         |
+| ------------------------- | -------------------------------------------------------------- | -------------------------------- |
+| **the Wandering Library** | The public shelf. What everyone published, for anyone to take. | `publications`, `/library`       |
+| **your shelf**            | One reader's own collection — SRD, forged, adopted.            | `ShelfItem` / `listShelfContent` |
+| **a campaign library**    | What is in play at one table (content-model rule 6).           | `campaign_homebrew`              |
 
 Copy rule: the public surface is always "the Library" or "the Wandering Library", never
 "the market"; a reader's own collection is always "your shelf"; `campaign_homebrew` is
@@ -142,16 +142,47 @@ story, and it is stated rather than implied.
 Each phase is shippable on its own and leaves the app in a state a person could use.
 Full task lists live in [phases.md](phases.md).
 
-| # | Phase                | Lands                                                                                                                     |
-| - | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| 1 | **Foundations**      | Migration `0029`, `publications`, `src/server/library.ts`, publishing homebrew, `/library` listing real cards, nav rename. |
-| 2 | **Adoption**         | `adoptions`, the `shared` branch of `listShelfContent` lit, fork-to-edit, provenance marks, submitting adopted content.   |
-| 3 | **Images**           | `publication_assets`, publishing a campaign image, adopting one into a campaign you run, cover images on any publication. |
-| 4 | **Heroes**           | Character packages: sheet snapshot plus the homebrew it references, ref remapping on adoption.                            |
-| 5 | **Campaigns**        | Campaign packages: the allow-list above, and adoption that mints a runnable table.                                        |
-| 6 | **Browse and prove** | Search, filters, sort, author pages, `docs/sharing-model.md`, and the verification script.                                |
+| #   | Phase                | Lands                                                                                                                      |
+| --- | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Foundations**      | Migration `0029`, `publications`, `src/server/library.ts`, publishing homebrew, `/library` listing real cards, nav rename. |
+| 2   | **Adoption**         | `adoptions`, the `shared` branch of `listShelfContent` lit, fork-to-edit, provenance marks, submitting adopted content.    |
+| 3   | **Images**           | `publication_assets`, publishing a campaign image, adopting one into a campaign you run, cover images on any publication.  |
+| 4   | **Heroes**           | Character packages: sheet snapshot plus the homebrew it references, ref remapping on adoption.                             |
+| 5   | **Campaigns**        | Campaign packages: the allow-list above, and adoption that mints a runnable table.                                         |
+| 6   | **Browse and prove** | Search, filters, sort, author pages, `docs/sharing-model.md`, and the verification script.                                 |
 
-### What each phase must prove
+## The proof run
+
+Run against a production build (`npm run build` + `npm run start`) with three real
+accounts and three cookie jars, over real server-action POSTs, per
+[verifying-without-a-browser.md](../verifying-without-a-browser.md). The accounts, the
+campaigns and the uploaded files were deleted afterwards.
+
+| #   | Proof                                                                                                      | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | A published spell and species appear on a second account's shelf; the unpublished item does not.           | 2 listings, both credited "Verify GM"; `Verify Blade` absent.                                                                                                                                                                                                                                                                                                                                                                                             |
+| 2   | An adopted spell shows on the adopter's shelf as `shared`, as `mine` for its author, and on nobody else's. | `origin: shared` / `origin: mine` / absent for the third account.                                                                                                                                                                                                                                                                                                                                                                                         |
+| 2a  | The author's later correction reaches the adopter without republishing.                                    | Author changed `2d6` → `4d8`; the adopter's shelf read `4d8`.                                                                                                                                                                                                                                                                                                                                                                                             |
+| 2b  | A fork stops tracking.                                                                                     | Author changed the species' speed to 45 and its blurb; the fork still read speed 30 and the old blurb, `forked_from` set, `visibility: private`.                                                                                                                                                                                                                                                                                                          |
+| 3   | Publishing and adopting a picture copies bytes, twice.                                                     | Three distinct files: the campaign's, `library/<pub>/…`, and the adopter's campaign.                                                                                                                                                                                                                                                                                                                                                                      |
+| 4   | An adopted hero's homebrew refs point at the adopter's own rows.                                           | `build.speciesKey` and the spell ref both equal ids in the adopter's forge; `provenance` empty.                                                                                                                                                                                                                                                                                                                                                           |
+| 5   | An adopted campaign carries the prep and none of the table.                                                | Canon (both bodies), quest (with `dmNotes`), prep note, map, pin re-pointed at the local canon entry, image copied, library homebrew minted and in play. `campaign_members`, `campaign_invites`, `campaign_sessions`, `party_loot`, `campaign_rolls`, `player_journals`, `campaign_clocks`, `downtime_periods`, `session_awards`, `party_treasury`, `campaign_handouts`, `initiative_encounters`, `campaign_screen_layouts` all 0, and a fresh join code. |
+| 6   | The shelf filters and sorts.                                                                               | `kind`, `contentType`, `tag`, free text and `sort` each returned exactly the expected listings out of five.                                                                                                                                                                                                                                                                                                                                               |
+
+Negatives, because a permission check that only proves the owner _can_ has proven
+nothing:
+
+- A player publishing the GM's homebrew — "That homebrew is not yours to publish."
+- A player publishing a picture from a table they only play at — refused. (This one
+  returned a bare "Something went wrong" on the first run: `requireCampaignRole` throws
+  `FORBIDDEN`, which the action layer had no sentence for. Fixed, re-run, and it now
+  reads "Only a table's DM can do that.")
+- Adopting a picture without naming a table — "Choose which of your tables the picture
+  should go to."
+- Adopting a withdrawn listing — "The author has taken this off the shelf," while the
+  reader who had already taken it kept it (`origin: shared`).
+
+### What each phase had to prove
 
 Proof means `docs/handoff/verifying-without-a-browser.md`: real accounts, real cookie
 jars, real server-action POSTs against a production build. A typecheck cannot tell you

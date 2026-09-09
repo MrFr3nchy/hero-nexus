@@ -67,6 +67,10 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
   const [contentType, setContentType] = useState<ContentType | ''>('');
   const [query, setQuery] = useState('');
   const [tag, setTag] = useState<string | null>(null);
+  /** One author's shelf. Set by clicking a credit, cleared by the chip. */
+  const [author, setAuthor] = useState<{ id: string; name: string } | null>(
+    null
+  );
   const [sort, setSort] = useState<'newest' | 'adopted'>('newest');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -78,6 +82,7 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
           kind: kind === 'all' ? undefined : kind,
           contentType: contentType || undefined,
           tag: tag ?? undefined,
+          ownerId: author?.id,
           query: query.trim() || undefined,
           sort,
         })
@@ -85,7 +90,7 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
     } finally {
       setRefreshing(false);
     }
-  }, [kind, contentType, tag, query, sort]);
+  }, [kind, contentType, tag, author, query, sort]);
 
   useEffect(() => {
     // The shelf arrives rendered from the server; only a changed filter needs
@@ -182,6 +187,19 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
           </Button>
         </div>
 
+        {author && (
+          <div className="flex items-center gap-2 text-sm text-ink-muted">
+            <span>Everything left here by {author.name}.</span>
+            <button
+              type="button"
+              onClick={() => setAuthor(null)}
+              className="underline underline-offset-2 hover:text-ink"
+            >
+              Show the whole shelf
+            </button>
+          </div>
+        )}
+
         {tags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
             {tags.map(t => (
@@ -218,7 +236,12 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {cards.map(card => (
-            <ShelfCard key={card.id} card={card} onChanged={refresh} />
+            <ShelfCard
+              key={card.id}
+              card={card}
+              onChanged={refresh}
+              onAuthor={setAuthor}
+            />
           ))}
         </div>
       )}
@@ -229,9 +252,11 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
 function ShelfCard({
   card,
   onChanged,
+  onAuthor,
 }: {
   card: PublicationCard;
   onChanged: () => Promise<void> | void;
+  onAuthor: (author: { id: string; name: string }) => void;
 }) {
   const kindMeta = publicationKindMeta(card.kind);
   const typeMeta = card.contentType ? contentMeta(card.contentType) : null;
@@ -257,7 +282,13 @@ function ShelfCard({
       }
       meta={
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span>by {card.credit}</span>
+          <button
+            type="button"
+            onClick={() => onAuthor({ id: card.ownerId, name: card.credit })}
+            className="underline-offset-2 hover:text-ink hover:underline"
+          >
+            by {card.credit}
+          </button>
           {card.contents && <span>· {card.contents}</span>}
           {card.adoptions > 0 && (
             <span>
