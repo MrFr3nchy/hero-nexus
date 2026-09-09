@@ -1555,6 +1555,20 @@ export const publications = sqliteTable(
     homebrewId: text('homebrew_id').references(() => homebrew.id, {
       onDelete: 'set null',
     }),
+    /**
+     * The hero or campaign a snapshot listing was frozen out of (0032).
+     *
+     * Not a live link, unlike `homebrewId` — a snapshot does not track its
+     * source. They exist so a listing can be found from the row it came out of,
+     * and so the same row cannot be listed twice; publishing again re-freezes
+     * the payload and bumps `version`.
+     */
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    campaignId: text('campaign_id').references(() => campaigns.id, {
+      onDelete: 'set null',
+    }),
     /** The narrow type when the listing is one piece of content. */
     contentType: text('content_type'),
     title: text('title').notNull(),
@@ -1599,6 +1613,8 @@ export const publications = sqliteTable(
     index('publications_shelf_idx').on(t.status, t.visibility, t.kind),
     index('publications_content_type_idx').on(t.contentType),
     uniqueIndex('publications_homebrew_idx').on(t.homebrewId),
+    uniqueIndex('publications_character_idx').on(t.characterId),
+    uniqueIndex('publications_campaign_idx').on(t.campaignId),
   ]
 );
 

@@ -13,6 +13,7 @@ import {
   Marginalia,
   Pill,
   Ribbon,
+  SheetPreview,
   TomeScene,
 } from '@/@shared/components/ui';
 import {
@@ -273,6 +274,13 @@ function ShelfCard({
     >
       {card.preview ? (
         <StatBlock entry={card.preview} />
+      ) : card.hero ? (
+        <SheetPreview
+          name={card.hero.name}
+          meta={card.hero.meta}
+          abilities={card.hero.abilities}
+          derived={card.hero.derived}
+        />
       ) : card.coverUrl ? (
         // A picture listing has no stat block; the picture is the whole of it.
         // Not next/image: the file is served by our own route, and the optimiser

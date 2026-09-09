@@ -11,6 +11,7 @@ import {
   Pill,
   Ribbon,
   SectionCard,
+  SheetPreview,
   useConfirm,
 } from '@/@shared/components/ui';
 import { contentMeta } from '@/@shared/content';
@@ -64,6 +65,13 @@ export function PublicationDetail({ detail }: { detail: Detail }) {
           <SectionCard framed>
             <StatBlock entry={entry} />
           </SectionCard>
+        ) : card.hero ? (
+          <SheetPreview
+            name={card.hero.name}
+            meta={card.hero.meta}
+            abilities={card.hero.abilities}
+            derived={card.hero.derived}
+          />
         ) : detail.assets.length > 0 ? (
           <div className="flex flex-col gap-3">
             {detail.assets.map(asset => (
@@ -118,6 +126,27 @@ export function PublicationDetail({ detail }: { detail: Detail }) {
                 }`}
           </p>
         </div>
+
+        {detail.items.length > 0 && (
+          <div className="text-sm text-ink-muted">
+            <h3 className="font-display-alt text-[0.65rem] uppercase tracking-[0.14em] text-gold/80">
+              Travels with it
+            </h3>
+            <ul className="mt-1 space-y-0.5">
+              {detail.items.map(item => (
+                <li key={item.id} className="flex items-center gap-1.5">
+                  {item.contentType && (
+                    <Glyph
+                      name={contentMeta(item.contentType).glyph}
+                      size={13}
+                    />
+                  )}
+                  <span className="truncate">{item.name}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {card.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5">

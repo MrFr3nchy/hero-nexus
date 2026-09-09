@@ -153,6 +153,23 @@ export interface PublicationCard {
   preview: ContentEntry | null;
   /** The picture drawn on the card, when the listing has one. */
   coverUrl: string | null;
+  /**
+   * The hero on a `character` listing, shaped for `SheetPreview`.
+   *
+   * Computed server-side out of the frozen sheet: a shelf of heroes has to show
+   * the sheets (design rule 1), and shipping the whole `CharacterSheet` to every
+   * card to draw six numbers off it would be most of a megabyte for a roster.
+   */
+  hero: HeroPreview | null;
+}
+
+/** Just enough of a sheet to draw its card. */
+export interface HeroPreview {
+  name: string;
+  /** e.g. "Level 5 Elf Wizard". */
+  meta: string;
+  abilities: Record<'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha', number>;
+  derived: { label: string; value: string }[];
 }
 
 /**

@@ -22,7 +22,10 @@ import { isLiveLinked, type PublicationCard } from '../lib/publication';
  * - **A picture** offers only a copy, and needs to know which of your tables
  *   receives it. Images belong to campaigns in this app; there is no personal
  *   image shelf to default to.
- * - **The snapshot kinds that mint rows** — heroes, campaigns, bundles — say so
+ * - **A hero** offers one thing: adding it to your own heroes. That mints the
+ *   sheet *and* the homebrew it references, with its refs rewritten to point at
+ *   your copies.
+ * - **The kinds that are not built yet** — campaigns and bundles — say so
  *   plainly rather than offering a button that fails.
  */
 export function AdoptControls({
@@ -139,6 +142,23 @@ export function AdoptControls({
           Copy it to my table
         </Button>
         {error && <p className="text-sm text-danger">{error}</p>}
+      </div>
+    );
+  }
+
+  if (card.kind === 'character') {
+    return (
+      <div className={wrap}>
+        <Button
+          size="sm"
+          color="primary"
+          isLoading={busy}
+          onPress={() => run(() => adoptAction(card.id))}
+        >
+          Add to my heroes
+        </Button>
+        {error && <p className="text-sm text-danger">{error}</p>}
+        <Marginalia dash>the sheet, and whatever was forged for it</Marginalia>
       </div>
     );
   }

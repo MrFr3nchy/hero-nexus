@@ -8,6 +8,7 @@ import { fromHomebrew, type ContentEntry } from '@/@shared/content';
 import { db } from '@/db';
 import { adoptions, homebrew, publications } from '@/db/schema';
 import { copyAssetToCampaign } from './library-assets';
+import { adoptCharacter } from './library-packages';
 import { freezeHomebrew, thawContent } from './library';
 import { requireUserId } from './session-user';
 
@@ -114,9 +115,17 @@ export async function adopt(
     return;
   }
 
+  if (row.kind === 'character') {
+    // Mints a character the adopter owns, with the package's homebrew minted
+    // first and the sheet's refs rewritten to point at it. That module records
+    // the adoption itself, because the row has to name what it produced.
+    await adoptCharacter(publicationId);
+    return;
+  }
+
   if (row.kind !== 'homebrew') {
-    // Heroes, campaigns and bundles are snapshots and each mints different
-    // rows; they arrive with their own phases. Refusing loudly beats writing an
+    // Campaigns and bundles are snapshots that mint a table's worth of rows;
+    // they arrive with their own phase. Refusing loudly beats writing an
     // adoption row that resolves to nothing.
     throw new Error('KIND_NOT_ADOPTABLE_YET');
   }

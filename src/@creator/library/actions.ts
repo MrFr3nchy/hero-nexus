@@ -24,6 +24,7 @@ import {
   type PublicationDetail,
   type ShelfFilters,
 } from '@/server/library';
+import { publishCharacter } from '@/server/library-packages';
 
 import { CONTENT_TYPES } from '@/@shared/content';
 import { PUBLICATION_KINDS, type PublicationCard } from './lib/publication';
@@ -72,11 +73,13 @@ const MESSAGES: Record<string, string> = {
   NOT_FOUND: 'That listing is not on the shelf.',
   NOT_YOUR_HOMEBREW: 'That homebrew is not yours to publish.',
   NOT_YOUR_PUBLICATION: 'That listing is not yours.',
+  NOT_YOUR_CHARACTER: 'That hero is not yours to publish.',
+  WRONG_KIND: 'That listing does not carry what this was asked to take.',
   OWN_PUBLICATION: 'You wrote this one — it is already yours.',
   WITHDRAWN: 'The author has taken this off the shelf.',
   CONTENT_GONE: 'The author has deleted what this listing pointed at.',
   KIND_NOT_ADOPTABLE_YET:
-    'Taking this kind home is not built yet. Homebrew and pictures are.',
+    'Taking this kind home is not built yet. Homebrew, heroes and pictures are.',
   CAMPAIGN_REQUIRED: 'Choose which of your tables the picture should go to.',
   IMAGE_NOT_FOUND: 'That picture is no longer there.',
   UNSUPPORTED_TYPE: 'That file is not a kind of image this app serves.',
@@ -134,6 +137,28 @@ export async function publishHomebrewAction(
     const id = await publishHomebrew(homebrewId, parsed.data);
     revalidatePath('/library');
     revalidatePath('/creator/homebrew');
+    return { ok: true, id };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Put one of your heroes on the shelf, with the homebrew it needs. */
+export async function publishCharacterAction(
+  characterId: string,
+  input: unknown
+): Promise<LibraryResult> {
+  const parsed = publicationInput.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Give the listing a title.',
+    };
+  }
+  try {
+    const id = await publishCharacter(characterId, parsed.data);
+    revalidatePath('/library');
+    revalidatePath('/characters');
     return { ok: true, id };
   } catch (err) {
     return fail(err);

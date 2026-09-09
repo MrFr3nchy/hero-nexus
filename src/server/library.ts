@@ -6,6 +6,7 @@ import {
   isPublicationKind,
   normaliseTags,
   type AdoptionMode,
+  type HeroPreview,
   type PublicationCard,
   type PublicationKind,
   type PublicationStatus,
@@ -227,6 +228,53 @@ function previewOf(row: CardQueryRow): ContentEntry | null {
   return thawContent(row.id, row.payload);
 }
 
+/**
+ * The six numbers and one line a hero's card needs, out of its frozen sheet.
+ *
+ * Deliberately not the whole `CharacterSheet`: a shelf of twenty heroes would
+ * ship twenty full sheets to draw twenty ability rows. Read defensively — a
+ * package written by an older build is not to be trusted to have every field.
+ */
+function heroOf(payload: unknown): HeroPreview | null {
+  const sheet = (payload as { sheet?: Record<string, unknown> } | null)?.sheet;
+  if (!sheet || typeof sheet !== 'object') return null;
+
+  const identity = (sheet.identity ?? {}) as Record<string, unknown>;
+  const combat = (sheet.combat ?? {}) as Record<string, unknown>;
+  const scores = (sheet.abilities ?? {}) as Record<string, unknown>;
+  const num = (value: unknown, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  const str = (value: unknown): string =>
+    typeof value === 'string' ? value : '';
+
+  const level = num(identity.level, 1);
+  const meta = [
+    `Level ${level}`,
+    str(identity.species),
+    str(identity.subclass) || str(identity.class),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  return {
+    name: str(identity.name) || 'A nameless hero',
+    meta,
+    abilities: {
+      str: num(scores.strength, 10),
+      dex: num(scores.dexterity, 10),
+      con: num(scores.constitution, 10),
+      int: num(scores.intelligence, 10),
+      wis: num(scores.wisdom, 10),
+      cha: num(scores.charisma, 10),
+    },
+    derived: [
+      { label: 'AC', value: String(num(combat.armorClass, 10)) },
+      { label: 'HP', value: String(num(combat.hitPointsMax, 0)) },
+      { label: 'Speed', value: `${num(combat.speed, 30)} ft` },
+    ],
+  };
+}
+
 type CardQueryRow = {
   id: string;
   ownerId: string;
@@ -329,6 +377,7 @@ function toCard(
     adopted: mine.get(row.id) ?? null,
     itemCount: items.get(row.id) ?? 0,
     preview: previewOf(row),
+    hero: row.kind === 'character' ? heroOf(row.payload) : null,
     coverUrl: row.coverAssetId
       ? `/api/library/${row.id}/assets/${row.coverAssetId}`
       : null,
@@ -460,6 +509,19 @@ export async function publicationForHomebrew(
   return card;
 }
 
+/** The listing for one hero, so their sheet page can say whether they are out. */
+export async function publicationForCharacter(
+  characterId: string
+): Promise<PublicationCard | null> {
+  const readerId = await optionalUserId();
+  const [row] = (await selectCards()
+    .where(eq(publications.characterId, characterId))
+    .limit(1)) as CardQueryRow[];
+  if (!row) return null;
+  const [card] = await decorate([row], readerId);
+  return card;
+}
+
 /**
  * Every listing the signed-in author has out for their own forged content.
  *
@@ -485,7 +547,7 @@ export async function listMyHomebrewPublications(): Promise<PublicationCard[]> {
  * keeps their credit. Never the email address — that is the one field on `user`
  * nobody agreed to show a stranger.
  */
-async function creditFor(userId: string): Promise<string> {
+export async function creditFor(userId: string): Promise<string> {
   const row = await db.query.users.findFirst({
     columns: { name: true },
     where: eq(users.id, userId),

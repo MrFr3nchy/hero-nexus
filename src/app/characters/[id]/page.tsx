@@ -11,8 +11,10 @@ import {
   NOTE_SECTIONS,
   type NoteSection,
 } from '@/@creator/character/lib/note-sections';
+import { PublishHero } from '@/@creator/library/components';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import { PageHeader, PageShell } from '@/@shared/components/ui';
+import { publicationForCharacter } from '@/server/library';
 import {
   listSecrets,
   listSheetNotes,
@@ -40,6 +42,7 @@ export default async function CharacterSheetPage({
 
   // A character with no table has no notes and no secrets — just the sheet.
   const table = await tableContext(id);
+  const listing = await publicationForCharacter(id);
   const [notes, secrets] = table
     ? await Promise.all([listSheetNotes(id), listSecrets(id)])
     : [[], []];
@@ -73,14 +76,23 @@ export default async function CharacterSheetPage({
           title={character.name || 'Character'}
           description={`Level ${character.level} ${character.class} · ${character.species}`}
           actions={
-            // A plain link, not HeroUI's Button: this page is a server
-            // component, and HeroUI's button pulls in a client-only context.
-            <Link
-              href={`/creator/character?id=${id}`}
-              className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-sm text-ink hover:border-gold/60"
-            >
-              Edit the sheet
-            </Link>
+            <>
+              {/* A plain link, not HeroUI's Button: this page is a server
+                  component, and HeroUI's button pulls in a client-only
+                  context. `PublishHero` is a client component of its own, so it
+                  may use one. */}
+              <Link
+                href={`/creator/character?id=${id}`}
+                className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-sm text-ink hover:border-gold/60"
+              >
+                Edit the sheet
+              </Link>
+              <PublishHero
+                characterId={id}
+                name={character.name}
+                listing={listing}
+              />
+            </>
           }
         />
 
