@@ -275,6 +275,31 @@ function heroOf(payload: unknown): HeroPreview | null {
   };
 }
 
+/**
+ * What a campaign package holds, counted off its payload.
+ *
+ * Read defensively: an older package need not have every list, and a card that
+ * throws takes the whole shelf down with it.
+ */
+function contentsOf(payload: unknown): string | null {
+  const p = payload as Record<string, unknown> | null;
+  if (!p) return null;
+  const count = (key: string): number =>
+    Array.isArray(p[key]) ? (p[key] as unknown[]).length : 0;
+
+  const parts = [
+    [count('entries'), 'canon entries'],
+    [count('quests'), 'quests'],
+    [count('notes'), 'notes'],
+    [count('maps'), 'maps'],
+  ] as const;
+
+  const said = parts
+    .filter(([n]) => n > 0)
+    .map(([n, label]) => `${n} ${n === 1 ? label.replace(/e?s$/, '') : label}`);
+  return said.length > 0 ? said.join(' · ') : null;
+}
+
 type CardQueryRow = {
   id: string;
   ownerId: string;
@@ -378,6 +403,7 @@ function toCard(
     itemCount: items.get(row.id) ?? 0,
     preview: previewOf(row),
     hero: row.kind === 'character' ? heroOf(row.payload) : null,
+    contents: row.kind === 'campaign' ? contentsOf(row.payload) : null,
     coverUrl: row.coverAssetId
       ? `/api/library/${row.id}/assets/${row.coverAssetId}`
       : null,
@@ -503,6 +529,19 @@ export async function publicationForHomebrew(
   const readerId = await optionalUserId();
   const [row] = (await selectCards()
     .where(eq(publications.homebrewId, homebrewId))
+    .limit(1)) as CardQueryRow[];
+  if (!row) return null;
+  const [card] = await decorate([row], readerId);
+  return card;
+}
+
+/** The listing for one campaign, so its manage page can say whether it is out. */
+export async function publicationForCampaign(
+  campaignId: string
+): Promise<PublicationCard | null> {
+  const readerId = await optionalUserId();
+  const [row] = (await selectCards()
+    .where(eq(publications.campaignId, campaignId))
     .limit(1)) as CardQueryRow[];
   if (!row) return null;
   const [card] = await decorate([row], readerId);

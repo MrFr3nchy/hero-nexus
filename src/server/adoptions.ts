@@ -8,6 +8,7 @@ import { fromHomebrew, type ContentEntry } from '@/@shared/content';
 import { db } from '@/db';
 import { adoptions, homebrew, publications } from '@/db/schema';
 import { copyAssetToCampaign } from './library-assets';
+import { adoptCampaign } from './library-campaign-package';
 import { adoptCharacter } from './library-packages';
 import { freezeHomebrew, thawContent } from './library';
 import { requireUserId } from './session-user';
@@ -123,10 +124,17 @@ export async function adopt(
     return;
   }
 
+  if (row.kind === 'campaign') {
+    // Mints a table the adopter is the DM of. None of the source table's people
+    // come with it — see `library-campaign-package`, which records the adoption
+    // itself because the row has to name the campaign it produced.
+    await adoptCampaign(publicationId);
+    return;
+  }
+
   if (row.kind !== 'homebrew') {
-    // Campaigns and bundles are snapshots that mint a table's worth of rows;
-    // they arrive with their own phase. Refusing loudly beats writing an
-    // adoption row that resolves to nothing.
+    // A bundle is several unrelated things at once and has no phase yet.
+    // Refusing loudly beats writing an adoption row that resolves to nothing.
     throw new Error('KIND_NOT_ADOPTABLE_YET');
   }
   if (!row.homebrewId) throw new Error('CONTENT_GONE');

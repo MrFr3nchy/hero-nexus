@@ -25,8 +25,10 @@ import { isLiveLinked, type PublicationCard } from '../lib/publication';
  * - **A hero** offers one thing: adding it to your own heroes. That mints the
  *   sheet *and* the homebrew it references, with its refs rewritten to point at
  *   your copies.
- * - **The kinds that are not built yet** — campaigns and bundles — say so
- *   plainly rather than offering a button that fails.
+ * - **A campaign** mints a table the reader is the DM of: the prep, and none of
+ *   the people.
+ * - **A bundle**, the one kind with no phase yet, says so plainly rather than
+ *   offering a button that fails.
  */
 export function AdoptControls({
   card,
@@ -142,6 +144,23 @@ export function AdoptControls({
           Copy it to my table
         </Button>
         {error && <p className="text-sm text-danger">{error}</p>}
+      </div>
+    );
+  }
+
+  if (card.kind === 'campaign') {
+    return (
+      <div className={wrap}>
+        <Button
+          size="sm"
+          color="primary"
+          isLoading={busy}
+          onPress={() => run(() => adoptAction(card.id))}
+        >
+          Run it at my table
+        </Button>
+        {error && <p className="text-sm text-danger">{error}</p>}
+        <Marginalia dash>the prep, and none of their players</Marginalia>
       </div>
     );
   }

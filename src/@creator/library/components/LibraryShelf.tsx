@@ -258,6 +258,7 @@ function ShelfCard({
       meta={
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span>by {card.credit}</span>
+          {card.contents && <span>· {card.contents}</span>}
           {card.adoptions > 0 && (
             <span>
               · on {card.adoptions} other{' '}
@@ -281,6 +282,10 @@ function ShelfCard({
           abilities={card.hero.abilities}
           derived={card.hero.derived}
         />
+      ) : card.contents ? (
+        <p className="text-sm text-ink-muted">
+          A whole table&rsquo;s prep: {card.contents}.
+        </p>
       ) : card.coverUrl ? (
         // A picture listing has no stat block; the picture is the whole of it.
         // Not next/image: the file is served by our own route, and the optimiser

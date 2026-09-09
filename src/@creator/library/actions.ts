@@ -24,6 +24,7 @@ import {
   type PublicationDetail,
   type ShelfFilters,
 } from '@/server/library';
+import { publishCampaign } from '@/server/library-campaign-package';
 import { publishCharacter } from '@/server/library-packages';
 
 import { CONTENT_TYPES } from '@/@shared/content';
@@ -79,7 +80,8 @@ const MESSAGES: Record<string, string> = {
   WITHDRAWN: 'The author has taken this off the shelf.',
   CONTENT_GONE: 'The author has deleted what this listing pointed at.',
   KIND_NOT_ADOPTABLE_YET:
-    'Taking this kind home is not built yet. Homebrew, heroes and pictures are.',
+    'Taking a bundle home is not built yet — everything else on the shelf is.',
+  NOT_STAFF_OF_CAMPAIGN: 'Only a table’s DM can publish it.',
   CAMPAIGN_REQUIRED: 'Choose which of your tables the picture should go to.',
   IMAGE_NOT_FOUND: 'That picture is no longer there.',
   UNSUPPORTED_TYPE: 'That file is not a kind of image this app serves.',
@@ -137,6 +139,33 @@ export async function publishHomebrewAction(
     const id = await publishHomebrew(homebrewId, parsed.data);
     revalidatePath('/library');
     revalidatePath('/creator/homebrew');
+    return { ok: true, id };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/**
+ * Put a campaign on the shelf: the prep, never the table.
+ *
+ * See `@/server/library-campaign-package` for the allow-list — no members, no
+ * invites, no join code, no characters, no record of sessions played.
+ */
+export async function publishCampaignAction(
+  campaignId: string,
+  input: unknown
+): Promise<LibraryResult> {
+  const parsed = publicationInput.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Give the listing a title.',
+    };
+  }
+  try {
+    const id = await publishCampaign(campaignId, parsed.data);
+    revalidatePath('/library');
+    revalidatePath(`/campaigns/${campaignId}`);
     return { ok: true, id };
   } catch (err) {
     return fail(err);

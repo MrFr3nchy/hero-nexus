@@ -161,6 +161,11 @@ export interface PublicationCard {
    * card to draw six numbers off it would be most of a megabyte for a roster.
    */
   hero: HeroPreview | null;
+  /**
+   * What a package holds, as a line of prose — "12 canon entries / 4 quests /
+   * 2 maps". Counts set as a sentence rather than tiles, design rule 2.
+   */
+  contents: string | null;
 }
 
 /** Just enough of a sheet to draw its card. */
