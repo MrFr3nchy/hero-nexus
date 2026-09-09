@@ -209,3 +209,55 @@ h4 {
     animation: none !important;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * The DM screen
+ *
+ * Boxes on the screen already have a frame, a title bar and their own
+ * scroller. The panels that go inside them are the same components the
+ * campaign tabs use, and those draw their own `SectionCard` — a frame inside a
+ * frame, with two sets of padding and a second copy of the title, costs the
+ * vertical space the screen exists to save.
+ *
+ * Flattening them here rather than threading a `dense` prop through nine
+ * panels keeps one renderer per panel (content model rule 5): the tab and the
+ * screen show the same component, and only its chrome differs.
+ * ------------------------------------------------------------------ */
+
+.screen-box-body [data-card] {
+  border: 0;
+  background: transparent;
+  box-shadow: none !important;
+}
+
+.screen-box-body [data-card] > * {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* The box's title bar already says what this is. */
+.screen-box-body [data-card-title] {
+  display: none;
+}
+
+/* A header with nothing but that title left in it is a blank rule. One that
+   still holds actions — "Add the party", "Long rest" — is function, and stays. */
+.screen-box-body [data-card-head] {
+  border-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0.25rem;
+}
+
+.screen-box-body [data-card-head]:not(:has([data-card-actions])) {
+  display: none;
+}
+
+/* Empty states are an invitation on a page and an obstruction in a box: the
+   scene is half the height of a screen box on its own. */
+.screen-box-body [data-empty-state] {
+  padding: 0.75rem 0.5rem;
+}
+
+.screen-box-body [data-empty-scene] {
+  display: none;
+}

@@ -28,8 +28,6 @@ export const SCREEN_PANEL_KEYS = [
 
 export type ScreenPanelKey = (typeof SCREEN_PANEL_KEYS)[number];
 
-export type ScreenRail = 'main' | 'rail';
-
 export interface ScreenPanelMeta {
   key: ScreenPanelKey;
   /** Two or three words. It is a heading on a crowded page. */
@@ -129,33 +127,65 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
   },
 };
 
+/**
+ * How many columns of boxes the screen is built from.
+ *
+ * Two is a phone-sized desk, four is a real one. More than four and a box is
+ * too narrow to read a stat block in, which is the thing this page exists to
+ * stop you doing in another window.
+ */
+export const SCREEN_COLUMN_COUNTS = [2, 3, 4] as const;
+export type ScreenColumnCount = (typeof SCREEN_COLUMN_COUNTS)[number];
+
+/**
+ * The screen: a fixed number of columns, each holding an ordered stack of
+ * boxes.
+ *
+ * Columns rather than the old `{ main, rail }` because a DM screen is not a
+ * page with a sidebar — it is a row of panels of equal standing, creased
+ * between each pair, and the thing that made the first version tiring was that
+ * everything below the fold of a long left column needed scrolling to reach.
+ */
 export interface ScreenLayout {
-  main: ScreenPanelKey[];
-  rail: ScreenPanelKey[];
+  columns: ScreenPanelKey[][];
 }
 
 /**
  * What a screen looks like before anyone has arranged one.
  *
- * A DM opens on the fight; a player opens on their own party and what they
- * have been told. Neither default is empty, because an empty screen with a
- * "choose some panels" prompt is a worse first impression than a sensible one
- * somebody then edits.
+ * A DM opens on the fight and their own prep; a player on their party and what
+ * they have been told. Neither default is empty, because an empty screen with
+ * a "choose some panels" prompt is a worse first impression than a sensible
+ * one somebody then edits.
+ *
+ * Two boxes per column, not three: three thirds of a laptop screen is a box
+ * eight lines tall, and a box you have to scroll is the thing this replaced.
  */
 export function defaultLayout(isStaff: boolean): ScreenLayout {
   return isStaff
     ? {
-        main: ['initiative', 'vitals', 'dice'],
-        rail: ['reveals', 'quests', 'conditions'],
+        columns: [
+          ['initiative', 'vitals'],
+          ['notebook', 'dice'],
+          ['reveals', 'conditions'],
+        ],
       }
     : {
-        main: ['vitals', 'initiative', 'dice'],
-        rail: ['reveals', 'quests', 'handouts'],
+        columns: [
+          ['vitals', 'initiative'],
+          ['reveals', 'quests'],
+          ['handouts', 'dice'],
+        ],
       };
 }
 
 export function isScreenPanelKey(value: string): value is ScreenPanelKey {
   return (SCREEN_PANEL_KEYS as readonly string[]).includes(value);
+}
+
+/** Every panel on a layout, in reading order. */
+export function panelsOn(layout: ScreenLayout): ScreenPanelKey[] {
+  return layout.columns.flat();
 }
 
 /**
@@ -165,18 +195,27 @@ export function isScreenPanelKey(value: string): value is ScreenPanelKey {
  * and the price of a panel that no longer exists is that it stops appearing.
  * A panel a player may not have is dropped here too, so a demoted co-DM does
  * not keep the notebook on their screen.
+ *
+ * Also reads the original `{ main, rail }` shape, so a screen somebody
+ * arranged before this became a column grid survives as its first two columns
+ * rather than being silently reset to the default.
  */
 export function normalizeLayout(raw: unknown, isStaff: boolean): ScreenLayout {
-  const source = (raw ?? {}) as Partial<Record<ScreenRail, unknown>>;
+  const source = (raw ?? {}) as {
+    columns?: unknown;
+    main?: unknown;
+    rail?: unknown;
+  };
 
   // One pass, not chained filters: `Array.prototype.filter` runs to completion
   // before the next one starts, so a `seen` set populated in a later filter is
   // still empty while the earlier one is deciding — which let the same panel
-  // through twice in the same rail.
-  const clean = (value: unknown, seen: Set<string>): ScreenPanelKey[] => {
+  // through twice in the same column.
+  const seen = new Set<string>();
+  const clean = (value: unknown): ScreenPanelKey[] => {
     const out: ScreenPanelKey[] = [];
-    for (const raw of Array.isArray(value) ? value : []) {
-      const key = String(raw);
+    for (const item of Array.isArray(value) ? value : []) {
+      const key = String(item);
       if (!isScreenPanelKey(key)) continue;
       if (!isStaff && !SCREEN_PANELS[key].players) continue;
       if (seen.has(key)) continue;
@@ -186,12 +225,14 @@ export function normalizeLayout(raw: unknown, isStaff: boolean): ScreenLayout {
     return out;
   };
 
-  // One `seen` across both rails: the same panel twice on one screen is two
-  // copies of one poller, and the second one is never what anybody wanted.
-  const seen = new Set<string>();
-  const main = clean(source.main, seen);
-  const rail = clean(source.rail, seen);
+  const stored = Array.isArray(source.columns)
+    ? source.columns.map(clean)
+    : [clean(source.main), clean(source.rail)];
 
-  if (main.length === 0 && rail.length === 0) return defaultLayout(isStaff);
-  return { main, rail };
+  // Empty columns are kept: a column you emptied on purpose is a space you are
+  // about to drop something into, and closing it up would move every box on
+  // the screen while you were looking away.
+  const columns = stored.slice(0, Math.max(...SCREEN_COLUMN_COUNTS));
+  if (columns.every(c => c.length === 0)) return defaultLayout(isStaff);
+  return { columns: columns.length > 0 ? columns : [[]] };
 }
