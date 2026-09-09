@@ -14,7 +14,6 @@ import {
   createHomebrew,
   deleteHomebrew,
   listHomebrew,
-  listPublicHomebrew,
   updateHomebrew,
   type HomebrewRow,
   type HomebrewType,
@@ -33,12 +32,6 @@ export async function listHomebrewAction(
   type?: HomebrewType
 ): Promise<HomebrewRow[]> {
   return listHomebrew(type);
-}
-
-export async function listPublicHomebrewAction(
-  type?: HomebrewType
-): Promise<HomebrewRow[]> {
-  return listPublicHomebrew(type);
 }
 
 export interface SaveHomebrewResult {

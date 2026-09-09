@@ -77,7 +77,7 @@ const COMPENDIUM: NavItem[] = [
     create: '/creator/homebrew?type=creature',
     creates: 'creature',
   },
-  { name: 'Market', href: '/marketplace', icon: 'ph:storefront-bold' },
+  { name: 'Library', href: '/library', icon: 'ph:books-bold' },
 ];
 
 export function SideNavigation() {

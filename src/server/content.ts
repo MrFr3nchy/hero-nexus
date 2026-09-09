@@ -12,6 +12,7 @@ import {
   type ShelfItem,
 } from '@/@shared/content';
 
+import { listAdoptedContent } from './adoptions';
 import { listCampaignContent } from './campaign-content';
 import { getHomebrewByIds, listHomebrew, toContentEntries } from './homebrew';
 import { getReference } from './reference';
@@ -110,11 +111,13 @@ export async function resolveContentRefs(
 /**
  * What one player may pick from, for a given content type.
  *
- * Three sources, in the order a picker should show them:
+ * Four sources, in the order a picker should show them:
  *
  *   1. The SRD.
  *   2. The player's own homebrew — theirs to use on their own characters.
- *   3. Whatever the campaign has in play, when building for a table.
+ *   3. What they adopted from the Wandering Library, which is theirs to use for
+ *      the same reason even though it is not theirs to edit.
+ *   4. Whatever the campaign has in play, when building for a table.
  *
  * A campaign's library is included whole rather than filtered to approved
  * submissions, because that *is* what the library means: everything in it has
@@ -124,9 +127,10 @@ export async function listPickableContent(
   type: ContentType,
   campaignId?: string
 ): Promise<ContentEntry[]> {
-  const [srd, own, library] = await Promise.all([
+  const [srd, own, adopted, library] = await Promise.all([
     listSrdContent(type),
     listHomebrew().catch(() => []),
+    listAdoptedContent().catch(() => []),
     campaignId
       ? listCampaignContent(campaignId).catch(() => [])
       : Promise.resolve([]),
@@ -136,6 +140,9 @@ export async function listPickableContent(
   for (const entry of srd)
     out.set(`${entry.ref.source}:${entry.ref.key}`, entry);
   for (const entry of toContentEntries(own)) {
+    if (entry.type === type) out.set(`homebrew:${entry.ref.key}`, entry);
+  }
+  for (const entry of adopted) {
     if (entry.type === type) out.set(`homebrew:${entry.ref.key}`, entry);
   }
   for (const item of library) {
@@ -150,13 +157,11 @@ export async function listPickableContent(
 /**
  * One compendium shelf: everything of a type this reader may look at.
  *
- * Two sources today — the SRD, and the reader's own homebrew — and a third
- * reserved: content adopted from the market, which is other people's public
- * homebrew sitting on your shelf. Nothing writes that yet (the market lists
- * and copies nothing), so the `shared` branch is the seam, not a feature: when
- * adoption lands it is one more source merged here, and the shelf page, its
- * filters and its "yours to edit" action already read `origin` rather than
- * guessing from `ref.source`.
+ * Three sources: the SRD, the reader's own homebrew, and what they have adopted
+ * from the Wandering Library — other people's content sitting on your shelf,
+ * which is what `origin: 'shared'` was reserved for. It is merged last and does
+ * not overwrite: a reader who forked a listing has their own row for it, and
+ * their own copy is the one they can edit.
  *
  * Not `listPickableContent`: that answers "what may this player put on a
  * sheet", which folds in a campaign's library — content that belongs to a
@@ -166,11 +171,12 @@ export async function listPickableContent(
 export async function listShelfContent(
   type: ContentType
 ): Promise<ShelfItem[]> {
-  const [srd, own] = await Promise.all([
+  const [srd, own, adopted] = await Promise.all([
     listSrdContent(type),
     // Signed out — the compendium still renders — there is no own homebrew,
     // and a thrown session error must not take the shelf down with it.
     listHomebrew().catch(() => []),
+    listAdoptedContent().catch(() => []),
   ]);
 
   const items = new Map<string, ShelfItem>();
@@ -180,6 +186,15 @@ export async function listShelfContent(
   for (const entry of toContentEntries(own)) {
     if (entry.type !== type) continue;
     items.set(refKey(entry.ref), { entry, origin: 'mine' });
+  }
+  for (const entry of adopted) {
+    if (entry.type !== type) continue;
+    const key = refKey(entry.ref);
+    // `mine` wins. An author who published a spell and then adopted their own
+    // — which the shelf refuses, but a database restore does not — should still
+    // see it as theirs.
+    if (items.get(key)?.origin === 'mine') continue;
+    items.set(key, { entry, origin: 'shared' });
   }
 
   return [...items.values()].sort((a, b) =>

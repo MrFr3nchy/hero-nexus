@@ -5,14 +5,12 @@
 import {
   deleteHomebrewAction,
   listHomebrewAction,
-  listPublicHomebrewAction,
   saveHomebrewAction,
 } from '../actions';
 import type { HomebrewType } from '@/server/homebrew';
 
 export const homebrewService = {
   list: (type?: HomebrewType) => listHomebrewAction(type),
-  listPublic: (type?: HomebrewType) => listPublicHomebrewAction(type),
   save: (input: unknown, id?: string) => saveHomebrewAction(input, id),
   remove: (id: string) => deleteHomebrewAction(id),
 };

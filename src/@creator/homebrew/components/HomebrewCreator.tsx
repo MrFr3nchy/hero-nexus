@@ -10,19 +10,22 @@ import {
   Input,
   Select,
   SelectItem,
-  Switch,
   Textarea,
 } from '@heroui/react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { listCampaignsAction } from '@/@creator/campaign/actions';
+import { listMyHomebrewPublicationsAction } from '@/@creator/library/actions';
+import { PublishToLibrary } from '@/@creator/library/components';
+import type { PublicationCard } from '@/@creator/library/lib/publication';
 import { StatBlock } from '@/@shared/components/StatBlock';
 import {
   DiceSpinner,
   EmptyState,
   ForgeScene,
   Glyph,
+  Ribbon,
   Seal,
   SectionCard,
   useConfirm,
@@ -120,18 +123,21 @@ export function HomebrewCreator({
   const [draft, setDraft] = useState<Draft>(() => newDraft(initialType));
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRow[]>([]);
+  const [listings, setListings] = useState<PublicationCard[]>([]);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [hb, camps, apps] = await Promise.all([
+      const [hb, camps, apps, pubs] = await Promise.all([
         listHomebrewAction(),
         listCampaignsAction(),
         listMyApprovalsAction(),
+        listMyHomebrewPublicationsAction(),
       ]);
       setItems(hb);
       setCampaigns(camps);
       setApprovals(apps);
+      setListings(pubs);
     } catch {
       setError('Failed to load your homebrew.');
     } finally {
@@ -154,6 +160,19 @@ export function HomebrewCreator({
     const row = items.find(i => i.id === initialId);
     if (row) setDraft(draftFromRow(row));
   }, [initialId, items]);
+
+  /**
+   * What this author already has on the public shelf, by the row it points at.
+   * Built here rather than server-side because a `Map` does not survive the trip
+   * back from a server action.
+   */
+  const listingFor = useMemo(() => {
+    const out = new Map<string, PublicationCard>();
+    for (const card of listings) {
+      if (card.homebrewId) out.set(card.homebrewId, card);
+    }
+    return out;
+  }, [listings]);
 
   /**
    * Only tables that actually allow homebrew. Offering to submit to a table
@@ -329,26 +348,31 @@ export function HomebrewCreator({
             </div>
 
             {/*
-              A flex column, not `space-y-4`: HeroUI renders both the Switch
-              and the Button `inline-flex`, so vertical spacing does nothing
-              between them and the two shared a line with the button sitting
-              flush against the end of the switch's label. This is the case
-              the design language bans by name.
+              A flex column, not `space-y-4`: HeroUI renders most of these
+              `inline-flex`, so vertical spacing does nothing between them and
+              they share a line. This is the case the design language bans by
+              name.
+
+              There is no "make it public" switch here any more. Publishing is
+              what makes a row public, and `homebrew.visibility` is set by it —
+              two controls claiming the same fact is how a row ends up marked
+              public with no listing behind it, which is what that column was
+              before the Wandering Library existed.
             */}
             <div className="flex flex-col items-start gap-4">
-              <Switch
-                className="max-w-full"
-                classNames={{ label: 'ml-2 text-sm text-ink-muted' }}
-                isSelected={draft.visibility === 'public'}
-                onValueChange={v =>
-                  setDraft(d => ({
-                    ...d,
-                    visibility: v ? 'public' : 'private',
-                  }))
-                }
-              >
-                Share to the public marketplace
-              </Switch>
+              {draft.id && (
+                <PublishToLibrary
+                  // Keyed on the row *and* its listing: the fields are seeded
+                  // from props, and the listing arrives from the server after
+                  // the first render.
+                  key={`${draft.id}:${listingFor.get(draft.id)?.id ?? 'none'}`}
+                  homebrewId={draft.id}
+                  name={draft.name}
+                  description={draft.description}
+                  listing={listingFor.get(draft.id) ?? null}
+                  onChanged={load}
+                />
+              )}
 
               {error && (
                 <p className="w-full rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -413,9 +437,14 @@ export function HomebrewCreator({
                       />
                       <span className="truncate">{item.name}</span>
                     </span>
-                    <Chip size="sm" variant="flat" className="bg-surface-2">
-                      {itemMeta.label}
-                    </Chip>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {listingFor.get(item.id)?.status === 'listed' && (
+                        <Ribbon tone="gold">On the shelf</Ribbon>
+                      )}
+                      <Chip size="sm" variant="flat" className="bg-surface-2">
+                        {itemMeta.label}
+                      </Chip>
+                    </span>
                   </div>
                   <p className="mb-3 line-clamp-3 text-sm text-ink-muted">
                     {item.description || 'No description.'}
