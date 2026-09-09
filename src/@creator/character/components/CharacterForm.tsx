@@ -43,6 +43,7 @@ import {
   SpellListSection,
 } from './sections';
 import { CharacterWizard } from './wizard/CharacterWizard';
+import type { InitialPick } from './wizard/types';
 
 interface CharacterFormProps {
   reference: ReferenceOptions;
@@ -56,6 +57,12 @@ interface CharacterFormProps {
   campaigns: BuilderCampaignRow[];
   /** Campaign selected up front — the `?campaign=` link, or the current link. */
   initialCampaignId?: string;
+  /**
+   * A class, species or background chosen before the builder opened, from the
+   * "start a hero with this" button on a compendium shelf. Only meaningful for
+   * a new character; the guided builder ignores it once a sheet is reopened.
+   */
+  initialPick?: InitialPick;
 }
 
 type View = 'guided' | 'sheet';
@@ -89,6 +96,7 @@ export function CharacterForm({
   initialSheet,
   campaigns,
   initialCampaignId,
+  initialPick,
 }: CharacterFormProps) {
   const router = useRouter();
   const [banner, setBanner] = useState<{
@@ -408,6 +416,7 @@ export function CharacterForm({
           limits={limits}
           campaignId={campaignId || undefined}
           content={resolved}
+          initialPick={characterId ? undefined : initialPick}
           header={campaignPicker}
           footer={actions}
           onSwitchToSheet={enterSheet}

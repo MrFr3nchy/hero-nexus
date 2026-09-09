@@ -176,6 +176,56 @@ export function useGuidedBuild({
   );
 
   /**
+   * Pick a species, and a background.
+   *
+   * Both live here rather than inside their steps because they have a second
+   * caller: `/creator/character?species=…` opens the wizard with the pick
+   * already made, and a deep link that re-implemented "what choosing a species
+   * resets" would drift from the step the first time either changed.
+   *
+   * The size the species grants is deliberately *not* set here — that is an
+   * override on a composed path, and the wizard owns that bookkeeping.
+   */
+  const chooseSpecies = useCallback(
+    (key: string, name: string) => {
+      const next = catalog.species.find(s => s.key === key);
+      patchBuild(b => ({
+        ...b,
+        speciesKey: key,
+        speciesName: name,
+        speciesSource: next?.source ?? 'srd',
+        // Lineage picks and the free skill belong to the species that granted
+        // them.
+        speciesChoices: b.speciesKey === key ? b.speciesChoices : [],
+        bonusSkills: b.speciesKey === key ? b.bonusSkills : [],
+      }));
+    },
+    [catalog, patchBuild]
+  );
+
+  const chooseBackground = useCallback(
+    (key: string, name: string) => {
+      const next = catalog.backgrounds.find(b => b.key === key);
+      patchBuild(b => ({
+        ...b,
+        backgroundKey: key,
+        backgroundName: name,
+        backgroundSource: next?.source ?? 'srd',
+        backgroundBoost:
+          b.backgroundKey === key
+            ? b.backgroundBoost
+            : { mode: 'two-one', plusTwo: '', plusOnes: [] },
+        equipment: {
+          ...b.equipment,
+          backgroundOption:
+            b.backgroundKey === key ? b.equipment.backgroundOption : '',
+        },
+      }));
+    },
+    [catalog, patchBuild]
+  );
+
+  /**
    * Recompose when the inventory finishes resolving.
    *
    * The fetch is asynchronous, so the first few composes run without it and
@@ -213,6 +263,8 @@ export function useGuidedBuild({
     recompute,
     setLevel,
     chooseClass,
+    chooseSpecies,
+    chooseBackground,
     restoreClass,
   };
 }

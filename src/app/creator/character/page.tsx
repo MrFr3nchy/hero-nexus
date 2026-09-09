@@ -9,13 +9,21 @@ import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import { PageHeader, PageShell } from '@/@shared/components/ui';
 
 interface PageProps {
-  searchParams: Promise<{ id?: string; campaign?: string }>;
+  searchParams: Promise<{
+    id?: string;
+    campaign?: string;
+    /** The three picks a shelf can hand off; see `initialPick` below. */
+    class?: string;
+    species?: string;
+    background?: string;
+  }>;
 }
 
 export default async function CharacterCreationPage({
   searchParams,
 }: PageProps) {
-  const { id, campaign: campaignId } = await searchParams;
+  const params = await searchParams;
+  const { id, campaign: campaignId } = params;
   const [reference, campaigns, existing] = await Promise.all([
     loadReferenceOptions(),
     // Signed out, this page renders only to hand off to ProtectedRoute's
@@ -34,6 +42,21 @@ export default async function CharacterCreationPage({
   // carries that table's homebrew library, so building it against `?campaign=`
   // alone would open a linked character with the wrong table's options.
   const catalog = await loadBuildCatalog({ campaignId: selected });
+
+  /**
+   * "Start a hero with this" on a compendium shelf. Unvalidated here on
+   * purpose: the catalog is the authority on what may be picked (a homebrew
+   * class the table has banned is not in it), so the wizard matches the key
+   * against the catalog it was given and quietly ignores one that is not
+   * there.
+   */
+  const initialPick = params.class
+    ? ({ kind: 'class', key: params.class } as const)
+    : params.species
+      ? ({ kind: 'species', key: params.species } as const)
+      : params.background
+        ? ({ kind: 'background', key: params.background } as const)
+        : undefined;
 
   return (
     <ProtectedRoute>
@@ -57,6 +80,7 @@ export default async function CharacterCreationPage({
           campaigns={campaigns}
           initialCampaignId={selected}
           catalogCampaignId={selected}
+          initialPick={initialPick}
         />
       </PageShell>
     </ProtectedRoute>

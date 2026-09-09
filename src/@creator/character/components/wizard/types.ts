@@ -25,6 +25,18 @@ export interface StepProps {
   setOverride: (path: string, value: unknown) => void;
   setLevel: (level: number) => void;
   chooseClass: (key: string, name: string, source: ContentSource) => void;
+  chooseSpecies: (key: string, name: string) => void;
+  chooseBackground: (key: string, name: string) => void;
   log: (input: ProvenanceInput) => void;
   onCustomField: CustomFieldHandler;
+}
+
+/**
+ * A choice carried in on the URL — `/creator/character?class=…` from the
+ * "start a hero with this" button on a compendium shelf. The key is a catalog
+ * key: an SRD slug, or a homebrew id.
+ */
+export interface InitialPick {
+  kind: 'class' | 'species' | 'background';
+  key: string;
 }

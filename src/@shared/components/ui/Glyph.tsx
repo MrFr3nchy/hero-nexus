@@ -59,7 +59,8 @@ export type GlyphName =
   | 'tome'
   | 'quill'
   | 'die'
-  | 'key';
+  | 'key'
+  | 'plus';
 
 /** Every glyph's artwork, drawn inside a 24×24 box. */
 const PATHS: Record<GlyphName, React.ReactNode> = {
@@ -288,6 +289,8 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
       <path d="m10.7 12.2 8.3 8.3M16.5 18l2-2M14 15.5l2-2" />
     </>
   ),
+  // Furniture rather than a kind: the mark on every "forge a new one" control.
+  plus: <path d="M12 5.5v13M5.5 12h13" />,
 };
 
 export interface GlyphProps extends Omit<SVGProps<SVGSVGElement>, 'name'> {

@@ -31,7 +31,7 @@ import type { CustomFieldHandler } from '../sections';
 
 import type { ResolvedContent } from '../useResolvedContent';
 import { useGuidedBuild } from './useGuidedBuild';
-import type { StepProps } from './types';
+import type { InitialPick, StepProps } from './types';
 import { AbilitiesStep } from './steps/AbilitiesStep';
 import { AdvancementStep } from './steps/AdvancementStep';
 import { BackgroundStep } from './steps/BackgroundStep';
@@ -55,6 +55,13 @@ interface CharacterWizardProps {
   campaignId?: string;
   /** Stats for what the sheet carries; armour class is composed from it. */
   content?: ResolvedContent;
+  /**
+   * A pick made before the wizard opened — the "start a hero with this"
+   * button on a compendium shelf. Applied once, on mount, to a build that has
+   * not made that pick yet, so reopening a saved character never has its class
+   * rewritten by a stale link.
+   */
+  initialPick?: InitialPick;
   /** Campaign picker and anything else that belongs above the first step. */
   header?: ReactNode;
   /**
@@ -97,6 +104,7 @@ export function CharacterWizard({
   limits = OPEN_LIMITS,
   campaignId,
   content,
+  initialPick,
   header,
   footer,
   onSwitchToSheet,
@@ -117,6 +125,8 @@ export function CharacterWizard({
     patchBuild,
     setLevel,
     chooseClass,
+    chooseSpecies,
+    chooseBackground,
     restoreClass,
   } = guided;
 
@@ -143,6 +153,60 @@ export function CharacterWizard({
   useEffect(() => {
     void restoreClass(getValues('build.classKey'));
   }, [restoreClass, getValues]);
+
+  /**
+   * Apply an arriving-from-a-shelf pick, once.
+   *
+   * `applied` rather than an empty dependency list: the pick needs the catalog
+   * to name what was chosen, and it must not run a second time when the
+   * catalog reloads for a newly-picked campaign — by then the player may have
+   * chosen something else, and re-applying the link would silently take it
+   * back.
+   */
+  const [pickApplied, setPickApplied] = useState(false);
+  useEffect(() => {
+    if (!initialPick || pickApplied) return;
+    setPickApplied(true);
+
+    if (initialPick.kind === 'class') {
+      const option = catalog.classes.find(o => o.key === initialPick.key);
+      if (!option) return;
+      void chooseClass(option.key, option.name, option.source);
+      log({ kind: 'field', label: 'Class', detail: `Class: ${option.name}` });
+      return;
+    }
+    if (initialPick.kind === 'species') {
+      const option = catalog.species.find(o => o.key === initialPick.key);
+      if (!option) return;
+      chooseSpecies(option.key, option.name);
+      setValue('identity.size', option.sizes[0] ?? 'Medium', {
+        shouldDirty: true,
+      });
+      log({
+        kind: 'field',
+        label: 'Species',
+        detail: `Species: ${option.name}`,
+      });
+      return;
+    }
+    const option = catalog.backgrounds.find(o => o.key === initialPick.key);
+    if (!option) return;
+    chooseBackground(option.key, option.name);
+    log({
+      kind: 'field',
+      label: 'Background',
+      detail: `Background: ${option.name}`,
+    });
+  }, [
+    initialPick,
+    pickApplied,
+    catalog,
+    chooseClass,
+    chooseSpecies,
+    chooseBackground,
+    setValue,
+    log,
+  ]);
 
   /**
    * Write a sheet field by hand. Paths the build normally owns are recorded as
@@ -192,6 +256,8 @@ export function CharacterWizard({
     setOverride,
     setLevel,
     chooseClass: (key, name, source) => void chooseClass(key, name, source),
+    chooseSpecies,
+    chooseBackground,
     log,
     onCustomField,
   };

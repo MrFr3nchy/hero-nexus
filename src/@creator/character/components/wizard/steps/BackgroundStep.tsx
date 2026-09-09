@@ -24,6 +24,7 @@ export function BackgroundStep({
   build,
   catalog,
   patchBuild,
+  chooseBackground,
   log,
   onCustomField,
 }: StepProps) {
@@ -44,22 +45,7 @@ export function BackgroundStep({
 
   const pick = (key: string, name: string) => {
     setCustom(false);
-    const next = catalog.backgrounds.find(b => b.key === key);
-    patchBuild(b => ({
-      ...b,
-      backgroundKey: key,
-      backgroundName: name,
-      backgroundSource: next?.source ?? 'srd',
-      backgroundBoost:
-        b.backgroundKey === key
-          ? b.backgroundBoost
-          : { mode: 'two-one', plusTwo: '', plusOnes: [] },
-      equipment: {
-        ...b.equipment,
-        backgroundOption:
-          b.backgroundKey === key ? b.equipment.backgroundOption : '',
-      },
-    }));
+    chooseBackground(key, name);
     log({ kind: 'field', label: 'Background', detail: `Background: ${name}` });
   };
 

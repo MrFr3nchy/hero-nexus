@@ -27,6 +27,7 @@ const privateRoutes = [
   '/spells',
   '/classes',
   '/items',
+  '/bestiary',
   '/marketplace',
   '/creator',
   '/account',

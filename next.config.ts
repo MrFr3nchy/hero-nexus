@@ -29,6 +29,19 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
+  // The Forge hub is gone: the character creator is reached from Heroes and
+  // the homebrew forge from the `+` on whichever shelf you are standing at.
+  // A redirect here rather than a `redirect()` page, so an old bookmark gets
+  // a real 307 instead of a blank document that moves itself on hydration.
+  async redirects() {
+    return [
+      {
+        source: '/creator',
+        destination: '/creator/homebrew',
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
