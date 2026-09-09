@@ -9,6 +9,7 @@ import {
   type ContentRef,
   type ContentType,
   type CreatureData,
+  type ShelfItem,
 } from '@/@shared/content';
 
 import { listCampaignContent } from './campaign-content';
@@ -144,6 +145,46 @@ export async function listPickableContent(
   }
 
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * One compendium shelf: everything of a type this reader may look at.
+ *
+ * Two sources today — the SRD, and the reader's own homebrew — and a third
+ * reserved: content adopted from the market, which is other people's public
+ * homebrew sitting on your shelf. Nothing writes that yet (the market lists
+ * and copies nothing), so the `shared` branch is the seam, not a feature: when
+ * adoption lands it is one more source merged here, and the shelf page, its
+ * filters and its "yours to edit" action already read `origin` rather than
+ * guessing from `ref.source`.
+ *
+ * Not `listPickableContent`: that answers "what may this player put on a
+ * sheet", which folds in a campaign's library — content that belongs to a
+ * table you play at, not to you, and which has no business on your shelf when
+ * you are not building for that table.
+ */
+export async function listShelfContent(
+  type: ContentType
+): Promise<ShelfItem[]> {
+  const [srd, own] = await Promise.all([
+    listSrdContent(type),
+    // Signed out — the compendium still renders — there is no own homebrew,
+    // and a thrown session error must not take the shelf down with it.
+    listHomebrew().catch(() => []),
+  ]);
+
+  const items = new Map<string, ShelfItem>();
+  for (const entry of srd) {
+    items.set(refKey(entry.ref), { entry, origin: 'srd' });
+  }
+  for (const entry of toContentEntries(own)) {
+    if (entry.type !== type) continue;
+    items.set(refKey(entry.ref), { entry, origin: 'mine' });
+  }
+
+  return [...items.values()].sort((a, b) =>
+    a.entry.name.localeCompare(b.entry.name)
+  );
 }
 
 /**

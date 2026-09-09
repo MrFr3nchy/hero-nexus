@@ -22,7 +22,10 @@ export function EmptyState({
   action,
 }: EmptyStateProps) {
   return (
-    <div className="relative overflow-hidden rounded-[var(--radius-card)] border border-dashed border-line bg-surface px-6 py-12 text-center">
+    <div
+      data-empty-state
+      className="relative overflow-hidden rounded-[var(--radius-card)] border border-dashed border-line bg-surface px-6 py-12 text-center"
+    >
       {/* compass-rose watermark */}
       <svg
         className="pointer-events-none absolute -right-6 -top-6 h-32 w-32 text-gold/[0.06]"
@@ -44,7 +47,9 @@ export function EmptyState({
       </svg>
 
       {scene ? (
-        <div className="mb-4 flex justify-center">{scene}</div>
+        <div data-empty-scene className="mb-4 flex justify-center">
+          {scene}
+        </div>
       ) : (
         icon && <Float className="mb-3 text-3xl opacity-80">{icon}</Float>
       )}

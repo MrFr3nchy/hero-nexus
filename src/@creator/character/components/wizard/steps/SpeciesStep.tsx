@@ -18,6 +18,7 @@ export function SpeciesStep({
   catalog,
   limits,
   patchBuild,
+  chooseSpecies,
   setOverride,
   log,
   onCustomField,
@@ -42,15 +43,7 @@ export function SpeciesStep({
   const pick = (key: string, name: string) => {
     setCustom(false);
     const next = catalog.species.find(s => s.key === key);
-    patchBuild(b => ({
-      ...b,
-      speciesKey: key,
-      speciesName: name,
-      speciesSource: next?.source ?? 'srd',
-      // Lineage picks and the free skill belong to the species that granted them.
-      speciesChoices: b.speciesKey === key ? b.speciesChoices : [],
-      bonusSkills: b.speciesKey === key ? b.bonusSkills : [],
-    }));
+    chooseSpecies(key, name);
     setOverride('identity.size', next?.sizes[0] ?? 'Medium');
     log({ kind: 'field', label: 'Species', detail: `Species: ${name}` });
   };

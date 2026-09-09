@@ -5,21 +5,22 @@ import {
   PageHeader,
   PageShell,
 } from '@/@shared/components/ui';
-import { listSrdContent } from '@/server/content';
-import type { CreatureData } from '@/@shared/content';
+import { listShelfContent } from '@/server/content';
+import { isForged, type CreatureData } from '@/@shared/content';
 
 export const dynamic = 'force-dynamic';
 
 export default async function BestiaryPage() {
-  const entries = await listSrdContent('creature');
-  const data = (e: (typeof entries)[number]) => e.data as CreatureData;
+  const items = await listShelfContent('creature');
+  const data = (i: (typeof items)[number]) => i.entry.data as CreatureData;
 
   // Two counts a DM actually uses when picking a fight: what is safe to throw
   // at a first-level party, and what is not a fight at all.
-  const lowLevel = entries.filter(e => data(e).challenge_rating <= 1).length;
-  const legendary = entries.filter(
-    e => data(e).legendary_actions.length > 0
+  const lowLevel = items.filter(i => data(i).challenge_rating <= 1).length;
+  const legendary = items.filter(
+    i => data(i).legendary_actions.length > 0
   ).length;
+  const forged = items.filter(isForged).length;
 
   return (
     <PageShell width="wide">
@@ -28,16 +29,17 @@ export default async function BestiaryPage() {
       <PageHeader
         rule={false}
         title="Bestiary"
-        description="The SRD 5.2 monsters, synced from Open5e and searchable."
+        description="The SRD 5.2 monsters and everything you have forged, searchable."
       />
-      {entries.length > 0 && (
+      {items.length > 0 && (
         <>
           <Ledger
             className="mb-1"
             items={[
-              { value: entries.length, label: 'creatures' },
+              { value: items.length, label: 'creatures' },
               { value: lowLevel, label: 'CR 1 and under' },
               { value: legendary, label: 'legendary' },
+              ...(forged > 0 ? [{ value: forged, label: 'forged' }] : []),
             ]}
           />
           <Marginalia dash className="mb-5">
@@ -45,7 +47,11 @@ export default async function BestiaryPage() {
           </Marginalia>
         </>
       )}
-      <ReferenceBrowser type="creature" entries={entries} />
+      <ReferenceBrowser
+        type="creature"
+        items={items}
+        createHref="/creator/homebrew?type=creature"
+      />
     </PageShell>
   );
 }

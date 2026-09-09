@@ -78,3 +78,28 @@ export interface ContentEntry {
   /** Homebrew only: who wrote it, for attribution in a picker. */
   ownerId?: string;
 }
+
+/**
+ * Where a shelf entry came from, from the reader's point of view.
+ *
+ * `ContentRef.source` answers "SRD or forged", which is not the same
+ * question: two forged spells on the same shelf can be one the reader wrote
+ * and one they took from the market, and only the first is theirs to edit.
+ *
+ * `shared` has no producer yet — the market lists other people's public
+ * homebrew but nothing adopts it into a personal shelf. Everything that reads
+ * a shelf already handles it, so the day adoption lands it is a new source in
+ * one server function rather than a new case in every consumer.
+ */
+export type ShelfOrigin = 'srd' | 'mine' | 'shared';
+
+/** One row on a compendium shelf: the content, and whose it is. */
+export interface ShelfItem {
+  entry: ContentEntry;
+  origin: ShelfOrigin;
+}
+
+/** True for anything somebody forged, whoever that was. */
+export function isForged(item: ShelfItem): boolean {
+  return item.origin !== 'srd';
+}

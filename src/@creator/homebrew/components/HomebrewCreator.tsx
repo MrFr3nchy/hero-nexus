@@ -102,14 +102,22 @@ function draftEntry(draft: Draft): ContentEntry {
   };
 }
 
-export function HomebrewCreator() {
+export function HomebrewCreator({
+  initialType,
+  initialId,
+}: {
+  /** The kind the `+` that sent you here was standing on. */
+  initialType?: ContentType;
+  /** An existing draft to open, from "Edit in the forge" on a shelf. */
+  initialId?: string;
+} = {}) {
   const [items, setItems] = useState<HomebrewRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const { confirm, dialog } = useConfirm();
 
-  const [draft, setDraft] = useState<Draft>(() => newDraft());
+  const [draft, setDraft] = useState<Draft>(() => newDraft(initialType));
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRow[]>([]);
 
@@ -134,6 +142,18 @@ export function HomebrewCreator() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /**
+   * Opening `?id=` waits for the list, because the row is where the draft
+   * comes from. Keyed on the id so switching from one shelf entry to another
+   * re-opens; editing the loaded draft afterwards does not pull it back, since
+   * `items` only changes on a save.
+   */
+  useEffect(() => {
+    if (!initialId) return;
+    const row = items.find(i => i.id === initialId);
+    if (row) setDraft(draftFromRow(row));
+  }, [initialId, items]);
 
   /**
    * Only tables that actually allow homebrew. Offering to submit to a table

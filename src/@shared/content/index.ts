@@ -1,11 +1,14 @@
 export {
   CONTENT_TYPES,
   isContentType,
+  isForged,
   refKey,
   sameRef,
   type ContentEntry,
   type ContentRef,
   type ContentType,
+  type ShelfItem,
+  type ShelfOrigin,
 } from './types';
 
 export {

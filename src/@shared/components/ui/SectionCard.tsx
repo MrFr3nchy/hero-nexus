@@ -45,13 +45,21 @@ export function SectionCard({
   return (
     <LiftCard reveal={reveal} className={`relative ${className ?? ''}`}>
       {framed && <Corners />}
+      {/* `data-card` is a styling hook for surfaces that stack cards inside
+          cards — the DM screen puts whole panels into boxes that already have
+          a frame, and a frame inside a frame reads as a mistake. Nothing but
+          CSS should ever key off it. */}
       <Card
+        data-card
         shadow="none"
         className="border border-line bg-surface [box-shadow:var(--shadow-card)]"
       >
         {(title || actions) && (
-          <CardHeader className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
-            <div>
+          <CardHeader
+            data-card-head
+            className="flex items-start justify-between gap-4 border-b border-line px-5 py-4"
+          >
+            <div data-card-title>
               {title && (
                 <h2 className="font-display text-lg text-ink">{title}</h2>
               )}
@@ -60,7 +68,9 @@ export function SectionCard({
               )}
             </div>
             {actions && (
-              <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
+              <div data-card-actions className="flex shrink-0 flex-wrap gap-2">
+                {actions}
+              </div>
             )}
           </CardHeader>
         )}

@@ -5,16 +5,18 @@ import {
   PageHeader,
   PageShell,
 } from '@/@shared/components/ui';
-import { listSrdContent } from '@/server/content';
+import { listShelfContent } from '@/server/content';
+import { isForged } from '@/@shared/content';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SpellsPage() {
-  const entries = await listSrdContent('spell');
-  const data = (e: (typeof entries)[number]) =>
-    e.data as { level?: number; ritual?: boolean };
-  const cantrips = entries.filter(e => data(e).level === 0).length;
-  const rituals = entries.filter(e => data(e).ritual).length;
+  const items = await listShelfContent('spell');
+  const data = (i: (typeof items)[number]) =>
+    i.entry.data as { level?: number; ritual?: boolean };
+  const cantrips = items.filter(i => data(i).level === 0).length;
+  const rituals = items.filter(i => data(i).ritual).length;
+  const forged = items.filter(isForged).length;
 
   return (
     <PageShell width="wide">
@@ -24,16 +26,17 @@ export default async function SpellsPage() {
       <PageHeader
         rule={false}
         title="Spells"
-        description="The SRD 5.2 spell list, synced from Open5e and searchable."
+        description="The SRD 5.2 spell list and everything you have forged, searchable."
       />
-      {entries.length > 0 && (
+      {items.length > 0 && (
         <>
           <Ledger
             className="mb-1"
             items={[
-              { value: entries.length, label: 'spells' },
+              { value: items.length, label: 'spells' },
               { value: cantrips, label: 'cantrips' },
               { value: rituals, label: 'rituals' },
+              ...(forged > 0 ? [{ value: forged, label: 'forged' }] : []),
             ]}
           />
           <Marginalia dash className="mb-5">
@@ -41,7 +44,11 @@ export default async function SpellsPage() {
           </Marginalia>
         </>
       )}
-      <ReferenceBrowser type="spell" entries={entries} />
+      <ReferenceBrowser
+        type="spell"
+        items={items}
+        createHref="/creator/homebrew?type=spell"
+      />
     </PageShell>
   );
 }

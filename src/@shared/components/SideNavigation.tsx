@@ -7,27 +7,76 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 
 import { useAuth } from '@/@auth/context';
-import { Marginalia } from './ui';
+import { Glyph, Marginalia } from './ui';
 import { ThemeToggle } from './ThemeToggle';
 
 interface NavItem {
   name: string;
   href: string;
   icon: string;
+  /** Where "one more of these" starts. Renders the row's `+`. */
+  create?: string;
+  /** What the `+` makes, for its tooltip and its label. */
+  creates?: string;
 }
 
 /** Primary: the things you own. Compendium: the reference shelves. */
 const PRIMARY: NavItem[] = [
   { name: 'Table', href: '/dashboard', icon: 'ph:house-bold' },
-  { name: 'Campaigns', href: '/campaigns', icon: 'ph:castle-turret-bold' },
-  { name: 'Heroes', href: '/characters', icon: 'ph:sword-bold' },
+  {
+    name: 'Campaigns',
+    href: '/campaigns',
+    icon: 'ph:castle-turret-bold',
+    create: '/campaigns/create',
+    creates: 'campaign',
+  },
+  {
+    name: 'Heroes',
+    href: '/characters',
+    icon: 'ph:sword-bold',
+    create: '/creator/character',
+    creates: 'hero',
+  },
 ];
 
+/**
+ * The shelves, each with the way to add to it.
+ *
+ * There is no "Forge" row any more. A hub whose whole job was two links to
+ * pages this sidebar already reaches is a stop on the way to somewhere else;
+ * the `+` on a shelf goes straight to the forge with that type selected, which
+ * is what anyone clicking "Forge" was after. `/creator` still redirects, for
+ * anything holding the old link.
+ */
 const COMPENDIUM: NavItem[] = [
-  { name: 'Forge', href: '/creator', icon: 'ph:sparkle-bold' },
-  { name: 'Classes', href: '/classes', icon: 'ph:shield-bold' },
-  { name: 'Spells', href: '/spells', icon: 'ph:magic-wand-bold' },
-  { name: 'Bestiary', href: '/bestiary', icon: 'ph:paw-print-bold' },
+  {
+    name: 'Classes',
+    href: '/classes',
+    icon: 'ph:shield-bold',
+    create: '/creator/homebrew?type=class',
+    creates: 'class',
+  },
+  {
+    name: 'Spells',
+    href: '/spells',
+    icon: 'ph:magic-wand-bold',
+    create: '/creator/homebrew?type=spell',
+    creates: 'spell',
+  },
+  {
+    name: 'Items',
+    href: '/items',
+    icon: 'ph:treasure-chest-bold',
+    create: '/creator/homebrew?type=item',
+    creates: 'item',
+  },
+  {
+    name: 'Bestiary',
+    href: '/bestiary',
+    icon: 'ph:paw-print-bold',
+    create: '/creator/homebrew?type=creature',
+    creates: 'creature',
+  },
   { name: 'Market', href: '/marketplace', icon: 'ph:storefront-bold' },
 ];
 
@@ -45,24 +94,45 @@ export function SideNavigation() {
     const active =
       pathname === item.href || pathname.startsWith(item.href + '/');
     return (
-      <Link
-        href={item.href}
-        title={collapsed ? item.name : undefined}
-        className={`relative flex items-center gap-3 py-2.5 pl-5 pr-3 text-sm transition-colors ${
-          active
-            ? 'bg-gold font-medium text-bg'
-            : 'text-ink-muted hover:bg-surface-2/70 hover:text-ink'
-        }`}
-      >
-        {active && (
-          <span
-            aria-hidden="true"
-            className="absolute inset-y-0 left-0 w-1 bg-danger"
-          />
+      <div className="group relative flex items-stretch">
+        <Link
+          href={item.href}
+          title={collapsed ? item.name : undefined}
+          className={`relative flex flex-1 items-center gap-3 py-2.5 pl-5 pr-3 text-sm transition-colors ${
+            active
+              ? 'bg-gold font-medium text-bg'
+              : 'text-ink-muted hover:bg-surface-2/70 hover:text-ink'
+          }`}
+        >
+          {active && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-y-0 left-0 w-1 bg-danger"
+            />
+          )}
+          <Icon icon={item.icon} width={17} className="shrink-0" />
+          {!collapsed && <span className="truncate">{item.name}</span>}
+        </Link>
+        {/*
+          The way to add to the shelf you are looking at, on the shelf itself.
+          Collapsed there is no room for it, and the row's own link still
+          reaches the page that carries the same control.
+        */}
+        {item.create && !collapsed && (
+          <Link
+            href={item.create}
+            aria-label={`Forge a new ${item.creates}`}
+            title={`New ${item.creates}`}
+            className={`flex items-center px-3 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 ${
+              active
+                ? 'bg-gold text-bg hover:text-bg/70'
+                : 'text-ink-subtle hover:bg-surface-2/70 hover:text-gold-strong'
+            }`}
+          >
+            <Glyph name="plus" size={15} />
+          </Link>
         )}
-        <Icon icon={item.icon} width={17} className="shrink-0" />
-        {!collapsed && <span className="truncate">{item.name}</span>}
-      </Link>
+      </div>
     );
   }
 

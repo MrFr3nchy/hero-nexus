@@ -1,29 +1,23 @@
 'use client';
 
-import { Button, Link } from '@heroui/react';
-import { useCallback, useEffect, useState } from 'react';
+import { Button, Input, Link, Select, SelectItem } from '@heroui/react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { listCharactersAction } from '@/@creator/character/actions';
-import {
-  DiceSpinner,
-  Glyph,
-  Marginalia,
-  PageHeader,
-  PageShell,
-  Ribbon,
-  SectionCard,
-} from '@/@shared/components/ui';
+import { DiceSpinner, Glyph, Ribbon } from '@/@shared/components/ui';
 import { useCampaignLive } from '@/@shared/hooks/useCampaignLive';
 import type { SessionRow } from '@/server/campaign-sessions';
 import type { CampaignRole, CampaignRow } from '@/server/campaigns';
 import type { CharacterRow } from '@/server/characters';
 import {
+  panelsOn,
+  SCREEN_COLUMN_COUNTS,
   SCREEN_PANELS,
   SCREEN_PANEL_KEYS,
   type ScreenLayout,
   type ScreenPanelKey,
-  type ScreenRail,
 } from '../../lib/screen';
+import { createEncounterAction } from '../../actions';
 import { listSessionsAction } from '../../chronicle-actions';
 import { getScreenAction, saveScreenAction } from '../../screen-actions';
 import { CanonPanel } from '../CanonPanel';
@@ -38,6 +32,63 @@ import { HandoutsPanel } from '../session/HandoutsPanel';
 import { InitiativeTracker } from '../session/InitiativeTracker';
 import { RollPanel } from '../session/RollPanel';
 import { ConditionsCard } from './ConditionsCard';
+import { ScreenBox } from './ScreenBox';
+
+/**
+ * What the initiative box shows when nothing is trying to kill anybody.
+ *
+ * The tab version leaves this to `SessionPanel`, which is why the box was
+ * simply blank here — a dead panel on a screen whose whole promise is that
+ * everything on it is useful. Calling for initiative is one field and a button,
+ * so it belongs in the box rather than a tab away.
+ */
+function CallForInitiative({
+  campaignId,
+  refresh,
+  onError,
+}: {
+  campaignId: string;
+  refresh: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div className="flex h-full flex-col justify-center gap-2 px-1">
+      <p className="text-sm text-ink-muted">Nothing is trying to kill you.</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <Input
+          size="sm"
+          aria-label="Name the fight"
+          placeholder="The bridge at Duskwater"
+          className="min-w-32 flex-1"
+          value={name}
+          onValueChange={setName}
+        />
+        <Button
+          size="sm"
+          color="primary"
+          isDisabled={busy}
+          isLoading={busy}
+          onPress={async () => {
+            setBusy(true);
+            const res = await createEncounterAction(campaignId, name);
+            setBusy(false);
+            if (!res.ok) {
+              onError(res.error ?? 'Failed to start the encounter.');
+              return;
+            }
+            setName('');
+            await refresh();
+          }}
+        >
+          Roll for it
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 /** Everything the panels share, gathered once rather than per panel. */
 interface ScreenContext {
@@ -54,12 +105,12 @@ interface ScreenContext {
 }
 
 /**
- * One panel.
+ * One panel's contents.
  *
  * The panels are the ones the campaign page already has — this screen is an
- * arrangement of the app, not a second implementation of it. A DM who changes
- * a quest here and opens the Quests tab sees the same thing, because it is the
- * same component reading the same server function.
+ * arrangement of the app, not a second implementation of it. A quest ticked
+ * here is ticked on the Quests tab, because it is the same component reading
+ * the same server function.
  */
 function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
   const { live } = ctx;
@@ -69,7 +120,21 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
       // Every live panel reads the one poller in `ctx.live`. Mounting three
       // panels that each poll would be three requests every three seconds for
       // one answer.
-      return live.state ? (
+      if (!live.state) return null;
+      // A staff tracker with no encounter renders nothing at all, which on a
+      // screen is a box that looks broken.
+      if (!live.state.encounter && ctx.isStaff) {
+        return (
+          <CallForInitiative
+            campaignId={ctx.campaignId}
+            refresh={async () => {
+              await live.refresh();
+            }}
+            onError={ctx.onError}
+          />
+        );
+      }
+      return (
         <InitiativeTracker
           campaignId={ctx.campaignId}
           state={live.state}
@@ -77,7 +142,7 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
           refresh={live.refresh}
           onError={ctx.onError}
         />
-      ) : null;
+      );
 
     case 'vitals':
       return (
@@ -114,13 +179,11 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
 
     case 'reveals':
       return (
-        <SectionCard title="What they know">
-          <RevealTimeline
-            campaignId={ctx.campaignId}
-            viewerRole={ctx.viewerRole}
-            reloadKey={ctx.revealSeq}
-          />
-        </SectionCard>
+        <RevealTimeline
+          campaignId={ctx.campaignId}
+          viewerRole={ctx.viewerRole}
+          reloadKey={ctx.revealSeq}
+        />
       );
 
     case 'notebook':
@@ -171,122 +234,38 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
   }
 }
 
-/* --- arranging it ------------------------------------------------------ */
+/* --- moving boxes around ----------------------------------------------- */
 
-function isOn(layout: ScreenLayout, key: ScreenPanelKey): ScreenRail | null {
-  if (layout.main.includes(key)) return 'main';
-  if (layout.rail.includes(key)) return 'rail';
-  return null;
+/** Where a dragged box is about to land. */
+interface DropAt {
+  column: number;
+  index: number;
+}
+
+function withoutPanel(
+  layout: ScreenLayout,
+  key: ScreenPanelKey
+): ScreenPanelKey[][] {
+  return layout.columns.map(column => column.filter(k => k !== key));
 }
 
 /**
- * The panel picker.
+ * Put a box in a column at an index.
  *
- * Deliberately a list of everything with a state on each row rather than a
- * drag-and-drop board: a DM arranging this is doing it once, ten minutes
- * before a session, on whatever machine is nearest — and a board that needs a
- * mouse is the one thing that will not work on the laptop propped behind the
- * screen.
+ * The removal happens first and the index is taken against the *result*, so
+ * dragging a box downwards inside its own column lands where the indicator
+ * said it would rather than one slot short.
  */
-function Arranger({
-  layout,
-  isStaff,
-  onChange,
-}: {
-  layout: ScreenLayout;
-  isStaff: boolean;
-  onChange: (next: ScreenLayout) => void;
-}) {
-  const available = SCREEN_PANEL_KEYS.filter(
-    key => isStaff || SCREEN_PANELS[key].players
-  );
-
-  const put = (key: ScreenPanelKey, rail: ScreenRail | null) => {
-    const without = {
-      main: layout.main.filter(k => k !== key),
-      rail: layout.rail.filter(k => k !== key),
-    };
-    if (!rail) {
-      onChange(without);
-      return;
-    }
-    onChange({ ...without, [rail]: [...without[rail], key] });
-  };
-
-  const move = (key: ScreenPanelKey, by: -1 | 1) => {
-    const rail = isOn(layout, key);
-    if (!rail) return;
-    const list = [...layout[rail]];
-    const i = list.indexOf(key);
-    const j = i + by;
-    if (j < 0 || j >= list.length) return;
-    [list[i], list[j]] = [list[j], list[i]];
-    onChange({ ...layout, [rail]: list });
-  };
-
-  return (
-    <SectionCard
-      title="What is on your screen"
-      description="Yours alone — every person at this table arranges their own."
-    >
-      <ul className="divide-y divide-line">
-        {available.map(key => {
-          const meta = SCREEN_PANELS[key];
-          const where = isOn(layout, key);
-          return (
-            <li key={key} className="flex flex-wrap items-center gap-3 py-2">
-              <Glyph
-                name={meta.glyph}
-                size={16}
-                className={where ? 'text-gold' : 'text-ink-subtle'}
-              />
-              <div className="min-w-40 flex-1">
-                <div className="text-sm text-ink">{meta.label}</div>
-                <div className="text-xs text-ink-subtle">
-                  {meta.description}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1">
-                {(['main', 'rail'] as ScreenRail[]).map(rail => (
-                  <button
-                    key={rail}
-                    type="button"
-                    onClick={() => put(key, where === rail ? null : rail)}
-                    className={`rounded-md border px-2 py-1 text-xs transition-colors ${
-                      where === rail
-                        ? 'border-gold bg-gold/15 text-ink'
-                        : 'border-line text-ink-muted hover:border-gold/60 hover:text-ink'
-                    }`}
-                  >
-                    {rail === 'main' ? 'Main' : 'Side'}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  disabled={!where}
-                  aria-label={`Move ${meta.label} up`}
-                  onClick={() => move(key, -1)}
-                  className="px-1 text-ink-subtle disabled:opacity-30 hover:text-ink"
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  disabled={!where}
-                  aria-label={`Move ${meta.label} down`}
-                  onClick={() => move(key, 1)}
-                  className="px-1 text-ink-subtle disabled:opacity-30 hover:text-ink"
-                >
-                  ↓
-                </button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </SectionCard>
-  );
+function movePanel(
+  layout: ScreenLayout,
+  key: ScreenPanelKey,
+  to: DropAt
+): ScreenLayout {
+  const columns = withoutPanel(layout, key);
+  const target = [...(columns[to.column] ?? [])];
+  target.splice(Math.max(0, Math.min(target.length, to.index)), 0, key);
+  columns[to.column] = target;
+  return { columns };
 }
 
 /* --- the screen -------------------------------------------------------- */
@@ -294,15 +273,14 @@ function Arranger({
 /**
  * One page a table is run from.
  *
- * Everything here already existed and was spread across eight tabs, which is
- * fine for prep and wrong for the two hours when a DM needs initiative, the
- * party's hit points, the dice and what the party has been told all visible at
- * once. Nothing on this page is a second implementation of a panel: the same
- * components read the same server functions, so a quest ticked here is ticked
- * on the Quests tab.
+ * Laid out like the cardboard thing it is named after: a row of boxes of equal
+ * standing with a fold down the middle, filling the window exactly. The page
+ * itself never scrolls — each box has its own scrollbar — so nothing can hide
+ * below a long column, which was the failing of the first version.
  *
- * The arrangement is per person and per table, so a player's screen and the
- * DM's are different pages built from the same parts.
+ * Arrange mode turns the title bars into drag handles and puts a swap control
+ * on each. Dragging is the fast path; the swap dropdown is the one that works
+ * on a touchscreen and from a keyboard, and neither is the only way in.
  */
 export function DmScreen({
   campaign,
@@ -321,6 +299,10 @@ export function DmScreen({
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [myCharacters, setMyCharacters] = useState<CharacterRow[]>([]);
   const [revealSeq, setRevealSeq] = useState(0);
+
+  const [dragged, setDragged] = useState<ScreenPanelKey | null>(null);
+  const [dropAt, setDropAt] = useState<DropAt | null>(null);
+  const columnRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     getScreenAction(campaign.id)
@@ -341,25 +323,24 @@ export function DmScreen({
     loadSide();
   }, [loadSide]);
 
-  const save = async () => {
-    if (!layout) return;
-    const res = await saveScreenAction(campaign.id, layout);
-    if (!res.ok) {
-      setError(res.error);
-      return;
-    }
-    setLayout(res.data);
-    setDirty(false);
-    setArranging(false);
-  };
+  const save = useCallback(
+    async (next: ScreenLayout) => {
+      const res = await saveScreenAction(campaign.id, next);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setLayout(res.data);
+      setDirty(false);
+    },
+    [campaign.id]
+  );
 
   if (!layout) {
     return (
-      <PageShell width="wide">
-        <div className="flex justify-center py-24">
-          <DiceSpinner label="Setting up the screen…" />
-        </div>
-      </PageShell>
+      <div className="flex h-[100dvh] items-center justify-center bg-bg">
+        <DiceSpinner label="Setting up the screen…" />
+      </div>
     );
   }
 
@@ -376,94 +357,257 @@ export function DmScreen({
     bumpReveals: () => setRevealSeq(n => n + 1),
   };
 
+  const columnCount = layout.columns.length;
+  const onScreen = panelsOn(layout);
+  const allowed = SCREEN_PANEL_KEYS.filter(
+    key => isStaff || SCREEN_PANELS[key].players
+  );
+  const spare = allowed.filter(key => !onScreen.includes(key));
+
+  const change = (next: ScreenLayout) => {
+    setLayout(next);
+    setDirty(true);
+  };
+
+  /** Which slot in a column the pointer is nearest, by box midpoints. */
+  const dropIndexIn = (column: number, clientY: number): number => {
+    const el = columnRefs.current[column];
+    if (!el) return 0;
+    const boxes = Array.from(el.querySelectorAll('section[aria-label]'));
+    for (let i = 0; i < boxes.length; i++) {
+      const rect = boxes[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return i;
+    }
+    return boxes.length;
+  };
+
+  const setColumnCount = (count: number) => {
+    const columns = Array.from(
+      { length: count },
+      (_, i) => layout.columns[i] ?? []
+    );
+    // Boxes in columns that just disappeared move to the last one rather than
+    // vanishing: losing a panel because you narrowed the screen would be a
+    // silent deletion of something you arranged on purpose.
+    const orphans = layout.columns.slice(count).flat();
+    if (orphans.length > 0) {
+      columns[count - 1] = [...columns[count - 1], ...orphans];
+    }
+    change({ columns });
+  };
+
   return (
-    <PageShell width="wide">
-      <PageHeader
-        rule={false}
-        title={campaign.name}
-        description="Everything this table needs, on one page."
-        actions={
-          <>
-            <Ribbon tone={isStaff ? 'gold' : 'neutral'}>
-              {isStaff ? 'Your screen' : 'Your seat'}
-            </Ribbon>
-            <Button
-              size="sm"
-              variant={arranging ? 'solid' : 'flat'}
-              color={arranging ? 'primary' : 'default'}
-              onPress={() =>
-                arranging && dirty ? save() : setArranging(!arranging)
-              }
-            >
-              {arranging ? (dirty ? 'Save it' : 'Done') : 'Arrange'}
-            </Button>
-            <Button
-              as={Link}
-              href={`/campaigns/${campaign.id}`}
-              size="sm"
-              variant="light"
-            >
-              Back to the table
-            </Button>
-          </>
-        }
-      />
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg">
+      {/* One bar, not a page header: every row of chrome up here is a row of
+          stat block down there. */}
+      <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-surface px-3 py-2">
+        <h1 className="font-display text-base text-ink">{campaign.name}</h1>
+        <Ribbon tone={isStaff ? 'gold' : 'neutral'}>
+          {isStaff ? 'Behind the screen' : 'At the table'}
+        </Ribbon>
 
-      {error && (
-        <p className="mb-4 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-          {error}
-        </p>
-      )}
-      {live.error && (
-        <p className="mb-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
-          {live.error}
-        </p>
-      )}
+        {live.error && (
+          <span className="text-xs text-warning">{live.error}</span>
+        )}
+        {error && <span className="text-xs text-danger">{error}</span>}
 
-      {arranging && (
-        <div className="mb-5">
-          <Arranger
-            layout={layout}
-            isStaff={isStaff}
-            onChange={next => {
-              setLayout(next);
-              setDirty(true);
-            }}
-          />
-        </div>
-      )}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {arranging && (
+            <>
+              <Select
+                aria-label="How many columns"
+                size="sm"
+                className="w-28"
+                classNames={{ trigger: 'h-8 min-h-8' }}
+                selectedKeys={[String(columnCount)]}
+                onSelectionChange={keys => {
+                  const key = Array.from(keys)[0];
+                  if (key) setColumnCount(Number(key));
+                }}
+              >
+                {SCREEN_COLUMN_COUNTS.map(n => (
+                  <SelectItem key={String(n)} textValue={`${n} columns`}>
+                    {n} columns
+                  </SelectItem>
+                ))}
+              </Select>
 
-      {layout.main.length === 0 && layout.rail.length === 0 ? (
-        <SectionCard title="An empty screen">
-          <p className="text-sm text-ink-muted">
-            Nothing is up. Press <strong>Arrange</strong> and put something on
-            it.
-          </p>
-        </SectionCard>
-      ) : (
-        // Asymmetric on purpose (design rule 3): a working main column and a
-        // narrower rail of things you glance at, not a grid of equal tiles.
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div className="space-y-5">
-            {layout.main.map(key => (
-              <Panel key={key} id={key} ctx={ctx} />
-            ))}
-          </div>
-          {layout.rail.length > 0 && (
-            <div className="space-y-5">
-              {layout.rail.map(key => (
-                <Panel key={key} id={key} ctx={ctx} />
-              ))}
-            </div>
+              {spare.length > 0 && (
+                <Select
+                  aria-label="Add a box"
+                  size="sm"
+                  className="w-40"
+                  classNames={{ trigger: 'h-8 min-h-8' }}
+                  placeholder="Add a box"
+                  selectedKeys={[]}
+                  onSelectionChange={keys => {
+                    const key = Array.from(keys)[0];
+                    if (!key) return;
+                    // Onto the shortest column, so adding never buries a box.
+                    const shortest = layout.columns.reduce(
+                      (best, col, i) =>
+                        col.length < layout.columns[best].length ? i : best,
+                      0
+                    );
+                    change(
+                      movePanel(layout, String(key) as ScreenPanelKey, {
+                        column: shortest,
+                        index: layout.columns[shortest].length,
+                      })
+                    );
+                  }}
+                >
+                  {spare.map(key => (
+                    <SelectItem key={key} textValue={SCREEN_PANELS[key].label}>
+                      {SCREEN_PANELS[key].label}
+                    </SelectItem>
+                  ))}
+                </Select>
+              )}
+            </>
           )}
-        </div>
-      )}
 
-      <Marginalia className="mt-6" dash>
-        {isStaff
-          ? 'everything you need behind the screen, and nothing they can see'
-          : 'your seat at this table, arranged how you like it'}
-      </Marginalia>
-    </PageShell>
+          <Button
+            size="sm"
+            variant={arranging ? 'solid' : 'flat'}
+            color={arranging ? 'primary' : 'default'}
+            onPress={async () => {
+              if (arranging && dirty) await save(layout);
+              setArranging(!arranging);
+            }}
+          >
+            {arranging ? (dirty ? 'Save the screen' : 'Done') : 'Arrange'}
+          </Button>
+          <Button
+            as={Link}
+            href={`/campaigns/${campaign.id}`}
+            size="sm"
+            variant="light"
+          >
+            Back
+          </Button>
+        </div>
+      </header>
+
+      {/* The desk. Columns of equal standing, with the fold given a grid
+          column of its own so it always lands in a gutter and never crosses a
+          box. Below `lg` the columns stack and the fold goes: a phone has no
+          middle. */}
+      <div
+        className="grid min-h-0 flex-1 gap-2 p-2 max-lg:!grid-cols-1 max-lg:overflow-y-auto"
+        style={{
+          // A crease in every gutter, not just the middle one. A real screen
+          // folds between each pair of panels, and with an odd number of
+          // columns there is no middle gutter to put a single fold in.
+          gridTemplateColumns: layout.columns
+            .map((_, i) => (i === 0 ? '1fr' : 'auto 1fr'))
+            .join(' '),
+        }}
+      >
+        {layout.columns.map((column, columnIndex) => (
+          <div key={columnIndex} className="contents">
+            {columnIndex > 0 && (
+              <div
+                aria-hidden="true"
+                className="relative w-3 self-stretch max-lg:hidden"
+              >
+                {/* The crease. Two hairlines with a shadow between them read as
+                    folded card at a glance; one line reads as a border. */}
+                <span className="absolute inset-y-2 left-1 w-px bg-gold/25" />
+                <span className="absolute inset-y-2 right-1 w-px bg-gold/25" />
+                <span className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-ink/20" />
+              </div>
+            )}
+
+            <div
+              ref={el => {
+                columnRefs.current[columnIndex] = el;
+              }}
+              onDragOver={event => {
+                if (!dragged) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                setDropAt({
+                  column: columnIndex,
+                  index: dropIndexIn(columnIndex, event.clientY),
+                });
+              }}
+              onDrop={event => {
+                event.preventDefault();
+                if (!dragged || !dropAt) return;
+                change(movePanel(layout, dragged, dropAt));
+                setDragged(null);
+                setDropAt(null);
+              }}
+              className={`flex min-h-0 flex-col gap-2 rounded-[var(--radius-card)] max-lg:min-h-64 ${
+                arranging && column.length === 0
+                  ? 'border border-dashed border-line'
+                  : ''
+              } ${
+                dragged && dropAt?.column === columnIndex
+                  ? 'bg-gold/[0.05] outline outline-1 outline-gold/30'
+                  : ''
+              }`}
+            >
+              {column.length === 0 && arranging && (
+                <p className="m-auto px-2 text-center text-xs text-ink-subtle">
+                  Drop a box here
+                </p>
+              )}
+
+              {column.map((key, boxIndex) => {
+                const meta = SCREEN_PANELS[key];
+                return (
+                  <div key={key} className="contents">
+                    {dragged &&
+                      dropAt?.column === columnIndex &&
+                      dropAt.index === boxIndex && (
+                        <div
+                          aria-hidden="true"
+                          className="h-0.5 shrink-0 rounded bg-gold"
+                        />
+                      )}
+                    <ScreenBox
+                      id={key}
+                      title={meta.label}
+                      glyph={<Glyph name={meta.glyph} size={13} />}
+                      available={[key, ...spare]}
+                      arranging={arranging}
+                      dragging={dragged === key}
+                      onDragStart={() => setDragged(key)}
+                      onDragEnd={() => {
+                        setDragged(null);
+                        setDropAt(null);
+                      }}
+                      onSwap={next =>
+                        change({
+                          columns: layout.columns.map(col =>
+                            col.map(k => (k === key ? next : k))
+                          ),
+                        })
+                      }
+                      onRemove={() =>
+                        change({ columns: withoutPanel(layout, key) })
+                      }
+                    >
+                      <Panel id={key} ctx={ctx} />
+                    </ScreenBox>
+                  </div>
+                );
+              })}
+
+              {dragged &&
+                dropAt?.column === columnIndex &&
+                dropAt.index >= column.length && (
+                  <div
+                    aria-hidden="true"
+                    className="h-0.5 shrink-0 rounded bg-gold"
+                  />
+                )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
