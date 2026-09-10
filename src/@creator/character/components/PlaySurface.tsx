@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Link } from '@heroui/react';
+import { Button, Link, Tooltip } from '@heroui/react';
 import { useState } from 'react';
 
 import { PlayCard } from '@/@creator/campaign/components/PlayCard';
@@ -9,7 +9,11 @@ import {
   EmptyState,
   Marginalia,
   Ribbon,
+  SectionCard,
 } from '@/@shared/components/ui';
+import { ConditionPicker } from '@/@creator/campaign/components/session/ConditionPicker';
+import { conditionDef } from '@/@creator/campaign/lib/conditions';
+import { setOwnConditionsAction } from '@/@creator/campaign/play-actions';
 import type { PlayLoadout, PlayState } from '@/server/play';
 import { AttacksSection } from './sections/AttacksSection';
 import { LoadoutSection } from './sections/LoadoutSection';
@@ -61,6 +65,13 @@ export function PlaySurface({
         state={state}
         campaignId={campaign?.campaignId ?? null}
         onChange={setState}
+        onError={setError}
+      />
+
+      <ConditionsRow
+        characterId={state.characterId}
+        campaignId={campaign?.campaignId ?? null}
+        initial={state.conditions}
         onError={setError}
       />
 
@@ -136,5 +147,82 @@ export function NothingToRun({ characterId }: { characterId: string }) {
         </Button>
       }
     />
+  );
+}
+
+/**
+ * What the character is currently under, and the control that changes it.
+ *
+ * A player's own route into conditions. Before this the only way to be
+ * Poisoned was for a DM to mark it in the initiative tracker, which meant it
+ * only existed during a fight and vanished when the fight ended — so a
+ * condition that lasts until dawn had nowhere to live overnight.
+ *
+ * Exhaustion is deliberately not here: it stacks and its sixth level kills
+ * you, so it stays the number on `PlayCard` rather than becoming a chip that
+ * says "Exhausted" and nothing else.
+ */
+function ConditionsRow({
+  characterId,
+  campaignId,
+  initial,
+  onError,
+}: {
+  characterId: string;
+  campaignId: string | null;
+  initial: string[];
+  onError: (message: string) => void;
+}) {
+  const [keys, setKeys] = useState<string[]>(initial);
+  const [busy, setBusy] = useState(false);
+
+  const commit = async (next: string[]) => {
+    const before = keys;
+    setKeys(next);
+    setBusy(true);
+    const res = await setOwnConditionsAction(characterId, campaignId, next);
+    setBusy(false);
+    if (!res.ok) {
+      setKeys(before);
+      onError(res.error);
+      return;
+    }
+    setKeys(res.data);
+  };
+
+  return (
+    <SectionCard
+      title="Conditions"
+      description="What you are under right now. These outlast the fight they started in."
+      actions={
+        <div className={busy ? 'pointer-events-none opacity-60' : undefined}>
+          <ConditionPicker stored={keys.join(',')} onChange={commit} />
+        </div>
+      }
+    >
+      {keys.length === 0 ? (
+        <p className="text-sm text-ink-muted">Nothing on you. Enjoy it.</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {keys.map(key => {
+            const def = conditionDef(key);
+            if (!def) return null;
+            return (
+              <Tooltip key={key} content={def.hint}>
+                <span
+                  className={`rounded-sm border px-2 py-0.5 text-xs uppercase tracking-[0.08em] ${
+                    def.tone === 'danger'
+                      ? 'border-danger/40 bg-danger/10 text-danger'
+                      : 'border-warning/40 bg-warning/10 text-warning'
+                  }`}
+                >
+                  {def.label}
+                </span>
+              </Tooltip>
+            );
+          })}
+        </div>
+      )}
+    </SectionCard>
   );
 }

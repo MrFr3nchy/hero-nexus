@@ -9,6 +9,7 @@ import {
   getPlayState,
   listPartyPlayState,
   restParty,
+  setOwnConditions,
   setPlayConditions,
   spendHitDice,
   type PlayLoadout,
@@ -170,5 +171,25 @@ export async function applyLoadoutPatchAction(
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Failed to change what you are carrying.');
+  }
+}
+
+/**
+ * A player setting their own conditions.
+ *
+ * Separate from `setPlayConditionsAction`, which is the DM's staff-only,
+ * campaign-scoped route. This one works with no table at all, so a hero
+ * poisoned between sessions can carry it on their sheet.
+ */
+export async function setOwnConditionsAction(
+  characterId: string,
+  campaignId: string | null,
+  keys: string[]
+): Promise<Result<string[]>> {
+  try {
+    const data = await setOwnConditions(characterId, campaignId, keys);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Failed to change your conditions.');
   }
 }

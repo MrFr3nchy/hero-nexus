@@ -498,6 +498,23 @@ export const characterSheetSchema = z.object({
      * you — a chip that says "Exhausted" and nothing else is unusable.
      */
     exhaustion: z.number().int().min(0).max(6).default(0),
+    /**
+     * Conditions the character is under, from the shared vocabulary in
+     * `@/@creator/campaign/lib/conditions`.
+     *
+     * On the sheet rather than only on `initiative_entries`, which is a row
+     * inside an encounter: when the fight ends that row goes and the condition
+     * goes with it. A character poisoned by a trap on Tuesday and cured on
+     * Thursday had nowhere to record it for the two days in between. Over a
+     * one-shot that is invisible; over a year it is the difference between a
+     * sheet that is true and a sheet that is a snapshot of the last fight.
+     *
+     * Kept as loose strings, not an enum, so a key retired from the
+     * vocabulary degrades to an unknown chip rather than failing the parse of
+     * the whole sheet — the same bargain `.catch()` makes everywhere else.
+     * `exhaustion` above is deliberately not one of these.
+     */
+    conditions: z.array(z.string().max(30)).max(20).default([]).catch([]),
   }),
 
   abilities,
@@ -639,6 +656,7 @@ export function makeEmptySheet(): CharacterSheet {
       deathSaveSuccesses: 0,
       deathSaveFailures: 0,
       exhaustion: 0,
+      conditions: [],
     },
     abilities: {
       strength: { score: 10, proficientSave: false },

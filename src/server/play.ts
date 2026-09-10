@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 
 import {
+  parseConditions,
   serializeConditions,
   type ConditionKey,
 } from '@/@creator/campaign/lib/conditions';
@@ -188,13 +189,38 @@ function toPlayState(
   };
 }
 
-/** Conditions the tracker has this character under, if it is in a fight. */
+/**
+ * What this character is currently under.
+ *
+ * The sheet is the truth, and an active encounter row is a mirror of it. It
+ * used to be the other way round — the only home was `initiative_entries`, a
+ * row that exists for the duration of one fight — so a condition applied
+ * outside combat had nowhere to live and one applied inside it vanished when
+ * the encounter ended.
+ *
+ * The tracker row is still read, and unioned in, for the one case the sheet
+ * cannot cover: a DM marking someone Prone mid-fight through the tracker,
+ * whose write lands on the row. `setPlayConditions` writes both, so the two
+ * only differ for as long as it takes that call to run.
+ */
 async function conditionsFor(characterId: string): Promise<ConditionKey[]> {
+  const character = await db.query.characters.findFirst({
+    where: eq(characters.id, characterId),
+    columns: { sheet: true },
+  });
+  const onSheet = ((character?.sheet as CharacterSheet | undefined)?.combat
+    ?.conditions ?? []) as string[];
+
   const entry = await db.query.initiativeEntries.findFirst({
     where: eq(initiativeEntries.characterId, characterId),
   });
-  if (!entry?.conditionKeys) return [];
-  return entry.conditionKeys.split(',').filter(Boolean) as ConditionKey[];
+  const inFight = entry?.conditionKeys
+    ? entry.conditionKeys.split(',').filter(Boolean)
+    : [];
+
+  // Filtered through the vocabulary so the order is stable and a retired key
+  // cannot reach a chip that has no definition for it.
+  return parseConditions([...onSheet, ...inFight].join(','));
 }
 
 export async function getPlayState(
@@ -707,8 +733,59 @@ export async function setPlayConditions(
   keys: string[]
 ): Promise<void> {
   await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  await writeConditions(characterId, keys);
+}
+
+/**
+ * Write a character's conditions to the sheet, and to the tracker row when
+ * there is one.
+ *
+ * Both, because they are read by different surfaces: the initiative list reads
+ * the row, and everything else reads the sheet. Writing only the row is what
+ * made a condition die with the encounter.
+ */
+async function writeConditions(
+  characterId: string,
+  keys: string[]
+): Promise<ConditionKey[]> {
+  const cleaned = parseConditions(serializeConditions(keys));
+
+  const character = await db.query.characters.findFirst({
+    where: eq(characters.id, characterId),
+  });
+  if (character) {
+    const sheet = character.sheet as CharacterSheet;
+    const next: CharacterSheet = {
+      ...sheet,
+      combat: { ...sheet.combat, conditions: cleaned },
+    };
+    await db
+      .update(characters)
+      .set({ sheet: next, updatedAt: new Date().toISOString() })
+      .where(eq(characters.id, characterId));
+  }
+
   await db
     .update(initiativeEntries)
-    .set({ conditionKeys: serializeConditions(keys) })
+    .set({ conditionKeys: serializeConditions(cleaned) })
     .where(eq(initiativeEntries.characterId, characterId));
+
+  return cleaned;
+}
+
+/**
+ * A player setting their own conditions, with or without a table.
+ *
+ * The DM's route is `setPlayConditions`, which is staff-only and campaign
+ * scoped. This one authorises the way every other play control does, so a hero
+ * who is poisoned between sessions can say so on their own sheet.
+ */
+export async function setOwnConditions(
+  characterId: string,
+  campaignId: string | null,
+  keys: string[]
+): Promise<ConditionKey[]> {
+  const { canEdit } = await authorize(characterId, campaignId);
+  if (!canEdit) throw new Error('FORBIDDEN');
+  return writeConditions(characterId, keys);
 }
