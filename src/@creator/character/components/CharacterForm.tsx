@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Button, Select, SelectItem, Tab, Tabs } from '@heroui/react';
+import { Button, Link, Select, SelectItem, Tab, Tabs } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm, useWatch, type Resolver } from 'react-hook-form';
@@ -66,6 +66,10 @@ interface CharacterFormProps {
    * step instead of Class; anything else opens where it always did.
    */
   intent?: 'level-up';
+  /** Set when the open character is a campaign instance rather than a blueprint. */
+  playsAt?: { campaignId: string; name: string } | null;
+  /** The blueprint an instance was forked from, so the UI can link back to it. */
+  forkedFrom?: string | null;
   initialSheet?: CharacterSheet;
   /** Campaigns the player belongs to and can attach this character to. */
   campaigns: BuilderCampaignRow[];
@@ -110,6 +114,8 @@ export function CharacterForm({
   catalogCampaignId,
   characterId: openedWith,
   intent,
+  playsAt = null,
+  forkedFrom = null,
   initialSheet,
   campaigns,
   initialCampaignId,
@@ -516,53 +522,86 @@ export function CharacterForm({
     );
   };
 
-  const campaignPicker = campaigns.length > 0 && (
+  /*
+   * An instance is already committed to its table and cannot be moved.
+   *
+   * Offering a picker that only ever produces a refusal is worse than not
+   * offering one, so this replaces it with the fact and the way forward: the
+   * original is what goes to a new table, and it is one link away.
+   */
+  const campaignPicker = playsAt ? (
     <div className="rounded-lg border border-line bg-surface p-3">
-      <Select
-        label="Play this character at"
-        placeholder="No campaign — a character of your own"
-        selectedKeys={campaignId ? [campaignId] : []}
-        onSelectionChange={keys =>
-          setCampaignId((Array.from(keys)[0] as string) ?? '')
-        }
-        classNames={{ trigger: 'bg-surface-2 border-line' }}
-      >
-        {campaigns.map(c => (
-          <SelectItem key={c.id}>{c.name}</SelectItem>
-        ))}
-      </Select>
-      {campaign?.linkedCharacterId &&
-        campaign.linkedCharacterId !== characterId && (
-          <p className="mt-2 text-sm text-warning">
-            {campaign.linkedCharacterName ?? 'Another character'} is your
-            character at that table right now — saving replaces them.
+      <p className="text-sm text-ink">
+        This is the copy of{' '}
+        <span className="text-ink">{initialSheet?.identity.name}</span> that
+        plays at <span className="text-gold-strong">{playsAt.name}</span>. Its
+        levels, loot and scars belong to that table.
+      </p>
+      <p className="mt-1 text-sm text-ink-muted">
+        A hero plays at one table per copy.{' '}
+        {forkedFrom ? (
+          <Link
+            href={`/creator/character?id=${forkedFrom}`}
+            className="text-gold-strong underline-offset-2 hover:underline"
+          >
+            Open the original
+          </Link>
+        ) : (
+          <span>The original</span>
+        )}{' '}
+        to take them somewhere new.
+      </p>
+    </div>
+  ) : (
+    campaigns.length > 0 && (
+      <div className="rounded-lg border border-line bg-surface p-3">
+        <Select
+          label="Play this character at"
+          placeholder="No campaign — a character of your own"
+          selectedKeys={campaignId ? [campaignId] : []}
+          onSelectionChange={keys =>
+            setCampaignId((Array.from(keys)[0] as string) ?? '')
+          }
+          classNames={{ trigger: 'bg-surface-2 border-line' }}
+        >
+          {campaigns.map(c => (
+            <SelectItem key={c.id}>{c.name}</SelectItem>
+          ))}
+        </Select>
+        {campaign?.linkedCharacterId &&
+          campaign.linkedCharacterId !== characterId && (
+            <p className="mt-2 text-sm text-warning">
+              {campaign.linkedCharacterName ?? 'Another character'} is your
+              character at that table right now — saving replaces them.
+            </p>
+          )}
+        {ruleLines.length > 0 && (
+          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-ink-muted">
+            {ruleLines.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        )}
+        {campaign && ruleLines.length === 0 && (
+          <p className="mt-2 text-sm text-ink-muted">
+            This table uses the standard rules.
           </p>
         )}
-      {ruleLines.length > 0 && (
-        <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-ink-muted">
-          {ruleLines.map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
-      )}
-      {campaign && ruleLines.length === 0 && (
-        <p className="mt-2 text-sm text-ink-muted">
-          This table uses the standard rules.
-        </p>
-      )}
-      {/*
+        {/*
         The table is chosen now and honoured at the end. Saying so is the point
         of the line: the picker narrows the options from this moment, so it has
         to be answerable before the hero is finished, and a player who saves a
         draft should know the seat is not taken yet.
       */}
-      {campaign && (
-        <p className="mt-2 text-sm text-ink-subtle">
-          The options below are already narrowed to this table. Your hero takes
-          their seat when the build is finished — a draft holds no chair.
-        </p>
-      )}
-    </div>
+        {campaign && (
+          <p className="mt-2 text-sm text-ink-subtle">
+            The options below are already narrowed to this table. Your hero
+            takes their seat when the build is finished — a draft holds no
+            chair.
+          </p>
+        )}
+      </div>
+    )
   );
 
   return (

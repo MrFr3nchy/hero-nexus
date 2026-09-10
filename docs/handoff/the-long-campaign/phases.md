@@ -182,8 +182,14 @@ blueprint that plays nowhere has no answer.
       `character_history` — the instance starts its own log, because the DM's record is
       of what happened at _this_ table. Say so in the function, because the temptation
       to carry history over is strong and wrong.
-- [ ] `listCharacters` returns blueprints only. Instances are listed under their
-      campaign, and the roster card links to the instance for a hero that is playing.
+- [ ] **`/characters` shows both, together, and says which is which.** Not blueprints
+      only — that was the first sketch of this task and it is wrong. A player who forks
+      Gon to a table and then opens their roster to a level 1 Gon has watched their
+      character reset, and no amount of correctness in the data model answers that.
+      Blueprints and their instances are shown as one group per hero: the blueprint
+      labelled as the copy that never plays, each instance labelled with its table and
+      carrying its real level and hit points. The relationship is the thing being
+      rendered, not a filter on it.
 - [ ] `characterTable` collapses to a column read. `sheet-notes.ts:viewerFor` loses its
       `findFirst` guess with it — those two are the callers finding 7 named.
 - [ ] Blueprint deletion leaves instances alone; instance deletion (a hero who dies, or

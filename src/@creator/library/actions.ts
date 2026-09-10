@@ -77,6 +77,8 @@ const MESSAGES: Record<string, string> = {
   NOT_YOUR_CHARACTER: 'That hero is not yours to publish.',
   CHARACTER_IS_DRAFT:
     'That hero is still a draft. Finish the build before putting them on the shelf.',
+  CHARACTER_IS_INSTANCE:
+    'That copy is mid-campaign — it carries one table’s levels and loot. Publish the original instead; it is on your heroes page.',
   WRONG_KIND: 'That listing does not carry what this was asked to take.',
   OWN_PUBLICATION: 'You wrote this one — it is already yours.',
   WITHDRAWN: 'The author has taken this off the shelf.',

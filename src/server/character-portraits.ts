@@ -76,6 +76,29 @@ export async function portraitRecord(characterId: string) {
 }
 
 /**
+ * The portrait to actually render for a character, following one fork.
+ *
+ * A campaign instance has no portrait of its own — `forkCharacterForCampaign`
+ * deliberately does not copy the row, so the bytes exist once and no delete
+ * can unlink a file another row still points at. It wears its blueprint's face
+ * instead, resolved here rather than at the URL, so the URL always names the
+ * instance and access is judged on the row that has a seat.
+ *
+ * One hop, not a loop: an instance is never forked again.
+ */
+export async function resolvedPortraitRecord(characterId: string) {
+  const own = await portraitRecord(characterId);
+  if (own) return own;
+
+  const character = await db.query.characters.findFirst({
+    where: eq(characters.id, characterId),
+    columns: { forkedFrom: true },
+  });
+  if (!character?.forkedFrom) return null;
+  return portraitRecord(character.forkedFrom);
+}
+
+/**
  * Whether the signed-in user may see this character's face.
  *
  * Deliberately broader than `getCharacter`, which is owner-only: a DM and the
@@ -125,7 +148,7 @@ export async function getPortrait(
   characterId: string
 ): Promise<PortraitRow | null> {
   if (!(await canViewCharacter(characterId))) return null;
-  const row = await portraitRecord(characterId);
+  const row = await resolvedPortraitRecord(characterId);
   if (!row) return null;
   return {
     id: row.id,

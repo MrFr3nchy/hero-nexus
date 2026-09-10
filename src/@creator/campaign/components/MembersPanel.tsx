@@ -199,11 +199,23 @@ export function MembersPanel({
                         linkCharacter(id ? String(id) : null);
                       }}
                     >
-                      {myCharacters.map(c => (
-                        <SelectItem key={c.id}>
-                          {c.name || 'Unnamed'}
-                        </SelectItem>
-                      ))}
+                      {/*
+                        Blueprints, plus whichever instance already holds this
+                        chair. A hero committed to another table is not
+                        offered: picking one would be refused server-side, and
+                        an option that cannot be chosen is worse than an
+                        absent one. The original is always here, and taking it
+                        to this table mints this table's own copy.
+                      */}
+                      {myCharacters
+                        .filter(
+                          c => !c.campaignId || c.campaignId === campaignId
+                        )
+                        .map(c => (
+                          <SelectItem key={c.id}>
+                            {c.name || 'Unnamed'}
+                          </SelectItem>
+                        ))}
                     </Select>
                     <Button
                       as={Link}

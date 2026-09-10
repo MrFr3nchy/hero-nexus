@@ -111,6 +111,32 @@ export const characters = sqliteTable(
     status: text('status', { enum: ['draft', 'ready'] })
       .notNull()
       .default('ready'),
+    /**
+     * The table this character plays at, or null for a blueprint.
+     *
+     * A hero taken to a campaign is *copied*, and the copy is what plays — see
+     * the third model decision in `docs/handoff/the-long-campaign/README.md`.
+     * The blueprint stays on the shelf: never levelled, never killed, and the
+     * thing that goes on the Wandering Library's shelf.
+     *
+     * `set null` rather than cascade when the campaign goes: a table folding
+     * must not delete the hero somebody played there for a year. The row then
+     * has a `forkedFrom` and no `campaignId`, which is the honest record of a
+     * character whose table no longer exists.
+     */
+    campaignId: text('campaign_id').references(() => campaigns.id, {
+      onDelete: 'set null',
+    }),
+    /**
+     * The blueprint this was minted from, or null.
+     *
+     * No foreign key, matching `homebrew.forked_from`: the blueprint may be
+     * deleted and the instance has to survive it. A null here on a row that
+     * *does* carry a `campaignId` means a hero seated before the split
+     * existed — they were never forked from anything, and inventing a
+     * blueprint for them would be a claim about history that is not true.
+     */
+    forkedFrom: text('forked_from'),
     /** Full character sheet, JSON-encoded. Schema owned by
      *  `src/@creator/character/schema.ts`. */
     sheet: text('sheet', { mode: 'json' }).notNull(),
@@ -120,6 +146,8 @@ export const characters = sqliteTable(
   t => [
     index('characters_owner_id_idx').on(t.ownerId),
     index('characters_owner_status_idx').on(t.ownerId, t.status),
+    index('characters_campaign_idx').on(t.campaignId),
+    index('characters_forked_from_idx').on(t.forkedFrom),
   ]
 );
 

@@ -89,6 +89,8 @@ export default async function CharacterCreationPage({
           initialPick={initialPick}
           initialStatus={existing?.status}
           intent={params.intent === 'level-up' ? 'level-up' : undefined}
+          playsAt={existing?.table ?? null}
+          forkedFrom={existing?.forkedFrom ?? null}
         />
       </PageShell>
     </ProtectedRoute>

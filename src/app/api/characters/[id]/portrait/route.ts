@@ -11,7 +11,7 @@ import {
   canViewCharacter,
   clearPortrait,
   isAllowedRemoteUrl,
-  portraitRecord,
+  resolvedPortraitRecord,
   savePortraitLink,
   savePortraitUpload,
 } from '@/server/character-portraits';
@@ -35,7 +35,9 @@ export async function GET(
     return new Response('Not found', { status: 404 });
   }
 
-  const row = await portraitRecord(id);
+  // Resolved, so a campaign instance serves its blueprint's face without
+  // owning a copy of the bytes.
+  const row = await resolvedPortraitRecord(id);
   // A linked portrait has no bytes here — the reader's browser fetches it from
   // its own host, and this route never becomes a proxy for it.
   if (!row || !row.filePath) {

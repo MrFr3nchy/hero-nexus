@@ -188,6 +188,15 @@ export async function publishCharacter(
   // Publishing freezes a snapshot somebody else will adopt whole. An
   // unfinished build has nothing coherent to freeze.
   if (row.status === 'draft') throw new Error('CHARACTER_IS_DRAFT');
+  /*
+   * A campaign instance is not a pregen.
+   *
+   * It carries one table's levels, loot, conditions and scars, and somebody
+   * adopting it would be adopting a character mid-campaign rather than a hero
+   * they can start with. The blueprint is what goes on the shelf — which is
+   * also the copy whose sheet nobody is mid-session with.
+   */
+  if (row.campaignId) throw new Error('CHARACTER_IS_INSTANCE');
 
   const sheet = sheetForPublishing(
     characterSheetSchema.parse(migrateStoredSheet(row.sheet))
