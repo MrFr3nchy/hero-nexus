@@ -4,8 +4,8 @@ Build order. Each phase leaves the app usable and is worth shipping alone. `[x]`
 landed on `feat/campaign-longevity`.
 
 **Built so far: phases 1, 2, 3 and 7 in full; phase 4's conditions half; and phase 6
-except its last item.** Phase 5 is untouched, and phase 4's feats-as-references half is
-still open.
+except its last item.** Phase 5 is untouched, phase 4's feats-as-references half is
+still open, and phases 8 and 9 are not started.
 
 The model these tasks implement is in [README.md](README.md). Read it first — the two
 decisions recorded there (the sheet gets a third surface rather than a third copy; a
@@ -163,6 +163,65 @@ and it needs a table decision that is easier to make once the sheet has settled.
 - [ ] Publishing a hero to the Library carries the portrait through
       `publication_assets`, which already exists for exactly this. **Not done** — the
       portrait is not yet part of what `publishCharacter` freezes.
+
+## Phase 8 — Instanced heroes
+
+The change finding 7 asks for and the third model decision settles. Do it before phase 9:
+"which hero is ready to level" is a question about an instance, and asking it of a
+blueprint that plays nowhere has no answer.
+
+- [ ] `characters.campaign_id` and `characters.forked_from`, both nullable, plus the
+      migration — same commit, per `src/db/README.md`. `forked_from` carries no foreign
+      key, matching `homebrew.forked_from`: the blueprint may be deleted and the
+      instance must survive it.
+- [ ] `forkCharacterForCampaign(characterId, campaignId)` — deep-copies the sheet, mints
+      the row, and points the membership at the copy. `setMemberCharacter` calls it
+      instead of pointing at the blueprint directly. This is the whole behavioural
+      change; everything below is consequence.
+- [ ] The copy is a **copy**, including `provenance` and the inventory, and excluding
+      `character_history` — the instance starts its own log, because the DM's record is
+      of what happened at _this_ table. Say so in the function, because the temptation
+      to carry history over is strong and wrong.
+- [ ] `listCharacters` returns blueprints only. Instances are listed under their
+      campaign, and the roster card links to the instance for a hero that is playing.
+- [ ] `characterTable` collapses to a column read. `sheet-notes.ts:viewerFor` loses its
+      `findFirst` guess with it — those two are the callers finding 7 named.
+- [ ] Blueprint deletion leaves instances alone; instance deletion (a hero who dies, or
+      a table that folds) leaves the blueprint alone. Neither cascades into the other.
+- [ ] **Death and retirement.** An instance gains a status beyond `draft`/`ready` — a
+      dead hero is not deleted, they are dead: still readable, still in the chronicle,
+      no longer patchable by the play surface. Decide whether that is a third `status`
+      value or its own column before writing either.
+- [ ] Publishing to the Library takes the **blueprint**, not an instance. A pregen with
+      one table's loot and hit points on it is not a pregen.
+- [ ] The fork is explicit and says what it costs at the moment it happens — "changes to
+      the original will not reach this table" — not in a settings page nobody opens.
+- [ ] Migrating what exists: every current `campaign_members.character_id` points at a
+      played character, so those rows become instances in place (`campaign_id` filled,
+      `forked_from` null — they were never forked from anything). Do **not** invent a
+      blueprint for them; a null `forked_from` is the honest record of a hero that
+      predates the split.
+
+## Phase 9 — The level-up signal
+
+Two things, and the second is smaller than it sounds.
+
+- [ ] **Stop `awardExperience` applying a milestone level** (finding 8). It records the
+      grant; the player takes the level through the ladder that already exists. The XP
+      branch keeps writing `identity.xp`, because experience is a number a character
+      _has_ — a level is a decision they make.
+- [ ] "Ready to level" is **derived, not stored**. Two sources, both queries:
+      `xpStanding(xp, level).canLevel` for an XP table, and an unconsumed milestone
+      grant for a milestone one. `getCampaignPulse` is the established pattern.
+- [ ] Surface it where the player already looks: the roster card, the campaign page, and
+      the play surface — each linking to `?intent=level-up`, which already exists.
+- [ ] **No `notices` table yet.** Everything above is derivable, and a notification
+      store that only ever holds derivable facts is a cache with a staleness bug in its
+      future. Build one when there is a fact that cannot be derived — a DM's one-off
+      message, or "a handout is waiting" — and not before.
+- [ ] Email stays out of it. `mail.ts` is transactional (verification, password reset);
+      "you can level up" is not that, and wiring it in means delivery settings,
+      unsubscribes and a sending reputation to protect. In-app first.
 
 ---
 

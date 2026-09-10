@@ -45,8 +45,9 @@ pieces are mounted on.
 
 ## What is genuinely absent
 
-Six things have no implementation anywhere, and these are the ones that need building
-rather than moving.
+Eight things. The first six have no implementation anywhere; the last two are worse than
+absent — they are implemented in a way that is quietly wrong, and both were found by
+running the code rather than reading it.
 
 ### 1. A character has no portrait _(built — phase 7)_
 
@@ -125,9 +126,43 @@ card can carry the table it belongs to, and `/characters/[id]` computes `tableCo
 but spends it only on notes and secrets — the header never mentions the campaign.
 
 The link itself is unambiguous and already there: `campaign_members.characterId`, with
-a unique index on `(campaignId, userId)`. That index is worth reading carefully, because
-it encodes a product decision nothing states out loud: **one character per player per
-campaign.** Any "switch my active hero" feature has to either respect that or change it.
+a unique index on `(campaignId, userId)`. That index reads like a product decision —
+one character per player per campaign — but it only constrains **one player at one
+table**. It says nothing about the same character being seated at a second one. See
+finding 7, which is what that gap turns into.
+
+### 7. A hero can already sit at two tables, and already misbehaves
+
+`setMemberCharacter` checks two things: that the character belongs to the caller, and
+that it is not a draft. It never asks whether that character is already seated
+somewhere else, and the only unique index on `campaign_members` is
+`(campaign_id, user_id)`. **Nothing prevents one `characters` row from holding seats at
+several campaigns**, and this was confirmed against the running database rather than
+inferred: inserting a second campaign and seating the same hero at it succeeds, and the
+character then has two membership rows.
+
+What makes it a bug rather than a feature is that one row means one sheet. Levelling at
+one table levels the hero at the other; loot picked up at one is in their pack at the
+other; a condition applied at one follows them across. And every lookup that answers
+"which table is this hero at" — `characterTable`, `sheet-notes.ts:viewerFor` — takes the
+first row it finds, so the second table is invisible to all of them and which one wins
+is whichever the query returned first.
+
+The fix is not a constraint forbidding it. Players genuinely do run one concept at two
+tables, and the constraint would only make the app disagree with them. The fix is that a
+seat gets its own sheet — see the third model decision below.
+
+### 8. A milestone award levels a character behind the ladder's back
+
+`awardExperience` writes `identity.level + levels` straight onto the sheet. Nothing else
+moves: no hit points are taken, no subclass or Ability Score Improvement is chosen, and
+`build.levels` still holds the old count — so from that moment `composeSheet` and
+`identity.level` disagree about what the character is, and a recompute can walk the
+level back.
+
+The comment above it says the sheets are the balance and the award table is the receipt,
+which is the right instinct. It is the _silent_ part that is wrong: a milestone is a DM
+saying "you may take a level", and taking it is the player's turn at the ladder.
 
 ---
 
@@ -155,7 +190,7 @@ routing and composition job over an authorisation model that already permits it.
 
 ---
 
-## The two model decisions
+## The three model decisions
 
 Everything in [phases.md](phases.md) follows from these. They are recorded here because
 each is a fork the code could reasonably take the other way, and re-litigating them
@@ -193,6 +228,46 @@ someone wants play controls on the roster. `applyPlayPatch` already takes
 `campaignId: string | null` and already handles the null path. The surface passes
 whatever the character has; live updates degrade to none when there is no table, which
 is correct — there is nobody to broadcast to.
+
+### Seating a hero at a table is a fork
+
+A character taken to a campaign is copied, and the copy is what plays. The original
+stays on the shelf as a **blueprint**: never played, never levelled, never killed.
+
+This is not a new idea in this repo — it is the one
+[docs/sharing-model.md](../../sharing-model.md) already argues for. Rule 1 draws the
+live/snapshot line and puts a character on the snapshot side, in as many words: "A sheet
+and a campaign are mutable play state." Rule 3 says adopting is link or fork and the
+reader chooses, and `homebrew.forked_from` is already a nullable provenance column with
+exactly these semantics. Seating a hero is the same act, one table closer to home.
+
+**The instance is a `characters` row, not a new entity.** Same table, same sheet schema,
+same everything — two nullable columns tell them apart:
+
+| Column        | Blueprint | Instance                         |
+| ------------- | --------- | -------------------------------- |
+| `campaign_id` | null      | the table it plays at            |
+| `forked_from` | null      | the blueprint it was minted from |
+
+This is what keeps the blast radius small. Every surface that reads a character keeps
+working, because an instance _is_ one. `characterTable` collapses from a join to a
+column read. The roster filters to blueprints; instances are listed under their
+campaign. And finding 7 stops being a bug without a constraint that tells players they
+may not do the thing they were already doing.
+
+**Blueprint, not shared identity.** The alternative was to keep name, portrait and
+backstory live on the original so a typo fixed once is fixed everywhere, and instance
+only the mechanics. It is closer to what a player means by "my Gon" — and it was
+rejected, because it puts the live/snapshot seam _down the middle of one object_, which
+is the exact thing sharing-model rule 1 warns is painful. Then every field needs a rule
+about which half it is in, and the answer for "appearance" is genuinely arguable. One
+rule and no seams beats a better answer nobody can remember. Sharing a portrait across
+instances is a cheap follow-on if it is wanted; sharing half a sheet is not.
+
+**What this costs, said plainly.** Editing a blueprint after the fork reaches nothing.
+That is the same bargain adoption already makes ("the two never speak again") and it
+will still surprise someone, so the surface has to say it at the moment of forking
+rather than in a settings page.
 
 ---
 
