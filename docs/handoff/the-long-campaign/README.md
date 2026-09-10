@@ -8,10 +8,11 @@ campaign that runs for a year, from both chairs. The build order is in
 in the light of a decision recorded here.
 
 Every "today" below was read out of the code at the branch point, `d1edb23`, and is
-kept in the present tense as the record of what was found. **Phases 1, 2 and 7 are now
-built, along with the first two items of phase 6**; what each proved is under "What has
-been verified" at the foot of this file, and [phases.md](phases.md) carries the
-box-by-box state. Phases 3, 4 and 5 are untouched.
+kept in the present tense as the record of what was found. **Phases 1, 2, 3 and 7 are
+built, along with phase 4's conditions half and all of phase 6 but its last item**; what
+each proved is under "What has been verified" at the foot of this file, and
+[phases.md](phases.md) carries the box-by-box state. Phase 5 is untouched, and feats are
+still prose.
 
 ---
 
@@ -96,7 +97,7 @@ table's library, so a homebrew feat approved at a table is a sentence on a sheet
 no stats behind it. The build already carries `asi.featKey` and `asi.featSource`, so
 the pointer exists — it just never reaches the sheet.
 
-### 4. Conditions do not survive the fight
+### 4. Conditions do not survive the fight _(built — phase 4)_
 
 `combat.exhaustion` is on the sheet, correctly, with the comment explaining why it is a
 number and not a chip. **The other fourteen conditions live only on
@@ -250,6 +251,15 @@ a browser in both themes. What was proven:
   a drift a typecheck cannot see, and the reason the recompute is on the server rather
   than in the control.
 
+- **Levelling is reachable and correct.** 7,000 XP at level 5 reads "7,000 more for
+  level 6"; 15,000 reads "enough for level 6"; the Level up link lands a guided build on
+  the Levels step, and picking 6 recomposes the hero panel to level 6, 32 hit points,
+  6d6.
+- **A condition outlasts its fight.** Marking a tableless hero Poisoned persists as
+  `["poisoned"]` on the sheet while `initiative_entries` holds no row for that character
+  at all — which is the whole claim.
+- **A player's own hero is on the table screen.** "Your hero" appears in Add a box and
+  renders the same `LoadoutSection` the play surface mounts, with working toggles.
 - **Permissions hold in both directions.** An outsider's `applyPlayPatchAction` and
   `applyLoadoutPatchAction` against another player's hero are refused with "That sheet
   is not yours to change"; the owner's identical call succeeds. On the portrait route,
@@ -262,9 +272,12 @@ a browser in both themes. What was proven:
 Follow [../verifying-without-a-browser.md](../verifying-without-a-browser.md). The
 checks that matter most for the phases still to come:
 
-1. **A condition set out of combat survives an encounter starting and ending.** Phase 4
-   is exactly the claim that it does.
-2. **Levelling from the play surface writes the same `character_history` rows as
-   levelling from the wizard.** Content-model rule 7 — the server diffs, the client is
-   never asked what changed. Two paths into one sheet is how a second, client-trusted
-   write path gets introduced by accident.
+1. **A condition set out of combat survives an encounter starting _and ending_.** Half
+   proven: it is on the sheet with no encounter row in existence. The round trip —
+   condition set out of combat, encounter started, encounter ended, condition still
+   there — has not been run.
+2. **Levelling writes the same `character_history` rows from either path.**
+   Content-model rule 7: the server diffs, the client is never asked what changed. Two
+   entrances to one sheet is how a second, client-trusted write path gets introduced by
+   accident. The level-up entrance reuses the wizard's own step, so this is likely
+   fine — but "likely" is what this file exists to replace.

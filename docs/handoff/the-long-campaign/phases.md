@@ -3,8 +3,9 @@
 Build order. Each phase leaves the app usable and is worth shipping alone. `[x]` =
 landed on `feat/campaign-longevity`.
 
-**Built so far: phases 1, 2 and 7 in full, plus the first two items of phase 6.**
-Phases 3, 4 and 5 are untouched.
+**Built so far: phases 1, 2, 3 and 7 in full; phase 4's conditions half; and phase 6
+except its last item.** Phase 5 is untouched, and phase 4's feats-as-references half is
+still open.
 
 The model these tasks implement is in [README.md](README.md). Read it first — the two
 decisions recorded there (the sheet gets a third surface rather than a third copy; a
@@ -80,21 +81,21 @@ The brief's last item. Schema first, because the UI cannot be built on prose.
 
 Levelling works; nothing invites it.
 
-- [ ] "Level up" as a real action on the play surface and the roster card, landing in
+- [x] "Level up" as a real action on the play surface and the roster card, landing in
       `AdvancementStep` scoped to the single new level rather than the whole ladder.
-- [ ] It must work for a `mode: 'manual'` sheet, which today gets a number box and no
+- [x] It must work for a `mode: 'manual'` sheet, which today gets a number box and no
       class table. Offer the guided ladder; do not force it.
-- [ ] XP → level: `identity.xp` exists and nothing reads it. Either surface the
+- [x] XP → level: `identity.xp` exists and nothing reads it. Either surface the
       threshold and prompt at it, or say in the UI that the table runs on milestones.
       A number that means nothing is worse than no number.
 - [ ] Verify both paths write the same `character_history` rows (content-model rule 7).
 
 ## Phase 4 — A sheet that stays true between sessions
 
-- [ ] **Persistent conditions on the sheet.** The fourteen keys from
+- [x] **Persistent conditions on the sheet.** The fourteen keys from
       `campaign/lib/conditions.ts`, stored on the sheet beside `exhaustion` — not a new
       table, because they belong to the character rather than to a fight.
-- [ ] The encounter tracker reads them as its starting state and writes back on
+- [x] The encounter tracker reads them as its starting state and writes back on
       encounter end, so `initiative_entries.conditionKeys` stops being the only home.
       One vocabulary, two surfaces — the shape `content/` already uses.
 - [ ] **Feats as references.** A `feats: ContentRef[]` on the sheet, filled from
@@ -127,7 +128,7 @@ Design work, best done once the data above exists.
       `campaign_members.characterId`; the `HeroCard` carries it as a `Ribbon` (rule 6 —
       ornament encodes state). `/characters/[id]` names the table in its header, where
       it already computes `tableContext` and spends it on nothing visible.
-- [ ] **A player's own view of a table.** The DM has `/campaigns/[id]/screen`; a player
+- [x] **A player's own view of a table.** The DM has `/campaigns/[id]/screen`; a player
       gets the same route with the panels `SCREEN_PANELS[k].players` already allows,
       plus one new panel: their own character, which is the Phase 1 surface embedded.
       No new permission model — `screen.ts` already filters by that flag.
