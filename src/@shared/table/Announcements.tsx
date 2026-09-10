@@ -27,11 +27,20 @@ import { Glyph } from '@/@shared/components/ui';
 import type { EventTone } from './events';
 import { useTable, type Announcement } from './TableProvider';
 
-const TONE_EDGE: Record<EventTone, string> = {
-  gold: 'border-l-gold',
-  danger: 'border-l-danger',
-  success: 'border-l-success',
-  arcane: 'border-l-arcane',
+/**
+ * The spine down the left edge, as a real element.
+ *
+ * Not `border-l-gold` on the card: the card also carries `border-line`, which
+ * sets all four sides and wins on stylesheet order, so the tone silently
+ * disappeared and every slip read the same. A spine element is the same shape
+ * `HeroCard` uses for its class colour and cannot be overridden by a
+ * neighbouring border utility.
+ */
+const TONE_SPINE: Record<EventTone, string> = {
+  gold: 'bg-gold',
+  danger: 'bg-danger',
+  success: 'bg-success',
+  arcane: 'bg-arcane',
 };
 
 const TONE_INK: Record<EventTone, string> = {
@@ -58,31 +67,35 @@ function Slip({
       animate={{ opacity: 1, x: 0 }}
       exit={reduce ? { opacity: 0 } : { opacity: 0, x: 28 }}
       transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-      className={`pointer-events-auto flex w-full items-start gap-2.5 border border-l-[3px] border-line bg-surface px-3 py-2.5 [border-radius:var(--radius-card)] [box-shadow:var(--shadow-card)] sm:w-80 ${
-        TONE_EDGE[reading.tone]
-      }`}
+      className="pointer-events-auto flex w-full items-stretch gap-0 overflow-hidden border border-line bg-surface [border-radius:var(--radius-card)] [box-shadow:var(--shadow-card)] sm:w-80"
     >
-      <Glyph
-        name={reading.glyph}
-        size={16}
-        className={`mt-0.5 shrink-0 ${TONE_INK[reading.tone]}`}
+      <span
+        aria-hidden="true"
+        className={`w-[3px] shrink-0 ${TONE_SPINE[reading.tone]}`}
       />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm leading-snug text-ink">{reading.title}</p>
-        {reading.detail && (
-          <p className="mt-0.5 truncate text-xs text-ink-muted">
-            {reading.detail}
-          </p>
-        )}
+      <div className="flex min-w-0 flex-1 items-start gap-2.5 px-3 py-2.5">
+        <Glyph
+          name={reading.glyph}
+          size={16}
+          className={`mt-0.5 shrink-0 ${TONE_INK[reading.tone]}`}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm leading-snug text-ink">{reading.title}</p>
+          {reading.detail && (
+            <p className="mt-0.5 truncate text-xs text-ink-muted">
+              {reading.detail}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className="-mr-1 -mt-1 shrink-0 rounded p-1 text-ink-subtle transition-colors hover:text-ink"
+        >
+          <Glyph name="x" size={13} />
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="Dismiss"
-        className="-mr-1 -mt-1 shrink-0 rounded p-1 text-ink-subtle transition-colors hover:text-ink"
-      >
-        <Glyph name="x" size={13} />
-      </button>
     </motion.div>
   );
 }

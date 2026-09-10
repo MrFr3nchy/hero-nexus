@@ -201,10 +201,19 @@ export function TableProvider({ children }: { children: ReactNode }) {
 
       setAnnouncements(list => {
         const next = [...list, announcement];
-        // Trim from the front, and take the timers of whatever fell off with
-        // it — an orphaned timeout would remove a later announcement by id.
+        /*
+         * Trim the oldest thing that is *not* asking the reader for something.
+         *
+         * Trimming plainly from the front looked right until eight rolls
+         * landed in three seconds and pushed the DM's question off the screen
+         * — the one announcement in the stack that wanted an answer was the
+         * first to go, evicted by exactly the noise a busy round produces. An
+         * asking slip is only dropped when there is nothing else left to drop.
+         */
         while (next.length > MAX_ON_SCREEN) {
-          const gone = next.shift();
+          let index = next.findIndex(a => !a.reading.asks);
+          if (index === -1) index = 0;
+          const [gone] = next.splice(index, 1);
           if (!gone) break;
           const timer = timers.current.get(gone.id);
           if (timer) clearTimeout(timer);
