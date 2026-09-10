@@ -3,8 +3,8 @@
 Build order. Each phase leaves the app usable and is worth shipping alone. `[x]` =
 landed on `feat/campaign-longevity`.
 
-**Built so far: phase 1, phase 2, and the first two items of phase 6.** Phases 3, 4, 5
-and 7 are untouched.
+**Built so far: phase 1 in full, phase 2 in full, and the first two items of phase 6.**
+Phases 3, 4, 5 and 7 are untouched.
 
 The model these tasks implement is in [README.md](README.md). Read it first — the two
 decisions recorded there (the sheet gets a third surface rather than a third copy; a
@@ -30,8 +30,12 @@ the ones that exist.
 - [x] Wire it through `applyPlayPatch(characterId, null, patch)`. The server already
       authorises the owner with no campaign (`play.ts:authorize`) — this phase adds no
       permission code, and if it seems to need some, something is wrong.
-- [ ] Mount `InventorySection` and `SpellListSection` on the play surface, bound to the
-      same `control`. They are already `control`-driven; this is composition.
+- [x] Gear and prepared spells on the play surface. **Not** by mounting
+      `InventorySection` / `SpellListSection` as this task first said: those are
+      react-hook-form editors with a save button, and play mode writes straight
+      through. `LoadoutSection` is toggles only — equip, attune, prepare — over its own
+      `getPlayLoadout` / `applyLoadoutPatch` pair. Rows are still created and deleted
+      only in the builder, so there is no second inventory editor to drift.
 - [x] Live updates degrade to absent when `campaignId` is null. `useCampaignLive` is not
       called; nothing polls. There is nobody to broadcast to.
 - [x] Entry points, because the surface is worthless unreachable: a "Run this hero"

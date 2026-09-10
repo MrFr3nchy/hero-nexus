@@ -239,6 +239,15 @@ a browser in both themes. What was proven:
   resolves to the shield _item_: AC 14 for a Dex +2 character, not the spell.
 - **Negative controls.** Nothing equipped, content unresolved, and `equipped: false`
   each yield zero attacks rather than an attack with zero stats.
+- **The loadout toggles write through.** Attuning moved 0/3 to 1/3 and persisted;
+  un-attuning came back to 2/3; the attune control appears on an already-attuned row
+  that does not require attunement, so that state can be undone, and vanishes once it
+  is not needed. Spells group by level with cantrips marked Always and excluded from
+  the prepared count.
+- **Armour class is recomputed from what is worn on every loadout change.** This
+  immediately corrected a stale stored AC of 10 to the real 13 on the test character —
+  a drift a typecheck cannot see, and the reason the recompute is on the server rather
+  than in the control.
 
 ## Still to verify
 
