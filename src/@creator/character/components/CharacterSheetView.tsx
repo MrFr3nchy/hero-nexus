@@ -7,6 +7,7 @@ import {
   Stat,
   StatBlock,
 } from '@/@shared/components/ui';
+import { AttacksSection } from './sections/AttacksSection';
 import {
   abilityModifier,
   fmtBonus,
@@ -17,6 +18,7 @@ import {
   skillBonus,
   spellAttackBonus,
   spellSaveDC,
+  type WeaponAttack,
 } from '../lib/derive';
 import type { NoteSection } from '../lib/note-sections';
 import {
@@ -73,9 +75,16 @@ const SPELL_LEVELS: SpellSlotLevel[] = [
 export function CharacterSheetView({
   sheet,
   slots,
+  attacks = [],
 }: {
   sheet: CharacterSheet;
   slots?: Partial<Record<NoteSection, ReactNode>>;
+  /**
+   * Derived by the caller, because deriving one needs the sheet's inventory
+   * content resolved and this component takes no database. An empty list is a
+   * character with nothing equipped, which the section says in words.
+   */
+  attacks?: WeaponAttack[];
 }) {
   const pb = proficiencyBonus(sheet.identity.level);
   const dc = spellSaveDC(sheet);
@@ -162,6 +171,8 @@ export function CharacterSheetView({
         </div>
         {slots?.skills}
       </SectionCard>
+
+      <AttacksSection attacks={attacks} />
 
       {sheet.spellcasting.ability && (
         <SectionCard

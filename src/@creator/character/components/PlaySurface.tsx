@@ -11,6 +11,8 @@ import {
   Ribbon,
 } from '@/@shared/components/ui';
 import type { PlayState } from '@/server/play';
+import { AttacksSection } from './sections/AttacksSection';
+import type { WeaponAttack } from '../lib/derive';
 
 /**
  * A character being *run*, as opposed to built or read.
@@ -28,10 +30,13 @@ import type { PlayState } from '@/server/play';
 export function PlaySurface({
   initial,
   campaign,
+  attacks,
 }: {
   initial: PlayState;
   /** The table this hero sits at, or null for one that sits at none. */
   campaign: { campaignId: string; name: string } | null;
+  /** Derived on the server, where the inventory's content can be resolved. */
+  attacks: WeaponAttack[];
 }) {
   const [state, setState] = useState(initial);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +60,8 @@ export function PlaySurface({
         onChange={setState}
         onError={setError}
       />
+
+      <AttacksSection attacks={attacks} />
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4 text-sm">
         {campaign ? (

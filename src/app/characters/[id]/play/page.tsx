@@ -8,7 +8,9 @@ import {
 } from '@/@creator/character/components/PlaySurface';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import { PageHeader, PageShell } from '@/@shared/components/ui';
+import { weaponAttacks } from '@/@creator/character/lib/derive';
 import { characterTable } from '@/server/characters';
+import { resolveContentRefs } from '@/server/content';
 import { getPlayState } from '@/server/play';
 
 export const dynamic = 'force-dynamic';
@@ -38,6 +40,14 @@ export default async function CharacterPlayPage({
   // Throws rather than returning null, but `getCharacter` above already
   // established ownership, so `authorize` cannot refuse this one.
   const state = await getPlayState(id, campaign?.campaignId ?? null);
+  const attacks = weaponAttacks(
+    character.sheet,
+    await resolveContentRefs(
+      character.sheet.inventory
+        .map(i => i.ref)
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+    )
+  );
 
   return (
     <ProtectedRoute>
@@ -55,7 +65,7 @@ export default async function CharacterPlayPage({
           description="Hit points, hit dice, death saves and spell slots — everything that moves between one roll and the next."
         />
         {state.hpMax > 0 ? (
-          <PlaySurface initial={state} campaign={campaign} />
+          <PlaySurface initial={state} campaign={campaign} attacks={attacks} />
         ) : (
           <NothingToRun characterId={id} />
         )}

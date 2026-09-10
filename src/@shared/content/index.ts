@@ -31,6 +31,19 @@ export { fromHomebrew, fromReference, REFERENCE_CATEGORIES } from './adapt';
 export { standardSpellSlots } from './spell-slots';
 
 export {
+  WEAPON_MASTERIES,
+  NO_WEAPON_PROFICIENCY,
+  hasProperty,
+  isProficientWith,
+  isWeaponMastery,
+  mergeWeaponProficiency,
+  parseWeaponProficiency,
+  type WeaponFacts,
+  type WeaponMastery,
+  type WeaponProficiency,
+} from './weapons';
+
+export {
   CONTENT_REGISTRY,
   CONTENT_TYPE_ORDER,
   contentChips,

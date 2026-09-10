@@ -131,6 +131,26 @@ const skills = z.object({
   survival: z.boolean(),
 });
 
+/**
+ * Mirrors `WeaponProficiency` in `@/@shared/content/weapons`, which is where
+ * the reasoning for the shape lives — in particular why `martialProperties`
+ * exists rather than two booleans.
+ */
+const weaponProficiencySchema = z
+  .object({
+    simple: z.boolean().default(false).catch(false),
+    martial: z.boolean().default(false).catch(false),
+    martialProperties: z.array(z.string().max(40)).max(8).default([]).catch([]),
+    names: z.array(z.string().max(60)).max(40).default([]).catch([]),
+  })
+  .default({
+    simple: false,
+    martial: false,
+    martialProperties: [],
+    names: [],
+  })
+  .catch({ simple: false, martial: false, martialProperties: [], names: [] });
+
 const spellSlot = z.object({
   total: z.number().int().min(0).max(9),
   expended: z.number().int().min(0).max(9),
@@ -485,7 +505,23 @@ export const characterSheetSchema = z.object({
 
   proficiencies: z.object({
     armor: z.string().trim().max(300).default(''),
+    /**
+     * The sentence a player reads. Kept, and no longer load-bearing — the
+     * structured record below is what anything checking a weapon reads, the
+     * same split `equipment.items` and `inventory` already use.
+     */
     weapons: z.string().trim().max(300).default(''),
+    /**
+     * What the character is actually proficient with, in a shape
+     * `isProficientWith` can answer from.
+     *
+     * Defaulted rather than optional so every sheet written before this parses
+     * with an empty grant and keeps its prose. An empty grant means no attack
+     * on the sheet claims a proficiency bonus, which is the honest reading of
+     * "nobody has said what this character can use" — guessing from the prose
+     * at read time would make the bonus appear and disappear with a typo.
+     */
+    weaponProficiency: weaponProficiencySchema,
     tools: z.string().trim().max(300).default(''),
     languages: z.string().trim().max(300).default(''),
   }),
@@ -632,7 +668,18 @@ export function makeEmptySheet(): CharacterSheet {
       stealth: false,
       survival: false,
     },
-    proficiencies: { armor: '', weapons: '', tools: '', languages: '' },
+    proficiencies: {
+      armor: '',
+      weapons: '',
+      weaponProficiency: {
+        simple: false,
+        martial: false,
+        martialProperties: [],
+        names: [],
+      },
+      tools: '',
+      languages: '',
+    },
     spellcasting: {
       ability: '',
       spells: [],

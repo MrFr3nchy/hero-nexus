@@ -32,6 +32,7 @@ import {
   type SpellData,
 } from './schemas';
 import { isContentType, type ContentEntry, type ContentType } from './types';
+import { isWeaponMastery } from './weapons';
 
 /** `reference_data.category` -> the content type it carries. */
 export const REFERENCE_CATEGORIES: Record<string, ContentType> = {
@@ -71,6 +72,51 @@ function nameOf(value: unknown): string {
 
 function str(value: unknown): string {
   return value == null ? '' : String(value);
+}
+
+/**
+ * A weapon's properties, unflattened.
+ *
+ * Open5e ships them as `{ property: { name, type, desc }, detail }`, where
+ * `type` is `"Mastery"` for the one mastery a weapon has and null for the
+ * rest, and `detail` carries the qualifier — Versatile's two-handed damage,
+ * Ammunition's range. Both were being dropped on the way in; this keeps them
+ * long enough for the three fields below to be filled.
+ */
+function weaponProperties(
+  raw: Record<string, unknown>
+): { name: string; type: string; detail: string }[] {
+  if (!Array.isArray(raw.properties)) return [];
+  return (raw.properties as { property?: unknown; detail?: unknown }[])
+    .map(p => ({
+      name: nameOf(p?.property) || nameOf(p),
+      type: str(
+        p?.property && typeof p.property === 'object' && 'type' in p.property
+          ? (p.property as { type: unknown }).type
+          : ''
+      ),
+      detail: str(p?.detail ?? ''),
+    }))
+    .filter(p => p.name);
+}
+
+/** The weapon's mastery property name, or '' when it has none. */
+function weaponMastery(raw: Record<string, unknown>): string {
+  const found = weaponProperties(raw).find(
+    p => p.type.toLowerCase() === 'mastery'
+  );
+  return found && isWeaponMastery(found.name) ? found.name : '';
+}
+
+/** The `detail` beside a named property, e.g. Versatile's "1d10". */
+function weaponPropertyDetail(
+  raw: Record<string, unknown>,
+  property: string
+): string {
+  const found = weaponProperties(raw).find(
+    p => p.name.toLowerCase() === property.toLowerCase()
+  );
+  return found?.detail ?? '';
 }
 
 /* ------------------------------------------------------------------ *
@@ -210,11 +256,9 @@ function itemFromSrd(category: string, raw: Record<string, unknown>): ItemData {
           range: Number(weaponRaw.range ?? 0) || 0,
           long_range: Number(weaponRaw.long_range ?? 0) || 0,
           is_simple: Boolean(weaponRaw.is_simple),
-          properties: Array.isArray(weaponRaw.properties)
-            ? (weaponRaw.properties as { property?: unknown }[])
-                .map(p => nameOf(p?.property) || nameOf(p))
-                .filter(Boolean)
-            : [],
+          properties: weaponProperties(weaponRaw).map(p => p.name),
+          mastery: weaponMastery(weaponRaw),
+          versatile_dice: weaponPropertyDetail(weaponRaw, 'Versatile'),
         }
       : null,
     armor: armorRaw

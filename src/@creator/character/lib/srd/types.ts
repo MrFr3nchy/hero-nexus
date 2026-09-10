@@ -8,6 +8,8 @@
  * share one vocabulary.
  */
 
+import type { WeaponProficiency } from '@/@shared/content/weapons';
+
 import type { AbilityKey, SkillKey } from '../../schema';
 
 /** Open5e's spellcasting progression tag on a class row. */
@@ -90,7 +92,14 @@ export interface CoreTraits {
   primaryAbilities: AbilityKey[];
   savingThrows: AbilityKey[];
   skillChoice: SkillChoice | null;
+  /** The sentence Open5e ships and a human reads. */
   weapons: string;
+  /**
+   * The same fact in a shape `isProficientWith` can answer from. Parsed out
+   * of `weapons` for an SRD class; filled directly by a homebrew author, per
+   * content-model rule 3 — the identity types mirror the *parsed* shape.
+   */
+  weaponProficiency: WeaponProficiency;
   armor: string;
   tools: string;
   equipment: EquipmentOption[];

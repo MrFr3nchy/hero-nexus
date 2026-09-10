@@ -18,6 +18,8 @@
  * be read and tested.
  */
 
+import { parseWeaponProficiency } from '@/@shared/content/weapons';
+
 import type { InventoryItem } from '../schema';
 
 /** `"2 Handaxes"` -> quantity 2, name "Handaxes". */
@@ -149,10 +151,15 @@ export function regrantInventory(
  */
 export function migrateStoredSheet(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object') return raw;
-  const sheet = raw as Record<string, unknown>;
+  let sheet = raw as Record<string, unknown>;
+  sheet = migrateInventory(sheet);
+  sheet = migrateWeaponProficiency(sheet);
+  return sheet;
+}
 
+function migrateInventory(sheet: Record<string, unknown>) {
   // Present, even as [], means this sheet has already been through here.
-  if (Array.isArray(sheet.inventory)) return raw;
+  if (Array.isArray(sheet.inventory)) return sheet;
 
   const equipment = (sheet.equipment ?? {}) as Record<string, unknown>;
   const items = typeof equipment.items === 'string' ? equipment.items : '';
@@ -162,5 +169,37 @@ export function migrateStoredSheet(raw: unknown): unknown {
   return {
     ...sheet,
     inventory: inventoryFromProse(items, magicItems),
+  };
+}
+
+/**
+ * Read the prose proficiency line into the struct, for sheets written before
+ * the struct existed.
+ *
+ * Without this every existing character's attacks would read "not proficient",
+ * because `weaponProficiency` defaults to an empty grant and their class's
+ * proficiency has only ever been recorded as a sentence.
+ *
+ * Same bargain as the inventory migration above: additive, lossless, and
+ * triggered by the field being *absent*. A sheet that carries an explicitly
+ * empty grant has been through here — or has had it deliberately cleared — and
+ * is left alone. Parsing on every read instead would make the proficiency
+ * bonus appear and disappear as a player edited the sentence.
+ */
+function migrateWeaponProficiency(sheet: Record<string, unknown>) {
+  const prof = sheet.proficiencies;
+  if (!prof || typeof prof !== 'object') return sheet;
+  const proficiencies = prof as Record<string, unknown>;
+  if (proficiencies.weaponProficiency !== undefined) return sheet;
+
+  const prose =
+    typeof proficiencies.weapons === 'string' ? proficiencies.weapons : '';
+
+  return {
+    ...sheet,
+    proficiencies: {
+      ...proficiencies,
+      weaponProficiency: parseWeaponProficiency(prose),
+    },
   };
 }

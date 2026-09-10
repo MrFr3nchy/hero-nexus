@@ -14,7 +14,9 @@ import {
 import { PublishHero } from '@/@creator/library/components';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import { PageHeader, PageShell } from '@/@shared/components/ui';
+import { weaponAttacks } from '@/@creator/character/lib/derive';
 import { characterTable } from '@/server/characters';
+import { resolveContentRefs } from '@/server/content';
 import { publicationForCharacter } from '@/server/library';
 import {
   listSecrets,
@@ -47,6 +49,16 @@ export default async function CharacterSheetPage({
   // campaign's name, and the header has to say where this hero sits.
   const seat = await characterTable(id);
   const listing = await publicationForCharacter(id);
+  // Attacks need the inventory's content resolved: the sheet stores refs, not
+  // stats (content-model rule 1), so nothing on it knows what a longsword does.
+  const attacks = weaponAttacks(
+    character.sheet,
+    await resolveContentRefs(
+      character.sheet.inventory
+        .map(i => i.ref)
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+    )
+  );
   const [notes, secrets] = table
     ? await Promise.all([listSheetNotes(id), listSecrets(id)])
     : [[], []];
@@ -110,7 +122,11 @@ export default async function CharacterSheetPage({
         />
 
         <div className="space-y-6">
-          <CharacterSheetView sheet={character.sheet} slots={slots} />
+          <CharacterSheetView
+            sheet={character.sheet}
+            slots={slots}
+            attacks={attacks}
+          />
 
           {table && (
             <SecretsLog

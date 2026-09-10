@@ -10,7 +10,9 @@ import {
   NOTE_SECTIONS,
   type NoteSection,
 } from '@/@creator/character/lib/note-sections';
+import { weaponAttacks } from '@/@creator/character/lib/derive';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
+import { resolveContentRefs } from '@/server/content';
 import {
   PageHeader,
   PageShell,
@@ -69,6 +71,17 @@ export default async function CampaignPlayerSheetPage({
     listSecrets(characterId),
   ]);
 
+  // The same derivation the player's own view runs, so the DM and the player
+  // are reading one set of numbers rather than two that can disagree.
+  const attacks = weaponAttacks(
+    character.sheet,
+    await resolveContentRefs(
+      character.sheet.inventory
+        .map(i => i.ref)
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+    )
+  );
+
   // One comment thread per sheet section, handed to the sheet as slots.
   const slots = Object.fromEntries(
     NOTE_SECTIONS.map(section => [
@@ -109,7 +122,11 @@ export default async function CampaignPlayerSheetPage({
         />
 
         <div className="space-y-6">
-          <CharacterSheetView sheet={character.sheet} slots={slots} />
+          <CharacterSheetView
+            sheet={character.sheet}
+            slots={slots}
+            attacks={attacks}
+          />
 
           <SecretsLog
             campaignId={id}
