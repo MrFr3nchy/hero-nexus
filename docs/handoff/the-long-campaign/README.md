@@ -46,7 +46,7 @@ pieces are mounted on.
 Six things have no implementation anywhere, and these are the ones that need building
 rather than moving.
 
-### 1. A character has no portrait
+### 1. A character has no portrait _(built — phase 7)_
 
 There is no image field on the sheet, in `characters`, or in `CharacterRow`. `HeroCard`
 takes a `portrait` node and every caller passes initials.
