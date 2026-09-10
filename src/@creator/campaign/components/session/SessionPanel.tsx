@@ -18,6 +18,7 @@ import { PartyPlayPanel } from '../PartyPlayPanel';
 import { HandoutsPanel } from './HandoutsPanel';
 import { InitiativeTracker } from './InitiativeTracker';
 import { RollPanel } from './RollPanel';
+import { TimerPanel } from './TimerPanel';
 
 /**
  * The at-the-table surface: initiative, the shared dice, and the handouts the
@@ -163,6 +164,13 @@ export function SessionPanel({ campaignId }: { campaignId: string }) {
         isStaff={isStaff}
         refresh={refresh}
         onError={setError}
+      />
+
+      <TimerPanel
+        campaignId={campaignId}
+        state={state}
+        isStaff={isStaff}
+        refresh={refresh}
       />
 
       <RollPanel

@@ -21,6 +21,7 @@ export const SCREEN_PANEL_KEYS = [
   'quests',
   'handouts',
   'conditions',
+  'timers',
   'ledger',
   'canon',
   'chronicle',
@@ -107,6 +108,13 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     label: 'Conditions',
     glyph: 'question',
     description: 'The fifteen conditions, in one line each.',
+    players: true,
+  },
+  timers: {
+    key: 'timers',
+    label: 'The hourglass',
+    glyph: 'hourglass',
+    description: 'What is running out, and how long is left of it.',
     players: true,
   },
   ledger: {

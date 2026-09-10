@@ -16,6 +16,7 @@ import {
   campaignHandouts,
   campaignMembers,
   campaignRolls,
+  campaignTimers,
   characters,
   initiativeEncounters,
   initiativeEntries,
@@ -86,12 +87,24 @@ export interface HandoutRow {
   createdAt: string;
 }
 
+/** A countdown the table can watch. `endsAt` is an instant; the browser ticks. */
+export interface TimerRow {
+  id: string;
+  label: string;
+  endsAt: string;
+  startedAt: string;
+  visibility: 'dm' | 'shared';
+  stoppedAt: string | null;
+}
+
 export interface LiveState {
   role: CampaignRole;
   encounter: EncounterRow | null;
   entries: EntryRow[];
   handouts: HandoutRow[];
   rolls: RollRow[];
+  /** Running countdowns. Staff see their own hidden ones; players do not. */
+  timers: TimerRow[];
   /** The viewer's own linked character, so the tracker can say "your turn". */
   viewerCharacterId: string | null;
 }
@@ -181,6 +194,29 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
       createdAt: r.createdAt,
     }));
 
+  /*
+   * Countdowns. A stopped one is dropped for everybody — the row is kept as a
+   * record that it ran, not to be drawn — and a hidden one is staff-only, the
+   * same rule handouts follow above.
+   */
+  const timerRows = await db
+    .select()
+    .from(campaignTimers)
+    .where(eq(campaignTimers.campaignId, campaignId))
+    .orderBy(campaignTimers.endsAt);
+
+  const timers: TimerRow[] = timerRows
+    .filter(t => !t.stoppedAt)
+    .filter(t => isStaff || t.visibility === 'shared')
+    .map(t => ({
+      id: t.id,
+      label: t.label,
+      endsAt: t.endsAt,
+      startedAt: t.startedAt,
+      visibility: t.visibility,
+      stoppedAt: t.stoppedAt,
+    }));
+
   const membership = await db.query.campaignMembers.findFirst({
     where: and(
       eq(campaignMembers.campaignId, campaignId),
@@ -202,8 +238,57 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     entries,
     handouts,
     rolls,
+    timers,
     viewerCharacterId: membership?.characterId ?? null,
   };
+}
+
+/* --- the hourglass ----------------------------------------------------- */
+
+/**
+ * Start a countdown. Staff only.
+ *
+ * `seconds` becomes an instant here rather than being stored as a duration, so
+ * every viewer counts down to the same moment and a slow response cannot make
+ * the clock wrong.
+ */
+export async function startTimer(
+  campaignId: string,
+  input: { label: string; seconds: number; visibility?: 'dm' | 'shared' }
+): Promise<void> {
+  const { userId } = await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  const seconds = Math.max(
+    1,
+    Math.min(24 * 60 * 60, Math.trunc(input.seconds))
+  );
+  const endsAt = new Date(Date.now() + seconds * 1000).toISOString();
+  await db.insert(campaignTimers).values({
+    campaignId,
+    label: input.label.trim().slice(0, 120),
+    endsAt,
+    visibility: input.visibility ?? 'shared',
+    createdBy: userId,
+  });
+}
+
+/**
+ * Call one off. The row stays with `stoppedAt` set: a countdown that was
+ * stopped is a thing that happened, and deleting it would say it never ran.
+ */
+export async function stopTimer(
+  campaignId: string,
+  timerId: string
+): Promise<void> {
+  await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  await db
+    .update(campaignTimers)
+    .set({ stoppedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(campaignTimers.id, timerId),
+        eq(campaignTimers.campaignId, campaignId)
+      )
+    );
 }
 
 /* --- encounter (staff) ------------------------------------------------- */

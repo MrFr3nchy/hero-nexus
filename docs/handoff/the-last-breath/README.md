@@ -7,7 +7,10 @@ makes a death belong to one table rather than to a hero everywhere).
 Three things, and they are one thing: **what happens when a character runs out of hit
 points**, who is allowed to watch it happen, and how a table keeps time while it does.
 
-**Nothing here is built yet.** Every "today" was read out of the code at `65ba4d5`.
+Every "today" below was read out of the code at `65ba4d5` and is kept in the present
+tense as the record of what was found. **All three phases are now built** —
+[phases.md](phases.md) carries the box-by-box state, and what each run proved is at the
+foot of this file.
 
 ---
 
@@ -115,3 +118,44 @@ raised from a death, and is otherwise a blank timer with whatever label the DM t
 `campaign_clocks` is the precedent for the visibility model and is deliberately _not_
 extended: a progress clock fills when the fiction says so, and a countdown fills because
 time passed. Sharing a table would mean one of them lying about what its segments mean.
+
+---
+
+## What has been verified
+
+The rules were checked apart from the app, and the behaviour against a production build
+with real sessions.
+
+- **All 25 rules, against `dying.ts` directly.** The threshold either side of 10;
+  natural 20 clearing both tracks and giving a hit point; natural 1 as two failures, and
+  as a kill from one failure; three of a kind either way; successes that are not
+  consecutive; advantage and disadvantage picking the right face; a hit at 0 as one
+  failure and a crit as two; a hit un-stabilising; damage while conscious costing
+  nothing; massive damage at exactly the maximum killing and one short of it not; and
+  all four readings of the state.
+- **A full dying sequence through real server actions.** Down to 0, then success,
+  failure, failure, natural 20 — back up at 1 hit point with both tracks cleared — and
+  the next roll refused because they were no longer dying.
+- **Rolling while conscious is refused**, and the sheet is untouched.
+- **Massive damage kills outright**: 28 maximum, at 0, taking 28 wrote three failures.
+- **Healing a dead character brings them back** with both tracks and `stable` cleared,
+  which is what stands in for revivify while no spell engine exists.
+- **A secret save is genuinely secret.** A co-GM's roll stored `dm`; the player's live
+  state carried six rolls where the DM's carried seven. A player asking to hide their
+  own is refused, and told who to ask.
+- **The seat holds.** A player's unseat and swap were both refused with the seat
+  untouched; the co-GM's retire emptied the chair and left the instance row standing;
+  the player could then seat somebody new, and re-seating returned the copy that had
+  already played there rather than minting another.
+- **The hourglass runs.** A shared minute counted 0:48 → 0:39 → 0:32 with the sand
+  visibly draining, and at zero turned to "Time" in danger and stayed there. A secret
+  ten-minute timer beside it never appeared in the player's view at all.
+
+## Still to verify
+
+- **A death save rolled from the player's own play surface, with no table.**
+  `rollDeathSave` takes a nullable campaign and skips the log when there is none, so it
+  should work — but "should" is what this file exists to replace.
+- **Two viewers watching one hourglass.** The countdown is computed from an instant so
+  clock skew is the only thing that can separate them, and that has not been measured
+  against a second machine.

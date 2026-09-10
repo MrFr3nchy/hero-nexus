@@ -24,6 +24,8 @@ import {
   deleteHandout as deleteHandoutSrv,
   endEncounter,
   getLiveState,
+  startTimer,
+  stopTimer,
   removeEntry,
   rollForCampaign,
   rollInitiative,
@@ -49,6 +51,7 @@ import {
   listInvites,
   listMembers,
   listMyInvites,
+  unlinkMemberCharacter,
   removeMember,
   revokeInvite,
   setCampaignStatus,
@@ -118,6 +121,8 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
       'That hero is already playing at a table. Take the original to this one instead — it is on your heroes page.',
     NOT_AN_INSTANCE:
       'A hero has to be copied onto a table before they can sit at it.',
+    SEAT_IS_TAKEN:
+      'Your hero is seated at this table. Ask your DM to unlink them — swapping characters mid-campaign is theirs to allow.',
     NOT_A_MEMBER: 'You are not a member of this campaign.',
     INVITE_NOT_PENDING: 'That invite is no longer pending.',
     NOT_A_CREATURE: 'Only a creature can be sent into a fight.',
@@ -376,6 +381,38 @@ export async function getLiveStateAction(
   return getLiveState(campaignId);
 }
 
+/* --- the hourglass --------------------------------------------------- */
+
+const timerSchema = z.object({
+  label: z.string().trim().max(120).default(''),
+  seconds: z
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60 * 60),
+  visibility: z.enum(['dm', 'shared']).optional(),
+});
+
+/** Start a countdown. Staff only — `startTimer` re-checks. */
+export async function startTimerAction(
+  campaignId: string,
+  input: unknown
+): Promise<Result> {
+  const parsed = timerSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid.' };
+  }
+  return sessionAction(() => startTimer(campaignId, parsed.data));
+}
+
+/** Call one off. The row is kept as a record that it ran. */
+export async function stopTimerAction(
+  campaignId: string,
+  timerId: string
+): Promise<Result> {
+  return sessionAction(() => stopTimer(campaignId, timerId));
+}
+
 async function sessionAction(fn: () => Promise<unknown>): Promise<Result> {
   try {
     await fn();
@@ -489,5 +526,24 @@ export async function deleteHandoutAction(handoutId: string): Promise<Result> {
     return { ok: true };
   } catch (err) {
     return fail(err, 'Failed to delete handout.');
+  }
+}
+
+/**
+ * Staff take a character off a table without removing its player.
+ *
+ * The counterpart to `removeMemberAction`. The instance is kept — it is the
+ * record of who played there — so this is an unlinking, not a deletion.
+ */
+export async function unlinkMemberCharacterAction(
+  campaignId: string,
+  targetUserId: string
+): Promise<Result> {
+  try {
+    await unlinkMemberCharacter(campaignId, targetUserId);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to unlink that character.');
   }
 }

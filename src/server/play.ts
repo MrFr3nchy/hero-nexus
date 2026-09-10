@@ -8,6 +8,14 @@ import {
   type ConditionKey,
 } from '@/@creator/campaign/lib/conditions';
 import {
+  applyDamageWhileDown,
+  applyDeathSave,
+  clearDying,
+  dyingState,
+  type DeathSaveMode,
+  type DyingState,
+} from '@/@creator/character/lib/dying';
+import {
   abilityModifier,
   armorClass,
   passivePerception,
@@ -63,6 +71,10 @@ export interface PlayState {
   deathSaveFailures: number;
   /** 0–6. Six is death, which is why it is a number and not a chip. */
   exhaustion: number;
+  /** Stabilised at 0 hit points — see `combat.stable` on the sheet. */
+  stable: boolean;
+  /** alive / dying / stable / dead, derived once here so no surface re-derives it. */
+  dying: DyingState;
 
   armorClass: number;
   speed: number;
@@ -91,6 +103,14 @@ const SLOT_KEYS: SpellSlotLevel[] = [
 
 /** The patch a play-mode control may send. Every field is optional. */
 export interface PlayPatch {
+  /**
+   * The damage in `hpCurrentDelta` was a critical hit.
+   *
+   * Only means anything to a character at 0 hit points, where a crit is two
+   * death-save failures rather than one. Without it the caller cannot say
+   * which kind of hit it was and the sheet quietly under-counts.
+   */
+  critical?: boolean;
   hpCurrentDelta?: number;
   hpTemp?: number;
   hitDiceSpent?: number;
@@ -186,6 +206,12 @@ function toPlayState(
     })).filter(s => s.total > 0),
 
     conditions,
+    stable: sheet.combat?.stable ?? false,
+    dying: dyingState(sheet.combat?.hitPointsCurrent ?? 0, {
+      successes: sheet.combat?.deathSaveSuccesses ?? 0,
+      failures: sheet.combat?.deathSaveFailures ?? 0,
+      stable: sheet.combat?.stable ?? false,
+    }),
   };
 }
 
@@ -311,10 +337,33 @@ export async function applyPlayPatch(
       const damage = -delta;
       const fromTemp = Math.min(combat.hitPointsTemp, damage);
       combat.hitPointsTemp -= fromTemp;
-      combat.hitPointsCurrent = Math.max(
-        0,
-        combat.hitPointsCurrent - (damage - fromTemp)
+      const toBody = damage - fromTemp;
+      const hpBefore = combat.hitPointsCurrent;
+      combat.hitPointsCurrent = Math.max(0, hpBefore - toBody);
+
+      /*
+       * A hit that lands on somebody already down is a death-save failure,
+       * and a big enough one kills outright — both handled together, because
+       * at a table they are one question: how much of that was left over.
+       *
+       * Temporary hit points are excluded from the reckoning on purpose: they
+       * are not the character's own, so soaking a hit with them is not being
+       * hit at 0. Only what reached the body counts.
+       */
+      const after = applyDamageWhileDown(
+        {
+          successes: combat.deathSaveSuccesses,
+          failures: combat.deathSaveFailures,
+          stable: combat.stable,
+        },
+        toBody,
+        hpBefore,
+        combat.hitPointsMax,
+        patch.critical
       );
+      combat.deathSaveSuccesses = after.tracks.successes;
+      combat.deathSaveFailures = after.tracks.failures;
+      combat.stable = after.tracks.stable;
     } else {
       combat.hitPointsCurrent = Math.min(
         combat.hitPointsMax,
@@ -335,11 +384,15 @@ export async function applyPlayPatch(
   if (patch.deathSaveFailures !== undefined) {
     combat.deathSaveFailures = clamp(patch.deathSaveFailures, 0, 3);
   }
-  // Being conscious again clears the death-save tracks; leaving them filled is
-  // how a table forgets someone already died once this fight.
+  // Being conscious again ends the dying entirely — both tracks and the
+  // stability flag. Leaving them filled is how a table forgets someone already
+  // died once this fight, and leaving `stable` set is how a healed character
+  // reads as unconscious on every surface that asks.
   if (combat.hitPointsCurrent > 0) {
-    combat.deathSaveSuccesses = 0;
-    combat.deathSaveFailures = 0;
+    const cleared = clearDying();
+    combat.deathSaveSuccesses = cleared.successes;
+    combat.deathSaveFailures = cleared.failures;
+    combat.stable = cleared.stable;
   }
 
   const spellcasting = {
@@ -559,6 +612,115 @@ export async function applyLoadoutPatch(
     .where(eq(initiativeEntries.characterId, characterId));
 
   return getPlayLoadout(characterId, campaignId);
+}
+
+/**
+ * Roll one death saving throw, on the server.
+ *
+ * The die is rolled here and written to `campaign_rolls` for the same reason
+ * `spendHitDice` rolls here: a total the browser produced is a claim about a
+ * roll, not a record of one. That matters more for this roll than any other in
+ * the app — it is the one a table most needs to trust, and the one most
+ * tempting to fudge.
+ *
+ * `secret` keeps it off the players' log. It is refused for anybody who is not
+ * staff, which is the same rule `session.ts` already applies to ordinary rolls;
+ * a player cannot hide their own death save, because a hidden roll is a thing
+ * the DM does *to* the table, not a thing a player does to their DM.
+ *
+ * The rules live in `character/lib/dying.ts`, pure and tested apart from this.
+ */
+export async function rollDeathSave(
+  characterId: string,
+  campaignId: string | null,
+  options: { mode?: DeathSaveMode; secret?: boolean } = {}
+): Promise<PlayState> {
+  const { character, canEdit } = await authorize(characterId, campaignId);
+  if (!canEdit) throw new Error('FORBIDDEN');
+
+  const sheet = character.sheet as CharacterSheet;
+  const combat = { ...sheet.combat };
+
+  const state = dyingState(combat.hitPointsCurrent, {
+    successes: combat.deathSaveSuccesses,
+    failures: combat.deathSaveFailures,
+    stable: combat.stable,
+  });
+  // Rolling when you are not dying is not a correction, it is a mistake — and
+  // silently accepting it would put a failure on a conscious character.
+  if (state !== 'dying') throw new Error('NOT_DYING');
+
+  const mode = options.mode ?? 'straight';
+  // Staff only, checked here rather than trusted from the client.
+  let secret = false;
+  if (options.secret) {
+    if (!campaignId) throw new Error('SECRET_NEEDS_A_TABLE');
+    const { role } = await requireCampaignRole(campaignId, [
+      'gm',
+      'co-gm',
+      'player',
+    ]);
+    // Its own code, not FORBIDDEN: the sheet *is* theirs, and being told
+    // otherwise is a confusing answer to "why can't I hide this roll".
+    if (role !== 'gm' && role !== 'co-gm') {
+      throw new Error('SECRET_IS_STAFF_ONLY');
+    }
+    secret = true;
+  }
+
+  const dice = mode === 'straight' ? [rollDie(20)] : [rollDie(20), rollDie(20)];
+  const outcome = applyDeathSave(
+    {
+      successes: combat.deathSaveSuccesses,
+      failures: combat.deathSaveFailures,
+      stable: combat.stable,
+    },
+    dice,
+    mode
+  );
+
+  combat.deathSaveSuccesses = outcome.tracks.successes;
+  combat.deathSaveFailures = outcome.tracks.failures;
+  combat.stable = outcome.tracks.stable;
+  if (outcome.hpCurrent !== null) {
+    combat.hitPointsCurrent = outcome.hpCurrent;
+  }
+
+  const next: CharacterSheet = { ...sheet, combat };
+
+  await db
+    .update(characters)
+    .set({ sheet: next, updatedAt: new Date().toISOString() })
+    .where(eq(characters.id, characterId));
+
+  await db
+    .update(initiativeEntries)
+    .set({ hpCurrent: combat.hitPointsCurrent })
+    .where(eq(initiativeEntries.characterId, characterId));
+
+  if (campaignId) {
+    await db.insert(campaignRolls).values({
+      campaignId,
+      actorUserId: character.ownerId,
+      characterId,
+      actorName: character.name,
+      label: `Death save — ${outcome.summary}`,
+      notation: mode === 'straight' ? '1d20' : '2d20',
+      dice,
+      // The die that did not count is shown as dropped, so a reader can see
+      // the advantage rather than being told the total.
+      dropped: dice.length === 2 ? [dice[0] === outcome.result ? 1 : 0] : [],
+      modifier: 0,
+      total: outcome.result,
+      visibility: secret ? 'dm' : 'table',
+    });
+  }
+
+  return toPlayState(
+    { ...character, sheet: next },
+    canEdit,
+    await conditionsFor(characterId)
+  );
 }
 
 /**

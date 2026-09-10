@@ -3,10 +3,17 @@
 import { Button, NumberInput, Tooltip } from '@heroui/react';
 import { useState } from 'react';
 
-import { Marginalia, Stat } from '@/@shared/components/ui';
+import { Glyph, Marginalia, Stat } from '@/@shared/components/ui';
 import type { PlayState } from '@/server/play';
 import { conditionDef } from '../lib/conditions';
-import { applyPlayPatchAction, spendHitDiceAction } from '../play-actions';
+import { useDiceTray } from '@/@shared/components/dice';
+import type { DeathSaveMode } from '@/@creator/character/lib/dying';
+import { startTimerAction } from '../actions';
+import {
+  applyPlayPatchAction,
+  rollDeathSaveAction,
+  spendHitDiceAction,
+} from '../play-actions';
 
 /** Signed modifier — "+3", "−1", "+0". */
 function mod(value: number): string {
@@ -113,6 +120,160 @@ function SlotRow({
   );
 }
 
+/* --- death saves ------------------------------------------------------ */
+
+/**
+ * Rolling the save, rather than counting it.
+ *
+ * The die is thrown on the server (see `rollDeathSave`) so the shared log gets
+ * a record rather than a claim — this is the roll a table most needs to trust.
+ * The tray then shows the roller what landed.
+ *
+ * Advantage is offered because Beacon of Hope grants it, and a bare d20 has
+ * nowhere to put that. Secret is staff-only and the server re-checks: a player
+ * hiding their own death save is not a thing, because a hidden roll is
+ * something a DM does *to* a table.
+ */
+function DeathSaveControl({
+  state,
+  campaignId,
+  canRollSecret,
+  disabled,
+  onChange,
+  onError,
+}: {
+  state: PlayState;
+  campaignId: string | null;
+  canRollSecret: boolean;
+  disabled: boolean;
+  onChange: (next: PlayState) => void;
+  onError: (message: string) => void;
+}) {
+  const [mode, setMode] = useState<DeathSaveMode>('straight');
+  const [busy, setBusy] = useState(false);
+  const tray = useDiceTray();
+
+  const roll = async (secret: boolean) => {
+    setBusy(true);
+    const res = await rollDeathSaveAction(state.characterId, campaignId, {
+      mode,
+      secret,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      onError(res.error);
+      return;
+    }
+    onChange(res.data);
+    // The tray draws what the server rolled rather than rolling again — two
+    // rolls for one save is how a log and a screen start disagreeing.
+    void tray.rollNotation(mode === 'straight' ? '1d20' : '2d20', {
+      title: 'Death save',
+      hint: secret ? 'behind the screen' : undefined,
+    });
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2">
+      <div className="flex gap-1">
+        {(['disadvantage', 'straight', 'advantage'] as const).map(m => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={`rounded px-2 py-0.5 text-xs transition-colors ${
+              mode === m
+                ? 'bg-surface-2 text-ink'
+                : 'text-ink-subtle hover:text-ink-muted'
+            }`}
+          >
+            {m === 'straight' ? 'Straight' : m === 'advantage' ? 'Adv' : 'Dis'}
+          </button>
+        ))}
+      </div>
+      <Button
+        size="sm"
+        variant="flat"
+        isDisabled={disabled || busy}
+        onPress={() => roll(false)}
+      >
+        Roll a death save
+      </Button>
+      {canRollSecret && (
+        <Tooltip content="Rolled behind the screen. The table sees nothing.">
+          <Button
+            size="sm"
+            variant="light"
+            className="text-ink-subtle"
+            isDisabled={disabled || busy}
+            onPress={() => roll(true)}
+          >
+            In secret
+          </Button>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The minute after a death.
+ *
+ * Revivify has to be cast within one minute of dying, and at a table that
+ * minute is the loudest thing in the room. This starts the ordinary countdown
+ * with sixty seconds and a label already in it — the timer is general, and
+ * this only knows why it was opened.
+ */
+function RevivifyWindow({
+  campaignId,
+  name,
+  onError,
+}: {
+  campaignId: string;
+  name: string;
+  onError: (message: string) => void;
+}) {
+  const [started, setStarted] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const start = async () => {
+    setBusy(true);
+    const res = await startTimerAction(campaignId, {
+      label: `The window to bring ${name} back`,
+      seconds: 60,
+      visibility: 'shared',
+    });
+    setBusy(false);
+    if (!res.ok) {
+      onError(res.error ?? 'Failed to start the countdown.');
+      return;
+    }
+    setStarted(true);
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2">
+      <Glyph name="hourglass" size={14} className="text-danger" />
+      <span className="text-sm text-ink-muted">
+        {started
+          ? 'The minute is running on the hourglass.'
+          : 'One minute to bring them back.'}
+      </span>
+      {!started && (
+        <Button
+          size="sm"
+          variant="flat"
+          isDisabled={busy}
+          onPress={start}
+          className="ml-auto"
+        >
+          Start the minute
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /* --- the card -------------------------------------------------------- */
 
 /**
@@ -128,6 +289,7 @@ export function PlayCard({
   state,
   campaignId,
   compact = false,
+  canRollSecret = false,
   onChange,
   onError,
 }: {
@@ -135,6 +297,8 @@ export function PlayCard({
   campaignId: string | null;
   /** Drop the ability rail and the slots — for the DM's party list. */
   compact?: boolean;
+  /** Staff may roll a death save the players never see. */
+  canRollSecret?: boolean;
   onChange: (next: PlayState) => void;
   onError: (message: string) => void;
 }) {
@@ -380,7 +544,12 @@ export function PlayCard({
           </div>
         )}
 
-        {down && (
+        {/*
+          The pips stay clickable. A DM correcting a miscount by hand is not a
+          bug, and a table rolling on real dice needs somewhere to put the
+          result — the button below is the convenience, not the gate.
+        */}
+        {state.dying === 'dying' && (
           <>
             <Pips
               count={3}
@@ -402,11 +571,36 @@ export function PlayCard({
         )}
       </div>
 
+      {/*
+        A death opens a window: revivify has to land within the minute. This is
+        the shortcut, not a special kind of timer — it starts an ordinary
+        countdown with the minute and the wording pre-filled, and the DM can
+        change either on the hourglass itself.
+      */}
+      {state.dying === 'dead' && canRollSecret && campaignId && (
+        <RevivifyWindow
+          campaignId={campaignId}
+          name={state.name}
+          onError={onError}
+        />
+      )}
+
+      {state.dying === 'dying' && (
+        <DeathSaveControl
+          state={state}
+          campaignId={campaignId}
+          canRollSecret={canRollSecret}
+          disabled={locked}
+          onChange={onChange}
+          onError={onError}
+        />
+      )}
+
       {down && (
         <Marginalia className="mt-2" dash>
-          {state.deathSaveFailures >= 3
+          {state.dying === 'dead'
             ? 'gone'
-            : state.deathSaveSuccesses >= 3
+            : state.dying === 'stable'
               ? 'stable, but not up'
               : 'bleeding out'}
         </Marginalia>

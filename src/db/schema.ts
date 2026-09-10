@@ -1442,6 +1442,55 @@ export const campaignClocks = sqliteTable(
   t => [index('campaign_clocks_campaign_idx').on(t.campaignId)]
 );
 
+/* --- The table's hourglass (0036) -------------------------------------- */
+
+/**
+ * A countdown the table can see.
+ *
+ * Deliberately *not* an extension of `campaign_clocks`. A progress clock fills
+ * because the fiction says so and a countdown fills because time passed;
+ * sharing a table would make one of them lie about what its segments mean.
+ *
+ * `ends_at` is an instant, never a remaining-seconds number — the browser
+ * counts down from it, so a slow response cannot make the clock wrong.
+ *
+ * Expiry is a state, not an event. Nothing fires when the sand runs out: the
+ * hourglass says so and stays until it is cleared, because a timer that
+ * vanishes at zero is a timer nobody saw finish.
+ *
+ * It arrived attached to death — a minute to revivify — and is general on
+ * purpose. A DM wants a clock for the ritual and the collapsing bridge too.
+ */
+export const campaignTimers = sqliteTable(
+  'campaign_timers',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** What is running out. Shown beside the glass. */
+    label: text('label').notNull().default(''),
+    /** ISO instant the sand runs out. */
+    endsAt: text('ends_at').notNull(),
+    /** Kept so a paused or re-read timer can show how long it was to begin with. */
+    startedAt: text('started_at').default(nowIso).notNull(),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('shared'),
+    /**
+     * Set when the DM ends it early. The row stays: a countdown that was
+     * called off is a thing that happened, and the log should not pretend
+     * otherwise.
+     */
+    stoppedAt: text('stopped_at'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_timers_campaign_idx').on(t.campaignId)]
+);
+
 /* --- The players' own notebook (0026) --------------------------------- */
 
 /**

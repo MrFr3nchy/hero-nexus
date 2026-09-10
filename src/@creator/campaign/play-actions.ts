@@ -9,6 +9,7 @@ import {
   getPlayState,
   listPartyPlayState,
   restParty,
+  rollDeathSave,
   setOwnConditions,
   setPlayConditions,
   spendHitDice,
@@ -27,6 +28,10 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     SESSION_STALE: 'Your session is out of date. Sign in again.',
     NOT_FOUND: 'That character no longer exists.',
     NO_HIT_DICE: 'There are no hit dice left to spend.',
+    NOT_DYING: 'That hero is not making death saves right now.',
+    SECRET_IS_STAFF_ONLY:
+      'Only the DM can roll behind the screen. Roll it in the open, or ask them to.',
+    SECRET_NEEDS_A_TABLE: 'A secret roll needs a table to be secret from.',
     FORBIDDEN: 'That sheet is not yours to change.',
     ATTUNEMENT_FULL: 'You are already attuned to three items. Break one first.',
   };
@@ -48,6 +53,7 @@ const patchSchema = z.object({
       expended: z.number().int().min(0).max(9),
     })
     .optional(),
+  critical: z.boolean().optional(),
   longRest: z.boolean().optional(),
   exhaustionDelta: z.number().int().min(-1).max(1).optional(),
 });
@@ -134,6 +140,11 @@ export async function setPlayConditionsAction(
 /** The shape a loadout control sends. Mirrors `LoadoutPatch` on the server. */
 export type LoadoutPatchInput = z.infer<typeof loadoutSchema>;
 
+const deathSaveSchema = z.object({
+  mode: z.enum(['straight', 'advantage', 'disadvantage']).optional(),
+  secret: z.boolean().optional(),
+});
+
 const loadoutSchema = z.object({
   equip: z
     .object({ itemId: z.string().min(1).max(64), equipped: z.boolean() })
@@ -191,5 +202,29 @@ export async function setOwnConditionsAction(
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Failed to change your conditions.');
+  }
+}
+
+/**
+ * Roll a death saving throw.
+ *
+ * `secret` is only honoured for staff — the server checks, this does not — and
+ * a player asking for one gets the same refusal as any other roll they tried
+ * to hide.
+ */
+export async function rollDeathSaveAction(
+  characterId: string,
+  campaignId: string | null,
+  input: unknown
+): Promise<Result<PlayState>> {
+  const parsed = deathSaveSchema.safeParse(input ?? {});
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid.' };
+  }
+  try {
+    const data = await rollDeathSave(characterId, campaignId, parsed.data);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Failed to roll the death save.');
   }
 }
