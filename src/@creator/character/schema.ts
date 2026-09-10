@@ -493,6 +493,17 @@ export const characterSheetSchema = z.object({
     deathSaveSuccesses: z.number().int().min(0).max(3).default(0),
     deathSaveFailures: z.number().int().min(0).max(3).default(0),
     /**
+     * Stabilised at 0 hit points: unconscious, but no longer rolling.
+     *
+     * The one stored bit of dying, and it has to be stored. Everything else is
+     * derived — dead is three failures, dying is 0 hit points and neither of
+     * the others — but stabilising *resets both tracks*, so a stabilised
+     * character is at 0 hit points with no successes and no failures, which is
+     * character-for-character identical to somebody who just went down. This
+     * flag is the only thing that can tell those two apart.
+     */
+    stable: z.boolean().default(false).catch(false),
+    /**
      * Exhaustion level, 0–6. Its own number rather than a condition, because
      * it is the one condition that stacks and the one whose sixth level kills
      * you — a chip that says "Exhausted" and nothing else is unusable.
@@ -655,6 +666,7 @@ export function makeEmptySheet(): CharacterSheet {
       hitDieSize: 8,
       deathSaveSuccesses: 0,
       deathSaveFailures: 0,
+      stable: false,
       exhaustion: 0,
       conditions: [],
     },

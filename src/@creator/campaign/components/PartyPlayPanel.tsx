@@ -113,6 +113,7 @@ export function PartyPlayPanel({
           key={p.characterId}
           state={p}
           campaignId={campaignId}
+          canRollSecret={isStaff}
           onChange={replace}
           onError={onError}
         />
@@ -123,6 +124,7 @@ export function PartyPlayPanel({
             key={p.characterId}
             state={p}
             campaignId={campaignId}
+            canRollSecret={isStaff}
             compact={!isStaff}
             onChange={replace}
             onError={onError}
