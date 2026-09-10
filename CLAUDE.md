@@ -18,6 +18,7 @@ disagrees with the code, the code is wrong.
 | [src/db/README.md](src/db/README.md)                                        | Schema and migrations.                                           |
 | [docs/handoff/](docs/handoff/README.md)                                     | The state of the typed-homebrew work and how it was verified.    |
 | [docs/handoff/wandering-library/](docs/handoff/wandering-library/README.md) | The sharing work: its phases, and the run that proved them.      |
+| [docs/handoff/the-long-campaign/](docs/handoff/the-long-campaign/README.md) | What a year-long campaign still needs. Planned, not built.       |
 
 **`src/db/schema.ts` and `src/db/migrations/*.sql` are hand-written and edited together,
 in the same change.** There is no drizzle-kit generate step here, and reaching for one

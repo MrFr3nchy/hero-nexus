@@ -16,6 +16,10 @@ The contract that came out of phase 5 lives at
 [docs/content-model.md](../content-model.md), and [CLAUDE.md](../../CLAUDE.md) is the
 index that makes both it and the design language findable without being told.
 
+Two sibling handoffs live beside this one: [wandering-library/](wandering-library/README.md)
+(built) and [the-long-campaign/](the-long-campaign/README.md) (planned — what a sheet
+still needs to be run, rather than built and read).
+
 ---
 
 ## The idea, in one paragraph
