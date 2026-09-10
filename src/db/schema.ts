@@ -422,7 +422,12 @@ export const campaignHandouts = sqliteTable(
     body: text('body'),
     filePath: text('file_path'),
     mime: text('mime'),
-    visibility: text('visibility', { enum: ['dm', 'shared'] })
+    /**
+     * `selected` reaches only the rows in `campaign_handout_targets` — the
+     * same three-state shape `campaign_reveals` has had since 0017, and what
+     * a clue meant for the one character who reads Infernal actually needs.
+     */
+    visibility: text('visibility', { enum: ['dm', 'shared', 'selected'] })
       .notNull()
       .default('dm'),
     /** The sitting this was shown at. Null is unfiled. */
@@ -433,6 +438,31 @@ export const campaignHandouts = sqliteTable(
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('campaign_handouts_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * Who a `selected` handout reached.
+ *
+ * Keyed on `user_id`, matching `campaign_reveal_targets` and for the reason
+ * recorded there: the GM has no member row, and a player who later leaves the
+ * table was still shown the thing.
+ */
+export const campaignHandoutTargets = sqliteTable(
+  'campaign_handout_targets',
+  {
+    id: uuid(),
+    handoutId: text('handout_id')
+      .notNull()
+      .references(() => campaignHandouts.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('campaign_handout_targets_pair_idx').on(t.handoutId, t.userId),
+    index('campaign_handout_targets_user_idx').on(t.userId),
+  ]
 );
 
 export const initiativeEncounters = sqliteTable(
@@ -1578,6 +1608,20 @@ export const campaignMaps = sqliteTable(
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('dm'),
+    /**
+     * On every screen at the table, right now.
+     *
+     * At most one per campaign, set by clearing the rest first — the same
+     * shape `initiative_encounters.is_active` uses, and for the same reason:
+     * "the one that is current" is a property of the row, not a pointer on
+     * the campaign that can dangle.
+     *
+     * Lighting one shares it. A spotlight on a map the party cannot see would
+     * be a promise the visibility filter then breaks.
+     */
+    spotlighted: integer('spotlighted', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     sortOrder: integer('sort_order').notNull().default(0),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
@@ -1585,7 +1629,10 @@ export const campaignMaps = sqliteTable(
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
-  t => [index('campaign_maps_campaign_idx').on(t.campaignId)]
+  t => [
+    index('campaign_maps_campaign_idx').on(t.campaignId),
+    index('campaign_maps_spotlight_idx').on(t.campaignId, t.spotlighted),
+  ]
 );
 
 /**

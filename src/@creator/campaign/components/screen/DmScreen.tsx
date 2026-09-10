@@ -33,6 +33,7 @@ import { HandoutsPanel } from '../session/HandoutsPanel';
 import { InitiativeTracker } from '../session/InitiativeTracker';
 import { ChecksPanel } from '../session/ChecksPanel';
 import { RollPanel } from '../session/RollPanel';
+import { SpotlightPanel } from '../session/SpotlightPanel';
 import { SittingCard } from '../session/SittingCard';
 import { ConditionsCard } from './ConditionsCard';
 import { FeedPanel } from './FeedPanel';
@@ -218,6 +219,17 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
     case 'checks':
       return live.state ? (
         <ChecksPanel
+          campaignId={ctx.campaignId}
+          state={live.state}
+          isStaff={ctx.isStaff}
+          refresh={live.refresh}
+          onError={ctx.onError}
+        />
+      ) : null;
+
+    case 'spotlight':
+      return live.state ? (
+        <SpotlightPanel
           campaignId={ctx.campaignId}
           state={live.state}
           isStaff={ctx.isStaff}

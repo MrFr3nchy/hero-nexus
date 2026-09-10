@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db';
@@ -10,6 +11,7 @@ import {
   canonEntries,
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
+import { bumpVersion, publish } from './live-hub';
 
 export interface MapPinRow {
   id: string;
@@ -29,6 +31,8 @@ export interface MapRow {
   imageId: string;
   title: string;
   visibility: 'dm' | 'shared';
+  /** Lit on every screen at the table right now. At most one per campaign. */
+  spotlighted: boolean;
   sortOrder: number;
   pins: MapPinRow[];
 }
@@ -123,6 +127,7 @@ export async function listMaps(campaignId: string): Promise<MapRow[]> {
     imageId: map.imageId,
     title: map.title,
     visibility: map.visibility,
+    spotlighted: map.spotlighted,
     sortOrder: map.sortOrder,
     pins: pins
       .filter(p => p.mapId === map.id)
@@ -189,11 +194,59 @@ export async function setMapVisibility(
   mapId: string,
   visibility: 'dm' | 'shared'
 ): Promise<void> {
-  await staffForMap(mapId);
+  const map = await staffForMap(mapId);
   await db
     .update(campaignMaps)
-    .set({ visibility, updatedAt: new Date().toISOString() })
+    .set({
+      visibility,
+      // Taking a map back from the party takes the spotlight with it. A lit
+      // map the party may not see would be a promise the filter then breaks.
+      spotlighted: visibility === 'shared' ? map.spotlighted : false,
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(campaignMaps.id, mapId));
+  bumpVersion(map.campaignId);
+}
+
+/**
+ * Put a map in front of everybody, or take it down.
+ *
+ * The other half of what a table uses a map for, and the half that needed no
+ * battle grid: pins are already fractions of the image, so one spotlight lands
+ * in the same place on the DM's monitor and a player's phone. `MapPanel`'s
+ * standing "deliberately not a battle grid" decision is untouched — there are
+ * still no tokens, no fog and no lattice.
+ *
+ * Lighting one shares it, and darkens whatever was lit before.
+ */
+export async function spotlightMap(mapId: string, lit: boolean): Promise<void> {
+  const map = await staffForMap(mapId);
+
+  await db
+    .update(campaignMaps)
+    .set({ spotlighted: false })
+    .where(eq(campaignMaps.campaignId, map.campaignId));
+
+  if (lit) {
+    await db
+      .update(campaignMaps)
+      .set({
+        spotlighted: true,
+        visibility: 'shared',
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(campaignMaps.id, mapId));
+  }
+
+  bumpVersion(map.campaignId);
+  publish(map.campaignId, {
+    kind: 'map',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    by: null,
+    title: map.title || 'A map',
+    state: lit ? 'lit' : 'dark',
+  });
 }
 
 export async function deleteMap(mapId: string): Promise<void> {

@@ -6,28 +6,31 @@ import {
   Input,
   Select,
   SelectItem,
-  Switch,
   Textarea,
 } from '@heroui/react';
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { EmptyState, HandoutScene, SectionCard } from '@/@shared/components/ui';
+import type { CampaignMemberRow } from '@/server/campaigns';
 import type { SessionRow } from '@/server/campaign-sessions';
 import type { HandoutRow, LiveState } from '@/server/session';
 import { fileUnderSessionAction } from '../../chronicle-actions';
 import {
   createNoteAction,
   deleteHandoutAction,
+  listMembersAction,
   setHandoutVisibilityAction,
 } from '../../actions';
 
 /**
  * The things a DM pushes at the table: a map, a letter, a name written down.
  *
- * Staff see everything and choose what is shared; a player only ever receives
- * the shared ones — the filtering happens in `getLiveState`, not here. Each
- * handout can be filed under the sitting it was shown at, so the chronicle
- * gathers them instead of leaving a flat pile.
+ * Staff see everything and choose who sees what; a player receives what was
+ * shared with the table plus anything addressed to them by name — the
+ * filtering happens in `getLiveState`, not here, and the file route
+ * authorises separately so a guessed id is refused the bytes. Each handout
+ * can be filed under the sitting it was shown at, so the chronicle gathers
+ * them instead of leaving a flat pile.
  */
 export function HandoutsPanel({
   campaignId,
@@ -48,6 +51,19 @@ export function HandoutsPanel({
   const [noteTitle, setNoteTitle] = useState('');
   const [noteBody, setNoteBody] = useState('');
   const [uploading, setUploading] = useState(false);
+  /** The handout whose audience is being chosen, if any. */
+  const [addressing, setAddressing] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [members, setMembers] = useState<CampaignMemberRow[]>([]);
+
+  const loadMembers = useCallback(async () => {
+    if (!isStaff) return;
+    setMembers(await listMembersAction(campaignId).catch(() => []));
+  }, [campaignId, isStaff]);
+
+  useEffect(() => {
+    loadMembers();
+  }, [loadMembers]);
 
   const act = async (p: Promise<{ ok: boolean; error?: string }>) => {
     const res = await p;
@@ -182,17 +198,43 @@ export function HandoutsPanel({
                         ))}
                       </Select>
                     )}
-                    <Switch
+                    {/* Three states, so a picker rather than a switch: to
+                        the table, to particular people, or to nobody yet.
+                        The middle one is what a clue meant for the character
+                        who reads Infernal has always needed. */}
+                    <Select
+                      aria-label="Who sees this"
                       size="sm"
-                      isSelected={h.visibility === 'shared'}
-                      onValueChange={v =>
+                      className="w-32"
+                      selectedKeys={[h.visibility]}
+                      onSelectionChange={keys => {
+                        const key = String(Array.from(keys)[0] ?? 'dm');
+                        if (key === 'selected') {
+                          // Picking the people is a second decision, so the
+                          // control for it opens rather than the visibility
+                          // flipping to a state with nobody in it.
+                          setAddressing(h.id);
+                          return;
+                        }
+                        setAddressing(null);
                         act(
-                          setHandoutVisibilityAction(h.id, v ? 'shared' : 'dm')
-                        )
-                      }
+                          setHandoutVisibilityAction(
+                            h.id,
+                            key as 'dm' | 'shared'
+                          )
+                        );
+                      }}
                     >
-                      <span className="text-xs text-ink-muted">Shared</span>
-                    </Switch>
+                      <SelectItem key="dm" textValue="Behind the screen">
+                        Behind it
+                      </SelectItem>
+                      <SelectItem key="shared" textValue="The whole table">
+                        The table
+                      </SelectItem>
+                      <SelectItem key="selected" textValue="Particular people">
+                        Just some
+                      </SelectItem>
+                    </Select>
                     <Button
                       size="sm"
                       variant="light"
@@ -204,6 +246,57 @@ export function HandoutsPanel({
                   </div>
                 )}
               </div>
+
+              {isStaff && h.visibility === 'selected' && (
+                <p className="text-xs text-ink-subtle">
+                  Shown to {h.targetNames.join(', ') || 'nobody'}
+                </p>
+              )}
+
+              {isStaff && addressing === h.id && (
+                <div className="flex flex-wrap items-end gap-2 rounded-md border border-arcane/40 bg-arcane/5 px-2.5 py-2">
+                  <Select
+                    aria-label="Who sees this handout"
+                    size="sm"
+                    selectionMode="multiple"
+                    className="min-w-44 flex-1"
+                    placeholder="Choose who"
+                    selectedKeys={new Set(chosen)}
+                    onSelectionChange={keys =>
+                      setChosen(Array.from(keys).map(String))
+                    }
+                  >
+                    {members.map(m => (
+                      <SelectItem
+                        key={m.userId}
+                        textValue={m.name ?? m.email ?? 'Somebody'}
+                      >
+                        {m.characterName ?? m.name ?? m.email ?? 'Somebody'}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                  <Button
+                    size="sm"
+                    color="primary"
+                    isDisabled={chosen.length === 0}
+                    onPress={() => {
+                      act(setHandoutVisibilityAction(h.id, 'selected', chosen));
+                      setAddressing(null);
+                      setChosen([]);
+                    }}
+                  >
+                    Slide it across
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="light"
+                    className="text-ink-subtle"
+                    onPress={() => setAddressing(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              )}
               {h.kind === 'image' ? (
                 <HeroImage
                   alt={h.title}

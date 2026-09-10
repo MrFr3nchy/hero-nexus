@@ -32,6 +32,7 @@ export const TABLE_EVENT_KINDS = [
   'check',
   'sitting',
   'vitals',
+  'map',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -129,6 +130,13 @@ export interface SittingEvent extends BaseEvent {
   title: string;
 }
 
+/** A map was put in front of the table, or taken down. */
+export interface MapEvent extends BaseEvent {
+  kind: 'map';
+  title: string;
+  state: 'lit' | 'dark';
+}
+
 /** Something happened to a character that the table should look up for. */
 export interface VitalsEvent extends BaseEvent {
   kind: 'vitals';
@@ -146,7 +154,8 @@ export type TableEvent =
   | RevealEvent
   | CheckEvent
   | SittingEvent
-  | VitalsEvent;
+  | VitalsEvent
+  | MapEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -181,6 +190,7 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   check: 'target',
   sitting: 'tankard',
   vitals: 'shield',
+  map: 'map',
 };
 
 /**
@@ -308,6 +318,16 @@ export function describe(
         detail: event.title || undefined,
         tone: 'gold',
         asks: event.state === 'opened',
+      };
+
+    case 'map':
+      return {
+        glyph,
+        title:
+          event.state === 'lit'
+            ? `Look at this — ${event.title}`
+            : `${event.title} is put away`,
+        tone: 'gold',
       };
 
     case 'vitals': {

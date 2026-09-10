@@ -20,6 +20,7 @@ import { HandoutsPanel } from './HandoutsPanel';
 import { InitiativeTracker } from './InitiativeTracker';
 import { RollPanel } from './RollPanel';
 import { SittingCard } from './SittingCard';
+import { SpotlightPanel } from './SpotlightPanel';
 import { TimerPanel } from './TimerPanel';
 
 /**
@@ -162,6 +163,20 @@ export function SessionPanel({ campaignId }: { campaignId: string }) {
             ))}
           </Select>
         </div>
+      )}
+
+      {/* Only when there is something up: an empty box saying "nothing is
+          up" is furniture on the tab a table actually plays from. The screen
+          keeps its own copy as an arrangeable panel, where an empty box is a
+          slot somebody chose. */}
+      {state.spotlight && (
+        <SpotlightPanel
+          campaignId={campaignId}
+          state={state}
+          isStaff={isStaff}
+          refresh={refresh}
+          onError={setError}
+        />
       )}
 
       <PartyPlayPanel

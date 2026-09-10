@@ -10,6 +10,7 @@ import {
   deletePin,
   listMaps,
   setMapVisibility,
+  spotlightMap,
   updatePin,
   type MapRow,
 } from '@/server/maps';
@@ -130,5 +131,24 @@ export async function deletePinAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Failed to remove the mark.');
+  }
+}
+
+/**
+ * Put a map in front of everybody, or take it down. Staff only.
+ *
+ * Lighting one shares it and darkens whatever was lit before — enforced in
+ * `spotlightMap`, not here, so the campaign page and the screen cannot end up
+ * with two different ideas of how many maps can be up at once.
+ */
+export async function spotlightMapAction(
+  mapId: string,
+  lit: boolean
+): Promise<Result> {
+  try {
+    await spotlightMap(mapId, lit);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not put that up.');
   }
 }

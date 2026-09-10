@@ -25,6 +25,7 @@ import {
   deletePinAction,
   listMapsAction,
   setMapVisibilityAction,
+  spotlightMapAction,
   updatePinAction,
 } from '../map-actions';
 import { ImagePicker } from './ImagePicker';
@@ -116,6 +117,18 @@ function MapSheet({
               }
             >
               {map.visibility === 'shared' ? 'Take it back' : 'Show the party'}
+            </Button>
+            {/* Sharing puts a map where the party can find it; lighting one
+                puts it in front of them. Two different sentences at a table,
+                so two different buttons — and lighting shares it, so this is
+                never the harder of the two to reach. */}
+            <Button
+              size="sm"
+              variant={map.spotlighted ? 'solid' : 'flat'}
+              color={map.spotlighted ? 'primary' : 'default'}
+              onPress={() => act(spotlightMapAction(map.id, !map.spotlighted))}
+            >
+              {map.spotlighted ? 'Put it away' : 'Look at this'}
             </Button>
             {/* The picture, not the map: pins carry the DM's private notes and
                 have no business on a public shelf. */}

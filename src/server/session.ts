@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import { serializeConditions } from '@/@creator/campaign/lib/conditions';
 import { abilityModifier } from '@/@creator/character/lib/derive';
@@ -19,11 +19,13 @@ import {
 } from '@/@shared/lib/dice';
 import { db } from '@/db';
 import {
+  campaignHandoutTargets,
   campaignHandouts,
   campaignMembers,
   campaignRolls,
   campaignSessions,
   campaignTimers,
+  campaigns,
   characters,
   initiativeEncounters,
   initiativeEntries,
@@ -31,6 +33,7 @@ import {
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { listChecks, type CheckRow } from './checks';
+import { listMaps, type MapRow } from './maps';
 import { listPartyPlayState, type PlayState } from './play';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { resolveContentRefs } from './content';
@@ -93,8 +96,10 @@ export interface HandoutRow {
   body: string | null;
   filePath: string | null;
   mime: string | null;
-  visibility: 'dm' | 'shared';
+  visibility: 'dm' | 'shared' | 'selected';
   createdAt: string;
+  /** Who a `selected` handout went to. Names, for the DM's list. */
+  targetNames: string[];
 }
 
 /** A countdown the table can watch. `endsAt` is an instant; the browser ticks. */
@@ -150,6 +155,11 @@ export interface LiveState {
    * argument about pollers.
    */
   party: PlayState[];
+  /**
+   * The map the DM has put in front of everybody, with the pins this viewer
+   * may see on it. Null when nothing is lit.
+   */
+  spotlight: MapRow | null;
   /** The viewer's own linked character, so the tracker can say "your turn". */
   viewerCharacterId: string | null;
 }
@@ -206,15 +216,63 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
           : { ...e, hpCurrent: null, hpMax: null, hpTemp: 0, armorClass: null }
       );
 
-  const handoutRows = (await db
+  const handoutRows = await db
     .select()
     .from(campaignHandouts)
     .where(eq(campaignHandouts.campaignId, campaignId))
-    .orderBy(desc(campaignHandouts.createdAt))) as HandoutRow[];
+    .orderBy(desc(campaignHandouts.createdAt));
 
-  const handouts = isStaff
-    ? handoutRows
-    : handoutRows.filter(h => h.visibility === 'shared');
+  const handoutTargets =
+    handoutRows.length > 0
+      ? await db
+          .select({
+            handoutId: campaignHandoutTargets.handoutId,
+            userId: campaignHandoutTargets.userId,
+            name: users.name,
+            email: users.email,
+          })
+          .from(campaignHandoutTargets)
+          .leftJoin(users, eq(users.id, campaignHandoutTargets.userId))
+          .where(
+            inArray(
+              campaignHandoutTargets.handoutId,
+              handoutRows.map(h => h.id)
+            )
+          )
+      : [];
+
+  const handouts: HandoutRow[] = handoutRows
+    /*
+     * Three states now, and the filter is the point of the third. Staff see
+     * everything; a player sees what was shared with the table, plus anything
+     * addressed to them by name — and nothing addressed to somebody else, which
+     * is what makes a clue for one character a clue for one character.
+     */
+    .filter(h => {
+      if (isStaff) return true;
+      if (h.visibility === 'shared') return true;
+      if (h.visibility !== 'selected') return false;
+      return handoutTargets.some(
+        t => t.handoutId === h.id && t.userId === userId
+      );
+    })
+    .map(h => ({
+      id: h.id,
+      kind: h.kind,
+      title: h.title,
+      body: h.body,
+      filePath: h.filePath,
+      mime: h.mime,
+      visibility: h.visibility,
+      createdAt: h.createdAt,
+      // Only staff are told who else was shown a thing. A player learning that
+      // the rogue also got the note is a leak the DM did not make.
+      targetNames: isStaff
+        ? handoutTargets
+            .filter(t => t.handoutId === h.id)
+            .map(t => t.name?.trim() || t.email?.split('@')[0] || 'Somebody')
+        : [],
+    }));
 
   const rollRows = await db
     .select()
@@ -264,10 +322,14 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
 
   // Both are their own modules and already role-filtered there — these are
   // reads, not second places that decide what a player may see.
-  const [checks, party] = await Promise.all([
+  const [checks, party, maps] = await Promise.all([
     listChecks(campaignId),
     listPartyPlayState(campaignId),
+    listMaps(campaignId),
   ]);
+  // `listMaps` already dropped anything this viewer may not see, and lighting
+  // a map shares it — so a spotlight found here is one they are allowed.
+  const spotlight = maps.find(m => m.spotlighted) ?? null;
 
   const sittingRow = await db.query.campaignSessions.findFirst({
     where: and(
@@ -309,6 +371,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     timers,
     checks,
     party,
+    spotlight,
     viewerCharacterId: membership?.characterId ?? null,
   };
 }
@@ -943,31 +1006,71 @@ async function handoutRow(handoutId: string) {
 
 export async function setHandoutVisibility(
   handoutId: string,
-  visibility: 'dm' | 'shared'
+  visibility: 'dm' | 'shared' | 'selected',
+  targetUserIds: string[] = []
 ): Promise<void> {
   const row = await handoutRow(handoutId);
   const { userId } = await staff(row.campaignId);
+
+  /*
+   * Targets are resolved against the table before anything is written, the
+   * same order `revealExcerpt` insists on: a handout addressed to somebody who
+   * is not at this table would be a handout addressed to nobody, and finding
+   * that out after the visibility flipped leaves the DM told it worked.
+   */
+  let targets: string[] = [];
+  if (visibility === 'selected') {
+    const members = await db
+      .select({ userId: campaignMembers.userId })
+      .from(campaignMembers)
+      .where(eq(campaignMembers.campaignId, row.campaignId));
+    const atTable = new Set(members.map(m => m.userId));
+    const campaign = await db.query.campaigns.findFirst({
+      columns: { gmId: true },
+      where: eq(campaigns.id, row.campaignId),
+    });
+    if (campaign?.gmId) atTable.add(campaign.gmId);
+    targets = [...new Set(targetUserIds)].filter(id => atTable.has(id));
+    if (targets.length === 0) throw new Error('NOBODY_TO_SHOW');
+  }
+
   await db
     .update(campaignHandouts)
     .set({ visibility })
     .where(eq(campaignHandouts.id, handoutId));
+
+  // Rewritten wholesale rather than diffed: the target list is small, and
+  // "who can see this now" is one answer, not a set of edits to it.
+  await db
+    .delete(campaignHandoutTargets)
+    .where(eq(campaignHandoutTargets.handoutId, handoutId));
+  if (targets.length > 0) {
+    await db
+      .insert(campaignHandoutTargets)
+      .values(targets.map(id => ({ handoutId, userId: id })));
+  }
+
   bumpVersion(row.campaignId);
 
   /*
-   * Only the crossing announces. A handout is created behind the screen and
-   * lives there until the DM pushes it, so the moment worth telling the table
-   * about is the push — not the making, and not the taking back.
+   * Only the crossing announces, and only to the people it crossed to. A
+   * handout is created behind the screen and lives there until the DM pushes
+   * it, so the moment worth telling the table about is the push — not the
+   * making, and not the taking back.
    */
-  if (visibility === 'shared') {
-    publish(row.campaignId, {
+  if (visibility === 'dm') return;
+  publish(
+    row.campaignId,
+    {
       kind: 'handout',
       id: randomUUID(),
       at: new Date().toISOString(),
       by: userId,
       title: row.title,
       handoutKind: row.kind,
-    });
-  }
+    },
+    visibility === 'selected' ? { users: targets } : 'everyone'
+  );
 }
 
 export async function deleteHandout(handoutId: string): Promise<string | null> {
@@ -986,14 +1089,27 @@ export async function canViewHandout(
 > {
   const row = await handoutRow(handoutId);
   try {
-    const { role } = await requireCampaignRole(row.campaignId, [
+    const { role, userId } = await requireCampaignRole(row.campaignId, [
       'gm',
       'co-gm',
       'player',
     ]);
     const isStaff = role === 'gm' || role === 'co-gm';
-    if (!isStaff && row.visibility !== 'shared') return { ok: false };
-    return { ok: true, row };
+    if (isStaff) return { ok: true, row };
+    if (row.visibility === 'shared') return { ok: true, row };
+    // The file route authorises separately from the live view on purpose: a
+    // player who guesses another handout's id must be refused the bytes, not
+    // merely left without a link to them.
+    if (row.visibility === 'selected') {
+      const addressed = await db.query.campaignHandoutTargets.findFirst({
+        where: and(
+          eq(campaignHandoutTargets.handoutId, handoutId),
+          eq(campaignHandoutTargets.userId, userId)
+        ),
+      });
+      if (addressed) return { ok: true, row };
+    }
+    return { ok: false };
   } catch {
     return { ok: false };
   }

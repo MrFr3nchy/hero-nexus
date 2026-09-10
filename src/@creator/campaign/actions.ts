@@ -127,6 +127,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     INVITE_NOT_PENDING: 'That invite is no longer pending.',
     NOT_A_CREATURE: 'Only a creature can be sent into a fight.',
     NO_SUCH_CREATURE: 'That creature is no longer in the bestiary.',
+    NOBODY_TO_SHOW: 'Nobody at this table would see that.',
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
   // invisible in a bug report. Keep the real one in the server log.
@@ -511,9 +512,12 @@ export async function createNoteAction(
 }
 export async function setHandoutVisibilityAction(
   handoutId: string,
-  visibility: 'dm' | 'shared'
+  visibility: 'dm' | 'shared' | 'selected',
+  targetUserIds: string[] = []
 ): Promise<Result> {
-  return sessionAction(() => setHandoutVisibility(handoutId, visibility));
+  return sessionAction(() =>
+    setHandoutVisibility(handoutId, visibility, targetUserIds)
+  );
 }
 export async function deleteHandoutAction(handoutId: string): Promise<Result> {
   try {

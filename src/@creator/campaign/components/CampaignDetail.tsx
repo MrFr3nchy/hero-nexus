@@ -134,6 +134,10 @@ export function CampaignDetail({
             <Ribbon tone={ROLE_TONE[campaign.role]}>
               {ROLE_LABEL[campaign.role]}
             </Ribbon>
+            {/* Not "open the screen": the page has been the player's since it
+                was built — it filters its own panels by role and has a player
+                default layout — and a player reads "the screen" as the DM's
+                furniture and never presses it. */}
             <Button
               as={Link}
               href={`/campaigns/${campaign.id}/screen`}
@@ -141,7 +145,7 @@ export function CampaignDetail({
               variant="flat"
               color="primary"
             >
-              Open the screen
+              {isStaff ? 'Behind the screen' : 'Take your seat'}
             </Button>
             {isStaff && (
               <Button

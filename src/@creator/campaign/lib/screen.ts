@@ -18,6 +18,7 @@ export const SCREEN_PANEL_KEYS = [
   'vitals',
   'dice',
   'checks',
+  'spotlight',
   'feed',
   'reveals',
   'notebook',
@@ -92,6 +93,13 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     description: 'Rolls the DM has put to the table, and what came back.',
     // A player needs to see what they were asked at least as much as the DM
     // needs to see who has answered.
+    players: true,
+  },
+  spotlight: {
+    key: 'spotlight',
+    label: 'On the table',
+    glyph: 'map',
+    description: 'The map the DM has put in front of everybody.',
     players: true,
   },
   feed: {
