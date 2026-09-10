@@ -3,9 +3,9 @@
 Build order. Each phase leaves the app usable and is worth shipping alone. `[x]` =
 landed on `feat/campaign-longevity`.
 
-**Built so far: phases 1, 2, 3 and 7 in full; phase 4's conditions half; and phase 6
+**Built so far: phases 1, 2, 3, 7 and 8 in full; phase 4's conditions half; and phase 6
 except its last item.** Phase 5 is untouched, phase 4's feats-as-references half is
-still open, and phases 8 and 9 are not started.
+still open, phase 8 owes only death and retirement, and phase 9 is not started.
 
 The model these tasks implement is in [README.md](README.md). Read it first — the two
 decisions recorded there (the sheet gets a third surface rather than a third copy; a
@@ -170,19 +170,19 @@ The change finding 7 asks for and the third model decision settles. Do it before
 "which hero is ready to level" is a question about an instance, and asking it of a
 blueprint that plays nowhere has no answer.
 
-- [ ] `characters.campaign_id` and `characters.forked_from`, both nullable, plus the
+- [x] `characters.campaign_id` and `characters.forked_from`, both nullable, plus the
       migration — same commit, per `src/db/README.md`. `forked_from` carries no foreign
       key, matching `homebrew.forked_from`: the blueprint may be deleted and the
       instance must survive it.
-- [ ] `forkCharacterForCampaign(characterId, campaignId)` — deep-copies the sheet, mints
+- [x] `forkCharacterForCampaign(characterId, campaignId)` — deep-copies the sheet, mints
       the row, and points the membership at the copy. `setMemberCharacter` calls it
       instead of pointing at the blueprint directly. This is the whole behavioural
       change; everything below is consequence.
-- [ ] The copy is a **copy**, including `provenance` and the inventory, and excluding
+- [x] The copy is a **copy**, including `provenance` and the inventory, and excluding
       `character_history` — the instance starts its own log, because the DM's record is
       of what happened at _this_ table. Say so in the function, because the temptation
       to carry history over is strong and wrong.
-- [ ] **`/characters` shows both, together, and says which is which.** Not blueprints
+- [x] **`/characters` shows both, together, and says which is which.** Not blueprints
       only — that was the first sketch of this task and it is wrong. A player who forks
       Gon to a table and then opens their roster to a level 1 Gon has watched their
       character reset, and no amount of correctness in the data model answers that.
@@ -190,23 +190,47 @@ blueprint that plays nowhere has no answer.
       labelled as the copy that never plays, each instance labelled with its table and
       carrying its real level and hit points. The relationship is the thing being
       rendered, not a filter on it.
-- [ ] `characterTable` collapses to a column read. `sheet-notes.ts:viewerFor` loses its
+- [x] `characterTable` collapses to a column read. `sheet-notes.ts:viewerFor` loses its
       `findFirst` guess with it — those two are the callers finding 7 named.
-- [ ] Blueprint deletion leaves instances alone; instance deletion (a hero who dies, or
-      a table that folds) leaves the blueprint alone. Neither cascades into the other.
-- [ ] **Death and retirement.** An instance gains a status beyond `draft`/`ready` — a
+- [x] Blueprint deletion leaves instances alone (`forked_from` carries no foreign key);
+      a campaign folding leaves its instances alone (`campaign_id` is `ON DELETE SET
+    NULL`). Neither cascades into the other.
+- [ ] **Death and retirement — the one piece of this phase still owed.** An instance gains a status beyond `draft`/`ready` — a
       dead hero is not deleted, they are dead: still readable, still in the chronicle,
       no longer patchable by the play surface. Decide whether that is a third `status`
       value or its own column before writing either.
-- [ ] Publishing to the Library takes the **blueprint**, not an instance. A pregen with
+- [x] Publishing to the Library takes the **blueprint**, not an instance. A pregen with
       one table's loot and hit points on it is not a pregen.
-- [ ] The fork is explicit and says what it costs at the moment it happens — "changes to
+- [x] The fork is explicit and says what it costs at the moment it happens — "changes to
       the original will not reach this table" — not in a settings page nobody opens.
-- [ ] Migrating what exists: every current `campaign_members.character_id` points at a
+- [x] Migrating what exists: every current `campaign_members.character_id` points at a
       played character, so those rows become instances in place (`campaign_id` filled,
       `forked_from` null — they were never forked from anything). Do **not** invent a
       blueprint for them; a null `forked_from` is the honest record of a hero that
       predates the split.
+
+### Found while building phase 8
+
+Each of these was a bug the instancing surfaced rather than caused, except the first,
+which instancing introduced and then fixed.
+
+- [x] Swapping a hero out left the old instance reading "Locandras" as though it were
+      still in the chair. An instance keeps its campaign after being benched — it really
+      is the hero who played those levels there — so `seated` became a fact separate
+      from `table`, and a benched card says "played at", past tense, with a neutral
+      ribbon rather than gold.
+- [x] Re-picking a blueprint minted a _second_ instance every time, stranding the
+      levels and loot of the first on a row the membership no longer pointed at.
+      `forkCharacterForCampaign` now returns the existing copy for that table. Coming
+      back to a table means coming back to the character who played there.
+- [x] Opening an instance in the builder offered a campaign picker that could only ever
+      be refused. It says which copy it is and links to the original instead.
+- [x] The members panel listed heroes already committed to another table, and listed
+      blueprints and their copies together as two identical names.
+- [x] Roster cards carry hit points now, read out of the sheet by SQLite rather than by
+      shipping every sheet to the server. Two copies of one hero at the same level look
+      identical without them, and the numbers are what make the divergence visible
+      rather than merely asserted in the caption.
 
 ## Phase 9 — The level-up signal
 

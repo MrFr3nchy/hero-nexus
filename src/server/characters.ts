@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 
 import { requireUserId } from './session-user';
 import { db } from '@/db';
@@ -66,6 +66,8 @@ export interface CharacterRow {
   table: { campaignId: string; name: string } | null;
   /** The hero's face, or null. Same reasoning as `table`: the roster shows it. */
   portrait: { url: string; alt: string } | null;
+  /** Hit points, so two copies of one hero read as the different sheets they are. */
+  hp: { current: number; max: number } | null;
   /**
    * The blueprint this instance was forked from, or null.
    *
@@ -135,6 +137,16 @@ const listColumns = {
   updatedAt: characters.updatedAt,
   campaignId: characters.campaignId,
   forkedFrom: characters.forkedFrom,
+  /*
+   * Hit points, read out of the sheet blob by SQLite rather than by shipping
+   * every sheet to the server and parsing it.
+   *
+   * The roster earns these: two copies of one hero sitting side by side at the
+   * same level look identical, and the numbers are the thing that makes their
+   * divergence visible rather than merely stated in the caption underneath.
+   */
+  hpCurrent: sql<number>`json_extract(${characters.sheet}, '$.combat.hitPointsCurrent')`,
+  hpMax: sql<number>`json_extract(${characters.sheet}, '$.combat.hitPointsMax')`,
 };
 
 /**
@@ -258,6 +270,9 @@ export async function listCharacters(): Promise<CharacterRow[]> {
 
   return rows.map(row => ({
     ...row,
+    // A hero with no maximum has not been built far enough to have any, and a
+    // track reading 0/0 is furniture rather than information.
+    hp: row.hpMax > 0 ? { current: row.hpCurrent, max: row.hpMax } : null,
     seated: seatedIds.has(row.id),
     table:
       row.campaignId && tableName.has(row.campaignId)
@@ -280,6 +295,7 @@ export async function getCharacter(
     where: and(eq(characters.id, id), eq(characters.ownerId, userId)),
   });
   if (!row) return null;
+  const sheetForRow = characterSheetSchema.parse(migrateStoredSheet(row.sheet));
   return {
     id: row.id,
     name: row.name,
@@ -294,10 +310,17 @@ export async function getCharacter(
     updatedAt: row.updatedAt,
     table: await characterTable(row.id),
     campaignId: row.campaignId,
+    hp:
+      sheetForRow.combat.hitPointsMax > 0
+        ? {
+            current: sheetForRow.combat.hitPointsCurrent,
+            max: sheetForRow.combat.hitPointsMax,
+          }
+        : null,
     seated: await isSeated(row.id),
     portrait: await portraitFor(row.id, row.forkedFrom),
     forkedFrom: row.forkedFrom,
-    sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
+    sheet: sheetForRow,
   };
 }
 
@@ -324,6 +347,7 @@ export async function getCharacterForCampaign(
     where: eq(characters.id, characterId),
   });
   if (!row) return null;
+  const sheetForRow = characterSheetSchema.parse(migrateStoredSheet(row.sheet));
 
   return {
     id: row.id,
@@ -339,10 +363,17 @@ export async function getCharacterForCampaign(
     updatedAt: row.updatedAt,
     table: await characterTable(row.id),
     campaignId: row.campaignId,
+    hp:
+      sheetForRow.combat.hitPointsMax > 0
+        ? {
+            current: sheetForRow.combat.hitPointsCurrent,
+            max: sheetForRow.combat.hitPointsMax,
+          }
+        : null,
     seated: await isSeated(row.id),
     portrait: await portraitFor(row.id, row.forkedFrom),
     forkedFrom: row.forkedFrom,
-    sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
+    sheet: sheetForRow,
   };
 }
 
@@ -600,6 +631,23 @@ export async function forkCharacterForCampaign(
   // one would strand its history and its loot on a row nothing points at.
   if (source.campaignId === campaignId) return source.id;
   if (source.campaignId) throw new Error('ALREADY_AT_A_TABLE');
+
+  /*
+   * This blueprint may already have a copy at this table — a hero benched and
+   * then picked again, most often. Return that one.
+   *
+   * Without this, re-picking the same hero mints a second instance every time,
+   * and the levels and loot of the first are stranded on a row the membership
+   * no longer points at. Coming back to a table means coming back to the
+   * character who played there, not starting again from the shelf.
+   */
+  const existing = await db.query.characters.findFirst({
+    where: and(
+      eq(characters.forkedFrom, source.id),
+      eq(characters.campaignId, campaignId)
+    ),
+  });
+  if (existing) return existing.id;
 
   const sheet = characterSheetSchema.parse(
     migrateStoredSheet(structuredClone(source.sheet))

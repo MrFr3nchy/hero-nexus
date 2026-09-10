@@ -193,23 +193,43 @@ export function MembersPanel({
                       size="sm"
                       className="w-44"
                       placeholder="Link a character"
-                      selectedKeys={m.characterId ? [m.characterId] : []}
+                      /*
+                        The *hero* is what is picked, not the copy. The seated
+                        row is a copy, so it maps back to the blueprint it came
+                        from — otherwise the select shows nothing selected
+                        while the member list right beside it says who is
+                        playing.
+                      */
+                      selectedKeys={(() => {
+                        if (!m.characterId) return [];
+                        const seated = myCharacters.find(
+                          c => c.id === m.characterId
+                        );
+                        return [seated?.forkedFrom ?? m.characterId];
+                      })()}
                       onSelectionChange={keys => {
                         const id = Array.from(keys)[0];
                         linkCharacter(id ? String(id) : null);
                       }}
                     >
                       {/*
-                        Blueprints, plus whichever instance already holds this
-                        chair. A hero committed to another table is not
-                        offered: picking one would be refused server-side, and
-                        an option that cannot be chosen is worse than an
-                        absent one. The original is always here, and taking it
-                        to this table mints this table's own copy.
+                        Heroes, not copies. A row with a `forkedFrom` is one
+                        table's copy of somebody already in this list, and
+                        showing both puts two identical names in the menu.
+                        A hero committed to another table is left out too:
+                        picking one is refused server-side, and an option that
+                        cannot be chosen is worse than an absent one.
+
+                        A hero seated before instancing existed has no
+                        blueprint above them, so they stand for themselves —
+                        which is why this tests `forkedFrom` rather than
+                        `campaignId` alone.
                       */}
                       {myCharacters
                         .filter(
-                          c => !c.campaignId || c.campaignId === campaignId
+                          c =>
+                            !c.forkedFrom &&
+                            (!c.campaignId || c.campaignId === campaignId)
                         )
                         .map(c => (
                           <SelectItem key={c.id}>

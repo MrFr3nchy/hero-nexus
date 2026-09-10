@@ -306,6 +306,7 @@ function Card({
         charClass={c.class || undefined}
         level={c.level}
         species={c.species || undefined}
+        hp={c.hp ?? undefined}
         note={note}
         portrait={
           c.portrait ? (

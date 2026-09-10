@@ -9,7 +9,8 @@ in the light of a decision recorded here.
 
 Every "today" below was read out of the code at the branch point, `d1edb23`, and is
 kept in the present tense as the record of what was found. **Phases 1, 2, 3 and 7 are
-built, along with phase 4's conditions half and all of phase 6 but its last item**; what
+built, along with phase 8, phase 4's conditions half and all of phase 6 but its last
+item**; what
 each proved is under "What has been verified" at the foot of this file, and
 [phases.md](phases.md) carries the box-by-box state. Phase 5 is untouched, and feats are
 still prose.
@@ -131,7 +132,7 @@ one character per player per campaign — but it only constrains **one player at
 table**. It says nothing about the same character being seated at a second one. See
 finding 7, which is what that gap turns into.
 
-### 7. A hero can already sit at two tables, and already misbehaves
+### 7. A hero can already sit at two tables, and already misbehaves _(fixed — phase 8)_
 
 `setMemberCharacter` checks two things: that the character belongs to the caller, and
 that it is not a draft. It never asks whether that character is already seated
@@ -335,6 +336,10 @@ a browser in both themes. What was proven:
   at all — which is the whole claim.
 - **A player's own hero is on the table screen.** "Your hero" appears in Add a box and
   renders the same `LoadoutSection` the play surface mounts, with working toggles.
+- **One hero, two tables, two sheets.** Seating the same blueprint at Locandras and at
+  a second table minted two instances. Damaging one moved it to 12/28 while the other
+  and the blueprint stayed at 19/28. Re-seating the same blueprint returned the existing
+  copy rather than a third, with its hit points intact.
 - **Permissions hold in both directions.** An outsider's `applyPlayPatchAction` and
   `applyLoadoutPatchAction` against another player's hero are refused with "That sheet
   is not yours to change"; the owner's identical call succeeds. On the portrait route,
