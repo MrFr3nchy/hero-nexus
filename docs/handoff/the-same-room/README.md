@@ -14,8 +14,11 @@ page, a sitting you can be _in_, and a way for the DM to ask one player for a DC
 Stealth check and get a real rolled answer back.
 
 Every "today" below was read out of the code at `dbeee3a` and is kept in the present
-tense as the record of what was found. **Nothing here is built.**
-[phases.md](phases.md) is the build order.
+tense as the record of what was found — so the "what is actually wrong" section still
+describes the app this work started from, not the app it produced.
+
+**Phases 1–5 are built.** [phases.md](phases.md) carries the item-by-item state, and
+what each run proved is at the foot of this file. Phases 6 and 7 are open.
 
 ---
 
@@ -372,3 +375,95 @@ Answer these before phase 4; the earlier phases do not depend on them.
 4. **Should a DM be able to roll _as_ a player's character in the open?** Staff can
    already roll with a `characterId` they do not own. Whether that should announce as the
    character or as the DM is a table-culture question with a one-line answer in code.
+
+---
+
+## What has been verified
+
+Against a production build, with real accounts, real cookie jars and real server-action
+POSTs, following `docs/handoff/verifying-without-a-browser.md` — and then, for the half
+that method explicitly cannot reach, by driving the real app in a browser.
+
+### The wire
+
+- **Two streams, one write.** A single roll nudged both the DM's and the player's
+  streams. Six creatures dealt into a fight in one loop produced **one** state frame, not
+  six — the coalescing in the hub doing its job.
+- **A non-member is refused**: 404 on the stream, before a byte is written.
+- **The connection cap holds**: the seventh stream for one user at one table was refused
+  with 429 while the DM's was unaffected.
+- **Heartbeats** arrived at 25s.
+
+### The leak test
+
+This is the one that mattered, and it is the reason the state channel carries no payload.
+
+- A roll behind the screen and a secret timer **reached the DM's stream and never
+  appeared in the player's bytes at all** — not filtered in the component, absent from
+  the wire. The DM's stream carried four events where the player's carried two, and both
+  still received the state nudges, because "something changed" is not a secret.
+- A reveal addressed to one player reached that player and the DM, and **not** the second
+  player at the same table.
+- A **withheld DC** reached the DM as `15` and the player as `null`, in the announcement
+  and in the whole live payload. After the roll the DM saw `pass`; the player saw their
+  27 and no verdict.
+
+### Reconnect
+
+- Dropping a player's stream, acting three times, and reconnecting with `Last-Event-ID`
+  replayed the two public events they missed and **skipped the secret one between them** —
+  the audience filter applies to replay too.
+- Reconnecting after a **server restart** got a single `resync` rather than a partial
+  story.
+
+### The sitting
+
+- Opening announced to both streams and wrote one live row; opening twice returned the
+  same sitting and still left one row.
+- **All three members were told from `/dashboard`**, nowhere near the campaign, with
+  `isStaff` correct per person. A stranger was told nothing and refused the stream.
+- Presence listed two people and dropped to one the moment a connection closed.
+- Rising stamped `played_on`, wrote the register, and announced. A player was refused
+  both verbs.
+
+### The ask
+
+- Kessa's Stealth check rolled `1d20+7` — Dexterity 18 plus proficiency at level 5, read
+  off the sheet. The browser sent no bonus and no total.
+- A shown DC 13 did reach the player; an untargeted member got no announcement at all.
+- Advantage rolled `2d20` and marked the die that did not count.
+- A player and a stranger were both refused the ask; a stranger was refused an answer;
+  answering twice was refused; one dismissal plus one roll settled the check.
+
+### The party
+
+- A player took 38 damage on their own sheet and the DM's party read went `38/38` to
+  `0/38` **with nothing pressed on the DM's side** — the thing that was not true before.
+- Two death saves produced exactly two announcements, `down` then `dead`, rather than one
+  per roll. Healing from dead announced `up`. Damage while conscious announced nothing.
+
+### In a browser, light and dark
+
+The half `verifying-without-a-browser.md` says it cannot reach, and it earned its keep:
+
+- The sitting bar reached a player **on the spell list**, and three announcements arrived
+  there — a page with nothing to do with the campaign.
+- The hourglass counted down live on the campaign page.
+- Rolling an ask from the panel settled it, logged `16 (+7)`, and announced "Kessa rolls"
+  rather than a verdict, because that DC was withheld.
+- **Two bugs it found that no headless run would have.** The tone accent was
+  `border-l-gold` on a card also carrying `border-line`, which sets all four sides and
+  won on stylesheet order — every slip rendered identically grey. And trimming the stack
+  from the front meant eight rolls in three seconds evicted the DM's question, the one
+  slip that wanted an answer. Both fixed; see `f684643`.
+
+## Still to verify
+
+- **Two viewers on two machines**, rather than two cookie jars on one. Clock skew is the
+  only thing that can separate them and it has not been measured.
+- **Caddy in front of the stream.** The headers are set and Caddy does not buffer
+  streamed responses, but that is read from documentation rather than from a proxy this
+  work put a stream through.
+- **A table of six for a whole session.** Everything above is minutes, not hours; the
+  connection budget, the ring buffer and the floor poll have not been watched under a
+  real evening.
