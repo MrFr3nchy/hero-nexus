@@ -3,8 +3,8 @@
 Build order. Each phase leaves the app usable and is worth shipping alone. `[x]` =
 landed on `feat/campaign-longevity`.
 
-**Built so far: phase 1 in full, phase 2 in full, and the first two items of phase 6.**
-Phases 3, 4, 5 and 7 are untouched.
+**Built so far: phases 1, 2 and 7 in full, plus the first two items of phase 6.**
+Phases 3, 4 and 5 are untouched.
 
 The model these tasks implement is in [README.md](README.md). Read it first — the two
 decisions recorded there (the sheet gets a third surface rather than a third copy; a
@@ -140,23 +140,28 @@ Design work, best done once the data above exists.
 Deliberately last: it is the most visible item on the brief and the least load-bearing,
 and it needs a table decision that is easier to make once the sheet has settled.
 
-- [ ] **`character_assets`**, its own table — not a column on `characters`, and not
+- [x] **`character_portraits`** (the name it landed under), its own table — not a column on `characters`, and not
       `campaign_images`. A character outlives, precedes and may never have a campaign,
       so a portrait cannot inherit "are you at this table" as its access rule. Files on
       disk under `UPLOADS_DIR`, the row carrying path, mime, bytes and alt, exactly as
       `campaign_images` does; base64 in SQLite drags the image through every query and
       every backup, and that reasoning is already written down in `schema.ts`.
-- [ ] Serve route judging access by the character: the owner always, table staff and
+- [x] Serve route judging access by the character: the owner always, table staff and
       fellow members when it is linked.
-- [ ] Upload in the wizard's Details step and on the play surface. Validate mime and
-      byte cap server-side; re-encode rather than trusting the extension.
-- [ ] **A link, not only an upload** — the brief asks for both. Hero Nexus makes no
+- [x] Upload in the **builder's Story & gear tab**, not the wizard's Details step as
+      this task first said: a portrait is stored against a character id, and the wizard
+      runs before the first save, so there is nothing to hang it on. Mime and byte cap
+      are validated server-side. **Not re-encoded** — that wants an image library this
+      repo does not carry, so the type is trusted after an allow-list check and the
+      bytes are served with the stored mime rather than a sniffed one.
+- [x] **A link, not only an upload** — the brief asks for both. Hero Nexus makes no
       outbound calls at runtime (`CLAUDE.md`), so a remote URL must render in the
       browser as a plain `<img src>` and never be fetched by the server. That is a real
       difference in behaviour and needs saying in the UI, not hiding.
-- [ ] `HeroCard portrait` fed at last; `alt` required, because it is read aloud.
+- [x] `HeroCard portrait` fed at last; `alt` required, because it is read aloud.
 - [ ] Publishing a hero to the Library carries the portrait through
-      `publication_assets`, which already exists for exactly this.
+      `publication_assets`, which already exists for exactly this. **Not done** — the
+      portrait is not yet part of what `publishCharacter` freezes.
 
 ---
 

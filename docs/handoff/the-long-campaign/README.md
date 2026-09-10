@@ -61,7 +61,7 @@ no user-level image store is the same gap seen from the other side.
 This needs its own table. See [phases.md](phases.md) Phase 1 for the shape and why it
 is not a column on `characters`.
 
-### 2. Nothing derives an attack
+### 2. Nothing derives an attack _(built — phase 2)_
 
 `derive.ts` computes saves, skills, initiative, passive perception, spell save DC,
 spell attack bonus, and armour class from worn armour. It computes **no weapon attack
@@ -116,7 +116,7 @@ sessions later.
 
 This is the lowest-value item on the list and is scoped accordingly in Phase 5.
 
-### 6. The roster cannot say a hero is at a table
+### 6. The roster cannot say a hero is at a table _(built — phase 6)_
 
 `CharacterRow` has no campaign field. `/characters` renders the party from it, so no
 card can carry the table it belongs to, and `/characters/[id]` computes `tableContext`
@@ -249,18 +249,21 @@ a browser in both themes. What was proven:
   a drift a typecheck cannot see, and the reason the recompute is on the server rather
   than in the control.
 
+- **Permissions hold in both directions.** An outsider's `applyPlayPatchAction` and
+  `applyLoadoutPatchAction` against another player's hero are refused with "That sheet
+  is not yours to change"; the owner's identical call succeeds. On the portrait route,
+  owner GET is 200 with the real bytes, outsider GET is 404 rather than 403 — a 403
+  confirms the hero exists to somebody with no business knowing — and outsider POST and
+  DELETE are refused at 403 with the portrait left intact.
+
 ## Still to verify
 
 Follow [../verifying-without-a-browser.md](../verifying-without-a-browser.md). The
 checks that matter most for the phases still to come:
 
-1. **A player's patch to their own sheet is accepted; a stranger's is refused.** Not yet
-   run. `authorize` is the only thing standing between a shared table and a player
-   editing another player's hit points, and only the accepting half has been exercised.
-   Both directions, real cookie jars.
-2. **A condition set out of combat survives an encounter starting and ending.** Phase 4
+1. **A condition set out of combat survives an encounter starting and ending.** Phase 4
    is exactly the claim that it does.
-3. **Levelling from the play surface writes the same `character_history` rows as
+2. **Levelling from the play surface writes the same `character_history` rows as
    levelling from the wizard.** Content-model rule 7 — the server diffs, the client is
    never asked what changed. Two paths into one sheet is how a second, client-trusted
    write path gets introduced by accident.
