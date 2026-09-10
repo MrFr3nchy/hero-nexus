@@ -216,21 +216,28 @@ export interface ScreenLayout {
  *
  * Two boxes per column, not three: three thirds of a laptop screen is a box
  * eight lines tall, and a box you have to scroll is the thing this replaced.
+ *
+ * Both defaults now carry `checks` and `feed`, which is the whole reason the
+ * room works out of the box: `checks` is where a player answers the DM without
+ * hunting for it, and `feed` is where anybody finding the corner too busy goes
+ * to turn it down. A player also opens on their own hero rather than on the
+ * party's hit points — they have the party in the corner now, and what they
+ * did not have was their own spell slots.
  */
 export function defaultLayout(isStaff: boolean): ScreenLayout {
   return isStaff
     ? {
         columns: [
           ['initiative', 'vitals'],
-          ['notebook', 'dice'],
-          ['reveals', 'conditions'],
+          ['notebook', 'checks'],
+          ['dice', 'feed'],
         ],
       }
     : {
         columns: [
-          ['vitals', 'initiative'],
-          ['reveals', 'quests'],
-          ['handouts', 'dice'],
+          ['mine', 'initiative'],
+          ['checks', 'spotlight'],
+          ['handouts', 'feed'],
         ],
       };
 }

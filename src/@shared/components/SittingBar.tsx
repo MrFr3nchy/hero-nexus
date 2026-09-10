@@ -20,6 +20,7 @@
  * the screen a DM is running a fight from.
  */
 import { Link } from '@heroui/react';
+import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { mySittingAction } from '@/@creator/campaign/chronicle-actions';
@@ -51,6 +52,7 @@ function sittingFor(startedAt: string | null): string | null {
 
 export function SittingBar() {
   const [sitting, setSitting] = useState<Sitting>(null);
+  const pathname = usePathname();
 
   const ask = useCallback(async () => {
     setSitting(await mySittingAction());
@@ -80,6 +82,10 @@ export function SittingBar() {
   if (!sitting) return null;
 
   const been = sittingFor(sitting.startedAt);
+  // Offering a way into the room you are standing in reads as the bar not
+  // knowing where you are. It still says the table is sitting, and how long
+  // for — that is the half worth keeping on every page.
+  const alreadyThere = pathname === `/campaigns/${sitting.campaignId}/screen`;
 
   return (
     <>
@@ -101,13 +107,15 @@ export function SittingBar() {
           {sitting.title ? ` · ${sitting.title}` : ''}
           {been ? ` · ${been}` : ''}
         </span>
-        <Link
-          href={`/campaigns/${sitting.campaignId}/screen`}
-          size="sm"
-          className="ml-auto text-gold-strong underline-offset-2 hover:underline dark:text-gold"
-        >
-          {sitting.isStaff ? 'Behind the screen' : 'Take your seat'}
-        </Link>
+        {!alreadyThere && (
+          <Link
+            href={`/campaigns/${sitting.campaignId}/screen`}
+            size="sm"
+            className="ml-auto text-gold-strong underline-offset-2 hover:underline dark:text-gold"
+          >
+            {sitting.isStaff ? 'Behind the screen' : 'Take your seat'}
+          </Link>
+        )}
       </div>
     </>
   );

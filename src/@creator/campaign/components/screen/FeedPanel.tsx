@@ -1,10 +1,11 @@
 'use client';
 
-import { Button } from '@heroui/react';
+import { Button, Switch, Tooltip } from '@heroui/react';
+import { useState } from 'react';
 
 import { Glyph, Marginalia, SectionCard } from '@/@shared/components/ui';
 import { useTable } from '@/@shared/table';
-import type { EventTone } from '@/@shared/table';
+import { TABLE_EVENT_KINDS, type EventTone } from '@/@shared/table';
 
 const TONE_INK: Record<EventTone, string> = {
   gold: 'text-gold-strong dark:text-gold',
@@ -20,6 +21,20 @@ function clock(at: number): string {
   });
 }
 
+/** How each kind reads in the volume control. Two words, in the table's voice. */
+const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
+  roll: 'Dice',
+  turn: 'Turns',
+  encounter: 'Fights',
+  timer: 'Countdowns',
+  handout: 'Handouts',
+  reveal: 'Reveals',
+  check: 'Asks',
+  sitting: 'The table',
+  vitals: 'Hit points',
+  map: 'Maps',
+};
+
 /**
  * The evening's traffic, standing still.
  *
@@ -31,9 +46,18 @@ function clock(at: number): string {
  * It empties when the tab closes, and that is honest: an event is a moment,
  * and the things that outlive one are rows elsewhere — the roll log, the
  * reveal timeline, the checks. This is not a second copy of any of them.
+ *
+ * It also carries the volume control, because this is the panel somebody
+ * already opens when the corner is too busy. The settings are **per reader,
+ * per device** — a DM running a fight and a player with the tab open on a
+ * second monitor want different answers, and a campaign-wide setting would
+ * make one of them wrong.
  */
+
 export function FeedPanel({ campaignId }: { campaignId: string }) {
-  const { history, announcements, dismissAll } = useTable();
+  const { history, announcements, dismissAll, preferences, setPreferences } =
+    useTable();
+  const [tuning, setTuning] = useState(false);
   const mine = history.filter(a => a.campaignId === campaignId);
 
   return (
@@ -41,18 +65,72 @@ export function FeedPanel({ campaignId }: { campaignId: string }) {
       title="The evening"
       description="Everything the table has been told, since you opened this tab."
       actions={
-        announcements.length > 0 && (
+        <>
+          {announcements.length > 0 && (
+            <Button
+              size="sm"
+              variant="light"
+              className="text-ink-muted"
+              onPress={dismissAll}
+            >
+              Clear the corner
+            </Button>
+          )}
           <Button
             size="sm"
-            variant="light"
+            variant={tuning ? 'flat' : 'light'}
             className="text-ink-muted"
-            onPress={dismissAll}
+            onPress={() => setTuning(t => !t)}
           >
-            Clear the corner
+            {tuning ? 'Done' : 'Turn it down'}
           </Button>
-        )
+        </>
       }
     >
+      {tuning && (
+        <div className="mb-3 space-y-2 rounded-md border border-line bg-surface-2 px-3 py-2.5">
+          <p className="text-xs text-ink-muted">
+            What raises a slip in the corner. Everything still lands here.
+          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {TABLE_EVENT_KINDS.map(kind => (
+              <Switch
+                key={kind}
+                size="sm"
+                isSelected={preferences.announce[kind]}
+                onValueChange={on =>
+                  setPreferences({
+                    ...preferences,
+                    announce: { ...preferences.announce, [kind]: on },
+                  })
+                }
+              >
+                <span className="text-xs text-ink-muted">
+                  {KIND_LABEL[kind]}
+                </span>
+              </Switch>
+            ))}
+          </div>
+          <div className="border-t border-line pt-2">
+            <Tooltip content="One short tone. Off unless you ask for it.">
+              <div className="inline-block">
+                <Switch
+                  size="sm"
+                  isSelected={preferences.sound}
+                  onValueChange={sound =>
+                    setPreferences({ ...preferences, sound })
+                  }
+                >
+                  <span className="text-xs text-ink-muted">Make a sound</span>
+                </Switch>
+              </div>
+            </Tooltip>
+          </div>
+          <Marginalia dash>
+            a question always gets through, muted or not
+          </Marginalia>
+        </div>
+      )}
       {mine.length === 0 ? (
         <Marginalia dash>nothing has happened yet</Marginalia>
       ) : (

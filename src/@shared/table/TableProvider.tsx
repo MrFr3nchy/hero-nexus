@@ -31,6 +31,13 @@ import {
 import { useAuth } from '@/@auth/context';
 import { joinTable, type Seat } from './connection';
 import { describe, type EventReading, type TableEvent } from './events';
+import {
+  chime,
+  defaultPreferences,
+  readPreferences,
+  writePreferences,
+  type TablePreferences,
+} from './preferences';
 
 export interface Announcement {
   /** The event's own id, so a replayed frame is recognised and dropped. */
@@ -61,6 +68,9 @@ interface TableApi {
   seats: Record<string, Seat>;
   /** Register interest in a table. Returns the leave. Call from an effect. */
   attend(campaignId: string): () => void;
+  /** How loud this reader wants it. Per device, never per table. */
+  preferences: TablePreferences;
+  setPreferences(next: TablePreferences): void;
 }
 
 const TableContext = createContext<TableApi | null>(null);
@@ -120,6 +130,21 @@ export function TableProvider({ children }: { children: ReactNode }) {
   const [seats, setSeats] = useState<Record<string, Seat>>({});
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [history, setHistory] = useState<Announcement[]>([]);
+  /*
+   * Read after mount, not during it. `localStorage` is not available while the
+   * server renders, and seeding state from it directly is the classic
+   * hydration mismatch — the first paint would disagree with the second.
+   */
+  const [preferences, setPrefs] =
+    useState<TablePreferences>(defaultPreferences);
+  useEffect(() => setPrefs(readPreferences()), []);
+  const prefsRef = useRef(preferences);
+  prefsRef.current = preferences;
+
+  const setPreferences = useCallback((next: TablePreferences) => {
+    setPrefs(next);
+    writePreferences(next);
+  }, []);
 
   const refs = useRef(new Map<string, number>());
   const seen = useRef(new Set<string>());
@@ -197,10 +222,17 @@ export function TableProvider({ children }: { children: ReactNode }) {
         at: Date.now(),
       };
 
-      // The feed keeps everything; the corner does not repeat back to you
-      // what you just did. See `by` on the event type.
+      /*
+       * The feed keeps everything. Three things can stop a slip reaching the
+       * corner, and none of them stops the record: you caused it yourself, you
+       * muted that kind, or — the exception that outranks a mute — it is
+       * asking you for something, and a muted question is a question nobody
+       * answers.
+       */
       setHistory(list => [announcement, ...list].slice(0, HISTORY_LIMIT));
       if (event.by && event.by === currentUser?.id) return;
+      if (!reading.asks && !prefsRef.current.announce[event.kind]) return;
+      if (prefsRef.current.sound) chime();
 
       setAnnouncements(list => {
         const next = [...list, announcement];
@@ -244,8 +276,26 @@ export function TableProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const api = useMemo<TableApi>(
-    () => ({ announcements, history, dismiss, dismissAll, seats, attend }),
-    [announcements, history, dismiss, dismissAll, seats, attend]
+    () => ({
+      announcements,
+      history,
+      dismiss,
+      dismissAll,
+      seats,
+      attend,
+      preferences,
+      setPreferences,
+    }),
+    [
+      announcements,
+      history,
+      dismiss,
+      dismissAll,
+      seats,
+      attend,
+      preferences,
+      setPreferences,
+    ]
   );
 
   return (
