@@ -40,11 +40,21 @@ export function LoadoutSection({
   characterId,
   campaignId,
   onError,
+  stacked = false,
 }: {
   initial: PlayLoadout;
   characterId: string;
   campaignId: string | null;
   onError: (message: string) => void;
+  /**
+   * One column instead of two.
+   *
+   * Set by the table screen, where this sits in a box a third of the window
+   * wide. `lg:` is a viewport breakpoint, not a container one, so a two-column
+   * grid inside a narrow panel stays two columns and wraps "Longsword" across
+   * two lines — the caller knows how much room it has and this does not.
+   */
+  stacked?: boolean;
 }) {
   const [loadout, setLoadout] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -78,7 +88,7 @@ export function LoadoutSection({
     }, new Map());
 
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
+    <div className={stacked ? 'space-y-5' : 'grid gap-5 lg:grid-cols-2'}>
       <SectionCard
         title="What you are carrying"
         description="Tick what is in hand. Worn armour and a held shield move your armour class."

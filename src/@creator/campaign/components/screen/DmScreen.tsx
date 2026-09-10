@@ -33,6 +33,7 @@ import { InitiativeTracker } from '../session/InitiativeTracker';
 import { RollPanel } from '../session/RollPanel';
 import { ConditionsCard } from './ConditionsCard';
 import { ScreenBox } from './ScreenBox';
+import { MyHeroPanel } from './MyHeroPanel';
 
 /**
  * What the initiative box shows when nothing is trying to kill anybody.
@@ -140,6 +141,15 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
           state={live.state}
           isStaff={ctx.isStaff}
           refresh={live.refresh}
+          onError={ctx.onError}
+        />
+      );
+
+    case 'mine':
+      return (
+        <MyHeroPanel
+          campaignId={ctx.campaignId}
+          myCharacters={ctx.myCharacters}
           onError={ctx.onError}
         />
       );
