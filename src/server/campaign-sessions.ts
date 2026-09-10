@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db';
@@ -15,8 +16,10 @@ import {
   users,
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
+import { bumpVersion, publish } from './live-hub';
+import { requireUserId } from './session-user';
 
-export type SessionStatus = 'planned' | 'played' | 'cancelled';
+export type SessionStatus = 'planned' | 'live' | 'played' | 'cancelled';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
 export type RsvpStatus = 'yes' | 'no' | 'maybe' | 'unknown';
 
@@ -54,6 +57,8 @@ export interface SessionRow {
   title: string;
   scheduledFor: string | null;
   playedOn: string | null;
+  /** ISO instant the table sat down. Kept after it rises. */
+  startedAt: string | null;
   status: SessionStatus;
   /** Staff only — null for a player, so prep never reaches the client. */
   prepBody: string | null;
@@ -198,6 +203,7 @@ export async function listSessions(campaignId: string): Promise<SessionRow[]> {
     title: row.title,
     scheduledFor: row.scheduledFor,
     playedOn: row.playedOn,
+    startedAt: row.startedAt,
     status: row.status,
     prepBody: isStaff ? row.prepBody : null,
     recapBody:
@@ -347,6 +353,230 @@ export async function markSessionPlayed(sessionId: string): Promise<void> {
       status: 'present' as const,
     }))
   );
+}
+
+/* --- the sitting the table is in ------------------------------------- */
+
+/**
+ * The evening currently being played, if there is one.
+ *
+ * Readable by anybody at the table, because the point of it is the way in: a
+ * player who was not told the table had sat down is exactly the person this
+ * whole feature exists for.
+ */
+export async function liveSitting(campaignId: string): Promise<{
+  id: string;
+  number: number;
+  title: string;
+  startedAt: string | null;
+} | null> {
+  await requireCampaignRole(campaignId, ['gm', 'co-gm', 'player']);
+  const row = await db.query.campaignSessions.findFirst({
+    where: and(
+      eq(campaignSessions.campaignId, campaignId),
+      eq(campaignSessions.status, 'live')
+    ),
+  });
+  return row
+    ? {
+        id: row.id,
+        number: row.number,
+        title: row.title,
+        startedAt: row.startedAt,
+      }
+    : null;
+}
+
+/**
+ * The sitting the signed-in person should be at, if any.
+ *
+ * Asked by the shell on every page, which is the whole point: the complaint
+ * this work answers is that a table only reached whoever was already looking
+ * at it. One query across the campaigns they belong to, so a player reading
+ * the compendium still learns their table has sat down.
+ *
+ * If two of their tables are somehow sitting at once, the one that started
+ * most recently wins. That is a rare enough shape not to deserve a chooser,
+ * and the most recent is the better guess.
+ */
+export async function mySitting(): Promise<{
+  campaignId: string;
+  campaignName: string;
+  id: string;
+  number: number;
+  title: string;
+  startedAt: string | null;
+  isStaff: boolean;
+} | null> {
+  const userId = await requireUserId();
+
+  const [runs, plays] = await Promise.all([
+    db
+      .select({ id: campaigns.id })
+      .from(campaigns)
+      .where(eq(campaigns.gmId, userId)),
+    db
+      .select({ id: campaignMembers.campaignId })
+      .from(campaignMembers)
+      .where(
+        and(
+          eq(campaignMembers.userId, userId),
+          eq(campaignMembers.status, 'active')
+        )
+      ),
+  ]);
+
+  const staffOf = new Set(runs.map(r => r.id));
+  const mine = [...new Set([...staffOf, ...plays.map(r => r.id)])];
+  if (mine.length === 0) return null;
+
+  const row = await db
+    .select({
+      id: campaignSessions.id,
+      campaignId: campaignSessions.campaignId,
+      number: campaignSessions.number,
+      title: campaignSessions.title,
+      startedAt: campaignSessions.startedAt,
+      campaignName: campaigns.name,
+    })
+    .from(campaignSessions)
+    .innerJoin(campaigns, eq(campaigns.id, campaignSessions.campaignId))
+    .where(
+      and(
+        eq(campaignSessions.status, 'live'),
+        inArray(campaignSessions.campaignId, mine)
+      )
+    )
+    .orderBy(desc(campaignSessions.startedAt))
+    .limit(1);
+
+  const found = row[0];
+  if (!found) return null;
+  return {
+    campaignId: found.campaignId,
+    campaignName: found.campaignName,
+    id: found.id,
+    number: found.number,
+    title: found.title,
+    startedAt: found.startedAt,
+    // A co-DM is staff here too, but the membership read above did not ask for
+    // the role. The bar only uses this to word a button, and getting it wrong
+    // costs a co-DM one extra press — not worth a third query on every page.
+    isStaff: staffOf.has(found.campaignId),
+  };
+}
+
+/** How a sitting reads in one line — "Session 7 · The bridge at Duskwater". */
+function sittingTitle(number: number, title: string): string {
+  return title ? `Session ${number} · ${title}` : `Session ${number}`;
+}
+
+/**
+ * Take your seats.
+ *
+ * Opens the next planned sitting, or mints one if the DM never wrote it down —
+ * a table that sat without prep is the ordinary case, not an error, and
+ * refusing to start because nobody filed a session would make this the third
+ * thing to do before playing rather than the first.
+ *
+ * At most one live sitting per campaign, enforced by the partial unique index
+ * in `0037`. Opening while one is already open returns that one rather than
+ * failing: two people pressing "take your seats" is not a conflict, it is two
+ * people agreeing.
+ */
+export async function openSitting(campaignId: string): Promise<string> {
+  const { userId } = await staff(campaignId);
+
+  const already = await db.query.campaignSessions.findFirst({
+    where: and(
+      eq(campaignSessions.campaignId, campaignId),
+      eq(campaignSessions.status, 'live')
+    ),
+  });
+  if (already) return already.id;
+
+  const startedAt = new Date().toISOString();
+  const planned = await db.query.campaignSessions.findFirst({
+    where: and(
+      eq(campaignSessions.campaignId, campaignId),
+      eq(campaignSessions.status, 'planned')
+    ),
+    orderBy: [asc(campaignSessions.number)],
+  });
+
+  let id: string;
+  let number: number;
+  let title: string;
+
+  if (planned) {
+    id = planned.id;
+    number = planned.number;
+    title = planned.title;
+    await db
+      .update(campaignSessions)
+      .set({ status: 'live', startedAt, updatedAt: startedAt })
+      .where(eq(campaignSessions.id, planned.id));
+  } else {
+    const highest = await db
+      .select({ number: campaignSessions.number })
+      .from(campaignSessions)
+      .where(eq(campaignSessions.campaignId, campaignId))
+      .orderBy(desc(campaignSessions.number))
+      .limit(1);
+    number = (highest[0]?.number ?? 0) + 1;
+    title = '';
+    const [row] = await db
+      .insert(campaignSessions)
+      .values({
+        campaignId,
+        number,
+        status: 'live',
+        startedAt,
+        createdBy: userId,
+      })
+      .returning({ id: campaignSessions.id });
+    id = row.id;
+  }
+
+  bumpVersion(campaignId);
+  publish(campaignId, {
+    kind: 'sitting',
+    id: randomUUID(),
+    at: startedAt,
+    state: 'opened',
+    title: sittingTitle(number, title),
+  });
+  return id;
+}
+
+/**
+ * The table rises.
+ *
+ * Stamps `played_on` and files the evening, which is the chore a DM does by
+ * hand in the chronicle today — so the feature pays for part of itself. The
+ * register is filled in by `markSessionPlayed`, which already knows not to
+ * overwrite an attendance list somebody has edited.
+ */
+export async function closeSitting(campaignId: string): Promise<void> {
+  await staff(campaignId);
+  const row = await db.query.campaignSessions.findFirst({
+    where: and(
+      eq(campaignSessions.campaignId, campaignId),
+      eq(campaignSessions.status, 'live')
+    ),
+  });
+  if (!row) return;
+
+  await markSessionPlayed(row.id);
+
+  bumpVersion(campaignId);
+  publish(campaignId, {
+    kind: 'sitting',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    state: 'closed',
+    title: sittingTitle(row.number, row.title),
+  });
 }
 
 export async function setRecapVisibility(

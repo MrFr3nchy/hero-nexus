@@ -166,7 +166,13 @@ function SessionEntry({
               <p className="text-xs text-ink-subtle">{dateLine}</p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-              {session.status === 'planned' && <Pill tone="gold">Planned</Pill>}
+              {/* Planned steps down to the quiet tone now that there is a
+                  louder state to distinguish it from. Exactly one row on this
+                  list should catch the eye, and it is the evening actually in
+                  progress — gold, the table's own voice, matching the bar in
+                  the shell and the announcement that opened it. */}
+              {session.status === 'planned' && <Pill>Planned</Pill>}
+              {session.status === 'live' && <Pill tone="gold">Sitting</Pill>}
               {session.status === 'cancelled' && <Pill>Cancelled</Pill>}
               {session.status === 'played' && (
                 <Pill tone="success">Played</Pill>

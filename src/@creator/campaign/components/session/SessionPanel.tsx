@@ -18,6 +18,7 @@ import { PartyPlayPanel } from '../PartyPlayPanel';
 import { HandoutsPanel } from './HandoutsPanel';
 import { InitiativeTracker } from './InitiativeTracker';
 import { RollPanel } from './RollPanel';
+import { SittingCard } from './SittingCard';
 import { TimerPanel } from './TimerPanel';
 
 /**
@@ -81,6 +82,16 @@ export function SessionPanel({ campaignId }: { campaignId: string }) {
           {error || liveError}
         </p>
       )}
+
+      {/* First, because whether the table is actually sitting is the frame
+          everything under it is read in. */}
+      <SittingCard
+        campaignId={campaignId}
+        state={state}
+        isStaff={isStaff}
+        refresh={refresh}
+        onError={setError}
+      />
 
       {isStaff && !state.encounter && (
         <SectionCard

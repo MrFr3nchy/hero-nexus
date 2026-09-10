@@ -855,7 +855,22 @@ export const campaignSessions = sqliteTable(
     scheduledFor: text('scheduled_for'),
     /** ISO date it actually happened. */
     playedOn: text('played_on'),
-    status: text('status', { enum: ['planned', 'played', 'cancelled'] })
+    /**
+     * ISO instant the table actually sat down, kept after it rises.
+     *
+     * Separate from `scheduled_for` (a date somebody hoped for) and from
+     * `played_on` (a date it is filed under). This is the one the live view
+     * counts from, so it is an instant rather than a day.
+     */
+    startedAt: text('started_at'),
+    /**
+     * `live` is now, and there may be **at most one per campaign** — enforced
+     * by a partial unique index in `0037_live_sittings.sql` rather than by a
+     * read-then-write two DMs could race through.
+     */
+    status: text('status', {
+      enum: ['planned', 'live', 'played', 'cancelled'],
+    })
       .notNull()
       .default('planned'),
     /** The DM's private plan for the evening. */

@@ -98,12 +98,18 @@ be looked up:
 #!/bin/bash
 # act.sh <jar> <action-name> <json-args-array> [path]
 JAR="$1"; NAME="$2"; ARGS="$3"; PATH_="${4:-/dashboard}"; BASE="http://localhost:3000"
-ID=$(grep -rho "\"[0-9a-f]\{40,\}\",[a-z]\.callServer,void 0,[a-z]\.findSourceMapURL,\"$NAME\"" \
+ID=$(grep -rhoE "\"[0-9a-f]{40,}\",[A-Za-z_\$][A-Za-z0-9_\$]*\.callServer,void 0,[A-Za-z_\$][A-Za-z0-9_\$]*\.findSourceMapURL,\"$NAME\"" \
       .next/static/chunks/ | head -1 | sed -E 's/^"([0-9a-f]+)".*/\1/')
 [ -z "$ID" ] && { echo "NO ACTION ID for $NAME" >&2; exit 1; }
 curl -s -b "$JAR" -X POST "$BASE$PATH_" \
   -H "Next-Action: $ID" -H "Content-Type: application/json" --data "$ARGS"
 ```
+
+**The binding before `.callServer` is not always one lowercase letter.** An earlier
+version of this script matched `[a-z]\.callServer`, and in a chunk with enough
+identifiers the minifier emits `M.callServer` — so the lookup found nothing and printed
+`NO ACTION ID`, which reads like the action does not exist rather than like the pattern
+is too narrow. The character class above covers any identifier.
 
 Arguments are a **JSON array of the action's parameters, in order**. Check the
 signature — `saveCharacterAction(sheet, id?)` takes the sheet _first_; passing the id

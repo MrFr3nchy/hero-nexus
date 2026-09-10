@@ -305,11 +305,16 @@ export function connectionsHeldBy(campaignId: string, userId: string): number {
 export function subscribe(campaignId: string, sub: Subscriber): () => void {
   const channel = channelFor(campaignId);
   channel.subscribers.set(sub.id, sub);
+  // Who is looking is part of the state, so arriving and leaving are changes
+  // like any other. Coalescing keeps a reconnecting browser from making a
+  // storm of them, and the open rate limit caps the pathological case.
+  bumpVersion(campaignId);
   return () => {
     const current = channels.get(campaignId);
     if (!current) return;
     current.subscribers.delete(sub.id);
     current.touched = Date.now();
+    bumpVersion(campaignId);
   };
 }
 

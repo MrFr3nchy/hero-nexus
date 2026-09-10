@@ -4,12 +4,16 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import {
+  closeSitting,
   createSession,
   deleteSession,
   fileUnderSession,
   listSessions,
+  liveSitting,
   markSessionPlayed,
+  mySitting,
   nextSession,
+  openSitting,
   setAttendance,
   setRecapVisibility,
   setRsvp,
@@ -215,6 +219,58 @@ export async function getCampaignPulseAction(
 ): Promise<CampaignPulse | null> {
   try {
     return await getCampaignPulse(campaignId);
+  } catch {
+    return null;
+  }
+}
+
+/* --- the sitting the table is in -------------------------------------- */
+
+/** The evening being played right now, or null. Any member may ask. */
+export async function liveSittingAction(campaignId: string) {
+  try {
+    return await liveSitting(campaignId);
+  } catch {
+    // A campaign the caller is not at answers the same as one that is quiet.
+    // Whether somebody else's table is sitting is not their business.
+    return null;
+  }
+}
+
+/** Take your seats. Staff only. */
+export async function openSittingAction(
+  campaignId: string
+): Promise<Result<{ id: string }>> {
+  try {
+    const id = await openSitting(campaignId);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true, data: { id } };
+  } catch (err) {
+    return fail(err, 'Could not open the table.');
+  }
+}
+
+/** The table rises. Files the evening and fills the register. Staff only. */
+export async function closeSittingAction(campaignId: string): Promise<Result> {
+  try {
+    await closeSitting(campaignId);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not close the table.');
+  }
+}
+
+/**
+ * The sitting the reader should be at, across every table they belong to.
+ *
+ * Called by the shell on every page. Returns null rather than throwing for a
+ * signed-out reader: the bar simply does not appear, and a thrown error in the
+ * shell would take down whatever page it is wrapping.
+ */
+export async function mySittingAction() {
+  try {
+    return await mySitting();
   } catch {
     return null;
   }

@@ -4,6 +4,7 @@ import { useAuth } from '@/@auth/context';
 import { usePathname } from 'next/navigation';
 import { Navigation } from './Navigation';
 import { NAV_HREFS, SideNavigation } from './SideNavigation';
+import { SittingBar } from './SittingBar';
 
 interface ConditionalLayoutProps {
   children: React.ReactNode;
@@ -61,7 +62,13 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
     return (
       <div className="flex min-h-screen">
         <SideNavigation />
-        <main className="flex-1 overflow-auto">{children}</main>
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Above the page, not inside it: a table that has sat down is the
+              app's business, not this route's. It is also what puts the
+              reader on the table's stream from wherever they are standing. */}
+          <SittingBar />
+          <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+        </div>
       </div>
     );
   }

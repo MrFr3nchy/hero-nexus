@@ -32,6 +32,7 @@ import { RevealTimeline } from '../RevealTimeline';
 import { HandoutsPanel } from '../session/HandoutsPanel';
 import { InitiativeTracker } from '../session/InitiativeTracker';
 import { RollPanel } from '../session/RollPanel';
+import { SittingCard } from '../session/SittingCard';
 import { ConditionsCard } from './ConditionsCard';
 import { FeedPanel } from './FeedPanel';
 import { ScreenBox } from './ScreenBox';
@@ -195,6 +196,17 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
           state={live.state}
           isStaff={ctx.isStaff}
           sessions={ctx.sessions}
+          refresh={live.refresh}
+          onError={ctx.onError}
+        />
+      ) : null;
+
+    case 'sitting':
+      return live.state ? (
+        <SittingCard
+          campaignId={ctx.campaignId}
+          state={live.state}
+          isStaff={ctx.isStaff}
           refresh={live.refresh}
           onError={ctx.onError}
         />

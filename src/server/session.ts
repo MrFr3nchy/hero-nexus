@@ -22,6 +22,7 @@ import {
   campaignHandouts,
   campaignMembers,
   campaignRolls,
+  campaignSessions,
   campaignTimers,
   characters,
   initiativeEncounters,
@@ -29,8 +30,8 @@ import {
   users,
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
+import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { resolveContentRefs } from './content';
-import { bumpVersion, publish } from './live-hub';
 
 /** How much of the roll log the live view carries. */
 const ROLL_LOG_LIMIT = 40;
@@ -104,8 +105,26 @@ export interface TimerRow {
   stoppedAt: string | null;
 }
 
+/** The evening being played, when there is one. */
+export interface SittingRow {
+  id: string;
+  number: number;
+  title: string;
+  startedAt: string | null;
+}
+
 export interface LiveState {
   role: CampaignRole;
+  /** The sitting in progress, or null. This is what makes a room a room. */
+  sitting: SittingRow | null;
+  /**
+   * Who has the table open right now.
+   *
+   * Derived from held connections, never stored: presence is true only while a
+   * socket is open, and a row asserting it outlives the truth and needs a
+   * reaper that will one day miss somebody who closed their laptop.
+   */
+  watchers: Watcher[];
   encounter: EncounterRow | null;
   entries: EntryRow[];
   handouts: HandoutRow[];
@@ -224,6 +243,13 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
       stoppedAt: t.stoppedAt,
     }));
 
+  const sittingRow = await db.query.campaignSessions.findFirst({
+    where: and(
+      eq(campaignSessions.campaignId, campaignId),
+      eq(campaignSessions.status, 'live')
+    ),
+  });
+
   const membership = await db.query.campaignMembers.findFirst({
     where: and(
       eq(campaignMembers.campaignId, campaignId),
@@ -233,6 +259,15 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
 
   return {
     role,
+    sitting: sittingRow
+      ? {
+          id: sittingRow.id,
+          number: sittingRow.number,
+          title: sittingRow.title,
+          startedAt: sittingRow.startedAt,
+        }
+      : null,
+    watchers: watchersOf(campaignId),
     encounter: encounter
       ? {
           id: encounter.id,
