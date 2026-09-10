@@ -30,6 +30,7 @@ import {
   users,
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
+import { listChecks, type CheckRow } from './checks';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { resolveContentRefs } from './content';
 
@@ -131,6 +132,13 @@ export interface LiveState {
   rolls: RollRow[];
   /** Running countdowns. Staff see their own hidden ones; players do not. */
   timers: TimerRow[];
+  /**
+   * What the DM has asked for, role-filtered — a hidden DC never appears.
+   *
+   * On `LiveState` rather than behind a poller of its own, for the reason
+   * `DmScreen` already gives about panels: one answer, one request.
+   */
+  checks: CheckRow[];
   /** The viewer's own linked character, so the tracker can say "your turn". */
   viewerCharacterId: string | null;
 }
@@ -243,6 +251,10 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
       stoppedAt: t.stoppedAt,
     }));
 
+  // Its own module, and already role-filtered there — this call is a read,
+  // not a second place that decides what a player may see.
+  const checks = await listChecks(campaignId);
+
   const sittingRow = await db.query.campaignSessions.findFirst({
     where: and(
       eq(campaignSessions.campaignId, campaignId),
@@ -281,6 +293,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     handouts,
     rolls,
     timers,
+    checks,
     viewerCharacterId: membership?.characterId ?? null,
   };
 }

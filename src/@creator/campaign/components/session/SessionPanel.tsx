@@ -15,6 +15,7 @@ import {
 } from '../../chronicle-actions';
 import { EncounterPlanner } from '../EncounterPlanner';
 import { PartyPlayPanel } from '../PartyPlayPanel';
+import { ChecksPanel } from './ChecksPanel';
 import { HandoutsPanel } from './HandoutsPanel';
 import { InitiativeTracker } from './InitiativeTracker';
 import { RollPanel } from './RollPanel';
@@ -182,6 +183,17 @@ export function SessionPanel({ campaignId }: { campaignId: string }) {
         state={state}
         isStaff={isStaff}
         refresh={refresh}
+      />
+
+      {/* Above the dice, because an ask is what a roll is usually an answer
+          to — and a player who has been asked for something should see it
+          before they see the log of everything anybody rolled. */}
+      <ChecksPanel
+        campaignId={campaignId}
+        state={state}
+        isStaff={isStaff}
+        refresh={refresh}
+        onError={setError}
       />
 
       <RollPanel

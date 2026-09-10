@@ -17,6 +17,7 @@ export const SCREEN_PANEL_KEYS = [
   'mine',
   'vitals',
   'dice',
+  'checks',
   'feed',
   'reveals',
   'notebook',
@@ -82,6 +83,15 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     glyph: 'die',
     description:
       'The shared roll log, and rolling in the open or behind the screen.',
+    players: true,
+  },
+  checks: {
+    key: 'checks',
+    label: 'The asking',
+    glyph: 'target',
+    description: 'Rolls the DM has put to the table, and what came back.',
+    // A player needs to see what they were asked at least as much as the DM
+    // needs to see who has answered.
     players: true,
   },
   feed: {

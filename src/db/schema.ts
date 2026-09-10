@@ -1645,6 +1645,115 @@ export const campaignMapPins = sqliteTable(
  * a blank card — the same reason `inventory[].name` is denormalised onto a
  * sheet.
  */
+/* --- The ask (0038) ---------------------------------------------------- */
+
+/**
+ * The DM asking somebody at the table for a roll.
+ *
+ * The first row in this schema that is a **question**. Everything else the DM
+ * pushes across is a statement — a reveal tells the party something, a handout
+ * hands them a thing — and none of it can be answered. A check is asked, is
+ * owed, and is discharged by a roll.
+ *
+ * It is a row rather than an announcement because of the line
+ * `the-long-campaign` phase 9 drew when it refused a `notices` table:
+ * something becomes a row when a player who was offline still needs to find
+ * it. "The DM wants a Stealth check from you" is that; "Kessa rolled an 18" is
+ * derivable from `campaign_rolls` and stays a moment on the wire.
+ */
+export const campaignChecks = sqliteTable(
+  'campaign_checks',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /**
+     * Deliberately no `attack`: an attack bonus depends on the weapon in hand,
+     * and a kind whose modifier the server cannot compute would be a prompt
+     * pretending to be a roll.
+     */
+    kind: text('kind', { enum: ['check', 'save', 'free'] })
+      .notNull()
+      .default('check'),
+    /** A `SkillKey`. The vocabulary is already typed in character/schema.ts. */
+    skill: text('skill'),
+    /** An `AbilityKey`, for a saving throw or a bare ability check. */
+    ability: text('ability'),
+    /** What the DM typed beside it. Always shown. */
+    prompt: text('prompt').notNull().default(''),
+    dc: integer('dc'),
+    /**
+     * A hidden DC never travels to the target — not in a field they could
+     * read, not on a surface that hides it in CSS. They see their total; the
+     * DM sees the verdict. That is the whole of what hiding a DC means.
+     */
+    dcVisibility: text('dc_visibility', { enum: ['hidden', 'shown'] })
+      .notNull()
+      .default('shown'),
+    status: text('status', { enum: ['open', 'answered', 'cancelled'] })
+      .notNull()
+      .default('open'),
+    askedBy: text('asked_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    resolvedAt: text('resolved_at'),
+  },
+  t => [index('campaign_checks_campaign_idx').on(t.campaignId, t.createdAt)]
+);
+
+/**
+ * Who was asked, and what they rolled.
+ *
+ * Keyed on `user_id` for the same reason `campaign_reveal_targets` is: the GM
+ * has no member row, and a player who later leaves the table was still asked.
+ *
+ * A group check is one `campaign_checks` row with several of these, rather
+ * than five separate asks — so the DM's panel is one line per person reading
+ * asked / rolled / passed instead of five things to chase.
+ */
+export const campaignCheckTargets = sqliteTable(
+  'campaign_check_targets',
+  {
+    id: uuid(),
+    checkId: text('check_id')
+      .notNull()
+      .references(() => campaignChecks.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** Resolved when the ask is made, so the modifier comes from the sheet
+     * they were actually sitting behind at the time. */
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    status: text('status', { enum: ['waiting', 'rolled', 'dismissed'] })
+      .notNull()
+      .default('waiting'),
+    rollId: text('roll_id').references(() => campaignRolls.id, {
+      onDelete: 'set null',
+    }),
+    /**
+     * The one copied field here. `clearRolls` deletes a campaign's whole log,
+     * and an answered check that forgets what was rolled because the DM tidied
+     * up is worse than a duplicated integer — the same reasoning that puts a
+     * fallback `payload` on `publications`.
+     */
+    total: integer('total'),
+    modifier: integer('modifier'),
+    answeredAt: text('answered_at'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('campaign_check_targets_pair_idx').on(t.checkId, t.userId),
+    index('campaign_check_targets_user_idx').on(t.userId, t.status),
+  ]
+);
+
 export const publications = sqliteTable(
   'publications',
   {
