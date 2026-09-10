@@ -4,7 +4,12 @@ import { Avatar, Button, Input, Link, Select, SelectItem } from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { listCharactersAction } from '@/@creator/character/actions';
-import { DiceSpinner, Ribbon, SectionCard } from '@/@shared/components/ui';
+import {
+  DiceSpinner,
+  Ribbon,
+  SectionCard,
+  useConfirm,
+} from '@/@shared/components/ui';
 import type { CharacterRow } from '@/server/characters';
 import type {
   CampaignInviteRow,
@@ -16,6 +21,7 @@ import {
   listInvitesAction,
   listMembersAction,
   removeMemberAction,
+  unlinkMemberCharacterAction,
   revokeInviteAction,
   setMemberCharacterAction,
   setMemberRoleAction,
@@ -68,6 +74,27 @@ export function MembersPanel({
     refresh();
   }, [refresh]);
 
+  const { confirm, dialog } = useConfirm();
+
+  /** Ask first, then run — both of these take something away. */
+  const confirmThen = async ({
+    title,
+    body,
+    confirmLabel,
+    destructive = false,
+    run: fn,
+  }: {
+    title: string;
+    body: string;
+    confirmLabel: string;
+    destructive?: boolean;
+    run: () => Promise<{ ok: boolean; error?: string }>;
+  }) => {
+    const ok = await confirm({ title, body, confirmLabel, destructive });
+    if (!ok) return;
+    await run(fn);
+  };
+
   const run = async (fn: () => Promise<{ ok: boolean; error?: string }>) => {
     const res = await fn();
     if (!res.ok) setError(res.error ?? 'Something went wrong.');
@@ -116,6 +143,7 @@ export function MembersPanel({
 
   return (
     <div className="space-y-5">
+      {dialog}
       {error && (
         <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
           {error}
@@ -265,15 +293,46 @@ export function MembersPanel({
                     >
                       {m.role === 'co-gm' ? 'Demote' : 'Make Co-DM'}
                     </Button>
+                    {/*
+                      Two verbs, never one. Retiring a character and dismissing
+                      a person are different sentences at a table, and the
+                      common case by far is the first — a hero dies and their
+                      player brings somebody else. Folding it into "Remove"
+                      would make grief cost a membership.
+                    */}
+                    {m.characterId && (
+                      <Button
+                        size="sm"
+                        variant="light"
+                        className="text-ink-muted data-[hover=true]:text-ink"
+                        onPress={() =>
+                          confirmThen({
+                            title: `Retire ${m.characterName || 'this character'}?`,
+                            body: `${m.name ?? 'This player'} keeps their seat and can bring someone new. The sheet is kept exactly as it was left — the record of who played here.`,
+                            confirmLabel: 'Retire the character',
+                            run: () =>
+                              unlinkMemberCharacterAction(campaignId, m.userId),
+                          })
+                        }
+                      >
+                        Retire character
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="light"
                       className="text-ink-muted data-[hover=true]:text-danger"
                       onPress={() =>
-                        run(() => removeMemberAction(campaignId, m.userId))
+                        confirmThen({
+                          title: `Remove ${m.name ?? 'this player'} from the table?`,
+                          body: 'They lose their seat entirely. Their character is kept, and is theirs.',
+                          confirmLabel: 'Remove them',
+                          destructive: true,
+                          run: () => removeMemberAction(campaignId, m.userId),
+                        })
                       }
                     >
-                      Remove
+                      Remove player
                     </Button>
                   </>
                 )}

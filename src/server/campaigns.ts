@@ -549,6 +549,34 @@ export async function removeMember(
     );
 }
 
+/**
+ * Staff take a character off a table, keeping the player.
+ *
+ * The other half of `removeMember`, and a separate verb on purpose: dismissing
+ * a person and retiring a character are different sentences at a table, and
+ * the common case by far is the second — a hero dies and their player brings
+ * someone else. Making that reachable only by removing somebody first would be
+ * a rule about grief written into a permissions check.
+ *
+ * The instance is **kept**, never deleted. It is the record of who played
+ * there and how it ended, and the chronicle points at it.
+ */
+export async function unlinkMemberCharacter(
+  campaignId: string,
+  targetUserId: string
+): Promise<void> {
+  await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  await db
+    .update(campaignMembers)
+    .set({ characterId: null })
+    .where(
+      and(
+        eq(campaignMembers.campaignId, campaignId),
+        eq(campaignMembers.userId, targetUserId)
+      )
+    );
+}
+
 export async function setMemberRole(
   campaignId: string,
   targetUserId: string,
@@ -576,6 +604,29 @@ export async function setMemberCharacter(
   characterId: string | null
 ): Promise<RuleViolation[]> {
   const userId = await requireUserId();
+
+  /*
+   * A seat is the DM's to give and to take.
+   *
+   * Once a character is seated the player cannot unseat or swap them — that is
+   * the difference between a character sheet and a character *in a campaign*.
+   * Leaving a table is not something you do quietly between sessions, and a
+   * hero who died there should not be able to slip off the member list before
+   * the DM has said so.
+   *
+   * The DM's routes out are `unlinkMemberCharacter` (the person stays) and
+   * `removeMember` (they do not).
+   */
+  const seat = await db.query.campaignMembers.findFirst({
+    where: and(
+      eq(campaignMembers.campaignId, campaignId),
+      eq(campaignMembers.userId, userId)
+    ),
+    columns: { characterId: true },
+  });
+  if (seat?.characterId && seat.characterId !== characterId) {
+    throw new Error('SEAT_IS_TAKEN');
+  }
 
   let character: typeof characters.$inferSelect | undefined;
   if (characterId) {

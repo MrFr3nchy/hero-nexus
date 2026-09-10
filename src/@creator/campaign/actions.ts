@@ -49,6 +49,7 @@ import {
   listInvites,
   listMembers,
   listMyInvites,
+  unlinkMemberCharacter,
   removeMember,
   revokeInvite,
   setCampaignStatus,
@@ -118,6 +119,8 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
       'That hero is already playing at a table. Take the original to this one instead — it is on your heroes page.',
     NOT_AN_INSTANCE:
       'A hero has to be copied onto a table before they can sit at it.',
+    SEAT_IS_TAKEN:
+      'Your hero is seated at this table. Ask your DM to unlink them — swapping characters mid-campaign is theirs to allow.',
     NOT_A_MEMBER: 'You are not a member of this campaign.',
     INVITE_NOT_PENDING: 'That invite is no longer pending.',
     NOT_A_CREATURE: 'Only a creature can be sent into a fight.',
@@ -489,5 +492,24 @@ export async function deleteHandoutAction(handoutId: string): Promise<Result> {
     return { ok: true };
   } catch (err) {
     return fail(err, 'Failed to delete handout.');
+  }
+}
+
+/**
+ * Staff take a character off a table without removing its player.
+ *
+ * The counterpart to `removeMemberAction`. The instance is kept — it is the
+ * record of who played there — so this is an unlinking, not a deletion.
+ */
+export async function unlinkMemberCharacterAction(
+  campaignId: string,
+  targetUserId: string
+): Promise<Result> {
+  try {
+    await unlinkMemberCharacter(campaignId, targetUserId);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to unlink that character.');
   }
 }
