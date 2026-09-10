@@ -8,16 +8,20 @@ import {
 } from '@/@creator/campaign/lib/conditions';
 import {
   abilityModifier,
+  armorClass,
   passivePerception,
   proficiencyBonus,
   spellAttackBonus,
   spellSaveDC,
 } from '@/@creator/character/lib/derive';
-import type {
-  CharacterSheet,
-  SpellSlotLevel,
+import {
+  MAX_ATTUNED,
+  type CharacterSheet,
+  type SpellSlotLevel,
 } from '@/@creator/character/schema';
+import { parseContentData, refKey } from '@/@shared/content';
 import { rollDie } from '@/@shared/lib/dice';
+import { resolveContentRefs } from './content';
 import { db } from '@/db';
 import {
   campaignMembers,
@@ -356,6 +360,179 @@ export async function applyPlayPatch(
     canEdit,
     await conditionsFor(characterId)
   );
+}
+
+/* ------------------------------------------------------------------ *
+ * The loadout — what is in hand and what is prepared today
+ * ------------------------------------------------------------------ */
+
+/**
+ * One inventory row, as play mode needs it.
+ *
+ * Deliberately not the whole `InventoryItem`: play mode toggles what is in
+ * hand, it does not edit the line. Adding a longsword to your pack is a
+ * builder job — you do it between sessions — while drawing the one you are
+ * already carrying is a table job, and the difference is what keeps this
+ * surface safe to hand someone mid-fight.
+ */
+export interface LoadoutItem {
+  id: string;
+  name: string;
+  quantity: number;
+  equipped: boolean;
+  attuned: boolean;
+  /** Whether the content behind it says attunement is required. */
+  requiresAttunement: boolean;
+}
+
+/** One spell, as play mode needs it. */
+export interface LoadoutSpell {
+  /** `refKey(ref)` — the type-carrying key, never the bare slug. */
+  key: string;
+  name: string;
+  level: number;
+  prepared: boolean;
+  alwaysPrepared: boolean;
+}
+
+export interface PlayLoadout {
+  canEdit: boolean;
+  items: LoadoutItem[];
+  spells: LoadoutSpell[];
+  attunedCount: number;
+  maxAttuned: number;
+}
+
+/** What a loadout control may change. One toggle per call. */
+export interface LoadoutPatch {
+  equip?: { itemId: string; equipped: boolean };
+  attune?: { itemId: string; attuned: boolean };
+  prepare?: { key: string; prepared: boolean };
+}
+
+/**
+ * The character's gear and spell list, with the content behind each row
+ * resolved so attunement and spell level are known.
+ */
+export async function getPlayLoadout(
+  characterId: string,
+  campaignId: string | null
+): Promise<PlayLoadout> {
+  const { character, canEdit } = await authorize(characterId, campaignId);
+  const sheet = character.sheet as CharacterSheet;
+
+  const refs = [
+    ...sheet.inventory.map(i => i.ref).filter(r => r !== null),
+    ...sheet.spellcasting.spells.map(s => s.ref),
+  ];
+  const resolved = await resolveContentRefs(refs);
+
+  return {
+    canEdit,
+    maxAttuned: MAX_ATTUNED,
+    attunedCount: sheet.inventory.filter(i => i.attuned).length,
+    items: sheet.inventory.map(item => {
+      const entry = item.ref ? resolved.get(refKey(item.ref)) : undefined;
+      const data =
+        entry && entry.type === 'item'
+          ? parseContentData('item', entry.data)
+          : null;
+      return {
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        equipped: item.equipped,
+        attuned: item.attuned,
+        requiresAttunement: Boolean(data?.requires_attunement),
+      };
+    }),
+    spells: sheet.spellcasting.spells.map(spell => {
+      const entry = resolved.get(refKey(spell.ref));
+      const data =
+        entry && entry.type === 'spell'
+          ? parseContentData('spell', entry.data)
+          : null;
+      return {
+        key: refKey(spell.ref),
+        name: spell.ref.name,
+        // An unresolved spell reports level -1 rather than 0, so it sorts to
+        // its own group instead of masquerading as a cantrip.
+        level: data ? data.level : -1,
+        prepared: spell.prepared,
+        alwaysPrepared: spell.alwaysPrepared,
+      };
+    }),
+  };
+}
+
+/**
+ * Toggle one thing in the loadout.
+ *
+ * Writes straight through, like every other play control — there is no save
+ * button at a table. The attunement cap is enforced here rather than trusted
+ * to the control, because the control is the thing an over-attuned sheet gets
+ * past.
+ */
+export async function applyLoadoutPatch(
+  characterId: string,
+  campaignId: string | null,
+  patch: LoadoutPatch
+): Promise<PlayLoadout> {
+  const { character, canEdit } = await authorize(characterId, campaignId);
+  if (!canEdit) throw new Error('FORBIDDEN');
+
+  const sheet = character.sheet as CharacterSheet;
+  let inventory = sheet.inventory;
+  let spells = sheet.spellcasting.spells;
+
+  if (patch.equip) {
+    const { itemId, equipped } = patch.equip;
+    inventory = inventory.map(i => (i.id === itemId ? { ...i, equipped } : i));
+  }
+
+  if (patch.attune) {
+    const { itemId, attuned } = patch.attune;
+    if (attuned) {
+      const already = inventory.filter(
+        i => i.attuned && i.id !== itemId
+      ).length;
+      if (already >= MAX_ATTUNED) throw new Error('ATTUNEMENT_FULL');
+    }
+    inventory = inventory.map(i => (i.id === itemId ? { ...i, attuned } : i));
+  }
+
+  if (patch.prepare) {
+    const { key, prepared } = patch.prepare;
+    spells = spells.map(s =>
+      refKey(s.ref) === key && !s.alwaysPrepared ? { ...s, prepared } : s
+    );
+  }
+
+  const next: CharacterSheet = {
+    ...sheet,
+    inventory,
+    spellcasting: { ...sheet.spellcasting, spells },
+  };
+
+  // Armour class follows what is worn, so equipping a shield has to move it —
+  // otherwise the sheet says 16 while the tracker says 14 and the DM believes
+  // the tracker.
+  const resolved = await resolveContentRefs(
+    inventory.map(i => i.ref).filter(r => r !== null)
+  );
+  next.combat = { ...next.combat, armorClass: armorClass(next, resolved) };
+
+  await db
+    .update(characters)
+    .set({ sheet: next, updatedAt: new Date().toISOString() })
+    .where(eq(characters.id, characterId));
+
+  await db
+    .update(initiativeEntries)
+    .set({ armorClass: next.combat.armorClass })
+    .where(eq(initiativeEntries.characterId, characterId));
+
+  return getPlayLoadout(characterId, campaignId);
 }
 
 /**

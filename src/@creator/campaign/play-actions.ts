@@ -3,12 +3,15 @@
 import { z } from 'zod';
 
 import {
+  applyLoadoutPatch,
   applyPlayPatch,
+  getPlayLoadout,
   getPlayState,
   listPartyPlayState,
   restParty,
   setPlayConditions,
   spendHitDice,
+  type PlayLoadout,
   type PlayState,
 } from '@/server/play';
 
@@ -24,6 +27,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_FOUND: 'That character no longer exists.',
     NO_HIT_DICE: 'There are no hit dice left to spend.',
     FORBIDDEN: 'That sheet is not yours to change.',
+    ATTUNEMENT_FULL: 'You are already attuned to three items. Break one first.',
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
   // invisible in a bug report. Keep the real one in the server log.
@@ -121,5 +125,50 @@ export async function setPlayConditionsAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Failed to set conditions.');
+  }
+}
+
+/* --- the loadout: what is in hand, and what is prepared today ---------- */
+
+/** The shape a loadout control sends. Mirrors `LoadoutPatch` on the server. */
+export type LoadoutPatchInput = z.infer<typeof loadoutSchema>;
+
+const loadoutSchema = z.object({
+  equip: z
+    .object({ itemId: z.string().min(1).max(64), equipped: z.boolean() })
+    .optional(),
+  attune: z
+    .object({ itemId: z.string().min(1).max(64), attuned: z.boolean() })
+    .optional(),
+  prepare: z
+    .object({ key: z.string().min(1).max(200), prepared: z.boolean() })
+    .optional(),
+});
+
+export async function getPlayLoadoutAction(
+  characterId: string,
+  campaignId: string | null
+): Promise<PlayLoadout | null> {
+  try {
+    return await getPlayLoadout(characterId, campaignId);
+  } catch {
+    return null;
+  }
+}
+
+export async function applyLoadoutPatchAction(
+  characterId: string,
+  campaignId: string | null,
+  input: unknown
+): Promise<Result<PlayLoadout>> {
+  const parsed = loadoutSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid.' };
+  }
+  try {
+    const data = await applyLoadoutPatch(characterId, campaignId, parsed.data);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Failed to change what you are carrying.');
   }
 }

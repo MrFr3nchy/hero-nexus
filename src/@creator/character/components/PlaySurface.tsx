@@ -10,8 +10,9 @@ import {
   Marginalia,
   Ribbon,
 } from '@/@shared/components/ui';
-import type { PlayState } from '@/server/play';
+import type { PlayLoadout, PlayState } from '@/server/play';
 import { AttacksSection } from './sections/AttacksSection';
+import { LoadoutSection } from './sections/LoadoutSection';
 import type { WeaponAttack } from '../lib/derive';
 
 /**
@@ -31,12 +32,14 @@ export function PlaySurface({
   initial,
   campaign,
   attacks,
+  loadout,
 }: {
   initial: PlayState;
   /** The table this hero sits at, or null for one that sits at none. */
   campaign: { campaignId: string; name: string } | null;
   /** Derived on the server, where the inventory's content can be resolved. */
   attacks: WeaponAttack[];
+  loadout: PlayLoadout;
 }) {
   const [state, setState] = useState(initial);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +65,13 @@ export function PlaySurface({
       />
 
       <AttacksSection attacks={attacks} />
+
+      <LoadoutSection
+        initial={loadout}
+        characterId={state.characterId}
+        campaignId={campaign?.campaignId ?? null}
+        onError={setError}
+      />
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4 text-sm">
         {campaign ? (
