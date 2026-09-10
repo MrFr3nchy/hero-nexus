@@ -62,7 +62,13 @@ export function AttacksSection({
               className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-line bg-surface px-3 py-2"
             >
               <Glyph name="sword" size={14} className="text-gold" />
-              <span className="min-w-0 flex-1 truncate text-ink">
+              {/*
+                `basis-full` at narrow widths, so the name owns its own line
+                rather than being squeezed by the pills and numbers beside it.
+                A flex-1 truncate here rendered a longsword as "Longs…", which
+                is the one thing on the row a reader has to be able to read.
+              */}
+              <span className="basis-full text-ink sm:basis-auto sm:flex-1">
                 {attack.name}
               </span>
 
