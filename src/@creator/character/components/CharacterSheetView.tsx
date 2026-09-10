@@ -7,6 +7,8 @@ import {
   Stat,
   StatBlock,
 } from '@/@shared/components/ui';
+import { xpStanding } from '../lib/advancement';
+import { AttacksSection } from './sections/AttacksSection';
 import {
   abilityModifier,
   fmtBonus,
@@ -17,6 +19,7 @@ import {
   skillBonus,
   spellAttackBonus,
   spellSaveDC,
+  type WeaponAttack,
 } from '../lib/derive';
 import type { NoteSection } from '../lib/note-sections';
 import {
@@ -36,6 +39,42 @@ function Field({ label, value }: { label: string; value: string | number }) {
         {label}
       </div>
       <div className="text-ink">{value || '—'}</div>
+    </div>
+  );
+}
+
+/**
+ * Experience, with what it means beside it.
+ *
+ * `identity.xp` has always been on the sheet and nothing has ever read it, so
+ * this is a number a player typed into a box for no reason. The threshold
+ * gives it one — and the second line says milestones out loud, because a
+ * table that levels on story beats is not a table whose sheet should imply
+ * they are behind.
+ */
+function XpField({ sheet }: { sheet: CharacterSheet }) {
+  const xp = sheet.identity.xp;
+  const standing = xpStanding(xp, sheet.identity.level);
+
+  return (
+    <div>
+      <div className="text-[0.7rem] font-medium uppercase tracking-[0.1em] text-ink-subtle">
+        XP
+      </div>
+      <div className="text-ink">
+        {xp || '—'}
+        {standing.canLevel && (
+          <span className="ml-2 text-xs text-gold-strong dark:text-gold">
+            enough for level {standing.earnedLevel}
+          </span>
+        )}
+      </div>
+      {standing.remaining !== null && !standing.canLevel && (
+        <div className="text-xs text-ink-subtle">
+          {standing.remaining.toLocaleString()} more for level{' '}
+          {sheet.identity.level + 1}, if your table counts it
+        </div>
+      )}
     </div>
   );
 }
@@ -73,17 +112,40 @@ const SPELL_LEVELS: SpellSlotLevel[] = [
 export function CharacterSheetView({
   sheet,
   slots,
+  attacks = [],
 }: {
   sheet: CharacterSheet;
   slots?: Partial<Record<NoteSection, ReactNode>>;
+  /**
+   * Derived by the caller, because deriving one needs the sheet's inventory
+   * content resolved and this component takes no database. An empty list is a
+   * character with nothing equipped, which the section says in words.
+   */
+  attacks?: WeaponAttack[];
 }) {
   const pb = proficiencyBonus(sheet.identity.level);
   const dc = spellSaveDC(sheet);
   const atk = spellAttackBonus(sheet);
 
   return (
+    /*
+     * Two columns, not one long stack.
+     *
+     * This was eight `framed` SectionCards in a single `space-y-5` column,
+     * which broke design rule 6 — "if more than one framed card is on screen,
+     * none of them are" — and was the literal cause of the sheet needing a
+     * page of scrolling to read. The vertical stack *was* the layout.
+     *
+     * Now: one framed card, the identity-and-combat head, because that is the
+     * genuinely special surface a reader looks at first. Everything else is a
+     * plain panel in a two-column grid that pairs each row — the six numbers
+     * beside the skills they drive, attacks beside spells, gear beside
+     * proficiencies — with the long prose spanning both columns at the end.
+     * At phone width the grid collapses back to one column, which is the right
+     * answer there.
+     */
     <div className="space-y-5">
-      <SectionCard framed title="Identity">
+      <SectionCard framed title="The character">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           <Field label="Name" value={sheet.identity.name} />
           <Field label="Class" value={sheet.identity.class} />
@@ -92,14 +154,12 @@ export function CharacterSheetView({
           <Field label="Background" value={sheet.identity.background} />
           <Field label="Alignment" value={sheet.identity.alignment} />
           <Field label="Level" value={sheet.identity.level} />
-          <Field label="XP" value={sheet.identity.xp} />
+          <XpField sheet={sheet} />
           <Field label="Size" value={sheet.identity.size} />
         </div>
         {slots?.identity}
-      </SectionCard>
 
-      <SectionCard framed title="Combat">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4 sm:grid-cols-4">
           <Stat label="Prof. bonus" value={fmtBonus(pb)} />
           <Stat label="Initiative" value={fmtBonus(initiative(sheet))} />
           <Stat label="Passive perc." value={passivePerception(sheet)} />
@@ -118,177 +178,190 @@ export function CharacterSheetView({
         {slots?.combat}
       </SectionCard>
 
-      <SectionCard framed title="Ability scores">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {ABILITY_KEYS.map(a => {
-            const score = sheet.abilities[a].score;
-            return (
-              <StatBlock key={a} label={a.slice(0, 3)}>
-                <div className="text-center">
-                  <div className="font-display text-2xl tabular-nums text-ink">
-                    {score}
-                  </div>
-                  <div className="mt-0.5 text-xs text-ink-muted">
-                    mod {fmtBonus(abilityModifier(score))} · save{' '}
-                    {fmtBonus(savingThrow(sheet, a))}
-                  </div>
-                </div>
-              </StatBlock>
-            );
-          })}
-        </div>
-        {slots?.abilities}
-      </SectionCard>
-
-      <SectionCard framed title="Skills">
-        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          {SKILL_KEYS.map(s => (
-            <div
-              key={s}
-              className="flex items-center justify-between rounded-md border border-line px-3 py-1.5 text-sm"
-            >
-              <span className="text-ink">
-                {SKILL_LABELS[s]}
-                <span className="ml-1 text-ink-subtle">
-                  ({SKILL_ABILITY[s].slice(0, 3).toUpperCase()})
-                </span>
-                {sheet.skills[s] && <span className="ml-1 text-gold">●</span>}
-              </span>
-              <span className="tabular-nums text-ink-muted">
-                {fmtBonus(skillBonus(sheet, s))}
-              </span>
-            </div>
-          ))}
-        </div>
-        {slots?.skills}
-      </SectionCard>
-
-      {sheet.spellcasting.ability && (
-        <SectionCard
-          framed
-          title="Spellcasting"
-          bodyClassName="border-t-2 border-t-arcane/50"
-        >
-          <div className="mb-4 grid grid-cols-3 gap-3">
-            <Stat
-              label="Ability"
-              value={ABILITY_LABELS[sheet.spellcasting.ability]}
-            />
-            <Stat label="Save DC" value={dc ?? '—'} />
-            <Stat label="Attack" value={atk === null ? '—' : fmtBonus(atk)} />
-          </div>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-9">
-            {SPELL_LEVELS.map((lvl, i) => {
-              const slot = sheet.spellcasting.slots[lvl];
+      <div className="grid gap-5 lg:grid-cols-2">
+        <SectionCard title="Ability scores">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {ABILITY_KEYS.map(a => {
+              const score = sheet.abilities[a].score;
               return (
-                <Stat
-                  key={lvl}
-                  plain
-                  label={`Lv ${i + 1}`}
-                  value={`${slot.total - slot.expended}/${slot.total}`}
-                />
+                <StatBlock key={a} label={a.slice(0, 3)}>
+                  <div className="text-center">
+                    <div className="font-display text-2xl tabular-nums text-ink">
+                      {score}
+                    </div>
+                    <div className="mt-0.5 text-xs text-ink-muted">
+                      mod {fmtBonus(abilityModifier(score))} · save{' '}
+                      {fmtBonus(savingThrow(sheet, a))}
+                    </div>
+                  </div>
+                </StatBlock>
               );
             })}
           </div>
-          {sheet.spellcasting.spells.length > 0 && (
-            <div className="mt-4 border-t border-line pt-3">
-              <h3 className="mb-2 font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-arcane">
-                Spells known ({sheet.spellcasting.spells.length})
-              </h3>
-              <ul className="grid gap-1 sm:grid-cols-2">
-                {sheet.spellcasting.spells.map(spell => (
-                  <li
-                    key={`${spell.ref.source}:${spell.ref.key}`}
-                    className="flex items-center gap-1.5 text-sm text-ink-muted"
-                  >
-                    <Glyph name="orb" size={13} className="text-gold" />
-                    <span className="truncate">{spell.ref.name}</span>
-                    {spell.ref.source === 'homebrew' && (
-                      <Pill tone="arcane">HB</Pill>
-                    )}
-                    {(spell.prepared || spell.alwaysPrepared) && (
-                      <Pill tone="gold">
-                        {spell.alwaysPrepared ? 'Always' : 'Prepared'}
-                      </Pill>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {slots?.spellcasting}
+          {slots?.abilities}
         </SectionCard>
-      )}
 
-      <SectionCard framed title="Proficiencies & languages">
-        <div className="space-y-3">
-          <Prose label="Armor" value={sheet.proficiencies.armor} />
-          <Prose label="Weapons" value={sheet.proficiencies.weapons} />
-          <Prose label="Tools" value={sheet.proficiencies.tools} />
-          <Prose label="Languages" value={sheet.proficiencies.languages} />
-        </div>
-        {slots?.proficiencies}
-      </SectionCard>
-
-      <SectionCard framed title="Details">
-        <div className="space-y-3">
-          <Prose label="Appearance" value={sheet.details.appearance} />
-          <Prose label="Personality" value={sheet.details.personality} />
-          <Prose label="Backstory" value={sheet.details.backstory} />
-          <Prose label="Class features" value={sheet.details.classFeatures} />
-          <Prose label="Species traits" value={sheet.details.speciesTraits} />
-          <Prose label="Feats" value={sheet.details.feats} />
-        </div>
-        {slots?.details}
-      </SectionCard>
-
-      <SectionCard framed title="Equipment & currency">
-        <div className="space-y-3">
-          {sheet.inventory.length > 0 && (
-            <div>
-              <h3 className="mb-2 font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-gold/80">
-                Carried ({sheet.inventory.length})
-              </h3>
-              <ul className="space-y-1">
-                {sheet.inventory.map(item => (
-                  <li
-                    key={item.id}
-                    className="flex flex-wrap items-center gap-1.5 text-sm text-ink-muted"
-                  >
-                    <span className="tabular-nums text-ink-subtle">
-                      {item.quantity}&times;
-                    </span>
-                    <span className="text-ink">{item.name}</span>
-                    {item.ref?.source === 'homebrew' && (
-                      <Pill tone="arcane">HB</Pill>
-                    )}
-                    {item.equipped && <Pill tone="gold">Equipped</Pill>}
-                    {item.attuned && <Pill tone="success">Attuned</Pill>}
-                    {item.grantedBy && (
-                      <span className="text-xs text-ink-subtle">
-                        from {item.grantedBy}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <Prose label="Equipment notes" value={sheet.equipment.items} />
-          <Prose label="Magic items" value={sheet.equipment.magicItems} />
-          <div className="grid grid-cols-5 gap-2">
-            {(['cp', 'sp', 'ep', 'gp', 'pp'] as const).map(c => (
-              <Stat
-                key={c}
-                plain
-                label={c.toUpperCase()}
-                value={sheet.currency[c]}
-              />
+        <SectionCard title="Skills">
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {SKILL_KEYS.map(s => (
+              <div
+                key={s}
+                className="flex items-center justify-between rounded-md border border-line px-3 py-1.5 text-sm"
+              >
+                <span className="text-ink">
+                  {SKILL_LABELS[s]}
+                  <span className="ml-1 text-ink-subtle">
+                    ({SKILL_ABILITY[s].slice(0, 3).toUpperCase()})
+                  </span>
+                  {sheet.skills[s] && <span className="ml-1 text-gold">●</span>}
+                </span>
+                <span className="tabular-nums text-ink-muted">
+                  {fmtBonus(skillBonus(sheet, s))}
+                </span>
+              </div>
             ))}
           </div>
+          {slots?.skills}
+        </SectionCard>
+
+        <AttacksSection attacks={attacks} />
+
+        {sheet.spellcasting.ability && (
+          <SectionCard
+            title="Spellcasting"
+            bodyClassName="border-t-2 border-t-arcane/50"
+          >
+            <div className="mb-4 grid grid-cols-3 gap-3">
+              <Stat
+                label="Ability"
+                value={ABILITY_LABELS[sheet.spellcasting.ability]}
+              />
+              <Stat label="Save DC" value={dc ?? '—'} />
+              <Stat label="Attack" value={atk === null ? '—' : fmtBonus(atk)} />
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-9">
+              {SPELL_LEVELS.map((lvl, i) => {
+                const slot = sheet.spellcasting.slots[lvl];
+                return (
+                  <Stat
+                    key={lvl}
+                    plain
+                    label={`Lv ${i + 1}`}
+                    value={`${slot.total - slot.expended}/${slot.total}`}
+                  />
+                );
+              })}
+            </div>
+            {sheet.spellcasting.spells.length > 0 && (
+              <div className="mt-4 border-t border-line pt-3">
+                <h3 className="mb-2 font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-arcane">
+                  Spells known ({sheet.spellcasting.spells.length})
+                </h3>
+                <ul className="grid gap-1 sm:grid-cols-2">
+                  {sheet.spellcasting.spells.map(spell => (
+                    <li
+                      key={`${spell.ref.source}:${spell.ref.key}`}
+                      className="flex items-center gap-1.5 text-sm text-ink-muted"
+                    >
+                      <Glyph name="orb" size={13} className="text-gold" />
+                      <span className="truncate">{spell.ref.name}</span>
+                      {spell.ref.source === 'homebrew' && (
+                        <Pill tone="arcane">HB</Pill>
+                      )}
+                      {(spell.prepared || spell.alwaysPrepared) && (
+                        <Pill tone="gold">
+                          {spell.alwaysPrepared ? 'Always' : 'Prepared'}
+                        </Pill>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {slots?.spellcasting}
+          </SectionCard>
+        )}
+
+        <SectionCard title="Proficiencies & languages">
+          <div className="space-y-3">
+            <Prose label="Armor" value={sheet.proficiencies.armor} />
+            <Prose label="Weapons" value={sheet.proficiencies.weapons} />
+            <Prose label="Tools" value={sheet.proficiencies.tools} />
+            <Prose label="Languages" value={sheet.proficiencies.languages} />
+          </div>
+          {slots?.proficiencies}
+        </SectionCard>
+
+        <SectionCard title="Equipment & currency">
+          <div className="space-y-3">
+            {sheet.inventory.length > 0 && (
+              <div>
+                <h3 className="mb-2 font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-gold/80">
+                  Carried ({sheet.inventory.length})
+                </h3>
+                <ul className="space-y-1">
+                  {sheet.inventory.map(item => (
+                    <li
+                      key={item.id}
+                      className="flex flex-wrap items-center gap-1.5 text-sm text-ink-muted"
+                    >
+                      <span className="tabular-nums text-ink-subtle">
+                        {item.quantity}&times;
+                      </span>
+                      <span className="text-ink">{item.name}</span>
+                      {item.ref?.source === 'homebrew' && (
+                        <Pill tone="arcane">HB</Pill>
+                      )}
+                      {item.equipped && <Pill tone="gold">Equipped</Pill>}
+                      {item.attuned && <Pill tone="success">Attuned</Pill>}
+                      {item.grantedBy && (
+                        <span className="text-xs text-ink-subtle">
+                          from {item.grantedBy}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <Prose label="Equipment notes" value={sheet.equipment.items} />
+            <Prose label="Magic items" value={sheet.equipment.magicItems} />
+            <div className="grid grid-cols-5 gap-2">
+              {(['cp', 'sp', 'ep', 'gp', 'pp'] as const).map(c => (
+                <Stat
+                  key={c}
+                  plain
+                  label={c.toUpperCase()}
+                  value={sheet.currency[c]}
+                />
+              ))}
+            </div>
+          </div>
+          {slots?.equipment}
+        </SectionCard>
+
+        {/* Prose spans both columns: backstory in a half-width well is a
+          column of six-word lines. */}
+        <div className="lg:col-span-2">
+          <SectionCard title="Details">
+            <div className="space-y-3">
+              <Prose label="Appearance" value={sheet.details.appearance} />
+              <Prose label="Personality" value={sheet.details.personality} />
+              <Prose label="Backstory" value={sheet.details.backstory} />
+              <Prose
+                label="Class features"
+                value={sheet.details.classFeatures}
+              />
+              <Prose
+                label="Species traits"
+                value={sheet.details.speciesTraits}
+              />
+              <Prose label="Feats" value={sheet.details.feats} />
+            </div>
+            {slots?.details}
+          </SectionCard>
         </div>
-        {slots?.equipment}
-      </SectionCard>
+      </div>
     </div>
   );
 }

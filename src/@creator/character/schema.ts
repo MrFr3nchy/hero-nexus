@@ -131,6 +131,26 @@ const skills = z.object({
   survival: z.boolean(),
 });
 
+/**
+ * Mirrors `WeaponProficiency` in `@/@shared/content/weapons`, which is where
+ * the reasoning for the shape lives — in particular why `martialProperties`
+ * exists rather than two booleans.
+ */
+const weaponProficiencySchema = z
+  .object({
+    simple: z.boolean().default(false).catch(false),
+    martial: z.boolean().default(false).catch(false),
+    martialProperties: z.array(z.string().max(40)).max(8).default([]).catch([]),
+    names: z.array(z.string().max(60)).max(40).default([]).catch([]),
+  })
+  .default({
+    simple: false,
+    martial: false,
+    martialProperties: [],
+    names: [],
+  })
+  .catch({ simple: false, martial: false, martialProperties: [], names: [] });
+
 const spellSlot = z.object({
   total: z.number().int().min(0).max(9),
   expended: z.number().int().min(0).max(9),
@@ -478,6 +498,23 @@ export const characterSheetSchema = z.object({
      * you — a chip that says "Exhausted" and nothing else is unusable.
      */
     exhaustion: z.number().int().min(0).max(6).default(0),
+    /**
+     * Conditions the character is under, from the shared vocabulary in
+     * `@/@creator/campaign/lib/conditions`.
+     *
+     * On the sheet rather than only on `initiative_entries`, which is a row
+     * inside an encounter: when the fight ends that row goes and the condition
+     * goes with it. A character poisoned by a trap on Tuesday and cured on
+     * Thursday had nowhere to record it for the two days in between. Over a
+     * one-shot that is invisible; over a year it is the difference between a
+     * sheet that is true and a sheet that is a snapshot of the last fight.
+     *
+     * Kept as loose strings, not an enum, so a key retired from the
+     * vocabulary degrades to an unknown chip rather than failing the parse of
+     * the whole sheet — the same bargain `.catch()` makes everywhere else.
+     * `exhaustion` above is deliberately not one of these.
+     */
+    conditions: z.array(z.string().max(30)).max(20).default([]).catch([]),
   }),
 
   abilities,
@@ -485,7 +522,23 @@ export const characterSheetSchema = z.object({
 
   proficiencies: z.object({
     armor: z.string().trim().max(300).default(''),
+    /**
+     * The sentence a player reads. Kept, and no longer load-bearing — the
+     * structured record below is what anything checking a weapon reads, the
+     * same split `equipment.items` and `inventory` already use.
+     */
     weapons: z.string().trim().max(300).default(''),
+    /**
+     * What the character is actually proficient with, in a shape
+     * `isProficientWith` can answer from.
+     *
+     * Defaulted rather than optional so every sheet written before this parses
+     * with an empty grant and keeps its prose. An empty grant means no attack
+     * on the sheet claims a proficiency bonus, which is the honest reading of
+     * "nobody has said what this character can use" — guessing from the prose
+     * at read time would make the bonus appear and disappear with a typo.
+     */
+    weaponProficiency: weaponProficiencySchema,
     tools: z.string().trim().max(300).default(''),
     languages: z.string().trim().max(300).default(''),
   }),
@@ -603,6 +656,7 @@ export function makeEmptySheet(): CharacterSheet {
       deathSaveSuccesses: 0,
       deathSaveFailures: 0,
       exhaustion: 0,
+      conditions: [],
     },
     abilities: {
       strength: { score: 10, proficientSave: false },
@@ -632,7 +686,18 @@ export function makeEmptySheet(): CharacterSheet {
       stealth: false,
       survival: false,
     },
-    proficiencies: { armor: '', weapons: '', tools: '', languages: '' },
+    proficiencies: {
+      armor: '',
+      weapons: '',
+      weaponProficiency: {
+        simple: false,
+        martial: false,
+        martialProperties: [],
+        names: [],
+      },
+      tools: '',
+      languages: '',
+    },
     spellcasting: {
       ability: '',
       spells: [],

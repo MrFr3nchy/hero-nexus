@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Button, Select, SelectItem, Tab, Tabs } from '@heroui/react';
+import { Button, Link, Select, SelectItem, Tab, Tabs } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm, useWatch, type Resolver } from 'react-hook-form';
@@ -11,8 +11,13 @@ import { describeRules } from '@/@creator/campaign/lib/rules';
 import type { BuilderCampaignRow } from '@/server/campaigns';
 
 import type { CharacterStatus } from '@/server/characters';
+import type { PortraitRow } from '@/server/character-portraits';
 
-import { getBuildCatalogAction, saveCharacterAction } from '../actions';
+import {
+  getBuildCatalogAction,
+  getPortraitAction,
+  saveCharacterAction,
+} from '../actions';
 import {
   characterSheetSchema,
   makeEmptySheet,
@@ -44,6 +49,8 @@ import {
   SpellcastingSection,
   SpellListSection,
 } from './sections';
+import { SectionCard } from '@/@shared/components/ui';
+import { PortraitControl } from './PortraitControl';
 import { CharacterWizard } from './wizard/CharacterWizard';
 import type { InitialPick } from './wizard/types';
 
@@ -54,6 +61,15 @@ interface CharacterFormProps {
   /** The table `catalog` was loaded for. Changing tables refetches it. */
   catalogCampaignId?: string;
   characterId?: string;
+  /**
+   * Why the builder was opened. `level-up` lands a guided build on the Levels
+   * step instead of Class; anything else opens where it always did.
+   */
+  intent?: 'level-up';
+  /** Set when the open character is a campaign instance rather than a blueprint. */
+  playsAt?: { campaignId: string; name: string } | null;
+  /** The blueprint an instance was forked from, so the UI can link back to it. */
+  forkedFrom?: string | null;
   initialSheet?: CharacterSheet;
   /** Campaigns the player belongs to and can attach this character to. */
   campaigns: BuilderCampaignRow[];
@@ -97,6 +113,9 @@ export function CharacterForm({
   catalog: initialCatalog,
   catalogCampaignId,
   characterId: openedWith,
+  intent,
+  playsAt = null,
+  forkedFrom = null,
   initialSheet,
   campaigns,
   initialCampaignId,
@@ -119,6 +138,22 @@ export function CharacterForm({
    * minting a second character.
    */
   const [characterId, setCharacterId] = useState(openedWith);
+  // Fetched rather than passed in: the form is opened from several places and
+  // only one of them is a server component that could have loaded it.
+  const [portrait, setPortrait] = useState<PortraitRow | null>(null);
+  useEffect(() => {
+    if (!characterId) {
+      setPortrait(null);
+      return;
+    }
+    let live = true;
+    getPortraitAction(characterId).then(p => {
+      if (live) setPortrait(p);
+    });
+    return () => {
+      live = false;
+    };
+  }, [characterId]);
 
   /**
    * Whether the row is a draft *now*, not at page load — the first draft save
@@ -205,7 +240,23 @@ export function CharacterForm({
   const [view, setView] = useState<View>(() =>
     !initialSheet || initialSheet.build.mode === 'guided' ? 'guided' : 'sheet'
   );
+  // 'core' already carries the level box, which is where a hand-written sheet
+  // wants to land for a level-up. See `wizardStep` below.
   const [sheetTab, setSheetTab] = useState<SheetTab>('core');
+
+  /**
+   * Where a "Level up" link lands.
+   *
+   * A guided build gets the Levels step, which walks the class table and
+   * records hit points, subclass and every ASI into the DM's log. A
+   * hand-written sheet gets the sheet it was written as, because switching it
+   * to guided would hand `composeSheet` ownership of fields the player typed
+   * themselves — the ladder is offered, never forced.
+   */
+  const wizardStep =
+    intent === 'level-up' && initialSheet?.build.mode === 'guided'
+      ? ('advancement' as const)
+      : undefined;
 
   // Stats for the content the sheet points at — the inventory and spell list
   // hold references, so their numbers are fetched rather than stored.
@@ -471,53 +522,86 @@ export function CharacterForm({
     );
   };
 
-  const campaignPicker = campaigns.length > 0 && (
+  /*
+   * An instance is already committed to its table and cannot be moved.
+   *
+   * Offering a picker that only ever produces a refusal is worse than not
+   * offering one, so this replaces it with the fact and the way forward: the
+   * original is what goes to a new table, and it is one link away.
+   */
+  const campaignPicker = playsAt ? (
     <div className="rounded-lg border border-line bg-surface p-3">
-      <Select
-        label="Play this character at"
-        placeholder="No campaign — a character of your own"
-        selectedKeys={campaignId ? [campaignId] : []}
-        onSelectionChange={keys =>
-          setCampaignId((Array.from(keys)[0] as string) ?? '')
-        }
-        classNames={{ trigger: 'bg-surface-2 border-line' }}
-      >
-        {campaigns.map(c => (
-          <SelectItem key={c.id}>{c.name}</SelectItem>
-        ))}
-      </Select>
-      {campaign?.linkedCharacterId &&
-        campaign.linkedCharacterId !== characterId && (
-          <p className="mt-2 text-sm text-warning">
-            {campaign.linkedCharacterName ?? 'Another character'} is your
-            character at that table right now — saving replaces them.
+      <p className="text-sm text-ink">
+        This is the copy of{' '}
+        <span className="text-ink">{initialSheet?.identity.name}</span> that
+        plays at <span className="text-gold-strong">{playsAt.name}</span>. Its
+        levels, loot and scars belong to that table.
+      </p>
+      <p className="mt-1 text-sm text-ink-muted">
+        A hero plays at one table per copy.{' '}
+        {forkedFrom ? (
+          <Link
+            href={`/creator/character?id=${forkedFrom}`}
+            className="text-gold-strong underline-offset-2 hover:underline"
+          >
+            Open the original
+          </Link>
+        ) : (
+          <span>The original</span>
+        )}{' '}
+        to take them somewhere new.
+      </p>
+    </div>
+  ) : (
+    campaigns.length > 0 && (
+      <div className="rounded-lg border border-line bg-surface p-3">
+        <Select
+          label="Play this character at"
+          placeholder="No campaign — a character of your own"
+          selectedKeys={campaignId ? [campaignId] : []}
+          onSelectionChange={keys =>
+            setCampaignId((Array.from(keys)[0] as string) ?? '')
+          }
+          classNames={{ trigger: 'bg-surface-2 border-line' }}
+        >
+          {campaigns.map(c => (
+            <SelectItem key={c.id}>{c.name}</SelectItem>
+          ))}
+        </Select>
+        {campaign?.linkedCharacterId &&
+          campaign.linkedCharacterId !== characterId && (
+            <p className="mt-2 text-sm text-warning">
+              {campaign.linkedCharacterName ?? 'Another character'} is your
+              character at that table right now — saving replaces them.
+            </p>
+          )}
+        {ruleLines.length > 0 && (
+          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-ink-muted">
+            {ruleLines.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        )}
+        {campaign && ruleLines.length === 0 && (
+          <p className="mt-2 text-sm text-ink-muted">
+            This table uses the standard rules.
           </p>
         )}
-      {ruleLines.length > 0 && (
-        <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-ink-muted">
-          {ruleLines.map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
-      )}
-      {campaign && ruleLines.length === 0 && (
-        <p className="mt-2 text-sm text-ink-muted">
-          This table uses the standard rules.
-        </p>
-      )}
-      {/*
+        {/*
         The table is chosen now and honoured at the end. Saying so is the point
         of the line: the picker narrows the options from this moment, so it has
         to be answerable before the hero is finished, and a player who saves a
         draft should know the seat is not taken yet.
       */}
-      {campaign && (
-        <p className="mt-2 text-sm text-ink-subtle">
-          The options below are already narrowed to this table. Your hero takes
-          their seat when the build is finished — a draft holds no chair.
-        </p>
-      )}
-    </div>
+        {campaign && (
+          <p className="mt-2 text-sm text-ink-subtle">
+            The options below are already narrowed to this table. Your hero
+            takes their seat when the build is finished — a draft holds no
+            chair.
+          </p>
+        )}
+      </div>
+    )
   );
 
   return (
@@ -551,6 +635,7 @@ export function CharacterForm({
           header={campaignPicker}
           footer={actions}
           onSwitchToSheet={enterSheet}
+          initialStep={wizardStep}
         />
       ) : (
         <div className="space-y-5">
@@ -624,6 +709,24 @@ export function CharacterForm({
               <div className="grid gap-5 lg:grid-cols-2">
                 <DetailsSection control={control} />
                 <div className="space-y-5">
+                  {/*
+                    Only once the hero exists: a portrait is stored against a
+                    character id, and there is nothing to hang it on until the
+                    first save. A brand-new sheet gets the control the moment
+                    it is saved and reopened.
+                  */}
+                  {characterId && (
+                    <SectionCard
+                      title="Portrait"
+                      description="A face for the party cards and the initiative list."
+                    >
+                      <PortraitControl
+                        characterId={characterId}
+                        initial={portrait}
+                        onChange={setPortrait}
+                      />
+                    </SectionCard>
+                  )}
                   <EquipmentSection control={control} />
                   <CurrencySection control={control} />
                   {limits.allowHomebrew && (

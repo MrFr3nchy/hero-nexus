@@ -103,12 +103,38 @@ const skillChoice = z
   .default(null)
   .catch(null);
 
+/**
+ * What a class grants proficiency with, in a form something can check.
+ *
+ * `weapons` above is the sentence Open5e ships and a human reads. This is the
+ * same fact in a shape `isProficientWith` can answer from. `martialProperties`
+ * is the part two booleans cannot express: the Rogue gets "Martial weapons
+ * that have the Finesse or Light property" and the Monk the Light ones, so a
+ * model without it either hands a Rogue a greataxe or takes their rapier away.
+ * Empty means every martial weapon — what Fighter and Barbarian get.
+ */
+const weaponProficiency = z
+  .object({
+    simple: flag,
+    martial: flag,
+    martialProperties: listOf(text(40), 8),
+    names: listOf(text(60), 40),
+  })
+  .default({
+    simple: false,
+    martial: false,
+    martialProperties: [],
+    names: [],
+  })
+  .catch({ simple: false, martial: false, martialProperties: [], names: [] });
+
 /** Mirrors `CoreTraits`. */
 const coreTraits = z.object({
   primaryAbilities: listOf(abilityKey, 6),
   savingThrows: listOf(abilityKey, 6),
   skillChoice,
   weapons: text(1000),
+  weaponProficiency,
   armor: text(1000),
   tools: text(1000),
   equipment: listOf(equipmentOption, 8),
@@ -260,6 +286,19 @@ const weaponStats = z
     is_simple: flag,
     /** Free text: Finesse, Heavy, Two-Handed, a mastery property… */
     properties: listOf(text(60), 20),
+    /**
+     * The 2024 mastery property, or '' for a weapon with none.
+     *
+     * Kept beside `properties` rather than dug back out of it. Open5e tags
+     * this in the raw row — a property entry carries `type: "Mastery"` — and
+     * flattening the list to bare names threw that tag away, leaving the
+     * edition's signature martial mechanic indistinguishable from a note
+     * about grip. `properties` still lists it, so nothing that reads the old
+     * shape breaks.
+     */
+    mastery: text(40),
+    /** Two-handed damage for a Versatile weapon, e.g. "1d10". */
+    versatile_dice: text(20),
   })
   .nullable()
   .default(null)

@@ -13,6 +13,7 @@ import type { GlyphName } from '@/@shared/components/ui/Glyph';
 
 export const SCREEN_PANEL_KEYS = [
   'initiative',
+  'mine',
   'vitals',
   'dice',
   'reveals',
@@ -45,6 +46,17 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     label: 'Initiative',
     glyph: 'sword',
     description: 'The order, hit points, conditions, and whose turn it is.',
+    players: true,
+  },
+  mine: {
+    key: 'mine',
+    label: 'Your hero',
+    glyph: 'shield',
+    description:
+      'Your own gear, prepared spells and conditions, without leaving the table.',
+    // Staff have no hero of their own at this table, so the panel would be an
+    // empty box for them. It says so rather than being hidden, because a DM
+    // who also plays elsewhere will look for it.
     players: true,
   },
   vitals: {

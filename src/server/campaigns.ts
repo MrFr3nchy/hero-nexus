@@ -593,6 +593,25 @@ export async function setMemberCharacter(
      * builder hides the control, and this is the reason it can.
      */
     if (character.status === 'draft') throw new Error('CHARACTER_IS_DRAFT');
+
+    /*
+     * Only an instance of *this* table may be seated.
+     *
+     * A hero taken to a campaign is copied and the copy is what plays — see
+     * the third model decision in `docs/handoff/the-long-campaign/README.md`.
+     * Before that split, membership pointed straight at the player's own row
+     * and nothing stopped a second campaign pointing at the same one, so
+     * levelling at one table levelled the hero at the other.
+     *
+     * The guard is a column check rather than a call into `characters.ts`,
+     * which imports this module: `seatCharacterAtCampaign` there is the
+     * high-level operation that forks and then calls this, and this stays the
+     * low-level "point the membership at this row" with an invariant it can
+     * check on the row it has already loaded.
+     */
+    if (character.campaignId !== campaignId) {
+      throw new Error('NOT_AN_INSTANCE');
+    }
   }
 
   const result = await db

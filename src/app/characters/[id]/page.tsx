@@ -14,6 +14,9 @@ import {
 import { PublishHero } from '@/@creator/library/components';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import { PageHeader, PageShell } from '@/@shared/components/ui';
+import { weaponAttacks } from '@/@creator/character/lib/derive';
+import { characterTable } from '@/server/characters';
+import { resolveContentRefs } from '@/server/content';
 import { publicationForCharacter } from '@/server/library';
 import {
   listSecrets,
@@ -42,7 +45,20 @@ export default async function CharacterSheetPage({
 
   // A character with no table has no notes and no secrets — just the sheet.
   const table = await tableContext(id);
+  // `tableContext` answers "may this viewer see notes"; it does not carry the
+  // campaign's name, and the header has to say where this hero sits.
+  const seat = await characterTable(id);
   const listing = await publicationForCharacter(id);
+  // Attacks need the inventory's content resolved: the sheet stores refs, not
+  // stats (content-model rule 1), so nothing on it knows what a longsword does.
+  const attacks = weaponAttacks(
+    character.sheet,
+    await resolveContentRefs(
+      character.sheet.inventory
+        .map(i => i.ref)
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+    )
+  );
   const [notes, secrets] = table
     ? await Promise.all([listSheetNotes(id), listSecrets(id)])
     : [[], []];
@@ -74,13 +90,28 @@ export default async function CharacterSheetPage({
         </Link>
         <PageHeader
           title={character.name || 'Character'}
-          description={`Level ${character.level} ${character.class} · ${character.species}`}
+          description={
+            `Level ${character.level} ${character.class} · ${character.species}` +
+            (seat ? ` · at ${seat.name}` : '')
+          }
           actions={
             <>
               {/* A plain link, not HeroUI's Button: this page is a server
                   component, and HeroUI's button pulls in a client-only
                   context. `PublishHero` is a client component of its own, so it
                   may use one. */}
+              <Link
+                href={`/characters/${id}/play`}
+                className="rounded-md border border-gold/60 bg-gold/10 px-3 py-1.5 text-sm text-ink hover:border-gold"
+              >
+                Run this hero
+              </Link>
+              <Link
+                href={`/creator/character?id=${id}&intent=level-up`}
+                className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-sm text-ink hover:border-gold/60"
+              >
+                Level up
+              </Link>
               <Link
                 href={`/creator/character?id=${id}`}
                 className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-sm text-ink hover:border-gold/60"
@@ -97,7 +128,11 @@ export default async function CharacterSheetPage({
         />
 
         <div className="space-y-6">
-          <CharacterSheetView sheet={character.sheet} slots={slots} />
+          <CharacterSheetView
+            sheet={character.sheet}
+            slots={slots}
+            attacks={attacks}
+          />
 
           {table && (
             <SecretsLog

@@ -18,6 +18,7 @@ import type { ContentEntry, ContentRef, ContentType } from '@/@shared/content';
 import { loadBuildCatalog, loadClassDef } from './lib/srd/catalog';
 import type { BuildCatalog, ClassDef } from './lib/srd/types';
 import type { CharacterSheet } from './schema';
+import { getPortrait, type PortraitRow } from '@/server/character-portraits';
 
 export async function listCharactersAction(): Promise<CharacterRow[]> {
   return listCharacters();
@@ -141,4 +142,21 @@ export async function resolveContentAction(
 ): Promise<ContentEntry[]> {
   const resolved = await resolveContentRefs(refs);
   return [...resolved.values()];
+}
+
+/**
+ * The character's portrait, for a surface that needs to render it.
+ *
+ * Setting one goes through `POST /api/characters/[id]/portrait` rather than an
+ * action, because a server action cannot stream a file — the same reason the
+ * campaign image and handout uploads are routes.
+ */
+export async function getPortraitAction(
+  characterId: string
+): Promise<PortraitRow | null> {
+  try {
+    return await getPortrait(characterId);
+  } catch {
+    return null;
+  }
 }

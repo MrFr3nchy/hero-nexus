@@ -64,6 +64,59 @@ export function slotsAtLevel(
   return out;
 }
 
+/**
+ * The 2024 experience table: the total XP a character needs to reach each
+ * level, indexed by that level.
+ *
+ * `identity.xp` has been on the sheet since the beginning and nothing has ever
+ * read it, so a player typed a number into a box that meant nothing. This is
+ * what gives it a meaning — and the surface that shows it also says that many
+ * tables run on milestones instead, because a threshold presented as the only
+ * way to level is wrong for half of them.
+ */
+const XP_FOR_LEVEL = [
+  0, 0, 300, 900, 2_700, 6_500, 14_000, 23_000, 34_000, 48_000, 64_000, 85_000,
+  100_000, 120_000, 140_000, 165_000, 195_000, 225_000, 265_000, 305_000,
+  355_000,
+] as const;
+
+/** Total XP needed to reach `level`. 0 for level 1, and for anything past 20. */
+export function xpForLevel(level: number): number {
+  return XP_FOR_LEVEL[level] ?? 0;
+}
+
+/** The level a given XP total earns, 1–20. */
+export function levelForXp(xp: number): number {
+  let level = 1;
+  for (let n = 2; n <= 20; n++) {
+    if (xp >= XP_FOR_LEVEL[n]) level = n;
+  }
+  return level;
+}
+
+/** What a character's XP says about where they are on the ladder. */
+export interface XpStanding {
+  /** The level their XP has earned, which may differ from the sheet's. */
+  earnedLevel: number;
+  /** True when XP has outrun the level written on the sheet. */
+  canLevel: boolean;
+  /** Total XP for the next level, or null at 20. */
+  nextAt: number | null;
+  /** How much more is needed, or null at 20. */
+  remaining: number | null;
+}
+
+export function xpStanding(xp: number, level: number): XpStanding {
+  const earnedLevel = levelForXp(xp);
+  const nextAt = level >= 20 ? null : xpForLevel(level + 1);
+  return {
+    earnedLevel,
+    canLevel: earnedLevel > level,
+    nextAt,
+    remaining: nextAt === null ? null : Math.max(0, nextAt - xp),
+  };
+}
+
 const ORDINAL = [
   '',
   '1st',

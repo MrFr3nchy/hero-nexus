@@ -200,11 +200,7 @@ export function SpellListSection({
                           commit(spells.filter(s => refKey(s.ref) !== key))
                         }
                       >
-                        <Glyph
-                          name="question"
-                          size={14}
-                          className="rotate-45"
-                        />
+                        <Glyph name="x" size={14} />
                       </Button>
                     </li>
                   );

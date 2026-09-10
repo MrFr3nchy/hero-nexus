@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 
 import { requireUserId } from './session-user';
 import { db } from '@/db';
@@ -11,6 +11,7 @@ import {
   characterAuditLog,
   characterHistory,
   characterHomebrew,
+  characterPortraits,
   characters,
   homebrew,
   homebrewApprovals,
@@ -19,9 +20,13 @@ import {
 import {
   mergeCampaignSettings,
   requireCampaignRole,
+  setMemberCharacter,
   submitCharacterHomebrewForApproval,
 } from '@/server/campaigns';
-import { checkSheetAgainstRules } from '@/@creator/campaign/lib/rules';
+import {
+  checkSheetAgainstRules,
+  type RuleViolation,
+} from '@/@creator/campaign/lib/rules';
 import { listContentIdsForCampaigns } from './campaign-content';
 import { migrateStoredSheet } from '@/@creator/character/lib/migrate-sheet';
 import {
@@ -52,6 +57,38 @@ export interface CharacterRow {
   status: CharacterStatus;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The table this hero sits at, or null. Denormalised onto the row because
+   * the roster is the one surface that has to say it, and a card that cannot
+   * name its campaign is the reason a player opens five sheets looking for
+   * the one their DM meant.
+   */
+  table: { campaignId: string; name: string } | null;
+  /** The hero's face, or null. Same reasoning as `table`: the roster shows it. */
+  portrait: { url: string; alt: string } | null;
+  /** Hit points, so two copies of one hero read as the different sheets they are. */
+  hp: { current: number; max: number } | null;
+  /**
+   * The blueprint this instance was forked from, or null.
+   *
+   * Null on a blueprint, and also null on a hero who was already seated before
+   * instancing existed — `campaignId` is what distinguishes those two, not
+   * this.
+   */
+  forkedFrom: string | null;
+  /** The table this row plays at, or null for a blueprint. */
+  campaignId: string | null;
+  /**
+   * Whether this instance currently holds the seat at its table.
+   *
+   * An instance keeps its `campaignId` after being swapped out, because it
+   * really is the hero who played those levels there and detaching it would
+   * throw that away. But `table` alone would then read "playing at Locandras"
+   * for somebody who was benched a month ago, so the two facts are separate:
+   * `table` is where they played, this is whether they still hold the chair.
+   * Always false for a blueprint.
+   */
+  seated: boolean;
 }
 
 export interface CharacterAuditEntry {
@@ -98,15 +135,156 @@ const listColumns = {
   status: characters.status,
   createdAt: characters.createdAt,
   updatedAt: characters.updatedAt,
+  campaignId: characters.campaignId,
+  forkedFrom: characters.forkedFrom,
+  /*
+   * Hit points, read out of the sheet blob by SQLite rather than by shipping
+   * every sheet to the server and parsing it.
+   *
+   * The roster earns these: two copies of one hero sitting side by side at the
+   * same level look identical, and the numbers are the thing that makes their
+   * divergence visible rather than merely stated in the caption underneath.
+   */
+  hpCurrent: sql<number>`json_extract(${characters.sheet}, '$.combat.hitPointsCurrent')`,
+  hpMax: sql<number>`json_extract(${characters.sheet}, '$.combat.hitPointsMax')`,
 };
+
+/**
+ * The table a character plays at, or null for a blueprint.
+ *
+ * A column read now that a hero at a table is an instance of their own. This
+ * used to join through `campaign_members` and take the first row it found,
+ * which quietly picked one of several when a character was seated at two
+ * tables — a state nothing prevented. An instance has exactly one campaign
+ * because it *is* one campaign's copy.
+ */
+export async function characterTable(
+  characterId: string
+): Promise<{ campaignId: string; name: string } | null> {
+  const row = await db
+    .select({ campaignId: campaigns.id, name: campaigns.name })
+    .from(characters)
+    .innerJoin(campaigns, eq(campaigns.id, characters.campaignId))
+    .where(eq(characters.id, characterId))
+    .limit(1);
+  return row[0] ?? null;
+}
+
+/**
+ * One character's portrait, shaped for a row. No permission check.
+ *
+ * An instance with no face of its own falls back to its blueprint's, so a
+ * fork does not have to copy the bytes — and deleting one portrait cannot
+ * unlink a file the other is still pointing at.
+ */
+async function portraitFor(
+  characterId: string,
+  forkedFrom: string | null = null
+): Promise<{ url: string; alt: string } | null> {
+  const own = await db.query.characterPortraits.findFirst({
+    where: eq(characterPortraits.characterId, characterId),
+  });
+  const row =
+    own ??
+    (forkedFrom
+      ? await db.query.characterPortraits.findFirst({
+          where: eq(characterPortraits.characterId, forkedFrom),
+        })
+      : undefined);
+  if (!row) return null;
+  return {
+    // Always the asking character's own route, even when the bytes belong to
+    // its blueprint. The route resolves the fallback, so access is judged on
+    // the instance — which has a seat — rather than on a blueprint that plays
+    // nowhere and would 404 for the DM.
+    url: row.remoteUrl || `/api/characters/${characterId}/portrait`,
+    alt: row.alt,
+  };
+}
+
+/** Whether this row currently holds a chair at its table. */
+async function isSeated(characterId: string): Promise<boolean> {
+  const row = await db.query.campaignMembers.findFirst({
+    where: eq(campaignMembers.characterId, characterId),
+    columns: { id: true },
+  });
+  return Boolean(row);
+}
 
 export async function listCharacters(): Promise<CharacterRow[]> {
   const userId = await requireUserId();
-  return db
+  const rows = await db
     .select(listColumns)
     .from(characters)
     .where(eq(characters.ownerId, userId))
     .orderBy(desc(characters.updatedAt));
+
+  // Campaign names for the instances in this roster, in one query. The
+  // instance carries its own `campaignId`, so this only needs the name.
+  const campaignIds = [
+    ...new Set(rows.map(r => r.campaignId).filter((c): c is string => !!c)),
+  ];
+  const tables = campaignIds.length
+    ? await db
+        .select({ id: campaigns.id, name: campaigns.name })
+        .from(campaigns)
+        .where(inArray(campaigns.id, campaignIds))
+    : [];
+  const tableName = new Map(tables.map(t => [t.id, t.name]));
+
+  // Which instances actually hold their chair. One query for the roster.
+  const seatedIds = new Set(
+    (
+      await db
+        .select({ characterId: campaignMembers.characterId })
+        .from(campaignMembers)
+        .where(eq(campaignMembers.userId, userId))
+    )
+      .map(r => r.characterId)
+      .filter((id): id is string => !!id)
+  );
+
+  // Every portrait for this owner's heroes in one query. Ownership is the
+  // access check here — these are all the caller's own characters — so this
+  // does not go through `getPortrait`, which re-derives that per row.
+  const faces = await db
+    .select({
+      characterId: characterPortraits.characterId,
+      filePath: characterPortraits.filePath,
+      remoteUrl: characterPortraits.remoteUrl,
+      alt: characterPortraits.alt,
+    })
+    .from(characterPortraits)
+    .innerJoin(characters, eq(characters.id, characterPortraits.characterId))
+    .where(eq(characters.ownerId, userId));
+
+  const byPortrait = new Map(
+    faces.map(f => [
+      f.characterId,
+      {
+        url: f.remoteUrl || `/api/characters/${f.characterId}/portrait`,
+        alt: f.alt,
+      },
+    ])
+  );
+
+  return rows.map(row => ({
+    ...row,
+    // A hero with no maximum has not been built far enough to have any, and a
+    // track reading 0/0 is furniture rather than information.
+    hp: row.hpMax > 0 ? { current: row.hpCurrent, max: row.hpMax } : null,
+    seated: seatedIds.has(row.id),
+    table:
+      row.campaignId && tableName.has(row.campaignId)
+        ? { campaignId: row.campaignId, name: tableName.get(row.campaignId)! }
+        : null,
+    // An instance with no face of its own wears the blueprint's. The bytes
+    // exist once, and a fork does not duplicate the file — see
+    // `forkCharacterForCampaign`.
+    portrait:
+      byPortrait.get(row.id) ??
+      (row.forkedFrom ? (byPortrait.get(row.forkedFrom) ?? null) : null),
+  }));
 }
 
 export async function getCharacter(
@@ -117,6 +295,7 @@ export async function getCharacter(
     where: and(eq(characters.id, id), eq(characters.ownerId, userId)),
   });
   if (!row) return null;
+  const sheetForRow = characterSheetSchema.parse(migrateStoredSheet(row.sheet));
   return {
     id: row.id,
     name: row.name,
@@ -129,7 +308,19 @@ export async function getCharacter(
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
+    table: await characterTable(row.id),
+    campaignId: row.campaignId,
+    hp:
+      sheetForRow.combat.hitPointsMax > 0
+        ? {
+            current: sheetForRow.combat.hitPointsCurrent,
+            max: sheetForRow.combat.hitPointsMax,
+          }
+        : null,
+    seated: await isSeated(row.id),
+    portrait: await portraitFor(row.id, row.forkedFrom),
+    forkedFrom: row.forkedFrom,
+    sheet: sheetForRow,
   };
 }
 
@@ -156,6 +347,7 @@ export async function getCharacterForCampaign(
     where: eq(characters.id, characterId),
   });
   if (!row) return null;
+  const sheetForRow = characterSheetSchema.parse(migrateStoredSheet(row.sheet));
 
   return {
     id: row.id,
@@ -169,7 +361,19 @@ export async function getCharacterForCampaign(
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
+    table: await characterTable(row.id),
+    campaignId: row.campaignId,
+    hp:
+      sheetForRow.combat.hitPointsMax > 0
+        ? {
+            current: sheetForRow.combat.hitPointsCurrent,
+            max: sheetForRow.combat.hitPointsMax,
+          }
+        : null,
+    seated: await isSeated(row.id),
+    portrait: await portraitFor(row.id, row.forkedFrom),
+    forkedFrom: row.forkedFrom,
+    sheet: sheetForRow,
   };
 }
 
@@ -384,6 +588,107 @@ export async function createCharacter(
   await syncCharacterHomebrew(row.id, userId, sheet);
   await syncCharacterAuditLog(row.id, sheet);
   return row.id;
+}
+
+/**
+ * Copy a hero onto a table.
+ *
+ * Taking a character to a campaign mints a new `characters` row and *that* is
+ * what plays: it levels, collects loot, takes conditions and can die, while
+ * the blueprint it came from stays on the shelf untouched. See the third model
+ * decision in `docs/handoff/the-long-campaign/README.md` for why this is a
+ * fork rather than a link.
+ *
+ * Two things are deliberately **not** copied:
+ *
+ * - **`character_history`.** The instance starts its own log. The DM's record
+ *   is of what happened at *this* table, and carrying a previous table's
+ *   history into it would put another campaign's decisions in front of a DM as
+ *   though they were made at theirs. The temptation to carry it over is
+ *   strong; it is wrong.
+ * - **The portrait row.** The instance reads the blueprint's face through
+ *   `forkedFrom` instead, so the bytes exist once. Copying the row would leave
+ *   two rows pointing at one file and a delete that unlinks it out from under
+ *   the other.
+ *
+ * `provenance` and the inventory *are* copied: they are part of the sheet, and
+ * a hero who arrives at a table with no record of how they were built is
+ * exactly what the provenance log exists to prevent.
+ */
+export async function forkCharacterForCampaign(
+  characterId: string,
+  campaignId: string
+): Promise<string> {
+  const userId = await requireUserId();
+
+  const source = await db.query.characters.findFirst({
+    where: and(eq(characters.id, characterId), eq(characters.ownerId, userId)),
+  });
+  if (!source) throw new Error('NOT_YOUR_CHARACTER');
+  if (source.status === 'draft') throw new Error('CHARACTER_IS_DRAFT');
+
+  // Seating an instance seats the instance, not a copy of a copy. Re-forking
+  // one would strand its history and its loot on a row nothing points at.
+  if (source.campaignId === campaignId) return source.id;
+  if (source.campaignId) throw new Error('ALREADY_AT_A_TABLE');
+
+  /*
+   * This blueprint may already have a copy at this table — a hero benched and
+   * then picked again, most often. Return that one.
+   *
+   * Without this, re-picking the same hero mints a second instance every time,
+   * and the levels and loot of the first are stranded on a row the membership
+   * no longer points at. Coming back to a table means coming back to the
+   * character who played there, not starting again from the shelf.
+   */
+  const existing = await db.query.characters.findFirst({
+    where: and(
+      eq(characters.forkedFrom, source.id),
+      eq(characters.campaignId, campaignId)
+    ),
+  });
+  if (existing) return existing.id;
+
+  const sheet = characterSheetSchema.parse(
+    migrateStoredSheet(structuredClone(source.sheet))
+  );
+
+  const [row] = await db
+    .insert(characters)
+    .values({
+      ownerId: userId,
+      ...denormalize(sheet),
+      sheet,
+      status: source.status,
+      campaignId,
+      forkedFrom: source.id,
+    })
+    .returning({ id: characters.id });
+
+  await syncCharacterHomebrew(row.id, userId, sheet);
+  await syncCharacterAuditLog(row.id, sheet);
+  return row.id;
+}
+
+/**
+ * Take a hero to a table: fork them, then seat the fork.
+ *
+ * This is the operation every UI path should call. `setMemberCharacter` in
+ * `campaigns.ts` is the half that points the membership row, and it refuses
+ * anything that is not already an instance of that campaign — so the fork
+ * cannot be skipped by a caller that forgets.
+ *
+ * Passing an id that is already this table's instance re-seats it unchanged,
+ * which is what makes re-picking the same hero idempotent rather than a way to
+ * stack copies.
+ */
+export async function seatCharacterAtCampaign(
+  campaignId: string,
+  characterId: string | null
+): Promise<RuleViolation[]> {
+  if (!characterId) return setMemberCharacter(campaignId, null);
+  const instanceId = await forkCharacterForCampaign(characterId, campaignId);
+  return setMemberCharacter(campaignId, instanceId);
 }
 
 /**

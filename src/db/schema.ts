@@ -111,6 +111,32 @@ export const characters = sqliteTable(
     status: text('status', { enum: ['draft', 'ready'] })
       .notNull()
       .default('ready'),
+    /**
+     * The table this character plays at, or null for a blueprint.
+     *
+     * A hero taken to a campaign is *copied*, and the copy is what plays — see
+     * the third model decision in `docs/handoff/the-long-campaign/README.md`.
+     * The blueprint stays on the shelf: never levelled, never killed, and the
+     * thing that goes on the Wandering Library's shelf.
+     *
+     * `set null` rather than cascade when the campaign goes: a table folding
+     * must not delete the hero somebody played there for a year. The row then
+     * has a `forkedFrom` and no `campaignId`, which is the honest record of a
+     * character whose table no longer exists.
+     */
+    campaignId: text('campaign_id').references(() => campaigns.id, {
+      onDelete: 'set null',
+    }),
+    /**
+     * The blueprint this was minted from, or null.
+     *
+     * No foreign key, matching `homebrew.forked_from`: the blueprint may be
+     * deleted and the instance has to survive it. A null here on a row that
+     * *does* carry a `campaignId` means a hero seated before the split
+     * existed — they were never forked from anything, and inventing a
+     * blueprint for them would be a claim about history that is not true.
+     */
+    forkedFrom: text('forked_from'),
     /** Full character sheet, JSON-encoded. Schema owned by
      *  `src/@creator/character/schema.ts`. */
     sheet: text('sheet', { mode: 'json' }).notNull(),
@@ -120,6 +146,8 @@ export const characters = sqliteTable(
   t => [
     index('characters_owner_id_idx').on(t.ownerId),
     index('characters_owner_status_idx').on(t.ownerId, t.status),
+    index('characters_campaign_idx').on(t.campaignId),
+    index('characters_forked_from_idx').on(t.forkedFrom),
   ]
 );
 
@@ -1755,4 +1783,53 @@ export const publicationAssets = sqliteTable(
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('publication_assets_publication_idx').on(t.publicationId)]
+);
+
+/* ------------------------------------------------------------------ */
+/* Character portraits (0034)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A character's portrait.
+ *
+ * Its own table rather than a column on `characters`, and deliberately not a
+ * row in `campaign_images`. A character precedes, outlives and may never have
+ * a campaign, so a portrait cannot inherit "are you at this table" as its
+ * access rule — that rule is wrong for a hero nobody has taken to a table yet,
+ * and wrong again for one who has left. Access here is judged from the
+ * character: the owner always, plus the members of whatever table it currently
+ * sits at.
+ *
+ * One row per character, enforced by the unique index — a portrait is not a
+ * gallery. Replacing one deletes the row and its file rather than accumulating
+ * versions nothing can reach.
+ *
+ * Bytes live on disk under `UPLOADS_DIR`, as with `campaign_images` and
+ * `publication_assets`; the reasoning is written out on the first of those and
+ * has not changed. `remote_url` is the other half of the same field: a
+ * portrait can be a link instead of an upload, and then no file exists and
+ * `file_path` is empty. Hero Nexus makes no outbound calls at runtime, so a
+ * remote portrait is fetched by the reader's browser and never by the server.
+ */
+export const characterPortraits = sqliteTable(
+  'character_portraits',
+  {
+    id: uuid(),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    /** Path under UPLOADS_DIR, e.g. "characters/<characterId>/<uuid>.webp". */
+    filePath: text('file_path').notNull().default(''),
+    /**
+     * An off-site image the reader's browser loads directly. Empty for an
+     * upload. Exactly one of this and `file_path` is set.
+     */
+    remoteUrl: text('remote_url').notNull().default(''),
+    mime: text('mime').notNull().default(''),
+    bytes: integer('bytes').notNull().default(0),
+    /** Shown when the image cannot load, and read out by screen readers. */
+    alt: text('alt').notNull().default(''),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [uniqueIndex('character_portraits_character_idx').on(t.characterId)]
 );

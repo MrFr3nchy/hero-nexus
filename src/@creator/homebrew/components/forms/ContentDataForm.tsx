@@ -10,6 +10,7 @@ import {
 } from '@/@creator/character/schema';
 import {
   standardSpellSlots,
+  WEAPON_MASTERIES,
   type BackgroundData,
   type ClassData,
   type ContentType,
@@ -718,6 +719,8 @@ function ItemForm({ d, onChange }: { d: ItemData; onChange: Patch<ItemData> }) {
                         long_range: 0,
                         is_simple: false,
                         properties: [],
+                        mastery: '',
+                        versatile_dice: '',
                       })
                     : null,
                 armor:
@@ -855,6 +858,29 @@ function ItemForm({ d, onChange }: { d: ItemData; onChange: Patch<ItemData> }) {
               onChange({ ...d, weapon: { ...d.weapon!, properties: v } })
             }
           />
+          <Row>
+            {/* Its own field rather than one more entry in Properties: a
+                mastery is a rule the sheet acts on, and one buried in a list
+                beside "Heavy" is a rule nothing can find. */}
+            <PickOne
+              label="Mastery"
+              value={d.weapon.mastery}
+              allowEmpty
+              options={opts([...WEAPON_MASTERIES])}
+              onChange={v =>
+                onChange({ ...d, weapon: { ...d.weapon!, mastery: v ?? '' } })
+              }
+            />
+            <TextField
+              label="Versatile damage"
+              value={d.weapon.versatile_dice}
+              onChange={v =>
+                onChange({ ...d, weapon: { ...d.weapon!, versatile_dice: v } })
+              }
+              placeholder="1d10"
+              description="Two-handed damage, when the weapon is Versatile."
+            />
+          </Row>
         </FieldGroup>
       )}
 

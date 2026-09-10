@@ -16,6 +16,8 @@ interface PageProps {
     class?: string;
     species?: string;
     background?: string;
+    /** `?intent=level-up` — the "Level up" link from the roster or play view. */
+    intent?: string;
   }>;
 }
 
@@ -68,9 +70,11 @@ export default async function CharacterCreationPage({
           }
           description={
             existing
-              ? existing.status === 'draft'
-                ? 'Pick up where you left off. Nothing is owed until you finish.'
-                : 'Update the sheet and save your changes.'
+              ? params.intent === 'level-up'
+                ? 'One more level. Take the hit points, pick what it grants, and save.'
+                : existing.status === 'draft'
+                  ? 'Pick up where you left off. Nothing is owed until you finish.'
+                  : 'Update the sheet and save your changes.'
               : 'Eight steps, in any order. Everything your class, species and background grant is filled in as you choose it — and you can save a draft at any point.'
           }
         />
@@ -84,6 +88,9 @@ export default async function CharacterCreationPage({
           catalogCampaignId={selected}
           initialPick={initialPick}
           initialStatus={existing?.status}
+          intent={params.intent === 'level-up' ? 'level-up' : undefined}
+          playsAt={existing?.table ?? null}
+          forkedFrom={existing?.forkedFrom ?? null}
         />
       </PageShell>
     </ProtectedRoute>

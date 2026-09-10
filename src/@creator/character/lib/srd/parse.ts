@@ -8,6 +8,8 @@
  * runs on the server, in the wizard, and in tests.
  */
 
+import { parseWeaponProficiency } from '@/@shared/content/weapons';
+
 import {
   ABILITY_KEYS,
   SKILL_KEYS,
@@ -219,6 +221,7 @@ function parseCoreTraits(desc: string): CoreTraits {
       .filter((k): k is AbilityKey => k !== null),
     skillChoice: parseSkillChoice(get('skill proficiencies')),
     weapons: get('weapon proficiencies'),
+    weaponProficiency: parseWeaponProficiency(get('weapon proficiencies')),
     armor: get('armor training'),
     tools: get('tool proficiencies'),
     equipment: parseEquipmentOptions(cells.get('starting equipment') ?? ''),

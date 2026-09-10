@@ -3,13 +3,7 @@ import 'server-only';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db';
-import {
-  campaignMembers,
-  characterSecrets,
-  characters,
-  sheetNotes,
-  users,
-} from '@/db/schema';
+import { characterSecrets, characters, sheetNotes, users } from '@/db/schema';
 import { requireCampaignRole } from '@/server/campaigns';
 import type {
   NoteSection,
@@ -59,10 +53,12 @@ async function viewerFor(characterId: string): Promise<Viewer> {
   });
   if (!character) throw new Error('NOT_FOUND');
 
-  const link = await db.query.campaignMembers.findFirst({
-    where: eq(campaignMembers.characterId, characterId),
-  });
-  if (!link) throw new Error('NOT_IN_CAMPAIGN');
+  // The character's own column, not a membership lookup. This used to take the
+  // first `campaign_members` row it found, which quietly picked one of several
+  // when a hero was seated at two tables — a state nothing prevented before
+  // instancing. An instance belongs to exactly one campaign.
+  if (!character.campaignId) throw new Error('NOT_IN_CAMPAIGN');
+  const link = { campaignId: character.campaignId };
 
   const { role } = await requireCampaignRole(link.campaignId, [
     'gm',

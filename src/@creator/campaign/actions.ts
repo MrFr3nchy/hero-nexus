@@ -52,7 +52,6 @@ import {
   removeMember,
   revokeInvite,
   setCampaignStatus,
-  setMemberCharacter,
   setMemberRole,
   updateCampaign,
   type BuilderCampaignRow,
@@ -60,6 +59,7 @@ import {
   type CampaignMemberRow,
   type CampaignRow,
 } from '@/server/campaigns';
+import { seatCharacterAtCampaign } from '@/server/characters';
 
 const trimmedList = z.array(z.string().trim().min(1).max(80)).max(100);
 
@@ -114,6 +114,10 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_YOUR_CHARACTER: 'That character is not yours.',
     CHARACTER_IS_DRAFT:
       'That hero is still a draft. Finish the build before seating them at a table.',
+    ALREADY_AT_A_TABLE:
+      'That hero is already playing at a table. Take the original to this one instead — it is on your heroes page.',
+    NOT_AN_INSTANCE:
+      'A hero has to be copied onto a table before they can sit at it.',
     NOT_A_MEMBER: 'You are not a member of this campaign.',
     INVITE_NOT_PENDING: 'That invite is no longer pending.',
     NOT_A_CREATURE: 'Only a creature can be sent into a fight.',
@@ -301,7 +305,10 @@ export async function setMemberCharacterAction(
   characterId: string | null
 ): Promise<Result<{ warnings: string[] }>> {
   try {
-    const violations = await setMemberCharacter(campaignId, characterId);
+    // `seatCharacterAtCampaign`, not `setMemberCharacter`: taking a hero to a
+    // table forks them first, and the low-level call refuses anything that is
+    // not already an instance of this campaign.
+    const violations = await seatCharacterAtCampaign(campaignId, characterId);
     revalidatePath(`/campaigns/${campaignId}`);
     return { ok: true, data: { warnings: violations.map(v => v.message) } };
   } catch (err) {

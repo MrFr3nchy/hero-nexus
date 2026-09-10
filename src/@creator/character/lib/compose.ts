@@ -20,6 +20,8 @@ import {
   type CharacterSheet,
   type SkillKey,
 } from '../schema';
+import { NO_WEAPON_PROFICIENCY } from '@/@shared/content/weapons';
+
 import { abilityModifier, armorClass, type ResolvedContent } from './derive';
 import { planLevels, slotsAtLevel } from './advancement';
 import type { BackgroundDef, ClassDef, SpeciesDef } from './srd/types';
@@ -321,6 +323,19 @@ export function composeSheet(
         'proficiencies.weapons',
         refs.classDef?.coreTraits.weapons ?? '',
         sheet.proficiencies.weapons
+      ),
+      /*
+       * Follows `proficiencies.weapons` rather than carrying its own override
+       * path: the prose and the struct are one decision said twice, and a
+       * player who hand-edits the sentence has taken ownership of the fact,
+       * not of one spelling of it. Overriding the sentence therefore freezes
+       * the struct too, which is what stops a recompute from re-granting
+       * martial weapons the player just wrote themselves out of.
+       */
+      weaponProficiency: keep(
+        'proficiencies.weapons',
+        refs.classDef?.coreTraits.weaponProficiency ?? NO_WEAPON_PROFICIENCY,
+        sheet.proficiencies.weaponProficiency
       ),
       tools: keep(
         'proficiencies.tools',
