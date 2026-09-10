@@ -21,7 +21,6 @@ export { PartyPlayPanel } from './PartyPlayPanel';
 export { PartySecrets } from './PartySecrets';
 export { PlayCard } from './PlayCard';
 export { PendingInvites } from './PendingInvites';
-export { PublicHomebrewMarketplace } from './PublicHomebrewMarketplace';
 export { QuestPanel } from './QuestPanel';
 export { RevealControls } from './RevealControls';
 export { RevealTimeline } from './RevealTimeline';

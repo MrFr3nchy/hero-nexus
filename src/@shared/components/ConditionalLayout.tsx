@@ -28,7 +28,7 @@ const privateRoutes = [
   '/classes',
   '/items',
   '/bestiary',
-  '/marketplace',
+  '/library',
   '/creator',
   '/account',
 ];

@@ -31,6 +31,16 @@ export type HomebrewType =
   | 'item'
   | 'creature';
 
+/**
+ * There is deliberately no `listPublicHomebrew` here.
+ *
+ * `visibility` used to be the whole of "shared", read by nothing — the market
+ * was a placeholder. Since the Wandering Library landed, a listing in
+ * `publications` is what makes content public, and `@/server/library` is the one
+ * place that answers "what has been shared". A second answer that reads the flag
+ * alone would list a row whose listing was withdrawn, which is the bug this
+ * comment exists to stop somebody re-adding.
+ */
 export interface HomebrewRow {
   id: string;
   ownerId: string;
@@ -69,19 +79,6 @@ export async function listHomebrew(
   const where = type
     ? and(eq(homebrew.ownerId, userId), eq(homebrew.type, type))
     : eq(homebrew.ownerId, userId);
-  return db
-    .select()
-    .from(homebrew)
-    .where(where)
-    .orderBy(desc(homebrew.updatedAt)) as Promise<HomebrewRow[]>;
-}
-
-export async function listPublicHomebrew(
-  type?: HomebrewType
-): Promise<HomebrewRow[]> {
-  const where = type
-    ? and(eq(homebrew.visibility, 'public'), eq(homebrew.type, type))
-    : eq(homebrew.visibility, 'public');
   return db
     .select()
     .from(homebrew)

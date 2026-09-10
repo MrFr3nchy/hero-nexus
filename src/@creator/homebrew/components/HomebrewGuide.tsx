@@ -428,7 +428,7 @@ export function HomebrewGuide() {
         </Link>{' '}
         — or read{' '}
         <Link
-          href="/marketplace"
+          href="/library"
           className="text-gold-strong underline underline-offset-2"
         >
           what other people have made

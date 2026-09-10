@@ -236,6 +236,17 @@ export const homebrew = sqliteTable(
       .notNull()
       .default('private'),
     rpgSystem: text('rpg_system').notNull().default('dnd5e2024'),
+    /**
+     * The publication this row was forked from, when a reader took somebody
+     * else's content as their own copy rather than as a link (0029).
+     *
+     * No reference, following `campaign_map_pins.canon_entry_id`: SQLite cannot
+     * add a foreign key by ALTER, and the listing this points at belongs to
+     * another account that may delete it. A dangling provenance line reads as
+     * "forked from something that is gone", which is true, rather than
+     * breaking the fork.
+     */
+    forkedFrom: text('forked_from'),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
@@ -1506,4 +1517,230 @@ export const campaignMapPins = sqliteTable(
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
   t => [index('campaign_map_pins_map_idx').on(t.mapId)]
+);
+
+/* --- The Wandering Library (0029) ------------------------------------- */
+
+/**
+ * One listing on the public shelf.
+ *
+ * The first table in this schema that exists so one account's rows can reach
+ * another's. `kind` is load-bearing because it decides how the thing behind a
+ * listing is delivered:
+ *
+ * - `homebrew` is **live-linked**. `homebrewId` points at the author's live row,
+ *   so their later correction reaches every table using it — content-model
+ *   rule 1 (a copy is a fork) applied across accounts.
+ * - `character`, `campaign`, `image` and `bundle` are **snapshots**. Adopting
+ *   mints rows the adopter owns outright, because a sheet and a campaign are
+ *   mutable play state and nobody wants their prep rewritten under them
+ *   mid-session because the author kept editing.
+ *
+ * `payload` is filled for both. On the live kind it is the fallback, so a
+ * withdrawn or deleted homebrew row still renders as what it was rather than as
+ * a blank card — the same reason `inventory[].name` is denormalised onto a
+ * sheet.
+ */
+export const publications = sqliteTable(
+  'publications',
+  {
+    id: uuid(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind', {
+      enum: ['homebrew', 'character', 'campaign', 'image', 'bundle'],
+    }).notNull(),
+    /** Set null, not cascade: the listing falls back to its frozen payload. */
+    homebrewId: text('homebrew_id').references(() => homebrew.id, {
+      onDelete: 'set null',
+    }),
+    /**
+     * The hero or campaign a snapshot listing was frozen out of (0032).
+     *
+     * Not a live link, unlike `homebrewId` — a snapshot does not track its
+     * source. They exist so a listing can be found from the row it came out of,
+     * and so the same row cannot be listed twice; publishing again re-freezes
+     * the payload and bumps `version`.
+     */
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    campaignId: text('campaign_id').references(() => campaigns.id, {
+      onDelete: 'set null',
+    }),
+    /** The narrow type when the listing is one piece of content. */
+    contentType: text('content_type'),
+    title: text('title').notNull(),
+    summary: text('summary').notNull().default(''),
+    /** JSON array of lowercase strings. */
+    tags: text('tags', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
+    /**
+     * Who wrote it, as the shelf says it. Frozen at publish time rather than
+     * joined on `user.name`, so renaming an account does not rewrite history
+     * and a deleted author still gets their credit.
+     */
+    credit: text('credit').notNull().default(''),
+    visibility: text('visibility', { enum: ['public', 'unlisted'] })
+      .notNull()
+      .default('public'),
+    /**
+     * `withdrawn` takes it off the shelf and stops new adoptions. It reaches
+     * into nobody's existing one — cascading a delete into other users'
+     * characters would be worse than saying plainly that this app cannot
+     * un-share a thing.
+     */
+    status: text('status', { enum: ['listed', 'withdrawn'] })
+      .notNull()
+      .default('listed'),
+    payload: text('payload', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
+    /**
+     * The picture drawn on the card. No reference, following
+     * `campaign_map_pins.canon_entry_id`: a deleted cover should read as a card
+     * with no picture rather than break the listing.
+     */
+    coverAssetId: text('cover_asset_id'),
+    version: integer('version').notNull().default(1),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('publications_owner_idx').on(t.ownerId),
+    index('publications_shelf_idx').on(t.status, t.visibility, t.kind),
+    index('publications_content_type_idx').on(t.contentType),
+    uniqueIndex('publications_homebrew_idx').on(t.homebrewId),
+    uniqueIndex('publications_character_idx').on(t.characterId),
+    uniqueIndex('publications_campaign_idx').on(t.campaignId),
+  ]
+);
+
+/**
+ * A piece a listing carries.
+ *
+ * Items are always snapshots, even inside a live-linked publication: a species
+ * bundled with a hero has to keep working when its author reorganises their own
+ * forge. `localKey` is how refs between items survive being remapped into an
+ * adopter's account — it is unique within the package and means nothing
+ * outside it.
+ */
+export const publicationItems = sqliteTable(
+  'publication_items',
+  {
+    id: uuid(),
+    publicationId: text('publication_id')
+      .notNull()
+      .references(() => publications.id, { onDelete: 'cascade' }),
+    kind: text('kind', {
+      enum: ['homebrew', 'character', 'canon', 'quest', 'note', 'map', 'image'],
+    }).notNull(),
+    contentType: text('content_type'),
+    name: text('name').notNull().default(''),
+    payload: text('payload', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
+    localKey: text('local_key').notNull().default(''),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('publication_items_publication_idx').on(t.publicationId),
+    uniqueIndex('publication_items_local_key_idx').on(
+      t.publicationId,
+      t.localKey
+    ),
+  ]
+);
+
+/**
+ * What a reader took off the shelf, and how they took it.
+ *
+ * Two modes, and the difference is the whole point. `linked` puts the author's
+ * live row on the reader's shelf — the author's correction reaches them, and it
+ * is not theirs to edit. `forked` gave them their own copy, theirs to edit,
+ * after which the two never speak again.
+ *
+ * Snapshot kinds are always effectively a fork: adopting mints characters,
+ * campaigns and images the reader owns. The row survives as provenance and as
+ * the count on a listing — counted from here rather than kept as a column on
+ * `publications`, because a denormalised counter is a number that can be wrong
+ * and this one has no reason to be.
+ */
+export const adoptions = sqliteTable(
+  'adoptions',
+  {
+    id: uuid(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    publicationId: text('publication_id')
+      .notNull()
+      .references(() => publications.id, { onDelete: 'cascade' }),
+    mode: text('mode', { enum: ['linked', 'forked'] })
+      .notNull()
+      .default('linked'),
+    /**
+     * What the adoption resolves to on the reader's shelf: the author's row for
+     * a link, the reader's own for a fork. Set null, never cascade — losing the
+     * content must not erase the record that it was taken.
+     */
+    homebrewId: text('homebrew_id').references(() => homebrew.id, {
+      onDelete: 'set null',
+    }),
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    campaignId: text('campaign_id').references(() => campaigns.id, {
+      onDelete: 'set null',
+    }),
+    /** The listing's version when it was taken, so a reader can be told they
+     *  are behind what is on the shelf now. */
+    version: integer('version').notNull().default(1),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('adoptions_user_publication_idx').on(t.userId, t.publicationId),
+    index('adoptions_publication_idx').on(t.publicationId),
+    index('adoptions_user_idx').on(t.userId),
+  ]
+);
+
+/**
+ * A file a listing carries.
+ *
+ * The bytes are copied on publish rather than pointed at: `campaign_images` is
+ * read behind a `requireCampaignRole` check, so a listing pointing at one would
+ * be unreadable to everybody not at that table — and bypassing the check on the
+ * route that serves campaign files is the last place to put a bypass. Copying
+ * also means archiving the campaign a picture came from cannot take the listing's
+ * picture with it.
+ *
+ * Files live under `UPLOADS_DIR/library/<publicationId>/`, so a deleted listing
+ * is one directory to remove.
+ */
+export const publicationAssets = sqliteTable(
+  'publication_assets',
+  {
+    id: uuid(),
+    publicationId: text('publication_id')
+      .notNull()
+      .references(() => publications.id, { onDelete: 'cascade' }),
+    /** Path under `UPLOADS_DIR`, e.g. `library/<publicationId>/<uuid>.webp`. */
+    filePath: text('file_path').notNull(),
+    mime: text('mime').notNull(),
+    bytes: integer('bytes').notNull().default(0),
+    alt: text('alt').notNull().default(''),
+    /**
+     * Which piece of the package this picture belongs to. No reference: items
+     * are rewritten wholesale when a package is re-frozen, and an asset
+     * outliving that beats a re-freeze failing on a constraint.
+     */
+    itemLocalKey: text('item_local_key').notNull().default(''),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('publication_assets_publication_idx').on(t.publicationId)]
 );

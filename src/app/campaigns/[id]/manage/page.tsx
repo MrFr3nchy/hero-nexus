@@ -2,9 +2,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { CampaignManageForm } from '@/@creator/campaign/components';
+import { PublishCampaign } from '@/@creator/library/components';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import { Marginalia, PageHeader, PageShell } from '@/@shared/components/ui';
 import { getCampaign } from '@/server/campaigns';
+import { publicationForCampaign } from '@/server/library';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +19,8 @@ export default async function ManageCampaignPage({
   const campaign = await getCampaign(id);
   if (!campaign) notFound();
   if (campaign.role !== 'gm' && campaign.role !== 'co-gm') notFound();
+
+  const listing = await publicationForCampaign(id);
 
   return (
     <ProtectedRoute>
@@ -35,7 +39,14 @@ export default async function ManageCampaignPage({
         <Marginalia dash className="mb-5">
           the players never see this page. they will feel it though.
         </Marginalia>
-        <CampaignManageForm campaign={campaign} />
+        <div className="flex flex-col gap-6">
+          <CampaignManageForm campaign={campaign} />
+          <PublishCampaign
+            campaignId={id}
+            name={campaign.name}
+            listing={listing}
+          />
+        </div>
       </PageShell>
     </ProtectedRoute>
   );

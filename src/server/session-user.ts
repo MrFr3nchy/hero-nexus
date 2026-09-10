@@ -29,3 +29,19 @@ export async function requireUserId(): Promise<string> {
 
   return id;
 }
+
+/**
+ * The signed-in user's id, or `null`.
+ *
+ * For reads that work either way — the public shelf renders for a stranger, and
+ * gains "yours" and "taken" marks for someone signed in. `requireUserId`'s
+ * throw is the right shape for a write and the wrong one for a page that has
+ * something to show a visitor.
+ *
+ * Deliberately does not check the row exists: nothing is written against this
+ * id, and a stale token should cost a mark on a card, not the whole shelf.
+ */
+export async function optionalUserId(): Promise<string | null> {
+  const session = await auth();
+  return session?.user?.id ?? null;
+}
