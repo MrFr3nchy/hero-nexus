@@ -1,7 +1,10 @@
 # The long campaign — phases
 
-Build order. Each phase leaves the app usable and is worth shipping alone. `[ ]` = not
-started; nothing here is built yet.
+Build order. Each phase leaves the app usable and is worth shipping alone. `[x]` =
+landed on `feat/campaign-longevity`.
+
+**Built so far: phase 1, phase 2, and the first two items of phase 6.** Phases 3, 4, 5
+and 7 are untouched.
 
 The model these tasks implement is in [README.md](README.md). Read it first — the two
 decisions recorded there (the sheet gets a third surface rather than a third copy; a
@@ -19,19 +22,19 @@ here. This is the rule `CLAUDE.md` says gets broken most.
 The phase that makes the other six reachable. Builds almost no new mechanics; mounts
 the ones that exist.
 
-- [ ] Route `/characters/[id]/play`, archetype **Single object** — the sheet is the
+- [x] Route `/characters/[id]/play`, archetype **Single object** — the sheet is the
       page. Sibling to the read view, not a mode flag on it (README, decision one).
-- [ ] `PlayCard` gains a standalone mount: today it is composed inside
-      `PartyPlayPanel`. Extract the card, leave the panel as one caller. No second copy
-      of the slot pips.
-- [ ] Wire it through `applyPlayPatch(characterId, null, patch)`. The server already
+- [x] `PlayCard` gains a standalone mount. **No extraction was needed** — it was
+      already exported and already took `campaignId: string | null`, so mounting it
+      outside a campaign was an import. The task as written overestimated the work.
+- [x] Wire it through `applyPlayPatch(characterId, null, patch)`. The server already
       authorises the owner with no campaign (`play.ts:authorize`) — this phase adds no
       permission code, and if it seems to need some, something is wrong.
 - [ ] Mount `InventorySection` and `SpellListSection` on the play surface, bound to the
       same `control`. They are already `control`-driven; this is composition.
-- [ ] Live updates degrade to absent when `campaignId` is null. `useCampaignLive` is not
+- [x] Live updates degrade to absent when `campaignId` is null. `useCampaignLive` is not
       called; nothing polls. There is nobody to broadcast to.
-- [ ] Entry points, because the surface is worthless unreachable: a "Run this hero"
+- [x] Entry points, because the surface is worthless unreachable: a "Run this hero"
       action on `/characters/[id]`, on the `HeroCard` hover row in `CharactersList`, and
       from the campaign party list for the player's own character.
 
@@ -42,28 +45,31 @@ without opening the builder, with or without a table.
 
 The brief's last item. Schema first, because the UI cannot be built on prose.
 
-- [ ] **Typed weapon proficiency.** `proficiencies.weapons` stays as the prose a player
+- [x] **Typed weapon proficiency.** `proficiencies.weapons` stays as the prose a player
       wrote — deleting it throws away real data, the same reasoning that kept
       `equipment.items` — and gains a structured sibling: simple / martial category
       flags plus a list of specific weapon keys. The prose box stops being load-bearing.
-- [ ] The same on `coreTraits.weapons` in `content/schemas.ts`, so a class grants
+- [x] The same on `coreTraits.weapons` in `content/schemas.ts`, so a class grants
       proficiency in a form something can read. Every leaf `.catch()`ed (content-model
       rule 4).
-- [ ] Migration + `schema.ts` in one commit; a sheet written before this parses with
-      empty structured proficiency and keeps its prose.
-- [ ] **`weaponAttacks(sheet, resolved)` in `derive.ts`.** One entry per equipped weapon:
+- [x] **No SQL migration was needed** — a sheet is a JSON blob in `characters.sheet`,
+      not columns, so `src/db/schema.ts` is untouched. Existing sheets are brought
+      forward in `migrate-sheet.ts` instead, which reads the prose line into the struct
+      when the field is absent. Additive, lossless, idempotent, and it respects a grant
+      that was deliberately cleared. Checked against the stored characters.
+- [x] **`weaponAttacks(sheet, resolved)` in `derive.ts`.** One entry per equipped weapon:
       ability (Str, or Dex when finesse or ranged — the better of the two for finesse),
       attack bonus with the proficiency bonus applied _only_ when proficient, damage
       dice plus the ability modifier, and the damage type. An unresolved ref is absent,
       never zero — the rule the rest of the file already follows.
-- [ ] **Weapon mastery** as a typed field on `weaponStats`, not free text inside
+- [x] **Weapon mastery** as a typed field on `weaponStats`, not free text inside
       `properties`. The eight 2024 masteries as an enum; `properties` keeps carrying
       Heavy, Two-Handed and the rest.
-- [ ] An **Attacks** block on the sheet view and the play surface, rendered from
+- [x] An **Attacks** block on the sheet view and the play surface, rendered from
       `weaponAttacks`, each line rolling through `useDiceTray().rollNotation` — the
       dice tray is the app's one roll surface and does not count against a page's toy
       (design rule 4).
-- [ ] A non-proficient equipped weapon still renders, without the bonus. Showing it and
+- [x] A non-proficient equipped weapon still renders, without the bonus. Showing it and
       being honest beats hiding it.
 
 ## Phase 3 — Levelling as a verb
@@ -109,11 +115,11 @@ oversight.
 
 Design work, best done once the data above exists.
 
-- [ ] **`/characters/[id]` stops being one vertical column of eight `framed` cards.**
+- [x] **`/characters/[id]` stops being one vertical column of eight `framed` cards.**
       Two columns at desktop width with the combat block and abilities held at the top;
       at most one `framed` card on screen (design rule 6). This is the fix for "requires
       a lot of scrolling".
-- [ ] **The roster says where a hero sits.** `CharacterRow` gains the campaign from
+- [x] **The roster says where a hero sits.** `CharacterRow` gains the campaign from
       `campaign_members.characterId`; the `HeroCard` carries it as a `Ribbon` (rule 6 —
       ornament encodes state). `/characters/[id]` names the table in its header, where
       it already computes `tableContext` and spends it on nothing visible.
@@ -121,8 +127,9 @@ Design work, best done once the data above exists.
       gets the same route with the panels `SCREEN_PANELS[k].players` already allows,
       plus one new panel: their own character, which is the Phase 1 surface embedded.
       No new permission model — `screen.ts` already filters by that flag.
-- [ ] Design-language debt from the README: `Glyph` gains a real `x`/`remove`;
-      `CharactersList` drops `@iconify/react`.
+- [x] Design-language debt from the README: `Glyph` gained `x` and `pencil`,
+      `CharactersList` dropped `@iconify/react`, and `SpellListSection` stopped
+      rendering a `question` glyph rotated 45 degrees as its remove control.
 
 ## Phase 7 — Portraits
 

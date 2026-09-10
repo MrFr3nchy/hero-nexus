@@ -7,8 +7,10 @@ campaign that runs for a year, from both chairs. The build order is in
 [phases.md](phases.md). Read this file first — several of those tasks are only correct
 in the light of a decision recorded here.
 
-**Nothing in this document is built yet.** It is the investigation and the plan. Every
-"today" below was read out of the code on the branch point, `d1edb23`.
+Every "today" below was read out of the code at the branch point, `d1edb23`, and is
+kept in the present tense as the record of what was found. **Phases 1 and 2 and the
+first of phase 6 are now built**; what each proved is under "What has been verified" at
+the foot of this file, and [phases.md](phases.md) carries the box-by-box state.
 
 ---
 
@@ -211,26 +213,45 @@ Not part of the brief, cheap to fix while the same files are open, and each is a
 
 ---
 
-## Verification
+## What has been verified
+
+Phases 1 and 2 were checked against a production build with a real session, and then in
+a browser in both themes. What was proven:
+
+- **A hero with no campaign can be run.** A tableless character's play surface renders,
+  and taking 9 damage through `applyPlayPatch(id, null, patch)` moved 28 to 19 and
+  persisted. This was the load-bearing claim of the whole plan — that the play surface
+  is a routing job over an authorisation model that already permits it — and it holds.
+- **A hero at a table works the same way.** Spending a level-1 slot on a linked
+  character persisted as `{"total":4,"expended":4}`.
+- **Proficiency is read correctly from real data.** All 38 SRD weapons adapt. Fighter is
+  proficient with 38, Wizard 14, Rogue 19 (the 14 simple ones plus hand crossbow,
+  rapier, scimitar, shortsword and whip), Monk 17 — the printed list in each case. A
+  Wizard holding a greatsword is not proficient; a Rogue holding a rapier is.
+- **Attacks are right on screen.** A Dex-16 wizard's dagger reads +6 / 1d4+3 with its
+  Nick mastery; the longsword beside it reads "Not proficient", +1 / 1d8+1, versatile
+  1d10+1, mastery Sap.
+- **Mastery survives adaptation.** 38/38 weapons carry one and 7 carry versatile dice.
+  Both were being discarded on the way in before this work.
+- **The sheet migration is safe.** Both stored characters pick up their real grant from
+  prose, running it twice changes nothing, and an explicitly-empty grant is left alone.
+- **The regression that motivated content-model rule 2 still holds.** An equipped shield
+  resolves to the shield _item_: AC 14 for a Dex +2 character, not the spell.
+- **Negative controls.** Nothing equipped, content unresolved, and `equipped: false`
+  each yield zero attacks rather than an attack with zero stats.
+
+## Still to verify
 
 Follow [../verifying-without-a-browser.md](../verifying-without-a-browser.md). The
-checks that matter most for this work, and why each one catches something a typecheck
-cannot:
+checks that matter most for the phases still to come:
 
-1. **A hero with no campaign can spend a slot and take damage.** The whole "same
-   surface, null campaign" decision is unproven until this passes with
-   `campaignId = null` through a real server action.
-2. **A player's patch to their own sheet is accepted; a stranger's is refused.**
-   `authorize` is the only thing standing between a shared table and a player editing
-   another player's hit points. Both directions, real cookie jars.
-3. **An equipped shield still resolves to the shield _item_, not the shield _spell_.**
-   The regression that motivated content-model rule 2. Any change touching resolution
-   or the inventory re-runs it.
-4. **A proficient and a non-proficient weapon produce different attack bonuses.** The
-   point of Phase 2; a typecheck will happily return the same number twice.
-5. **A condition set out of combat survives an encounter starting and ending.** Phase 4
+1. **A player's patch to their own sheet is accepted; a stranger's is refused.** Not yet
+   run. `authorize` is the only thing standing between a shared table and a player
+   editing another player's hit points, and only the accepting half has been exercised.
+   Both directions, real cookie jars.
+2. **A condition set out of combat survives an encounter starting and ending.** Phase 4
    is exactly the claim that it does.
-6. **Levelling from the play surface writes the same `character_history` rows as
+3. **Levelling from the play surface writes the same `character_history` rows as
    levelling from the wizard.** Content-model rule 7 — the server diffs, the client is
    never asked what changed. Two paths into one sheet is how a second, client-trusted
    write path gets introduced by accident.
