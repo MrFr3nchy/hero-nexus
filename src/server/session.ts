@@ -24,6 +24,7 @@ import {
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { resolveContentRefs } from './content';
+import { bumpVersion } from './live-hub';
 
 /** How much of the roll log the live view carries. */
 const ROLL_LOG_LIMIT = 40;
@@ -269,6 +270,7 @@ export async function startTimer(
     visibility: input.visibility ?? 'shared',
     createdBy: userId,
   });
+  bumpVersion(campaignId);
 }
 
 /**
@@ -289,6 +291,7 @@ export async function stopTimer(
         eq(campaignTimers.campaignId, campaignId)
       )
     );
+  bumpVersion(campaignId);
 }
 
 /* --- encounter (staff) ------------------------------------------------- */
@@ -310,6 +313,7 @@ export async function createEncounter(
     .insert(initiativeEncounters)
     .values({ campaignId, name: name.trim() || 'Encounter', isActive: true })
     .returning({ id: initiativeEncounters.id });
+  bumpVersion(campaignId);
   return row.id;
 }
 
@@ -322,25 +326,30 @@ async function encounterCampaign(encounterId: string): Promise<string> {
 }
 
 export async function endEncounter(encounterId: string): Promise<void> {
-  await staff(await encounterCampaign(encounterId));
+  const campaignId = await encounterCampaign(encounterId);
+  await staff(campaignId);
   await db
     .update(initiativeEncounters)
     .set({ isActive: false })
     .where(eq(initiativeEncounters.id, encounterId));
+  bumpVersion(campaignId);
 }
 
 export async function deleteEncounter(encounterId: string): Promise<void> {
-  await staff(await encounterCampaign(encounterId));
+  const campaignId = await encounterCampaign(encounterId);
+  await staff(campaignId);
   await db
     .delete(initiativeEncounters)
     .where(eq(initiativeEncounters.id, encounterId));
+  bumpVersion(campaignId);
 }
 
 export async function advanceTurn(
   encounterId: string,
   direction: 1 | -1
 ): Promise<void> {
-  await staff(await encounterCampaign(encounterId));
+  const campaignId = await encounterCampaign(encounterId);
+  await staff(campaignId);
   const enc = await db.query.initiativeEncounters.findFirst({
     where: eq(initiativeEncounters.id, encounterId),
   });
@@ -366,6 +375,7 @@ export async function advanceTurn(
     .update(initiativeEncounters)
     .set({ turnIndex: turn, round })
     .where(eq(initiativeEncounters.id, encounterId));
+  bumpVersion(campaignId);
 }
 
 /* --- entries (staff) ------------------------------------------------- */
@@ -428,7 +438,8 @@ export async function addEntry(
   encounterId: string,
   input: EntryInput
 ): Promise<void> {
-  await staff(await encounterCampaign(encounterId));
+  const campaignId = await encounterCampaign(encounterId);
+  await staff(campaignId);
   const existing = await db
     .select({ sort: initiativeEntries.sort })
     .from(initiativeEntries)
@@ -457,6 +468,9 @@ export async function addEntry(
     side: input.side ?? (input.characterId ? 'party' : 'foe'),
     sort: nextSort,
   });
+  // Coalesced in the hub, so the loops in `addPartyToEncounter` and
+  // `addCreaturesToEncounter` cost one nudge between them rather than five.
+  bumpVersion(campaignId);
 }
 
 async function entryCampaign(entryId: string): Promise<string> {
@@ -471,7 +485,8 @@ export async function updateEntry(
   entryId: string,
   patch: Partial<Omit<EntryInput, 'label'>> & { label?: string }
 ): Promise<void> {
-  await staff(await entryCampaign(entryId));
+  const campaignId = await entryCampaign(entryId);
+  await staff(campaignId);
   const set = { ...patch };
   if (set.conditionKeys !== undefined) {
     set.conditionKeys = serializeConditions(set.conditionKeys.split(','));
@@ -480,6 +495,7 @@ export async function updateEntry(
     .update(initiativeEntries)
     .set(set)
     .where(eq(initiativeEntries.id, entryId));
+  bumpVersion(campaignId);
 }
 
 /**
@@ -490,7 +506,8 @@ export async function updateEntry(
  * applying in their head while five people wait.
  */
 export async function applyHp(entryId: string, delta: number): Promise<void> {
-  await staff(await entryCampaign(entryId));
+  const campaignId = await entryCampaign(entryId);
+  await staff(campaignId);
   const entry = await db.query.initiativeEntries.findFirst({
     where: eq(initiativeEntries.id, entryId),
   });
@@ -508,6 +525,7 @@ export async function applyHp(entryId: string, delta: number): Promise<void> {
         hpCurrent: Math.max(0, entry.hpCurrent - rest),
       })
       .where(eq(initiativeEntries.id, entryId));
+    bumpVersion(campaignId);
     return;
   }
 
@@ -516,11 +534,14 @@ export async function applyHp(entryId: string, delta: number): Promise<void> {
     .update(initiativeEntries)
     .set({ hpCurrent: Math.min(ceiling, entry.hpCurrent + delta) })
     .where(eq(initiativeEntries.id, entryId));
+  bumpVersion(campaignId);
 }
 
 export async function removeEntry(entryId: string): Promise<void> {
-  await staff(await entryCampaign(entryId));
+  const campaignId = await entryCampaign(entryId);
+  await staff(campaignId);
   await db.delete(initiativeEntries).where(eq(initiativeEntries.id, entryId));
+  bumpVersion(campaignId);
 }
 
 /**
@@ -626,7 +647,8 @@ export async function addCreaturesToEncounter(
 }
 
 export async function rollInitiative(encounterId: string): Promise<void> {
-  await staff(await encounterCampaign(encounterId));
+  const campaignId = await encounterCampaign(encounterId);
+  await staff(campaignId);
   const rows = await db
     .select()
     .from(initiativeEntries)
@@ -645,6 +667,7 @@ export async function rollInitiative(encounterId: string): Promise<void> {
     .update(initiativeEncounters)
     .set({ turnIndex: 0 })
     .where(eq(initiativeEncounters.id, encounterId));
+  bumpVersion(campaignId);
 }
 
 /* --- the shared roll log --------------------------------------------- */
@@ -713,6 +736,8 @@ export async function rollForCampaign(
     visibility: isStaff ? (input.visibility ?? 'table') : 'table',
   });
 
+  bumpVersion(campaignId);
+
   // Handed back so the roller can animate the faces the server actually
   // rolled. The log is still the record; this is only what to draw.
   return result;
@@ -724,6 +749,7 @@ export async function clearRolls(campaignId: string): Promise<void> {
   await db
     .delete(campaignRolls)
     .where(eq(campaignRolls.campaignId, campaignId));
+  bumpVersion(campaignId);
 }
 
 /* --- handouts ------------------------------------------------------- */
@@ -741,6 +767,7 @@ export async function createNote(
     body,
     createdBy: userId,
   });
+  bumpVersion(campaignId);
 }
 
 /** Called by the upload route handler after the file is written. */
@@ -759,6 +786,7 @@ export async function createImageHandout(
     mime,
     createdBy: userId,
   });
+  bumpVersion(campaignId);
 }
 
 async function handoutRow(handoutId: string) {
@@ -779,12 +807,14 @@ export async function setHandoutVisibility(
     .update(campaignHandouts)
     .set({ visibility })
     .where(eq(campaignHandouts.id, handoutId));
+  bumpVersion(row.campaignId);
 }
 
 export async function deleteHandout(handoutId: string): Promise<string | null> {
   const row = await handoutRow(handoutId);
   await staff(row.campaignId);
   await db.delete(campaignHandouts).where(eq(campaignHandouts.id, handoutId));
+  bumpVersion(row.campaignId);
   return row.filePath ?? null;
 }
 

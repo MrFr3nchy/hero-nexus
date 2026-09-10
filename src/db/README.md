@@ -47,9 +47,26 @@ it; nothing checks that the two agree except the person writing them.
 
 ## Real-time
 
-Live views (initiative tracker, handouts) use **short polling** —
-`src/@shared/hooks/useCampaignLive.ts` re-fetches `getLiveState(campaignId)` every
-~3s while the view is mounted and the tab is visible. To move to Server-Sent
-Events later, swap that hook's internals (open an `EventStream` to a
-`/api/campaigns/[id]/live` route that pushes on writes); consumers of the hook
-don't change.
+Live views stream. `GET /api/campaigns/[id]/live` is a Server-Sent Events route
+backed by `src/server/live-hub.ts`, a process-local broadcast hub pinned to
+`globalThis` — the same pattern and the same licence as `rate-limit.ts` and the
+SQLite connection above.
+
+**What travels is deliberately not the state.** A `state` frame carries a
+version number and nothing else; the browser answers by re-reading
+`getLiveState(campaignId)`, which is role-filtered. That keeps exactly one place
+in the codebase deciding what a player may see. Event frames (announcements) do
+carry content, so each one carries an audience applied in the hub — see
+`src/@shared/table/events.ts`.
+
+**Every server function that writes something a live view reads must call
+`bumpVersion(campaignId)` after the write commits.** In the server module, not
+in the action wrapper — a bump in the wrapper is one every future writer
+forgets. Bumps inside 40ms coalesce into one nudge, so a loop that writes six
+rows may bump six times without thinking about it.
+
+`useCampaignLive` still re-reads on a timer as a **floor** — 30s while the
+stream is up, 3s when it is down. That is not a leftover: it is what stops one
+forgotten `bumpVersion` from freezing a table mid-fight. Do not remove it.
+
+The full model is `docs/handoff/the-same-room/README.md`.

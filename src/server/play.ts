@@ -39,6 +39,7 @@ import {
   initiativeEntries,
 } from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
+import { bumpVersion } from './live-hub';
 import { requireUserId } from './session-user';
 
 /**
@@ -434,6 +435,8 @@ export async function applyPlayPatch(
     })
     .where(eq(initiativeEntries.characterId, characterId));
 
+  if (campaignId) bumpVersion(campaignId);
+
   return toPlayState(
     { ...character, sheet: next },
     canEdit,
@@ -611,6 +614,8 @@ export async function applyLoadoutPatch(
     .set({ armorClass: next.combat.armorClass })
     .where(eq(initiativeEntries.characterId, characterId));
 
+  if (campaignId) bumpVersion(campaignId);
+
   return getPlayLoadout(characterId, campaignId);
 }
 
@@ -714,6 +719,7 @@ export async function rollDeathSave(
       total: outcome.result,
       visibility: secret ? 'dm' : 'table',
     });
+    bumpVersion(campaignId);
   }
 
   return toPlayState(
@@ -803,6 +809,7 @@ export async function spendHitDice(
       total: healed,
       visibility: 'table',
     });
+    bumpVersion(campaignId);
   }
 
   return toPlayState(
@@ -885,6 +892,7 @@ export async function restParty(
     rested += 1;
   }
 
+  bumpVersion(campaignId);
   return rested;
 }
 
@@ -896,6 +904,7 @@ export async function setPlayConditions(
 ): Promise<void> {
   await requireCampaignRole(campaignId, ['gm', 'co-gm']);
   await writeConditions(characterId, keys);
+  bumpVersion(campaignId);
 }
 
 /**
@@ -949,5 +958,7 @@ export async function setOwnConditions(
 ): Promise<ConditionKey[]> {
   const { canEdit } = await authorize(characterId, campaignId);
   if (!canEdit) throw new Error('FORBIDDEN');
-  return writeConditions(characterId, keys);
+  const cleaned = await writeConditions(characterId, keys);
+  if (campaignId) bumpVersion(campaignId);
+  return cleaned;
 }
