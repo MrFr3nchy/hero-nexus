@@ -31,6 +31,7 @@ import {
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { listChecks, type CheckRow } from './checks';
+import { listPartyPlayState, type PlayState } from './play';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { resolveContentRefs } from './content';
 
@@ -139,6 +140,16 @@ export interface LiveState {
    * `DmScreen` already gives about panels: one answer, one request.
    */
   checks: CheckRow[];
+  /**
+   * Every seated character's at-the-table numbers.
+   *
+   * Here rather than behind a read of its own, which is what it had: the party
+   * panel loaded once on mount and reloaded only on its own actions, so a
+   * player spending a hit die reached the DM's screen whenever the DM happened
+   * to remount the panel. One answer, one request — `DmScreen` makes the same
+   * argument about pollers.
+   */
+  party: PlayState[];
   /** The viewer's own linked character, so the tracker can say "your turn". */
   viewerCharacterId: string | null;
 }
@@ -251,9 +262,12 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
       stoppedAt: t.stoppedAt,
     }));
 
-  // Its own module, and already role-filtered there — this call is a read,
-  // not a second place that decides what a player may see.
-  const checks = await listChecks(campaignId);
+  // Both are their own modules and already role-filtered there — these are
+  // reads, not second places that decide what a player may see.
+  const [checks, party] = await Promise.all([
+    listChecks(campaignId),
+    listPartyPlayState(campaignId),
+  ]);
 
   const sittingRow = await db.query.campaignSessions.findFirst({
     where: and(
@@ -294,6 +308,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     rolls,
     timers,
     checks,
+    party,
     viewerCharacterId: membership?.characterId ?? null,
   };
 }
@@ -333,6 +348,7 @@ export async function startTimer(
       kind: 'timer',
       id: randomUUID(),
       at: new Date().toISOString(),
+      by: userId,
       label: input.label.trim().slice(0, 120),
       endsAt,
       secret: visibility === 'dm',
@@ -372,7 +388,7 @@ export async function createEncounter(
   campaignId: string,
   name: string
 ): Promise<string> {
-  await staff(campaignId);
+  const { userId } = await staff(campaignId);
   await db
     .update(initiativeEncounters)
     .set({ isActive: false })
@@ -386,6 +402,7 @@ export async function createEncounter(
     kind: 'encounter',
     id: randomUUID(),
     at: new Date().toISOString(),
+    by: userId,
     encounterName: name.trim() || 'Encounter',
     state: 'started',
   });
@@ -434,7 +451,7 @@ export async function advanceTurn(
   direction: 1 | -1
 ): Promise<void> {
   const campaignId = await encounterCampaign(encounterId);
-  await staff(campaignId);
+  const { userId } = await staff(campaignId);
   const enc = await db.query.initiativeEncounters.findFirst({
     where: eq(initiativeEncounters.id, encounterId),
   });
@@ -474,6 +491,7 @@ export async function advanceTurn(
     kind: 'turn',
     id: randomUUID(),
     at: new Date().toISOString(),
+    by: userId,
     encounterName: enc.name,
     round,
     label: up?.label ?? 'Somebody',
@@ -853,6 +871,7 @@ export async function rollForCampaign(
       kind: 'roll',
       id: randomUUID(),
       at: new Date().toISOString(),
+      by: userId,
       actorName,
       label: (input.label ?? '').trim().slice(0, 80),
       notation: result.notation,
@@ -927,7 +946,7 @@ export async function setHandoutVisibility(
   visibility: 'dm' | 'shared'
 ): Promise<void> {
   const row = await handoutRow(handoutId);
-  await staff(row.campaignId);
+  const { userId } = await staff(row.campaignId);
   await db
     .update(campaignHandouts)
     .set({ visibility })
@@ -944,6 +963,7 @@ export async function setHandoutVisibility(
       kind: 'handout',
       id: randomUUID(),
       at: new Date().toISOString(),
+      by: userId,
       title: row.title,
       handoutKind: row.kind,
     });

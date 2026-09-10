@@ -170,13 +170,15 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
       ) : null;
 
     case 'vitals':
-      return (
+      return live.state ? (
         <PartyPlayPanel
           campaignId={ctx.campaignId}
+          party={live.state.party}
           isStaff={ctx.isStaff}
+          refresh={live.refresh}
           onError={ctx.onError}
         />
-      );
+      ) : null;
 
     case 'dice':
       return live.state ? (

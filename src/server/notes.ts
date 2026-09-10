@@ -437,6 +437,7 @@ export async function revealExcerpt(
       kind: 'reveal',
       id: randomUUID(),
       at: new Date().toISOString(),
+      by: userId,
       excerpt: body.length > 160 ? `${body.slice(0, 157)}…` : body,
     },
     visibility === 'selected' ? { users: targetUserIds } : 'everyone'

@@ -543,6 +543,7 @@ export async function openSitting(campaignId: string): Promise<string> {
     kind: 'sitting',
     id: randomUUID(),
     at: startedAt,
+    by: userId,
     state: 'opened',
     title: sittingTitle(number, title),
   });

@@ -30,6 +30,7 @@ import {
 } from '@/@creator/character/schema';
 import { parseContentData, refKey } from '@/@shared/content';
 import { rollDie } from '@/@shared/lib/dice';
+import { randomUUID } from 'node:crypto';
 import { resolveContentRefs } from './content';
 import { db } from '@/db';
 import {
@@ -39,7 +40,7 @@ import {
   initiativeEntries,
 } from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
-import { bumpVersion } from './live-hub';
+import { bumpVersion, publish } from './live-hub';
 import { requireUserId } from './session-user';
 
 /**
@@ -88,6 +89,53 @@ export interface PlayState {
   slots: { level: number; total: number; expended: number }[];
   /** Conditions the character is under, from the shared vocabulary. */
   conditions: ConditionKey[];
+}
+
+/**
+ * Tell the table that somebody's state of health crossed a line.
+ *
+ * Only the crossings, never the numbers in between. A cleric spending a hit
+ * die is a change the party panel shows; going down at 0 is a moment the whole
+ * table should look up for, and the difference between those two is the whole
+ * of what this function decides.
+ *
+ * `before` and `after` are the dying states either side of the write, so a hit
+ * that takes somebody from 3 hit points to 0 announces once and a second hit
+ * while they are already down does not announce again.
+ */
+function announceVitals(
+  campaignId: string | null,
+  character: { id: string; name: string },
+  before: DyingState,
+  after: DyingState
+): void {
+  if (!campaignId || before === after) return;
+
+  const state =
+    after === 'dead'
+      ? 'dead'
+      : after === 'dying'
+        ? 'down'
+        : after === 'stable'
+          ? 'stable'
+          : 'up';
+
+  // Coming round from stable to conscious is not news the table needs shouted
+  // at it; every other crossing is.
+  if (state === 'up' && before === 'stable') return;
+
+  publish(campaignId, {
+    kind: 'vitals',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    // Deliberately not set: this is the one announcement whose subject is the
+    // reader as often as not, and a player whose character just went down
+    // should be told as loudly as everybody else.
+    by: null,
+    characterName: character.name || 'Somebody',
+    characterId: character.id,
+    state,
+  });
 }
 
 const SLOT_KEYS: SpellSlotLevel[] = [
@@ -309,6 +357,11 @@ export async function applyPlayPatch(
 
   const sheet = character.sheet as CharacterSheet;
   const combat = { ...sheet.combat };
+  const wasDying = dyingState(combat.hitPointsCurrent, {
+    successes: combat.deathSaveSuccesses,
+    failures: combat.deathSaveFailures,
+    stable: combat.stable,
+  });
 
   if (patch.longRest) {
     combat.hitPointsCurrent = combat.hitPointsMax;
@@ -436,6 +489,16 @@ export async function applyPlayPatch(
     .where(eq(initiativeEntries.characterId, characterId));
 
   if (campaignId) bumpVersion(campaignId);
+  announceVitals(
+    campaignId,
+    { id: characterId, name: character.name },
+    wasDying,
+    dyingState(combat.hitPointsCurrent, {
+      successes: combat.deathSaveSuccesses,
+      failures: combat.deathSaveFailures,
+      stable: combat.stable,
+    })
+  );
 
   return toPlayState(
     { ...character, sheet: next },
@@ -721,6 +784,23 @@ export async function rollDeathSave(
     });
     bumpVersion(campaignId);
   }
+
+  /*
+   * A death save that stabilises or kills is the loudest thing that happens at
+   * a table, and it is announced even when the roll itself was secret: the
+   * roll is the DM's business, the outcome is the party's. `state` was read
+   * before the write, so a third failure announces once.
+   */
+  announceVitals(
+    campaignId,
+    { id: characterId, name: character.name },
+    state,
+    dyingState(combat.hitPointsCurrent, {
+      successes: combat.deathSaveSuccesses,
+      failures: combat.deathSaveFailures,
+      stable: combat.stable,
+    })
+  );
 
   return toPlayState(
     { ...character, sheet: next },

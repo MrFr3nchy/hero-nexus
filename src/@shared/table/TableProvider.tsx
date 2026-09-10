@@ -197,7 +197,10 @@ export function TableProvider({ children }: { children: ReactNode }) {
         at: Date.now(),
       };
 
+      // The feed keeps everything; the corner does not repeat back to you
+      // what you just did. See `by` on the event type.
       setHistory(list => [announcement, ...list].slice(0, HISTORY_LIMIT));
+      if (event.by && event.by === currentUser?.id) return;
 
       setAnnouncements(list => {
         const next = [...list, announcement];

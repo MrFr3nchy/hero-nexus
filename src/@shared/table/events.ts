@@ -41,6 +41,15 @@ interface BaseEvent {
   id: string;
   /** ISO instant it happened, from the server. Never the browser's clock. */
   at: string;
+  /**
+   * Who caused it, when the server knows.
+   *
+   * Not for filtering — the audience does that — but so the corner can stay
+   * quiet about what the reader just did themselves. Being told "you rolled a
+   * 14" a beat after watching your own dice land is noise, and at a busy table
+   * it is the noise that buries somebody else's news.
+   */
+  by?: string | null;
 }
 
 /** Somebody touched the dice. `secret` only ever reaches staff. */

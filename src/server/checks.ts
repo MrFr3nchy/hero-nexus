@@ -324,6 +324,7 @@ export async function requestCheck(
       kind: 'check',
       id: randomUUID(),
       at: new Date().toISOString(),
+      by: userId,
       checkId: row.id,
       ask: askLine({
         kind: input.kind,
@@ -475,6 +476,7 @@ export async function answerCheck(
     kind: 'check',
     id: randomUUID(),
     at: new Date().toISOString(),
+    by: userId,
     checkId: check.id,
     ask,
     state: 'answered',
