@@ -75,6 +75,8 @@ const MESSAGES: Record<string, string> = {
   NOT_YOUR_HOMEBREW: 'That homebrew is not yours to publish.',
   NOT_YOUR_PUBLICATION: 'That listing is not yours.',
   NOT_YOUR_CHARACTER: 'That hero is not yours to publish.',
+  CHARACTER_IS_DRAFT:
+    'That hero is still a draft. Finish the build before putting them on the shelf.',
   WRONG_KIND: 'That listing does not carry what this was asked to take.',
   OWN_PUBLICATION: 'You wrote this one — it is already yours.',
   WITHDRAWN: 'The author has taken this off the shelf.',

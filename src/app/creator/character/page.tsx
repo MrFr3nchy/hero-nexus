@@ -68,8 +68,10 @@ export default async function CharacterCreationPage({
           }
           description={
             existing
-              ? 'Update the sheet and save your changes.'
-              : 'Nine steps. Everything your class, species and background grant is filled in as you choose it.'
+              ? existing.status === 'draft'
+                ? 'Pick up where you left off. Nothing is owed until you finish.'
+                : 'Update the sheet and save your changes.'
+              : 'Eight steps, in any order. Everything your class, species and background grant is filled in as you choose it — and you can save a draft at any point.'
           }
         />
         <CharacterForm
@@ -81,6 +83,7 @@ export default async function CharacterCreationPage({
           initialCampaignId={selected}
           catalogCampaignId={selected}
           initialPick={initialPick}
+          initialStatus={existing?.status}
         />
       </PageShell>
     </ProtectedRoute>

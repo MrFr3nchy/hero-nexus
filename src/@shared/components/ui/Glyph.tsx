@@ -60,7 +60,8 @@ export type GlyphName =
   | 'quill'
   | 'die'
   | 'key'
-  | 'plus';
+  | 'plus'
+  | 'arrow-right';
 
 /** Every glyph's artwork, drawn inside a 24×24 box. */
 const PATHS: Record<GlyphName, React.ReactNode> = {
@@ -291,6 +292,9 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   ),
   // Furniture rather than a kind: the mark on every "forge a new one" control.
   plus: <path d="M12 5.5v13M5.5 12h13" />,
+  // "go there": the builder's outstanding-decision list jumps to the step
+  // that settles each one. Drawn short and blunt so it still reads at 13px.
+  'arrow-right': <path d="M5 12h13M12.5 6.5 18.5 12l-6 5.5" />,
 };
 
 export interface GlyphProps extends Omit<SVGProps<SVGSVGElement>, 'name'> {

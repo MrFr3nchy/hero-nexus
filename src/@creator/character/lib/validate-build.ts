@@ -19,8 +19,7 @@ export type StepId =
   | 'skills'
   | 'advancement'
   | 'equipment'
-  | 'details'
-  | 'review';
+  | 'details';
 
 export interface BuildIssue {
   step: StepId;

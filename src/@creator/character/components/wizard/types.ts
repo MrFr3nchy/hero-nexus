@@ -29,7 +29,15 @@ export interface StepProps {
   chooseBackground: (key: string, name: string) => void;
   log: (input: ProvenanceInput) => void;
   onCustomField: CustomFieldHandler;
+  /**
+   * Open the Forge over the build. The wizard owns the drawer and the catalog
+   * reload behind it, so a step only has to say which kind it wants.
+   */
+  forge: (kind: ForgeKind) => void;
 }
+
+/** The three picks a step can send to the Forge without leaving the build. */
+export type ForgeKind = 'class' | 'species' | 'background';
 
 /**
  * A choice carried in on the URL — `/creator/character?class=…` from the
@@ -37,6 +45,6 @@ export interface StepProps {
  * key: an SRD slug, or a homebrew id.
  */
 export interface InitialPick {
-  kind: 'class' | 'species' | 'background';
+  kind: ForgeKind;
   key: string;
 }

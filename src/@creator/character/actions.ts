@@ -10,6 +10,7 @@ import {
   RULES_ERROR,
   updateCharacter,
   type CharacterRow,
+  type CharacterStatus,
   type CharacterWithSheet,
 } from '@/server/characters';
 import { listPickableContent, resolveContentRefs } from '@/server/content';
@@ -58,18 +59,24 @@ function saveError(err: unknown): string {
   return mapped ?? 'Failed to save character.';
 }
 
+/**
+ * `status` is what the builder's two buttons differ by: "Save draft" writes a
+ * `draft`, "Finish" writes a `ready`. Omitted on an update, the row keeps the
+ * status it has — the raw sheet view saves without an opinion either way.
+ */
 export async function saveCharacterAction(
   sheet: CharacterSheet,
-  id?: string
+  id?: string,
+  status?: CharacterStatus
 ): Promise<SaveCharacterResult> {
   try {
     if (id) {
-      await updateCharacter(id, sheet);
+      await updateCharacter(id, sheet, status);
       revalidatePath('/characters');
       revalidatePath('/dashboard');
       return { ok: true, id };
     }
-    const newId = await createCharacter(sheet);
+    const newId = await createCharacter(sheet, status ?? 'ready');
     revalidatePath('/characters');
     revalidatePath('/dashboard');
     return { ok: true, id: newId };

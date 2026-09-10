@@ -259,3 +259,55 @@ export function withAdvantage(
     (_, __, sides) => `2d${sides}${keep}`
   );
 }
+
+/* ---- Die sizes ------------------------------------------------------ *
+ * The polyhedra the app can draw. Anything else still rolls fine — the
+ * roller falls back to the d20 silhouette — but these are the ones with
+ * their own shape.
+ * ------------------------------------------------------------------- */
+
+export type DieSides = 4 | 6 | 8 | 10 | 12 | 20 | 100;
+
+export const DIE_SIDES: DieSides[] = [4, 6, 8, 10, 12, 20, 100];
+
+export function isDieSides(sides: number): sides is DieSides {
+  return (DIE_SIDES as number[]).includes(sides);
+}
+
+/**
+ * Which die produced each face in a {@link NotationRoll}'s `dice` array.
+ *
+ * `rollNotation` flattens every term's faces into one list in term order, so
+ * the sides can be recovered from the notation alone. That is what lets a roll
+ * read back off the server — where only the notation and the faces are
+ * stored — be re-drawn as the right polyhedra.
+ */
+export function notationSides(input: string): number[] | null {
+  const parsed = parseNotation(input);
+  if (!parsed) return null;
+  const sides: number[] = [];
+  for (const term of parsed.terms) {
+    for (let i = 0; i < term.count; i++) sides.push(term.sides);
+  }
+  return sides;
+}
+
+/**
+ * A natural 20 or a natural 1, but only when a single d20 decided the roll.
+ * `2d20kh1` counts — one die is kept. `2d20` does not: there is no "the" die.
+ */
+export function critToneOf(
+  notation: string,
+  dice: number[],
+  dropped: number[]
+): 'crit' | 'fumble' | null {
+  const sides = notationSides(notation);
+  const counted = dice
+    .map((value, index) => ({ value, index }))
+    .filter(d => !dropped.includes(d.index));
+  if (counted.length !== 1) return null;
+  if ((sides?.[counted[0].index] ?? 0) !== 20) return null;
+  if (counted[0].value === 20) return 'crit';
+  if (counted[0].value === 1) return 'fumble';
+  return null;
+}

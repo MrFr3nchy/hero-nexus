@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import { Button } from '@heroui/react';
 
-import { Dice3DRoller, type RollRequest } from '@/@shared/components/ui';
+import { useDiceTray } from '@/@shared/components/dice';
 import type { RollResult } from '@/@shared/lib/dice';
 
 import {
@@ -400,9 +399,7 @@ export function AdvancementStep({
   limits,
 }: StepProps) {
   const maxLevel = limits.maxLevel;
-  const [request, setRequest] = useState<
-    (RollRequest & { level?: number }) | null
-  >(null);
+  const tray = useDiceTray();
 
   const level = sheet.identity.level;
   const hitDie = classDef?.hitDie ?? sheet.combat.hitDieSize;
@@ -458,6 +455,15 @@ export function AdvancementStep({
       rolls: result.dice,
       append: true,
     });
+  };
+
+  /** The hit die goes across the window; the level takes what it lands on. */
+  const rollHp = async (lvl: number) => {
+    const [result] = await tray.rollSpec({ sides: hitDie, count: 1 }, 1, {
+      title: `Level ${lvl} hit points`,
+      hint: `one d${hitDie}, plus your Constitution modifier`,
+    });
+    applyHpRoll(lvl, result);
   };
 
   const setSubclass = (lvl: number, key: string, name: string) => {
@@ -556,19 +562,6 @@ export function AdvancementStep({
         )}
       </div>
 
-      {request && (
-        <div className="mt-4">
-          <Dice3DRoller
-            request={request}
-            onResults={(results, req) => {
-              const target = (req as RollRequest & { level?: number }).level;
-              if (target) applyHpRoll(target, results[0]);
-            }}
-            onClose={() => setRequest(null)}
-          />
-        </div>
-      )}
-
       {!classDef && (
         <p className="mt-4 text-sm text-ink-muted">
           Pick a class to see what each level gives you.
@@ -595,15 +588,7 @@ export function AdvancementStep({
                 hpGain: Math.max(1, Math.min(hitDie, value)),
               }))
             }
-            onRollHp={() =>
-              setRequest({
-                nonce: Date.now(),
-                spec: { sides: hitDie, count: 1 },
-                title: `Level ${step.level} hit points`,
-                hint: `one d${hitDie}, plus your Constitution modifier`,
-                level: step.level,
-              })
-            }
+            onRollHp={() => rollHp(step.level)}
             onSubclass={(key, name) => setSubclass(step.level, key, name)}
             onAsi={asi => setAsi(step.level, asi)}
           />

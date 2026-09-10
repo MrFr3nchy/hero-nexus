@@ -10,6 +10,7 @@ import {
 } from '@/server/approvals';
 import { ABILITY_METHODS } from '@/@creator/character/schema';
 import type { ContentRef } from '@/@shared/content';
+import type { NotationRoll } from '@/@shared/lib/dice';
 import {
   addEntry,
   addCreaturesToEncounter,
@@ -111,6 +112,8 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     ALREADY_MEMBER: 'That person is already in the campaign.',
     CANNOT_REMOVE_GM: 'The DM cannot be removed.',
     NOT_YOUR_CHARACTER: 'That character is not yours.',
+    CHARACTER_IS_DRAFT:
+      'That hero is still a draft. Finish the build before seating them at a table.',
     NOT_A_MEMBER: 'You are not a member of this campaign.',
     INVITE_NOT_PENDING: 'That invite is no longer pending.',
     NOT_A_CREATURE: 'Only a creature can be sent into a fight.',
@@ -437,10 +440,10 @@ export async function rollInitiativeAction(
 export async function rollAction(
   campaignId: string,
   input: RollInput
-): Promise<Result> {
+): Promise<Result<NotationRoll>> {
   try {
-    await rollForCampaign(campaignId, input);
-    return { ok: true };
+    const roll = await rollForCampaign(campaignId, input);
+    return { ok: true, data: roll };
   } catch (err) {
     const code = err instanceof Error ? err.message : '';
     if (code === 'BAD_NOTATION') {

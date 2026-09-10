@@ -10,7 +10,7 @@ import {
   type ContentRef,
   type CreatureData,
 } from '@/@shared/content';
-import { rollDie, rollNotation } from '@/@shared/lib/dice';
+import { rollDie, rollNotation, type NotationRoll } from '@/@shared/lib/dice';
 import { db } from '@/db';
 import {
   campaignHandouts,
@@ -581,7 +581,7 @@ export interface RollInput {
 export async function rollForCampaign(
   campaignId: string,
   input: RollInput
-): Promise<void> {
+): Promise<NotationRoll> {
   const { role, userId } = await requireCampaignRole(campaignId, [
     'gm',
     'co-gm',
@@ -627,6 +627,10 @@ export async function rollForCampaign(
     total: result.total,
     visibility: isStaff ? (input.visibility ?? 'table') : 'table',
   });
+
+  // Handed back so the roller can animate the faces the server actually
+  // rolled. The log is still the record; this is only what to draw.
+  return result;
 }
 
 /** Clear the log. Staff only — it is the table's record, not one player's. */

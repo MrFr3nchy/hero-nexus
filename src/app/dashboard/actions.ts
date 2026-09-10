@@ -6,6 +6,8 @@ import { listHomebrew } from '@/server/homebrew';
 
 export interface DashboardSummary {
   characters: number;
+  /** Heroes still being built. Counted apart; they are not party members. */
+  drafts: number;
   homebrew: number;
   campaigns: number;
   asDm: number;
@@ -19,8 +21,18 @@ export interface DashboardRail {
 export interface DashboardData {
   summary: DashboardSummary;
   rail: DashboardRail;
+  /**
+   * The party — finished heroes only.
+   *
+   * The dashboard leads with this row (design rule 1: the object is the hero),
+   * and a half-built character with no class and no species is not a hero
+   * waiting on your word. Drafts are counted in `summary.drafts` and picked up
+   * from `/characters`, where they have their own section.
+   */
   characters: CharacterRow[];
 }
+
+const isReady = (c: CharacterRow) => c.status !== 'draft';
 
 export async function getDashboardSummaryAction(): Promise<DashboardSummary> {
   const [characters, homebrew, campaigns] = await Promise.all([
@@ -29,7 +41,8 @@ export async function getDashboardSummaryAction(): Promise<DashboardSummary> {
     listCampaigns(),
   ]);
   return {
-    characters: characters.length,
+    characters: characters.filter(isReady).length,
+    drafts: characters.length - characters.filter(isReady).length,
     homebrew: homebrew.length,
     campaigns: campaigns.length,
     asDm: campaigns.filter(c => c.isGM).length,
@@ -44,9 +57,11 @@ export async function getDashboardDataAction(): Promise<DashboardData> {
     listCampaigns(),
   ]);
   const gm = campaigns.filter(c => c.isGM);
+  const ready = characters.filter(isReady);
   return {
     summary: {
-      characters: characters.length,
+      characters: ready.length,
+      drafts: characters.length - ready.length,
       homebrew: homebrew.length,
       campaigns: campaigns.length,
       asDm: gm.length,
@@ -59,6 +74,6 @@ export async function getDashboardDataAction(): Promise<DashboardData> {
         .slice(0, 4)
         .map(c => ({ id: c.id, name: c.name, memberCount: c.memberCount })),
     },
-    characters,
+    characters: ready,
   };
 }

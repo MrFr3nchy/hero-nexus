@@ -8,8 +8,6 @@ export { Fleuron } from './Fleuron';
 export { Seal } from './Seal';
 export { Ribbon } from './Ribbon';
 export { DiceSpinner } from './DiceSpinner';
-export { Dice3DRoller } from './Dice3DRoller';
-export type { RollRequest } from './Dice3DRoller';
 export { DeckledEdge } from './DeckledEdge';
 export { Marginalia } from './Marginalia';
 export { Ledger } from './Ledger';

@@ -8,9 +8,12 @@ import {
   CandleScene,
   DiceSpinner,
   EmptyState,
+  Glyph,
   HeroCard,
+  Marginalia,
   PageHeader,
   PageShell,
+  Ribbon,
   useConfirm,
 } from '@/@shared/components/ui';
 import type { CharacterRow } from '@/server/characters';
@@ -36,10 +39,13 @@ export function CharactersList() {
   }, [load]);
 
   const handleDelete = async (c: CharacterRow) => {
+    const draft = c.status === 'draft';
     const ok = await confirm({
-      title: `Retire ${c.name || 'this character'}?`,
-      body: 'The sheet and its change log are removed for good.',
-      confirmLabel: 'Retire',
+      title: `${draft ? 'Discard' : 'Retire'} ${c.name || 'this character'}?`,
+      body: draft
+        ? 'An unfinished build, thrown back on the fire. Nothing else points at it.'
+        : 'The sheet and its change log are removed for good.',
+      confirmLabel: draft ? 'Discard' : 'Retire',
       destructive: true,
     });
     if (!ok) return;
@@ -51,6 +57,9 @@ export function CharactersList() {
       setError('Failed to delete character');
     }
   };
+
+  const ready = characters?.filter(c => c.status !== 'draft') ?? [];
+  const drafts = characters?.filter(c => c.status === 'draft') ?? [];
 
   return (
     <PageShell width="full">
@@ -91,48 +100,102 @@ export function CharactersList() {
           }
         />
       ) : (
-        <div className="flex flex-wrap gap-5">
-          {characters.map(c => (
-            <div key={c.id} className="group relative w-52">
-              <HeroCard
-                layout="stack"
-                href={`/characters/${c.id}`}
-                name={c.name || 'Unnamed character'}
-                charClass={c.class || undefined}
-                level={c.level}
-                species={c.species || undefined}
-                note={c.hasHomebrew ? 'homebrew in play' : undefined}
-              />
-              <div className="absolute -right-2 -top-2 hidden gap-1 group-hover:flex">
-                <Link
-                  href={`/creator/character?id=${c.id}`}
-                  aria-label={`Edit ${c.name || 'character'}`}
-                  className="flex h-7 w-7 items-center justify-center rounded-full border border-line bg-surface text-ink-subtle shadow-sm transition-colors hover:text-gold"
-                >
-                  <Icon icon="ph:pencil-simple-bold" width={13} />
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(c)}
-                  aria-label={`Retire ${c.name || 'character'}`}
-                  className="flex h-7 w-7 items-center justify-center rounded-full border border-line bg-surface text-ink-subtle shadow-sm transition-colors hover:text-danger"
-                >
-                  <Icon icon="ph:x-bold" width={13} />
-                </button>
+        <>
+          <div className="flex flex-wrap gap-5">
+            {ready.map(c => (
+              <Card key={c.id} character={c} onDelete={handleDelete} />
+            ))}
+            <Link
+              href="/creator/character"
+              className="flex w-52 flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-line p-6 text-center transition-colors hover:border-gold hover:bg-gold/[0.04]"
+            >
+              <Glyph name="plus" size={22} className="text-gold" />
+              <span className="font-hand text-lg text-ink-subtle">
+                Roll a new one
+              </span>
+            </Link>
+          </div>
+
+          {/*
+            Drafts stand apart because they behave differently: they cannot
+            take a seat at a table or go on the Library's shelf until they are
+            finished. Mixing them into the party would put heroes who can do
+            neither beside heroes who can, with nothing on the card to say so.
+          */}
+          {drafts.length > 0 && (
+            <section className="mt-10 border-t border-line pt-6">
+              <h2 className="font-display text-xl text-ink">
+                Still being built
+              </h2>
+              <Marginalia dash className="mb-4">
+                no chair, no shelf, not yet
+              </Marginalia>
+              <div className="flex flex-wrap gap-5">
+                {drafts.map(c => (
+                  <Card
+                    key={c.id}
+                    character={c}
+                    onDelete={handleDelete}
+                    draft
+                  />
+                ))}
               </div>
-            </div>
-          ))}
-          <Link
-            href="/creator/character"
-            className="flex w-52 flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-line p-6 text-center transition-colors hover:border-gold hover:bg-gold/[0.04]"
-          >
-            <span className="text-2xl text-gold">✦</span>
-            <span className="font-hand text-lg text-ink-subtle">
-              Roll a new one
-            </span>
-          </Link>
-        </div>
+            </section>
+          )}
+        </>
       )}
     </PageShell>
+  );
+}
+
+/**
+ * One hero on the roster. `draft` adds the `Ribbon` that says why this one
+ * cannot yet do what the others can (design rule 6: ornament encodes state)
+ * and points its click at the builder rather than the finished sheet — there
+ * is no finished sheet to read.
+ */
+function Card({
+  character: c,
+  onDelete,
+  draft = false,
+}: {
+  character: CharacterRow;
+  onDelete: (c: CharacterRow) => void;
+  draft?: boolean;
+}) {
+  return (
+    <div className="group relative w-52">
+      <HeroCard
+        layout="stack"
+        href={draft ? `/creator/character?id=${c.id}` : `/characters/${c.id}`}
+        name={c.name || 'Unnamed character'}
+        charClass={c.class || undefined}
+        level={c.level}
+        species={c.species || undefined}
+        note={c.hasHomebrew ? 'homebrew in play' : undefined}
+      />
+      {draft && (
+        <Ribbon tone="warning" className="absolute -left-1 top-3">
+          Draft
+        </Ribbon>
+      )}
+      <div className="absolute -right-2 -top-2 hidden gap-1 group-hover:flex">
+        <Link
+          href={`/creator/character?id=${c.id}`}
+          aria-label={`${draft ? 'Continue' : 'Edit'} ${c.name || 'character'}`}
+          className="flex h-7 w-7 items-center justify-center rounded-full border border-line bg-surface text-ink-subtle shadow-sm transition-colors hover:text-gold"
+        >
+          <Icon icon="ph:pencil-simple-bold" width={13} />
+        </Link>
+        <button
+          type="button"
+          onClick={() => onDelete(c)}
+          aria-label={`${draft ? 'Discard' : 'Retire'} ${c.name || 'character'}`}
+          className="flex h-7 w-7 items-center justify-center rounded-full border border-line bg-surface text-ink-subtle shadow-sm transition-colors hover:text-danger"
+        >
+          <Icon icon="ph:x-bold" width={13} />
+        </button>
+      </div>
+    </div>
   );
 }

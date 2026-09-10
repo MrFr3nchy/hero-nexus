@@ -32,6 +32,14 @@ import {
   type HomebrewEntry,
 } from '@/@creator/character/schema';
 
+/**
+ * `draft` — the guided build still owes decisions. Everything else in the app
+ * treats a draft as a normal character; the two exceptions are `campaigns.ts`
+ * and `library-packages.ts`, which refuse to hand an unfinished sheet to
+ * anybody else.
+ */
+export type CharacterStatus = 'draft' | 'ready';
+
 export interface CharacterRow {
   id: string;
   name: string;
@@ -41,6 +49,7 @@ export interface CharacterRow {
   background: string;
   rpgSystem: string;
   hasHomebrew: boolean;
+  status: CharacterStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -86,6 +95,7 @@ const listColumns = {
   background: characters.background,
   rpgSystem: characters.rpgSystem,
   hasHomebrew: characters.hasHomebrew,
+  status: characters.status,
   createdAt: characters.createdAt,
   updatedAt: characters.updatedAt,
 };
@@ -116,6 +126,7 @@ export async function getCharacter(
     background: row.background,
     rpgSystem: row.rpgSystem,
     hasHomebrew: row.hasHomebrew,
+    status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
@@ -155,6 +166,7 @@ export async function getCharacterForCampaign(
     background: row.background,
     rpgSystem: row.rpgSystem,
     hasHomebrew: row.hasHomebrew,
+    status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
@@ -349,12 +361,25 @@ async function syncCharacterAuditLog(
   }
 }
 
-export async function createCharacter(input: unknown): Promise<string> {
+/**
+ * `status` is the caller's word, not the sheet's.
+ *
+ * Completeness is a property of the *build* — `findBuildIssues` — and the
+ * sheet schema deliberately parses a half-finished one, because every leaf
+ * carries a default. So the server cannot recompute "is this finished?" from
+ * the row, and does not try: the builder says which button was pressed, and
+ * the places that matter (a table, the shelf) check the flag rather than
+ * re-deriving it.
+ */
+export async function createCharacter(
+  input: unknown,
+  status: CharacterStatus = 'ready'
+): Promise<string> {
   const userId = await requireUserId();
   const sheet = characterSheetSchema.parse(input);
   const [row] = await db
     .insert(characters)
-    .values({ ownerId: userId, ...denormalize(sheet), sheet })
+    .values({ ownerId: userId, ...denormalize(sheet), sheet, status })
     .returning({ id: characters.id });
   await syncCharacterHomebrew(row.id, userId, sheet);
   await syncCharacterAuditLog(row.id, sheet);
@@ -800,9 +825,15 @@ export async function writeSheetAsStaff(
   await recordCharacterHistory(characterId, actorUserId, existing.sheet, sheet);
 }
 
+/**
+ * `status` omitted leaves the row's own status alone — a DM-side or sheet-view
+ * save of a finished hero must not quietly demote them to a draft, and a draft
+ * saved again from the raw sheet view stays a draft.
+ */
 export async function updateCharacter(
   id: string,
-  input: unknown
+  input: unknown,
+  status?: CharacterStatus
 ): Promise<void> {
   const userId = await requireUserId();
   const sheet = characterSheetSchema.parse(input);
@@ -819,6 +850,7 @@ export async function updateCharacter(
     .set({
       ...denormalize(sheet),
       sheet,
+      ...(status ? { status } : {}),
       updatedAt: new Date().toISOString(),
     })
     .where(and(eq(characters.id, id), eq(characters.ownerId, userId)))

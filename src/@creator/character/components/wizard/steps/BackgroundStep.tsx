@@ -1,8 +1,5 @@
 'use client';
 
-import { useState } from 'react';
-import { Input } from '@heroui/react';
-
 import { ABILITY_LABELS, SKILL_LABELS, type AbilityKey } from '../../../schema';
 import {
   ChoiceCard,
@@ -27,14 +24,8 @@ export function BackgroundStep({
   chooseBackground,
   log,
   onCustomField,
+  forge,
 }: StepProps) {
-  const [custom, setCustom] = useState(
-    Boolean(build.backgroundName) && !build.backgroundKey
-  );
-  const [customName, setCustomName] = useState(
-    build.backgroundKey ? '' : build.backgroundName
-  );
-
   const background =
     catalog.backgrounds.find(b => b.key === build.backgroundKey) ?? null;
   const boost = build.backgroundBoost;
@@ -44,35 +35,31 @@ export function BackgroundStep({
   );
 
   const pick = (key: string, name: string) => {
-    setCustom(false);
     chooseBackground(key, name);
     log({ kind: 'field', label: 'Background', detail: `Background: ${name}` });
-  };
-
-  const commitCustom = (value: string) => {
-    setCustomName(value);
-    patchBuild(b => ({
-      ...b,
-      backgroundKey: '',
-      backgroundName: value,
-      backgroundSource: 'srd',
-    }));
-    onCustomField(
-      'identity.background',
-      'background',
-      value,
-      value.trim().length > 0
-    );
   };
 
   const missing =
     Boolean(build.backgroundKey) &&
     !catalog.backgrounds.some(o => o.key === build.backgroundKey);
 
+  /*
+   * The forged background is gone. Keep the word, and register it as a custom
+   * field so its skills and gear can be filled in on the sheet view.
+   */
   const dropLink = () => {
-    setCustom(true);
-    setCustomName(build.backgroundName);
-    commitCustom(build.backgroundName);
+    patchBuild(b => ({
+      ...b,
+      backgroundKey: '',
+      backgroundName: build.backgroundName,
+      backgroundSource: 'srd',
+    }));
+    onCustomField(
+      'identity.background',
+      'background',
+      build.backgroundName,
+      true
+    );
   };
 
   const setMode = (mode: 'two-one' | 'three') =>
@@ -148,11 +135,11 @@ export function BackgroundStep({
         {limits.allowHomebrew && (
           <ChoiceCard
             custom
-            title="A background of your own"
-            selected={custom}
-            onSelect={() => setCustom(true)}
+            title="Forge a background"
+            selected={false}
+            onSelect={() => forge('background')}
             meta="homebrew"
-            blurb="Write your own origin. Fill in its skills and gear on the sheet view."
+            blurb="Open the Forge here: its two skills, its tool, its origin feat and its kit. It becomes a real background in your forge and this hero picks it up."
           />
         )}
       </ChoiceGrid>
@@ -163,17 +150,6 @@ export function BackgroundStep({
             name={build.backgroundName || 'A forged background'}
             kind="background"
             onClear={dropLink}
-          />
-        </div>
-      )}
-
-      {custom && (
-        <div className="mt-4 rounded-[var(--radius-card)] border border-arcane/40 bg-arcane/5 p-4">
-          <Input
-            label="Background name"
-            value={customName}
-            onValueChange={commitCustom}
-            classNames={{ inputWrapper: 'bg-surface border-line' }}
           />
         </div>
       )}

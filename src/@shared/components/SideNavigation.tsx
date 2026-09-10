@@ -47,37 +47,108 @@ const PRIMARY: NavItem[] = [
  * the `+` on a shelf goes straight to the forge with that type selected, which
  * is what anyone clicking "Forge" was after. `/creator` still redirects, for
  * anything holding the old link.
+ *
+ * **Every kind the Forge can make is reachable from here.** That is the rule
+ * this list answers to: the Forge could author eight `CONTENT_TYPES` while the
+ * sidebar listed four, so a forged background or feat had nowhere to be looked
+ * at and no `+` that would start one. Adding a type to `CONTENT_REGISTRY`
+ * means adding it here — or, like `subclass`, deliberately housing it on
+ * another shelf's page and saying why.
+ *
+ * Grouped rather than flat: eight rows in one run is a wall, and the split is
+ * a real one. The first group is what a hero is assembled out of — every kind
+ * the character builder picks from. The second is what the world is furnished
+ * with.
  */
-const COMPENDIUM: NavItem[] = [
+interface NavGroup {
+  /** Straight, not the hand face: a nav label is load-bearing (rule 5). */
+  label: string;
+  items: NavItem[];
+}
+
+const COMPENDIUM: NavGroup[] = [
   {
-    name: 'Classes',
-    href: '/classes',
-    icon: 'ph:shield-bold',
-    create: '/creator/homebrew?type=class',
-    creates: 'class',
+    label: 'Character options',
+    items: [
+      {
+        name: 'Classes',
+        href: '/classes',
+        icon: 'ph:shield-bold',
+        create: '/creator/homebrew?type=class',
+        creates: 'class',
+      },
+      {
+        name: 'Species',
+        href: '/species',
+        icon: 'ph:tree-bold',
+        create: '/creator/homebrew?type=species',
+        creates: 'species',
+      },
+      {
+        name: 'Backgrounds',
+        href: '/backgrounds',
+        icon: 'ph:scroll-bold',
+        create: '/creator/homebrew?type=background',
+        creates: 'background',
+      },
+      {
+        name: 'Feats',
+        href: '/feats',
+        icon: 'ph:star-bold',
+        create: '/creator/homebrew?type=feat',
+        creates: 'feat',
+      },
+    ],
   },
   {
-    name: 'Spells',
-    href: '/spells',
-    icon: 'ph:magic-wand-bold',
-    create: '/creator/homebrew?type=spell',
-    creates: 'spell',
+    label: 'Rules & world',
+    items: [
+      {
+        name: 'Spells',
+        href: '/spells',
+        icon: 'ph:magic-wand-bold',
+        create: '/creator/homebrew?type=spell',
+        creates: 'spell',
+      },
+      {
+        name: 'Items',
+        href: '/items',
+        icon: 'ph:treasure-chest-bold',
+        create: '/creator/homebrew?type=item',
+        creates: 'item',
+      },
+      {
+        name: 'Bestiary',
+        href: '/bestiary',
+        icon: 'ph:paw-print-bold',
+        create: '/creator/homebrew?type=creature',
+        creates: 'creature',
+      },
+    ],
   },
-  {
-    name: 'Items',
-    href: '/items',
-    icon: 'ph:treasure-chest-bold',
-    create: '/creator/homebrew?type=item',
-    creates: 'item',
-  },
-  {
-    name: 'Bestiary',
-    href: '/bestiary',
-    icon: 'ph:paw-print-bold',
-    create: '/creator/homebrew?type=creature',
-    creates: 'creature',
-  },
-  { name: 'Library', href: '/library', icon: 'ph:books-bold' },
+];
+
+/** Reached from the sidebar foot, below both groups. */
+const LIBRARY: NavItem = {
+  name: 'Library',
+  href: '/library',
+  icon: 'ph:books-bold',
+};
+
+/**
+ * Every route this sidebar links to.
+ *
+ * Exported because `ConditionalLayout` decides which shell a route gets from a
+ * list of private routes, and that list was maintained by hand — so adding
+ * `/species`, `/backgrounds` and `/feats` here gave them a nav row that then
+ * rendered them with the *public* top bar and no sidebar at all. Deriving that
+ * list from this one means a route cannot be in the sidebar and not get the
+ * sidebar; the two can no longer disagree.
+ */
+export const NAV_HREFS: string[] = [
+  ...PRIMARY.map(i => i.href),
+  ...COMPENDIUM.flatMap(g => g.items.map(i => i.href)),
+  LIBRARY.href,
 ];
 
 export function SideNavigation() {
@@ -178,14 +249,29 @@ export function SideNavigation() {
         </Button>
       </div>
 
-      <nav className="flex-1 py-3">
+      <nav className="flex-1 overflow-y-auto py-3">
         {PRIMARY.map(item => (
           <Row key={item.href} item={item} />
         ))}
         <div className="mx-5 my-3 h-px bg-line" />
-        {COMPENDIUM.map(item => (
-          <Row key={item.href} item={item} />
+        {COMPENDIUM.map(group => (
+          <div key={group.label} className="mb-1">
+            {/*
+              Collapsed there is no room for a word, and the icons still read
+              in the order the groups put them in.
+            */}
+            {!collapsed && (
+              <h2 className="px-5 pb-1 pt-2 font-display-alt text-[0.6rem] uppercase tracking-[0.14em] text-ink-subtle">
+                {group.label}
+              </h2>
+            )}
+            {group.items.map(item => (
+              <Row key={item.href} item={item} />
+            ))}
+          </div>
         ))}
+        <div className="mx-5 my-3 h-px bg-line" />
+        <Row item={LIBRARY} />
       </nav>
 
       <div className="border-t border-line px-3 py-3">

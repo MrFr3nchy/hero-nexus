@@ -3,9 +3,10 @@
 import { Button, Input, Select, SelectItem, Switch } from '@heroui/react';
 import { useState } from 'react';
 
+import { useDiceTray } from '@/@shared/components/dice';
 import { motion } from '@/@shared/components/motion';
 import { Marginalia, SectionCard } from '@/@shared/components/ui';
-import { withAdvantage } from '@/@shared/lib/dice';
+import { critToneOf, withAdvantage } from '@/@shared/lib/dice';
 import type { CharacterRow } from '@/server/characters';
 import type { LiveState, RollRow } from '@/server/session';
 import { clearRollsAction, rollAction } from '../../actions';
@@ -22,12 +23,7 @@ function timeOf(iso: string): string {
 
 /** A natural 20 or a natural 1 on a lone d20 is the only thing worth a colour. */
 function critTone(roll: RollRow): 'crit' | 'fumble' | null {
-  const counted = roll.dice.filter((_, i) => !roll.dropped.includes(i));
-  if (counted.length !== 1) return null;
-  if (!/d20/i.test(roll.notation)) return null;
-  if (counted[0] === 20) return 'crit';
-  if (counted[0] === 1) return 'fumble';
-  return null;
+  return critToneOf(roll.notation, roll.dice, roll.dropped);
 }
 
 function RollLine({ roll }: { roll: RollRow }) {
@@ -119,7 +115,13 @@ export function RollPanel({
     state.viewerCharacterId ?? ''
   );
   const [spin, setSpin] = useState(0);
+  const tray = useDiceTray();
 
+  /**
+   * The server rolls, then the tray draws the faces it rolled. The dice on
+   * screen are a picture of the log entry, not a second roll — which is why
+   * the animation waits for the round trip instead of racing it.
+   */
   const roll = async (expression: string) => {
     const finished =
       mode === 'flat' ? expression : withAdvantage(expression, mode);
@@ -134,7 +136,13 @@ export function RollPanel({
       onError(res.error ?? 'The dice did not land.');
       return;
     }
+    const named = label.trim();
+    const shown = tray.showNotationRoll(res.data, {
+      title: named || res.data.notation,
+      hint: named ? res.data.notation : undefined,
+    });
     await refresh();
+    await shown;
   };
 
   return (

@@ -5,7 +5,7 @@ page is wrong. Agents working on this repo follow it without being reminded.
 
 The app is already competently themed: Fraunces + Cinzel + Inter + Caveat, a warm
 parchment/candlelight token pair, a grain overlay, and a set of characterful primitives
-(`Fleuron`, `Seal`, `Ribbon`, `DeckledEdge`, `Dice3DRoller`). That part is good and is
+(`Fleuron`, `Seal`, `Ribbon`, `DeckledEdge`, `DiceTray`). That part is good and is
 not what this document changes.
 
 What it governs is the **layout, information design, and voice on top of the theme** —
@@ -64,6 +64,12 @@ collections — a spell list, a character roster — not for three feature blurb
 ### 4. One toy per page, and it must demo the product
 
 Exactly one interactive or animated moment per page. Everything else holds still.
+
+The dice tray is the one exception, and only because it is not on a page: it is a
+modal moment over the whole window, raised by an action the reader took and gone a
+couple of seconds later. Rolling dice is the app's loudest verb, so it gets the
+loudest animation — but it never counts against a page's one toy, and a page may
+not have a second animated element merely because its toy is a die.
 
 - **Do** — home: the d20 that rolls a new fixture hero into the sheet and recomputes
   the ability modifiers. Dashboard: the d20 in the header that tumbles and lands on a
@@ -170,15 +176,15 @@ Reach for one of these only with a stated reason in the PR/commit description.
 
 Every route is one of these. The archetype decides what the page leads with.
 
-| Archetype           | Leads with                                            | Examples                                                                                        |
-| ------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| **Marketing**       | The artifact + one toy (rule 1, 4)                    | `/`                                                                                             |
-| **Dashboard**       | Greeting + `Ledger` + the party, then a rail          | `/dashboard`                                                                                    |
-| **Collection**      | The collection itself (grid/list of the real objects) | `/characters`, `/spells`, `/classes`, `/campaigns`, `/marketplace`                              |
-| **Single object**   | The object, full-bleed; metadata second               | `/campaigns/[id]`, `/campaigns/[id]/players/[characterId]`, `/creator/character`                |
-| **Workspace**       | The thing being built/managed; controls in a rail     | `/creator/homebrew`, `/campaigns/[id]/manage`                                                   |
-| **Form / utility**  | The form as a framed sheet, plus an in-world scene    | `/login`, `/register`, `/forgot-password`, `/campaigns/create`, `/campaigns/join`, `/account/*` |
-| **Reference prose** | A short lede, then asymmetric content (rule 3)        | `/about`, `/faq`, `/creator/homebrew/guide`                                                     |
+| Archetype           | Leads with                                            | Examples                                                                                                 |
+| ------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **Marketing**       | The artifact + one toy (rule 1, 4)                    | `/`                                                                                                      |
+| **Dashboard**       | Greeting + `Ledger` + the party, then a rail          | `/dashboard`                                                                                             |
+| **Collection**      | The collection itself (grid/list of the real objects) | `/characters`, `/spells`, `/classes`, `/species`, `/backgrounds`, `/feats`, `/campaigns`, `/marketplace` |
+| **Single object**   | The object, full-bleed; metadata second               | `/campaigns/[id]`, `/campaigns/[id]/players/[characterId]`, `/creator/character`                         |
+| **Workspace**       | The thing being built/managed; controls in a rail     | `/creator/homebrew`, `/campaigns/[id]/manage`                                                            |
+| **Form / utility**  | The form as a framed sheet, plus an in-world scene    | `/login`, `/register`, `/forgot-password`, `/campaigns/create`, `/campaigns/join`, `/account/*`          |
+| **Reference prose** | A short lede, then asymmetric content (rule 3)        | `/about`, `/faq`, `/creator/homebrew/guide`                                                              |
 
 Rules that always apply regardless of archetype: no eyebrow; `PageHeader rule={false}`
 when the page leads with an object; calm motion; empty/loading states get a scene and
@@ -205,8 +211,16 @@ Modelled on the concept's `.spine`. Not a generic app sidebar.
   on a faint wash.
 - **Active item**: gold fill, `--bg`-colour text, `font-medium`, plus a **4px oxblood
   (`--danger`) tab** flush to the left edge of the row. Exactly one active item.
-- A hairline separator splits primary nav (Table / Heroes / Campaigns) from the
-  compendium group (Forge / Classes / Spells / Market).
+- A hairline separator splits primary nav (Table / Campaigns / Heroes) from the
+  compendium, and a second one splits the compendium from the Library.
+- **Every kind the Forge can author has a shelf here.** The compendium is two labelled
+  groups — _Character options_ (Classes, Species, Backgrounds, Feats) and _Rules &
+  world_ (Spells, Items, Bestiary) — because eight rows in one run is a wall and the
+  split is a real one: the first group is what a hero is assembled from, the second is
+  what the world is furnished with. Group labels are straight, never the hand face
+  (rule 5). Subclasses are the one deliberate exception: the SRD keeps them inside the
+  class rows, so they live as a lens on `/classes` rather than a ninth row.
+- Each shelf row carries the `+` that forges one of its kind, revealed on hover.
 - Foot: a `Marginalia` line — "Signed in as {name}, keeper of {n} campaigns" — above
   the theme toggle and sign-out.
 - Collapse behaviour is kept; collapsed shows icons only, active tab still reads.
@@ -329,20 +343,20 @@ Fonts (aliases in the `@theme inline` block):
 
 ### Existing — keep, use for meaning
 
-| Primitive      | Use                                                                                                        |
-| -------------- | ---------------------------------------------------------------------------------------------------------- |
-| `PageShell`    | route width container                                                                                      |
-| `PageHeader`   | title + description + actions. `rule={false}` when the page leads with an object. No `eyebrow`.            |
-| `SectionCard`  | themed panel. `framed` = genuinely special, at most one on screen. `reveal` opts into scroll-in animation. |
-| `Stat`         | a real character-sheet element; **not** for dashboard count grids                                          |
-| `StatBlock`    | printed-sheet stat tile with a tab label — used inside `SheetPreview`                                      |
-| `EmptyState`   | invitation with a `scene` (rule 7)                                                                         |
-| `Fleuron`      | one hairline ornament rule per page; not between every section                                             |
-| `Seal`         | approval status (rule 6)                                                                                   |
-| `Ribbon`       | active / tagged item (rule 6)                                                                              |
-| `DeckledEdge`  | torn-parchment edge; used once, at the bottom of the home hero                                             |
-| `Dice3DRoller` | the CSS-3D ability dice; the "one toy" on a page that rolls a sheet                                        |
-| `DiceSpinner`  | loading indicator, always with a themed label                                                              |
+| Primitive     | Use                                                                                                        |
+| ------------- | ---------------------------------------------------------------------------------------------------------- |
+| `PageShell`   | route width container                                                                                      |
+| `PageHeader`  | title + description + actions. `rule={false}` when the page leads with an object. No `eyebrow`.            |
+| `SectionCard` | themed panel. `framed` = genuinely special, at most one on screen. `reveal` opts into scroll-in animation. |
+| `Stat`        | a real character-sheet element; **not** for dashboard count grids                                          |
+| `StatBlock`   | printed-sheet stat tile with a tab label — used inside `SheetPreview`                                      |
+| `EmptyState`  | invitation with a `scene` (rule 7)                                                                         |
+| `Fleuron`     | one hairline ornament rule per page; not between every section                                             |
+| `Seal`        | approval status (rule 6)                                                                                   |
+| `Ribbon`      | active / tagged item (rule 6)                                                                              |
+| `DeckledEdge` | torn-parchment edge; used once, at the bottom of the home hero                                             |
+| `DiceTray`    | the app's dice, thrown across the window. Mounted once at the root; reached with `useDiceTray()`.          |
+| `DiceSpinner` | loading indicator, always with a themed label                                                              |
 
 ### New — added with this work
 
@@ -353,6 +367,8 @@ Fonts (aliases in the `@theme inline` block):
 | `Ledger`       | prose count line (rule 2). `items: {value, label}[]`. Drops to subtle ink when every value is `0`/`—`.                                             |
 | `HeroCard`     | the party card (rule 1): `charClass`-coloured spine, portrait/initials, level badge, HP track, optional `note`. Dashboard, roster, campaign pages. |
 | `SheetPreview` | read-only character sheet card (rule 1). Plain-object driven so marketing can feed it fixtures. Exports `abilityMod`.                              |
+| `DiceTray`     | every roll in the app. `useDiceTray().rollNotation('2d6+3')` / `.rollSpec()` / `.showNotationRoll()` — awaited, so callers act when the dice land. |
+| `DieGlyph`     | one die at rest, in the same drawing the tray throws. d4 / d6 / d8 / d10 / d12 / d20 / d100.                                                       |
 
 ---
 
@@ -360,24 +376,24 @@ Fonts (aliases in the `@theme inline` block):
 
 What "following the guide" means for each route. `[x]` = done in this pass.
 
-| Route                                     | Archetype       | Must                                                                                                                                                                                |
-| ----------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`                                       | Marketing       | Split hero, `SheetPreview` + d20, two pitch rows with product fragments, `DeckledEdge`. `[x]`                                                                                       |
-| `/dashboard`                              | Dashboard       | Greeting + `em` name, scrawl line, `Ledger` behind skeleton, header d20, party `HeroCard` row + "roll a new one", rail (Recently forged / Tables you run), scene empty state. `[x]` |
-| `/characters`                             | Collection      | Leads with the roster as `HeroCard`s; `PageHeader rule={false}`; scene empty state; no eyebrow.                                                                                     |
-| `/campaigns`                              | Collection      | Leads with campaign cards showing real state (`Ribbon` status, member count); scene empty state.                                                                                    |
-| `/campaigns/[id]`                         | Single object   | The campaign (party + session tools) first; manage secondary. Tabs carry a glyph and a one-word name; counts are staff-only. `[x]`                                                  |
-| `/campaigns/[id]/manage`                  | Workspace       | Members/settings as the working surface; breadcrumb back-link, not eyebrow. `[x]`                                                                                                   |
-| `/campaigns/[id]/players/[characterId]`   | Single object   | The sheet full-bleed; `Ribbon` for homebrew; change log in one `framed` card. `[x]` breadcrumb                                                                                      |
-| `/campaigns/create`, `/campaigns/join`    | Form            | Form as a sheet; in-world scene; straight labels.                                                                                                                                   |
-| `/creator`                                | Workspace       | The three creators as entry cards that preview what they make — not blurbs.                                                                                                         |
-| `/creator/character`                      | Single object   | The sheet is the page; `Dice3DRoller` is the one toy.                                                                                                                               |
-| `/creator/homebrew`                       | Workspace       | The item being forged front and centre; `Seal` on submitted items. `[x]`                                                                                                            |
-| `/spells`, `/classes`                     | Collection      | The compendium leads — no rule, no card around the browser; `Ledger` only when there is something to count. `[x]`                                                                   |
-| `/marketplace`                            | Collection      | Public homebrew as real cards; honest empty state (still a placeholder feature).                                                                                                    |
-| `/account/profile`, `/account/settings`   | Form            | Framed form sheet; an aside apiece; a scene on the signed-out state. `[x]`                                                                                                          |
-| `/about`, `/faq`                          | Reference prose | Short lede then asymmetric content; a `Marginalia` aside or two; no 3-up cards.                                                                                                     |
-| `/login`, `/register`, `/forgot-password` | Form            | Form as a framed sheet on one side, an in-world scene (candle / locked ledger / sealed letter) on the other.                                                                        |
+| Route                                                       | Archetype       | Must                                                                                                                                                                                |
+| ----------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                                                         | Marketing       | Split hero, `SheetPreview` + d20, two pitch rows with product fragments, `DeckledEdge`. `[x]`                                                                                       |
+| `/dashboard`                                                | Dashboard       | Greeting + `em` name, scrawl line, `Ledger` behind skeleton, header d20, party `HeroCard` row + "roll a new one", rail (Recently forged / Tables you run), scene empty state. `[x]` |
+| `/characters`                                               | Collection      | Leads with the roster as `HeroCard`s; `PageHeader rule={false}`; scene empty state; no eyebrow.                                                                                     |
+| `/campaigns`                                                | Collection      | Leads with campaign cards showing real state (`Ribbon` status, member count); scene empty state.                                                                                    |
+| `/campaigns/[id]`                                           | Single object   | The campaign (party + session tools) first; manage secondary. Tabs carry a glyph and a one-word name; counts are staff-only. `[x]`                                                  |
+| `/campaigns/[id]/manage`                                    | Workspace       | Members/settings as the working surface; breadcrumb back-link, not eyebrow. `[x]`                                                                                                   |
+| `/campaigns/[id]/players/[characterId]`                     | Single object   | The sheet full-bleed; `Ribbon` for homebrew; change log in one `framed` card. `[x]` breadcrumb                                                                                      |
+| `/campaigns/create`, `/campaigns/join`                      | Form            | Form as a sheet; in-world scene; straight labels.                                                                                                                                   |
+| `/creator`                                                  | Workspace       | The three creators as entry cards that preview what they make — not blurbs.                                                                                                         |
+| `/creator/character`                                        | Single object   | The sheet is the page; the dice tray is the one toy.                                                                                                                                |
+| `/creator/homebrew`                                         | Workspace       | The item being forged front and centre; `Seal` on submitted items. `[x]`                                                                                                            |
+| `/spells`, `/classes`, `/species`, `/backgrounds`, `/feats` | Collection      | The compendium leads — no rule, no card around the browser; `Ledger` only when there is something to count. One shelf per forgeable kind, each reachable from the sidebar. `[x]`    |
+| `/marketplace`                                              | Collection      | Public homebrew as real cards; honest empty state (still a placeholder feature).                                                                                                    |
+| `/account/profile`, `/account/settings`                     | Form            | Framed form sheet; an aside apiece; a scene on the signed-out state. `[x]`                                                                                                          |
+| `/about`, `/faq`                                            | Reference prose | Short lede then asymmetric content; a `Marginalia` aside or two; no 3-up cards.                                                                                                     |
+| `/login`, `/register`, `/forgot-password`                   | Form            | Form as a framed sheet on one side, an in-world scene (candle / locked ledger / sealed letter) on the other.                                                                        |
 
 ---
 

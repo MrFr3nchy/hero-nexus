@@ -1,7 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Button, Input } from '@heroui/react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  Button,
+  Input,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from '@heroui/react';
 import {
   type Control,
   type UseFormGetValues,
@@ -9,16 +23,11 @@ import {
   useWatch,
 } from 'react-hook-form';
 
-import { Marginalia, SheetPreview } from '@/@shared/components/ui';
+import { Glyph } from '@/@shared/components/ui';
+import type { ContentType } from '@/@shared/content';
 
 import { type CharacterSheet } from '../../schema';
 import { COMPOSED_PATHS } from '../../lib/compose';
-import {
-  abilityModifier,
-  fmtBonus,
-  proficiencyBonus,
-  spellSaveDC,
-} from '../../lib/derive';
 import type { BuildCatalog } from '../../lib/srd/types';
 import {
   findBuildIssues,
@@ -31,14 +40,15 @@ import type { CustomFieldHandler } from '../sections';
 
 import type { ResolvedContent } from '../useResolvedContent';
 import { useGuidedBuild } from './useGuidedBuild';
-import type { InitialPick, StepProps } from './types';
+import { ForgeDrawer } from './ForgeDrawer';
+import { FullSheetModal, HeroPanel, HeroPanelBody } from './HeroPanel';
+import type { ForgeKind, InitialPick, StepProps } from './types';
 import { AbilitiesStep } from './steps/AbilitiesStep';
 import { AdvancementStep } from './steps/AdvancementStep';
 import { BackgroundStep } from './steps/BackgroundStep';
 import { ClassStep } from './steps/ClassStep';
 import { DetailsStep } from './steps/DetailsStep';
 import { EquipmentStep } from './steps/EquipmentStep';
-import { ReviewStep } from './steps/ReviewStep';
 import { SkillsStep } from './steps/SkillsStep';
 import { SpeciesStep } from './steps/SpeciesStep';
 
@@ -53,6 +63,8 @@ interface CharacterWizardProps {
   limits?: BuildLimits;
   /** The table being built for, so a class picked from its library resolves. */
   campaignId?: string;
+  /** The table's name, for the hero panel. */
+  campaignName?: string;
   /** Stats for what the sheet carries; armour class is composed from it. */
   content?: ResolvedContent;
   /**
@@ -62,11 +74,17 @@ interface CharacterWizardProps {
    * rewritten by a stale link.
    */
   initialPick?: InitialPick;
-  /** Campaign picker and anything else that belongs above the first step. */
+  /**
+   * Reload the option catalog. Awaited after something is forged mid-build, so
+   * the thing just made is in the list before the wizard tries to select it.
+   */
+  onRefreshCatalog: () => Promise<BuildCatalog>;
+  /** The table picker and anything else that belongs above the first step. */
   header?: ReactNode;
   /**
-   * Save / reset controls, owned by the form around this. Given the build's
-   * completeness so the form can keep an unfinished character unsaveable.
+   * Save controls, owned by the form around this. Given the build's
+   * completeness so the form can decide what to offer — a draft always, a
+   * finished hero only once nothing is outstanding.
    */
   footer?: (status: { complete: boolean; remaining: number }) => ReactNode;
   onSwitchToSheet: () => void;
@@ -81,18 +99,37 @@ const STEPS: { id: StepId; label: string; caption: string }[] = [
   { id: 'advancement', label: 'Levels', caption: 'the climb' },
   { id: 'equipment', label: 'Equipment', caption: 'what you carry' },
   { id: 'details', label: 'Details', caption: 'who you are' },
-  { id: 'review', label: 'Review', caption: 'read it back' },
 ];
 
 const COMPOSED = new Set<string>(COMPOSED_PATHS);
+
+/** Which content type each forgeable pick makes. */
+const FORGE_TYPE: Record<ForgeKind, ContentType> = {
+  class: 'class',
+  species: 'species',
+  background: 'background',
+};
 
 /**
  * The guided character builder.
  *
  * One decision per step, each one autoloading whatever the SRD says it grants,
- * with the sheet-so-far visible the whole way (design rule 1: the object is
+ * with the hero-so-far beside it the whole way (design rule 1: the object is
  * the hero). The form underneath is still the same react-hook-form sheet, so
  * the hand-built sheet view and this wizard are two views of one document.
+ *
+ * Three things this used to do and no longer does:
+ *
+ *  - **Lock the steps.** Every step past the first incomplete one was
+ *    `disabled`, so a player could not name their hero until seven other
+ *    decisions were made. The finish gate already exists and is the only gate
+ *    worth having; ordering the decisions is the rail's suggestion, not its
+ *    rule.
+ *  - **Keep a Review step.** It was the most complete view of the character
+ *    and the last one reachable. `HeroPanel` carries it on every step now, and
+ *    the full sheet behind it is the real `CharacterSheetView`.
+ *  - **Offer a name box in place of homebrew.** "A class of your own" wrote a
+ *    string; `ForgeDrawer` writes a real, typed, referenceable class.
  */
 export function CharacterWizard({
   control,
@@ -103,14 +140,19 @@ export function CharacterWizard({
   onCustomField,
   limits = OPEN_LIMITS,
   campaignId,
+  campaignName,
   content,
   initialPick,
+  onRefreshCatalog,
   header,
   footer,
   onSwitchToSheet,
 }: CharacterWizardProps) {
   const sheet = useWatch({ control }) as CharacterSheet;
   const [stepId, setStepId] = useState<StepId>('class');
+  const [forgeKind, setForgeKind] = useState<ForgeKind | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const guided = useGuidedBuild({
     getValues,
@@ -155,29 +197,33 @@ export function CharacterWizard({
   }, [restoreClass, getValues]);
 
   /**
-   * Apply an arriving-from-a-shelf pick, once.
+   * A pick waiting for the catalog to catch up.
    *
-   * `applied` rather than an empty dependency list: the pick needs the catalog
-   * to name what was chosen, and it must not run a second time when the
-   * catalog reloads for a newly-picked campaign — by then the player may have
-   * chosen something else, and re-applying the link would silently take it
-   * back.
+   * Both the arriving-from-a-shelf link and a just-forged option name a key
+   * that the *current* catalog may not hold — the shelf link because the
+   * catalog is loaded per table, the forged one because it did not exist a
+   * moment ago. Rather than two mechanisms, both park the pick here and one
+   * effect applies it as soon as the catalog can name it.
    */
-  const [pickApplied, setPickApplied] = useState(false);
-  useEffect(() => {
-    if (!initialPick || pickApplied) return;
-    setPickApplied(true);
+  const [pending, setPending] = useState<InitialPick | null>(
+    initialPick ?? null
+  );
 
-    if (initialPick.kind === 'class') {
-      const option = catalog.classes.find(o => o.key === initialPick.key);
+  useEffect(() => {
+    if (!pending) return;
+
+    if (pending.kind === 'class') {
+      const option = catalog.classes.find(o => o.key === pending.key);
       if (!option) return;
+      setPending(null);
       void chooseClass(option.key, option.name, option.source);
       log({ kind: 'field', label: 'Class', detail: `Class: ${option.name}` });
       return;
     }
-    if (initialPick.kind === 'species') {
-      const option = catalog.species.find(o => o.key === initialPick.key);
+    if (pending.kind === 'species') {
+      const option = catalog.species.find(o => o.key === pending.key);
       if (!option) return;
+      setPending(null);
       chooseSpecies(option.key, option.name);
       setValue('identity.size', option.sizes[0] ?? 'Medium', {
         shouldDirty: true,
@@ -189,8 +235,9 @@ export function CharacterWizard({
       });
       return;
     }
-    const option = catalog.backgrounds.find(o => o.key === initialPick.key);
+    const option = catalog.backgrounds.find(o => o.key === pending.key);
     if (!option) return;
+    setPending(null);
     chooseBackground(option.key, option.name);
     log({
       kind: 'field',
@@ -198,8 +245,7 @@ export function CharacterWizard({
       detail: `Background: ${option.name}`,
     });
   }, [
-    initialPick,
-    pickApplied,
+    pending,
     catalog,
     chooseClass,
     chooseSpecies,
@@ -207,6 +253,26 @@ export function CharacterWizard({
     setValue,
     log,
   ]);
+
+  /**
+   * Something was forged from inside the build. Reload the catalog first — the
+   * `choose*` handlers read it to work out whether a pick is SRD or homebrew,
+   * and a stale one would file a brand-new homebrew class as `srd` — then park
+   * the pick for the effect above.
+   */
+  const onForged = useCallback(
+    async (kind: ForgeKind, forged: { id: string; name: string }) => {
+      setForgeKind(null);
+      await onRefreshCatalog();
+      setPending({ kind, key: forged.id } as InitialPick);
+      log({
+        kind: 'homebrew',
+        label: kind,
+        detail: `Forged ${kind}: "${forged.name}"`,
+      });
+    },
+    [onRefreshCatalog, log]
+  );
 
   /**
    * Write a sheet field by hand. Paths the build normally owns are recorded as
@@ -244,6 +310,12 @@ export function CharacterWizard({
 
   const issuesFor = (id: StepId) => issues.filter(i => i.step === id);
 
+  const goToStep = useCallback((id: StepId) => {
+    setStepId(id);
+    setPanelOpen(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
   const stepProps: StepProps = {
     sheet,
     build: sheet?.build,
@@ -260,25 +332,15 @@ export function CharacterWizard({
     chooseBackground,
     log,
     onCustomField,
+    forge: setForgeKind,
   };
 
   const index = STEPS.findIndex(s => s.id === stepId);
-
-  /**
-   * The first step still missing a decision. Everything up to and including it
-   * is open; beyond it the build has nothing to show yet, so the rail and the
-   * Next button both stop there.
-   */
-  const firstOpen = STEPS.findIndex(s => issuesFor(s.id).length > 0);
-  const lastReachable = firstOpen === -1 ? STEPS.length - 1 : firstOpen;
   const blocking = issuesFor(stepId);
 
   const go = (delta: number) => {
     const next = STEPS[index + delta];
-    if (!next) return;
-    if (delta > 0 && index + delta > lastReachable) return;
-    setStepId(next.id);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (next) goToStep(next.id);
   };
 
   if (!sheet?.build) return null;
@@ -301,27 +363,23 @@ export function CharacterWizard({
         return <EquipmentStep {...stepProps} />;
       case 'details':
         return <DetailsStep {...stepProps} />;
-      case 'review':
-        return (
-          <ReviewStep {...stepProps} issues={issues.map(i => i.message)} />
-        );
     }
   };
 
-  const meta = [
-    `Level ${sheet.identity.level}`,
-    sheet.build.speciesName,
-    sheet.build.subclassName || sheet.build.className,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  const panelProps = {
+    sheet,
+    refs,
+    issues,
+    onGoToStep: goToStep,
+    campaignName,
+  };
 
   return (
     <div className="space-y-5">
       {header}
 
-      {/* ---- the one thing that is always on screen ---- */}
-      <div className="flex flex-wrap items-end gap-4 rounded-[var(--radius-card)] border border-line bg-surface p-4">
+      {/* ---- the hero's name, which is the one field with no step of its own ---- */}
+      <div className="flex flex-wrap items-center gap-4 rounded-[var(--radius-card)] border border-line bg-surface p-4">
         <Input
           label="Character name"
           value={sheet.identity.name}
@@ -334,22 +392,34 @@ export function CharacterWizard({
           className="min-w-[16rem] flex-1"
           classNames={{ inputWrapper: 'bg-surface-2 border-line' }}
         />
-        <div className="text-sm text-ink-muted">
-          <div className="font-display-alt text-[0.65rem] uppercase tracking-[0.12em] text-ink-subtle">
-            So far
-          </div>
-          {meta || 'nothing chosen yet'}
-        </div>
+        {/*
+          Below xl the hero panel is not in the rail, so the way to it is here
+          instead — and it carries the outstanding count, which is the number a
+          player wants without opening anything.
+        */}
+        <button
+          type="button"
+          onClick={() => setPanelOpen(true)}
+          className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-ink-muted transition-colors hover:border-gold/60 hover:text-ink xl:hidden"
+        >
+          <Glyph name="person" size={15} />
+          The hero so far
+          {issues.length > 0 && (
+            <span className="rounded-full border border-warning/60 px-1.5 text-[0.7rem] tabular-nums text-warning">
+              {issues.length}
+            </span>
+          )}
+        </button>
         <button
           type="button"
           onClick={onSwitchToSheet}
-          className="ml-auto text-sm text-ink-muted underline-offset-2 hover:text-ink hover:underline"
+          className="text-sm text-ink-subtle underline-offset-2 hover:text-ink hover:underline"
         >
           Edit the raw sheet instead
         </button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[13rem_minmax(0,1fr)_18rem]">
+      <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[13rem_minmax(0,1fr)_21rem]">
         {/* ---- step rail ---- */}
         <nav
           className="lg:sticky lg:top-6 lg:self-start"
@@ -359,41 +429,49 @@ export function CharacterWizard({
             {STEPS.map((step, i) => {
               const open = issuesFor(step.id).length;
               const active = step.id === stepId;
-              const behind = i < index;
-              const locked = i > lastReachable;
+              /*
+                The circle always carries the step's number.
+                
+                It briefly carried the count of open decisions instead, which
+                made the rail read "1 1 1 4 5 6 7 1" — the same digit meaning
+                "step four" on one row and "four things missing" on another,
+                with only a border tint to tell you which. The number is the
+                step; whether the step owes anything is the tint plus its own
+                count chip, and how many is also in the panel.
+              */
               return (
                 <li key={step.id} className="shrink-0 lg:shrink">
                   <button
                     type="button"
-                    disabled={locked}
-                    title={
-                      locked
-                        ? 'Finish the steps before this one first.'
-                        : undefined
-                    }
-                    onClick={() => setStepId(step.id)}
+                    onClick={() => goToStep(step.id)}
                     className={`flex w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left transition-colors ${
                       active
                         ? 'border-gold bg-gold/10'
-                        : locked
-                          ? 'cursor-not-allowed border-transparent opacity-45'
-                          : 'border-transparent hover:border-line hover:bg-surface-2'
+                        : 'border-transparent hover:border-line hover:bg-surface-2'
                     }`}
                   >
                     <span
                       className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[0.7rem] tabular-nums ${
                         open > 0
                           ? 'border-warning/60 text-warning'
-                          : behind || active
-                            ? 'border-gold/60 text-gold-strong'
-                            : 'border-line text-ink-subtle'
+                          : 'border-gold/60 text-gold-strong'
                       }`}
                     >
-                      {open > 0 ? '!' : i + 1}
+                      {i + 1}
                     </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm text-ink">
-                        {step.label}
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="min-w-0 flex-1 truncate text-sm text-ink">
+                          {step.label}
+                        </span>
+                        {open > 0 && (
+                          <span
+                            aria-label={`${open} decision${open === 1 ? '' : 's'} open`}
+                            className="shrink-0 rounded-full border border-warning/60 px-1.5 text-[0.65rem] tabular-nums text-warning"
+                          >
+                            {open}
+                          </span>
+                        )}
                       </span>
                       <span className="hidden truncate text-xs text-ink-subtle lg:block">
                         {step.caption}
@@ -420,15 +498,15 @@ export function CharacterWizard({
               >
                 Back
               </Button>
-              {index < STEPS.length - 1 ? (
+              {index < STEPS.length - 1 && (
                 <Button
-                  color="primary"
-                  isDisabled={blocking.length > 0}
+                  variant="bordered"
+                  className="border-line text-ink"
                   onPress={() => go(1)}
                 >
                   Next — {STEPS[index + 1].label}
                 </Button>
-              ) : null}
+              )}
               <div className="ml-auto flex flex-wrap items-center gap-3">
                 {footer?.({
                   complete: issues.length === 0,
@@ -437,9 +515,15 @@ export function CharacterWizard({
               </div>
             </div>
 
+            {/*
+              A note, not a barrier. `Next` no longer refuses to move while
+              this is on screen: leaving a decision for later is a normal way
+              to build a character, and the finish control is where being
+              unfinished actually costs you something.
+            */}
             {blocking.length > 0 && (
               <div className="mt-3 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-warning">
-                <p>Finish this step first:</p>
+                <p>Still open on this step:</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-5">
                   {blocking.map(issue => (
                     <li key={issue.message}>{issue.message}</li>
@@ -447,58 +531,80 @@ export function CharacterWizard({
                 </ul>
               </div>
             )}
-            {blocking.length === 0 && issues.length > 0 && (
-              <p className="mt-3 text-sm text-ink-muted">
-                {issues.length} decision{issues.length === 1 ? '' : 's'} left on{' '}
-                {firstOpen === -1 ? 'another step' : STEPS[firstOpen].label} —
-                the character can be saved once they are made.
-              </p>
-            )}
           </div>
         </div>
 
-        {/* ---- the sheet so far ---- */}
+        {/* ---- the hero so far ---- */}
         <aside className="hidden xl:block xl:sticky xl:top-6 xl:self-start">
-          <SheetPreview
-            name={sheet.identity.name || 'Unnamed hero'}
-            meta={meta || 'a blank page'}
-            abilities={{
-              str: sheet.abilities.strength.score,
-              dex: sheet.abilities.dexterity.score,
-              con: sheet.abilities.constitution.score,
-              int: sheet.abilities.intelligence.score,
-              wis: sheet.abilities.wisdom.score,
-              cha: sheet.abilities.charisma.score,
-            }}
-            derived={[
-              { label: 'Armour class', value: sheet.combat.armorClass },
-              { label: 'Hit points', value: sheet.combat.hitPointsMax },
-              {
-                label: 'Proficiency',
-                value: fmtBonus(proficiencyBonus(sheet.identity.level)),
-              },
-              {
-                label: 'Initiative',
-                value: fmtBonus(
-                  abilityModifier(sheet.abilities.dexterity.score)
-                ),
-              },
-              ...(sheet.spellcasting.ability
-                ? [{ label: 'Spell save DC', value: spellSaveDC(sheet) ?? '—' }]
-                : []),
-            ]}
-          />
-          {issues.length > 0 ? (
-            <p className="mt-3 text-sm text-warning">
-              {issues.length} decision{issues.length === 1 ? '' : 's'} left.
-            </p>
-          ) : (
-            <Marginalia dash className="mt-3">
-              ready to be inscribed
-            </Marginalia>
-          )}
+          <HeroPanel {...panelProps} />
         </aside>
       </div>
+
+      {/* Same panel, reached by a button, at every width below the rail. */}
+      <PanelModal
+        isOpen={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        onOpenSheet={() => {
+          setPanelOpen(false);
+          setSheetOpen(true);
+        }}
+      >
+        <HeroPanelBody {...panelProps} />
+      </PanelModal>
+
+      <FullSheetModal
+        sheet={sheet}
+        isOpen={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+      />
+
+      {forgeKind && (
+        <ForgeDrawer
+          type={FORGE_TYPE[forgeKind]}
+          isOpen
+          onClose={() => setForgeKind(null)}
+          onForged={forged => void onForged(forgeKind, forged)}
+        />
+      )}
     </div>
+  );
+}
+
+/** The rail's contents, as a modal, for widths that have no rail. */
+function PanelModal({
+  isOpen,
+  onClose,
+  onOpenSheet,
+  children,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onOpenSheet: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Modal
+      isOpen={isOpen}
+      onOpenChange={open => !open && onClose()}
+      size="lg"
+      scrollBehavior="inside"
+    >
+      <ModalContent className="border border-line bg-surface">
+        <ModalHeader className="font-display text-lg text-ink">
+          The hero so far
+        </ModalHeader>
+        <ModalBody className="pb-2">{children}</ModalBody>
+        <ModalFooter>
+          <Button
+            variant="bordered"
+            className="border-line text-ink"
+            startContent={<Glyph name="notebook" size={14} />}
+            onPress={onOpenSheet}
+          >
+            Read the full sheet
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
   );
 }

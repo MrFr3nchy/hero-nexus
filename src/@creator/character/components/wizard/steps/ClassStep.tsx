@@ -1,8 +1,5 @@
 'use client';
 
-import { useState } from 'react';
-import { Input } from '@heroui/react';
-
 import { DiceSpinner } from '@/@shared/components/ui';
 
 import { ABILITY_LABELS, SKILL_LABELS, type SkillKey } from '../../../schema';
@@ -33,30 +30,11 @@ export function ClassStep({
   loadingClass,
   sheet,
   chooseClass,
-  patchBuild,
   log,
   onCustomField,
+  forge,
 }: StepProps) {
-  const [custom, setCustom] = useState(
-    Boolean(build.className) && !build.classKey
-  );
-  const [customName, setCustomName] = useState(
-    build.classKey ? '' : build.className
-  );
-
-  const commitCustom = (value: string) => {
-    setCustomName(value);
-    patchBuild(b => ({
-      ...b,
-      classKey: '',
-      className: value,
-      classSource: 'srd',
-    }));
-    onCustomField('identity.class', 'class', value, value.trim().length > 0);
-  };
-
   const pick = (option: (typeof classes)[number]) => {
-    setCustom(false);
     chooseClass(option.key, option.name, option.source);
     log({ kind: 'field', label: 'Class', detail: `Class: ${option.name}` });
   };
@@ -75,10 +53,14 @@ export function ClassStep({
     Boolean(build.classKey) &&
     !catalog.classes.some(o => o.key === build.classKey);
 
+  /*
+   * The forged class this build pointed at is gone. Keep the word — losing it
+   * would lose the only record of what was chosen — and register it as a
+   * custom field so the sheet view has something to hang the details on.
+   */
   const dropLink = () => {
-    setCustom(true);
-    setCustomName(build.className);
     chooseClass('', build.className, 'srd');
+    onCustomField('identity.class', 'class', build.className, true);
   };
 
   const skillChoice = classDef?.coreTraits.skillChoice;
@@ -115,11 +97,11 @@ export function ClassStep({
         {limits.allowHomebrew && (
           <ChoiceCard
             custom
-            title="A class of your own"
-            selected={custom}
-            onSelect={() => setCustom(true)}
+            title="Forge a class"
+            selected={false}
+            onSelect={() => forge('class')}
             meta="homebrew"
-            blurb="Name it yourself. The character is flagged as homebrew and your DM sees it in the change log."
+            blurb="Open the Forge here: hit die, saves, proficiencies, features by level. It becomes a real class in your forge and this hero picks it up."
           />
         )}
       </ChoiceGrid>
@@ -138,21 +120,6 @@ export function ClassStep({
         <p className="mt-3 text-sm text-ink-subtle">
           Classes this table does not allow are not listed.
         </p>
-      )}
-
-      {custom && (
-        <div className="mt-4 rounded-[var(--radius-card)] border border-arcane/40 bg-arcane/5 p-4">
-          <Input
-            label="Class name"
-            value={customName}
-            onValueChange={commitCustom}
-            classNames={{ inputWrapper: 'bg-surface border-line' }}
-          />
-          <p className="mt-2 text-xs text-ink-subtle">
-            Nothing is filled in automatically for a homebrew class — set the
-            hit die, proficiencies and features on the sheet view.
-          </p>
-        </div>
       )}
 
       {loadingClass && (

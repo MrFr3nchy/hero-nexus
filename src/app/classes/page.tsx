@@ -1,4 +1,4 @@
-import { ReferenceBrowser } from '@/@shared/components/ReferenceBrowser';
+import { ShelfTabs } from '@/@shared/components/ShelfTabs';
 import {
   Ledger,
   Marginalia,
@@ -14,12 +14,13 @@ export const dynamic = 'force-dynamic';
 export default async function ClassesPage() {
   // The adapter already drops the subclass rows Open5e mixes into `classes`;
   // the raw rows are still counted, for the ledger line.
-  const [items, rawClasses] = await Promise.all([
+  const [items, subclasses, rawClasses] = await Promise.all([
     listShelfContent('class'),
+    listShelfContent('subclass'),
     getReference('class'),
   ]);
   const forged = items.filter(isForged).length;
-  const subclasses = rawClasses.length - (items.length - forged);
+  const srdSubclasses = rawClasses.length - (items.length - forged);
 
   return (
     <PageShell width="wide">
@@ -35,7 +36,7 @@ export default async function ClassesPage() {
             className="mb-1"
             items={[
               { value: items.length, label: 'classes' },
-              { value: subclasses, label: 'subclasses behind them' },
+              { value: srdSubclasses, label: 'subclasses behind them' },
               ...(forged > 0 ? [{ value: forged, label: 'forged' }] : []),
             ]}
           />
@@ -44,10 +45,27 @@ export default async function ClassesPage() {
           </Marginalia>
         </>
       )}
-      <ReferenceBrowser
-        type="class"
-        items={items}
-        createHref="/creator/homebrew?type=class"
+      {/*
+        Subclasses share this page rather than taking a nav row of their own.
+        The SRD keeps them inside the class rows — `CATEGORIES_FOR.subclass` is
+        empty — so their shelf holds only forged ones, and it is the class you
+        are reading that tells you which specialisations exist.
+      */}
+      <ShelfTabs
+        shelves={[
+          {
+            type: 'class',
+            items,
+            createHref: '/creator/homebrew?type=class',
+          },
+          {
+            type: 'subclass',
+            items: subclasses,
+            createHref: '/creator/homebrew?type=subclass',
+            emptyHint:
+              'The SRD keeps its subclasses inside the class entries, so this shelf holds the ones you forge.',
+          },
+        ]}
       />
     </PageShell>
   );

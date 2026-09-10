@@ -3,7 +3,7 @@
 import { useAuth } from '@/@auth/context';
 import { usePathname } from 'next/navigation';
 import { Navigation } from './Navigation';
-import { SideNavigation } from './SideNavigation';
+import { NAV_HREFS, SideNavigation } from './SideNavigation';
 
 interface ConditionalLayoutProps {
   children: React.ReactNode;
@@ -19,19 +19,21 @@ const publicRoutes = [
   '/forgot-password',
 ];
 
-// Private routes that should show the side navigation
-const privateRoutes = [
-  '/dashboard',
-  '/campaigns',
-  '/characters',
-  '/spells',
-  '/classes',
-  '/items',
-  '/bestiary',
-  '/library',
-  '/creator',
-  '/account',
-];
+/**
+ * Private routes that should show the side navigation.
+ *
+ * Derived from the sidebar's own link list rather than typed out again: this
+ * was a hand-kept copy, and the copy went stale the moment three shelves were
+ * added — they appeared in the nav and then rendered with the public top bar,
+ * signed in, with no sidebar to go back to. `NAV_HREFS` is the sidebar's
+ * answer to "what do I link to"; anything it links to gets the shell.
+ *
+ * The extras below are the private routes that deliberately have no nav row of
+ * their own — they are reached from inside the app. Matching is by prefix, so
+ * `/campaigns` covers `/campaigns/[id]/manage` and `/creator` covers both
+ * creators.
+ */
+const privateRoutes = [...new Set([...NAV_HREFS, '/creator', '/account'])];
 
 export function ConditionalLayout({ children }: ConditionalLayoutProps) {
   const { currentUser, loading } = useAuth();

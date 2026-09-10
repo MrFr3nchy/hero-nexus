@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '@/@auth/context';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
+import { DieGlyph, useDiceTray } from '@/@shared/components/dice';
 import {
   CandleScene,
   DiceSpinner,
@@ -32,62 +33,25 @@ const DIE_LINES: Record<number, string> = {
 };
 
 function HeaderDie() {
+  const tray = useDiceTray();
   const [face, setFace] = useState(20);
-  const [spin, setSpin] = useState(0);
+
+  // The page's one toy (design rule 4), now throwing the same d20 the rest of
+  // the app throws: the tray does the tumbling, the header keeps the verdict.
+  const throwIt = async () => {
+    const roll = await tray.rollNotation('d20', { title: 'A d20, for luck' });
+    if (roll) setFace(roll.total);
+  };
 
   return (
     <div className="shrink-0 text-center">
       <button
         type="button"
-        onClick={() => {
-          setFace(1 + Math.floor(Math.random() * 20));
-          setSpin(s => s + 1);
-        }}
-        key={spin}
-        style={
-          spin > 0 ? { animation: 'd20-tumble 0.7s ease-out both' } : undefined
-        }
-        className="d20-spin block transition-transform hover:-translate-y-0.5"
-        aria-label="Roll a d20"
+        onClick={throwIt}
+        className="block transition-transform hover:-translate-y-0.5"
+        aria-label={`Roll a d20 — last roll ${face}`}
       >
-        <svg width="88" height="88" viewBox="0 0 100 100">
-          <polygon
-            points="50,6 92,30 92,74 50,96 8,74 8,30"
-            fill="var(--surface)"
-            stroke="var(--gold)"
-            strokeWidth="1.4"
-          />
-          <polygon
-            points="50,6 92,30 50,44 8,30"
-            fill="none"
-            stroke="var(--gold)"
-            strokeWidth="0.8"
-            opacity="0.45"
-          />
-          <polygon
-            points="8,30 50,44 50,96 8,74"
-            fill="none"
-            stroke="var(--gold)"
-            strokeWidth="0.8"
-            opacity="0.45"
-          />
-          <polygon
-            points="92,30 92,74 50,96 50,44"
-            fill="none"
-            stroke="var(--gold)"
-            strokeWidth="0.8"
-            opacity="0.45"
-          />
-          <text
-            x="50"
-            y="62"
-            textAnchor="middle"
-            className="font-display"
-            style={{ fontSize: 26, fill: 'var(--gold-strong)' }}
-          >
-            {face}
-          </text>
-        </svg>
+        <DieGlyph sides={20} value={face} size={88} />
       </button>
       <Marginalia className="mt-0.5 !text-base">
         {DIE_LINES[face] ?? `you rolled a ${face}`}
@@ -184,6 +148,16 @@ function DashboardContent() {
               <Ledger
                 items={[
                   { value: data.summary.characters, label: 'heroes' },
+                  // Only when there are any: a standing "0 drafts" would be
+                  // furniture, and the ledger is a sentence (design rule 2).
+                  ...(data.summary.drafts > 0
+                    ? [
+                        {
+                          value: data.summary.drafts,
+                          label: 'still being built',
+                        },
+                      ]
+                    : []),
                   { value: data.summary.campaigns, label: 'campaigns' },
                   { value: data.summary.homebrew, label: 'homebrew' },
                   { value: data.summary.asDm, label: 'tables you run' },

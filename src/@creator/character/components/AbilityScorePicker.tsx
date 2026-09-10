@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Button, Tab, Tabs } from '@heroui/react';
 
-import { Dice3DRoller, type RollRequest } from '@/@shared/components/ui';
+import { useDiceTray } from '@/@shared/components/dice';
 import {
   POINT_BUY_BUDGET,
   POINT_BUY_MAX,
@@ -151,9 +151,7 @@ export function AbilityScorePicker({
   saveProficiencies,
   onToggleSave,
 }: AbilityScorePickerProps) {
-  const [request, setRequest] = useState<
-    (RollRequest & { target?: AbilityKey }) | null
-  >(null);
+  const tray = useDiceTray();
   const [pool, setPool] = useState<number[] | null>(null);
 
   const bonusFor = (key: AbilityKey) => bonuses?.[key] ?? 0;
@@ -192,32 +190,14 @@ export function AbilityScorePicker({
     onMethod(next);
   };
 
-  const fireRoll = (groups: number, target?: AbilityKey) =>
-    setRequest({
-      nonce: Date.now(),
-      spec: specForMode(rollMode),
-      groups,
-      title: target
-        ? `Rolling ${ABILITY_LABELS[target]}`
-        : 'Rolling a full set',
-      hint:
-        rollMode === '3d6'
-          ? 'three d6, keep them all'
-          : 'four d6, drop the lowest',
-      target,
-    });
-
-  const handleResults = (
-    results: RollResult[],
-    req: RollRequest & { target?: AbilityKey }
-  ) => {
-    if (req.target && results.length === 1) {
+  const handleResults = (results: RollResult[], target?: AbilityKey) => {
+    if (target && results.length === 1) {
       const [result] = results;
-      setScore(req.target, result.total);
+      setScore(target, result.total);
       log({
         kind: 'stat-roll',
-        label: ABILITY_LABELS[req.target],
-        detail: `${ABILITY_LABELS[req.target]}: ${describeRoll(result)}`,
+        label: ABILITY_LABELS[target],
+        detail: `${ABILITY_LABELS[target]}: ${describeRoll(result)}`,
         rolls: result.dice,
         append: true,
       });
@@ -233,6 +213,24 @@ export function AbilityScorePicker({
         append: true,
       });
     });
+  };
+
+  /**
+   * Throw the dice across the window and take the result when they land.
+   * The score is written at that moment rather than up front, so the number
+   * on the tile is the one the tray just showed.
+   */
+  const fireRoll = async (groups: number, target?: AbilityKey) => {
+    const results = await tray.rollSpec(specForMode(rollMode), groups, {
+      title: target
+        ? `Rolling ${ABILITY_LABELS[target]}`
+        : 'Rolling a full set',
+      hint:
+        rollMode === '3d6'
+          ? 'three d6, keep them all'
+          : 'four d6, drop the lowest',
+    });
+    handleResults(results, target);
   };
 
   /* ---- value assignment (standard array + a rolled set) ------------ */
@@ -379,12 +377,6 @@ export function AbilityScorePicker({
               Roll a full set of six
             </Button>
           </div>
-
-          <Dice3DRoller
-            request={request}
-            onResults={handleResults}
-            onClose={() => setRequest(null)}
-          />
         </div>
       )}
 

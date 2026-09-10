@@ -102,13 +102,25 @@ export const characters = sqliteTable(
     hasHomebrew: integer('has_homebrew', { mode: 'boolean' })
       .notNull()
       .default(false),
+    /**
+     * `draft` = the guided build still owes decisions and the player saved it
+     * anyway. A draft is a normal character everywhere except the two places
+     * that hand the sheet to somebody else: it cannot be linked to a campaign
+     * and cannot be published to the Wandering Library.
+     */
+    status: text('status', { enum: ['draft', 'ready'] })
+      .notNull()
+      .default('ready'),
     /** Full character sheet, JSON-encoded. Schema owned by
      *  `src/@creator/character/schema.ts`. */
     sheet: text('sheet', { mode: 'json' }).notNull(),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
-  t => [index('characters_owner_id_idx').on(t.ownerId)]
+  t => [
+    index('characters_owner_id_idx').on(t.ownerId),
+    index('characters_owner_status_idx').on(t.ownerId, t.status),
+  ]
 );
 
 /** Homebrew rows spawned by a character's custom identity fields. */

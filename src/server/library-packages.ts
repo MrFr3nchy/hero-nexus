@@ -185,6 +185,9 @@ export async function publishCharacter(
     where: and(eq(characters.id, characterId), eq(characters.ownerId, userId)),
   });
   if (!row) throw new Error('NOT_YOUR_CHARACTER');
+  // Publishing freezes a snapshot somebody else will adopt whole. An
+  // unfinished build has nothing coherent to freeze.
+  if (row.status === 'draft') throw new Error('CHARACTER_IS_DRAFT');
 
   const sheet = sheetForPublishing(
     characterSheetSchema.parse(migrateStoredSheet(row.sheet))

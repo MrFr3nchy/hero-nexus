@@ -1,8 +1,5 @@
 'use client';
 
-import { useState } from 'react';
-import { Input } from '@heroui/react';
-
 import {
   ChoiceCard,
   ChoiceGrid,
@@ -22,15 +19,9 @@ export function SpeciesStep({
   setOverride,
   log,
   onCustomField,
+  forge,
   sheet,
 }: StepProps) {
-  const [custom, setCustom] = useState(
-    Boolean(build.speciesName) && !build.speciesKey
-  );
-  const [customName, setCustomName] = useState(
-    build.speciesKey ? '' : build.speciesName
-  );
-
   const species = catalog.species.find(s => s.key === build.speciesKey) ?? null;
 
   const banned = new Set(limits.bannedSpecies.map(n => n.trim().toLowerCase()));
@@ -41,37 +32,29 @@ export function SpeciesStep({
   );
 
   const pick = (key: string, name: string) => {
-    setCustom(false);
     const next = catalog.species.find(s => s.key === key);
     chooseSpecies(key, name);
     setOverride('identity.size', next?.sizes[0] ?? 'Medium');
     log({ kind: 'field', label: 'Species', detail: `Species: ${name}` });
   };
 
-  const commitCustom = (value: string) => {
-    setCustomName(value);
-    patchBuild(b => ({
-      ...b,
-      speciesKey: '',
-      speciesName: value,
-      speciesSource: 'srd',
-    }));
-    onCustomField(
-      'identity.species',
-      'species',
-      value,
-      value.trim().length > 0
-    );
-  };
-
   const missing =
     Boolean(build.speciesKey) &&
     !catalog.species.some(o => o.key === build.speciesKey);
 
+  /*
+   * The forged species is gone. Keep the word rather than silently unselecting
+   * the grid, and register it as a custom field so the sheet view has a place
+   * to fill the traits back in.
+   */
   const dropLink = () => {
-    setCustom(true);
-    setCustomName(build.speciesName);
-    commitCustom(build.speciesName);
+    patchBuild(b => ({
+      ...b,
+      speciesKey: '',
+      speciesName: build.speciesName,
+      speciesSource: 'srd',
+    }));
+    onCustomField('identity.species', 'species', build.speciesName, true);
   };
 
   const chooseTrait = (trait: string, option: string, detail: string) => {
@@ -114,11 +97,11 @@ export function SpeciesStep({
         {limits.allowHomebrew && (
           <ChoiceCard
             custom
-            title="A species of your own"
-            selected={custom}
-            onSelect={() => setCustom(true)}
+            title="Forge a species"
+            selected={false}
+            onSelect={() => forge('species')}
             meta="homebrew"
-            blurb="Describe it yourself; the sheet is flagged as homebrew for your DM."
+            blurb="Open the Forge here: size, speed and the traits it is born with. It becomes a real species in your forge and this hero picks it up."
           />
         )}
       </ChoiceGrid>
@@ -137,17 +120,6 @@ export function SpeciesStep({
         <p className="mt-3 text-sm text-ink-subtle">
           Species this table does not allow are not listed.
         </p>
-      )}
-
-      {custom && (
-        <div className="mt-4 rounded-[var(--radius-card)] border border-arcane/40 bg-arcane/5 p-4">
-          <Input
-            label="Species name"
-            value={customName}
-            onValueChange={commitCustom}
-            classNames={{ inputWrapper: 'bg-surface border-line' }}
-          />
-        </div>
       )}
 
       {species && (

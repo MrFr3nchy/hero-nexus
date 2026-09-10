@@ -585,6 +585,14 @@ export async function setMemberCharacter(
     if (!character || character.ownerId !== userId) {
       throw new Error('NOT_YOUR_CHARACTER');
     }
+    /*
+     * A draft is a hero the player has not finished deciding. Seating one at a
+     * table would put a sheet with no class, or no abilities assigned, in
+     * front of a DM as though it were playable — and would queue its homebrew
+     * for approval on the strength of a build that is still moving. The
+     * builder hides the control, and this is the reason it can.
+     */
+    if (character.status === 'draft') throw new Error('CHARACTER_IS_DRAFT');
   }
 
   const result = await db

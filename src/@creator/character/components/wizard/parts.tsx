@@ -94,14 +94,20 @@ export function ChoiceCard({
         selected ? selectedRing : idleRing
       }`}
     >
+      {/*
+        `min-w-0` and `shrink-0`: a forged name is as long as its author felt
+        like, and a two-line one ("Hexblood Warden") used to push the "chosen"
+        mark off the card's right edge, where it rendered as "CHOSE". The title
+        block is the part that gives way; the state mark never is.
+      */}
       <div className="flex items-baseline justify-between gap-2">
-        <span className="flex items-baseline gap-2">
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
           <span className="font-display text-lg text-ink">{title}</span>
           {homebrew && <HomebrewPill />}
         </span>
         {selected && (
           <span
-            className={`font-display-alt text-[0.6rem] uppercase tracking-[0.16em] ${
+            className={`shrink-0 font-display-alt text-[0.6rem] uppercase tracking-[0.16em] ${
               accent ? 'text-arcane' : 'text-gold-strong'
             }`}
           >

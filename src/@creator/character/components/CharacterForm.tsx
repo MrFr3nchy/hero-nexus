@@ -10,6 +10,8 @@ import { setMemberCharacterAction } from '@/@creator/campaign/actions';
 import { describeRules } from '@/@creator/campaign/lib/rules';
 import type { BuilderCampaignRow } from '@/server/campaigns';
 
+import type { CharacterStatus } from '@/server/characters';
+
 import { getBuildCatalogAction, saveCharacterAction } from '../actions';
 import {
   characterSheetSchema,
@@ -63,6 +65,8 @@ interface CharacterFormProps {
    * a new character; the guided builder ignores it once a sheet is reopened.
    */
   initialPick?: InitialPick;
+  /** Whether the character being reopened is a finished hero or a draft. */
+  initialStatus?: CharacterStatus;
 }
 
 type View = 'guided' | 'sheet';
@@ -92,17 +96,36 @@ export function CharacterForm({
   reference,
   catalog: initialCatalog,
   catalogCampaignId,
-  characterId,
+  characterId: openedWith,
   initialSheet,
   campaigns,
   initialCampaignId,
   initialPick,
+  initialStatus = 'ready',
 }: CharacterFormProps) {
   const router = useRouter();
   const [banner, setBanner] = useState<{
     kind: 'error' | 'success';
     text: string;
   } | null>(null);
+  /**
+   * The row this form is writing to.
+   *
+   * Seeded from the URL, and set once the first "Save draft" mints a row. It
+   * is state rather than a navigation because saving a draft must not move the
+   * player: `router.replace('?id=…')` would remount the whole form and drop
+   * the wizard back to step one, which is a strange thing for "save my
+   * progress" to do on step six. Subsequent saves update this id instead of
+   * minting a second character.
+   */
+  const [characterId, setCharacterId] = useState(openedWith);
+
+  /**
+   * Whether the row is a draft *now*, not at page load — the first draft save
+   * turns a brand-new character into one without a reload.
+   */
+  const [status, setStatus] = useState<CharacterStatus>(initialStatus);
+
   const [campaignId, setCampaignId] = useState(
     campaigns.some(c => c.id === initialCampaignId) ? initialCampaignId! : ''
   );
@@ -124,6 +147,22 @@ export function CharacterForm({
     return () => {
       live = false;
     };
+  }, [campaignId]);
+
+  /**
+   * Reload the options for the table currently chosen, and hand the result
+   * back rather than only storing it.
+   *
+   * The wizard awaits this after forging something mid-build: its `choose*`
+   * handlers read the catalog to decide whether a pick is SRD or homebrew, so
+   * a pick applied against the old list would file a brand-new homebrew class
+   * as `srd` — and the sheet would then claim SRD provenance for content no
+   * DM has ever seen.
+   */
+  const refreshCatalog = useCallback(async () => {
+    const next = await getBuildCatalogAction(campaignId || undefined);
+    setCatalog(next);
+    return next;
   }, [campaignId]);
 
   const campaign = campaigns.find(c => c.id === campaignId) ?? null;
@@ -172,6 +211,9 @@ export function CharacterForm({
   // hold references, so their numbers are fetched rather than stored.
   const watchedInventory = useWatch({ control, name: 'inventory' });
   const watchedSpells = useWatch({ control, name: 'spellcasting.spells' });
+  // A draft still needs a word to be listed under; `identity.name` is the one
+  // field the sheet schema genuinely requires.
+  const watchedName = useWatch({ control, name: 'identity.name' });
   const resolved = useResolvedContent({
     inventory: watchedInventory ?? [],
     spellcasting: {
@@ -243,47 +285,71 @@ export function CharacterForm({
     [getValues, setValue, log, dropHomebrewLog]
   );
 
-  const onSubmit = handleSubmit(
-    async values => {
-      setBanner(null);
-      const payload: CharacterSheet = {
-        ...values,
-        homebrew: {
-          ...values.homebrew,
-          isHomebrew:
-            values.homebrew.isHomebrew || values.homebrew.entries.length > 0,
-        },
-        provenance: reconcileProvenance(values),
-      };
+  /**
+   * One save, two meanings.
+   *
+   * `draft` is a hero still being decided: it is written, listed and reopened
+   * like any other, and the two things it may not do — sit at a table, go on
+   * the Library's shelf — are refused by the server, not merely hidden here.
+   * So a draft never runs `linkToCampaign`, and the table the player picked is
+   * held on the form until they finish.
+   */
+  const save = (next: CharacterStatus) =>
+    handleSubmit(
+      async values => {
+        setBanner(null);
+        const payload: CharacterSheet = {
+          ...values,
+          homebrew: {
+            ...values.homebrew,
+            isHomebrew:
+              values.homebrew.isHomebrew || values.homebrew.entries.length > 0,
+          },
+          provenance: reconcileProvenance(values),
+        };
 
-      const result = await saveCharacterAction(payload, characterId);
-      if (!result.ok) {
+        const result = await saveCharacterAction(payload, characterId, next);
+        if (!result.ok) {
+          setBanner({
+            kind: 'error',
+            text: result.error ?? 'Failed to save character.',
+          });
+          return;
+        }
+
+        // Whatever happened, this form now owns a row.
+        if (result.id) setCharacterId(result.id);
+        setStatus(next);
+
+        if (next === 'draft') {
+          setBanner({
+            kind: 'success',
+            text: 'Draft saved. Pick them back up whenever you like.',
+          });
+          // Stay put, on the step they were on. A draft is saved mid-thought.
+          router.refresh();
+          return;
+        }
+
+        // The table this character plays at is a campaign-membership fact, not
+        // part of the sheet, so it is written after the sheet is safely saved.
+        const link = await linkToCampaign(result.id);
+        if (link) {
+          setBanner({ kind: 'error', text: link });
+          return;
+        }
+
+        setBanner({ kind: 'success', text: 'Inscribed.' });
+        router.push('/characters');
+        router.refresh();
+      },
+      () => {
         setBanner({
           kind: 'error',
-          text: result.error ?? 'Failed to save character.',
+          text: 'Some fields need attention — check the highlighted inputs.',
         });
-        return;
       }
-
-      // The table this character plays at is a campaign-membership fact, not
-      // part of the sheet, so it is written after the sheet is safely saved.
-      const link = await linkToCampaign(result.id);
-      if (link) {
-        setBanner({ kind: 'error', text: link });
-        return;
-      }
-
-      setBanner({ kind: 'success', text: 'Inscribed.' });
-      router.push('/characters');
-      router.refresh();
-    },
-    () => {
-      setBanner({
-        kind: 'error',
-        text: 'Some fields need attention — check the highlighted inputs.',
-      });
-    }
-  );
+    )();
 
   /**
    * Attach the saved character to the chosen table, or detach it from the one
@@ -326,33 +392,84 @@ export function CharacterForm({
     : [];
 
   /**
-   * `complete` is false while the guided build still has decisions open, which
-   * is what keeps a half-finished character from being written at all — the
-   * hand-built sheet view passes nothing and stays saveable.
+   * The builder's save controls.
+   *
+   * There used to be one button here — "Create character" — disabled for the
+   * whole build and enabled at the end. A permanently dead primary action is
+   * the worst possible progress indicator: it tells you that you are not
+   * finished without telling you what is missing, and it makes the only way
+   * out of the builder an all-or-nothing one.
+   *
+   * So the two things a player might want are two controls, and neither is
+   * ever a dead end:
+   *
+   *  - **Save draft** is always live (a name is all it needs — the roster has
+   *    to call the row something). Their work is never trapped in a tab.
+   *  - **Finish** *appears* when the build owes nothing. It is not a disabled
+   *    button most of the time; it is the reward for the last decision, and
+   *    until then its place is taken by a sentence saying what is left and
+   *    where.
+   *
+   * `build` is absent on the hand-built sheet view, which has no guided build
+   * to be incomplete and so simply saves.
    */
-  const actions = (status?: { complete: boolean; remaining: number }) => (
-    <>
-      <Button
-        type="button"
-        variant="bordered"
-        className="border-line text-ink"
-        isDisabled={isSubmitting || !isDirty}
-        onPress={() => reset(initialSheet ?? newGuidedSheet())}
-      >
-        Reset
-      </Button>
-      <Button
-        type="submit"
-        size="lg"
-        isLoading={isSubmitting}
-        isDisabled={status ? !status.complete : false}
-        color="primary"
-        className="px-8"
-      >
-        {characterId ? 'Save changes' : 'Create character'}
-      </Button>
-    </>
-  );
+  const actions = (build?: { complete: boolean; remaining: number }) => {
+    const named = Boolean(watchedName?.trim());
+    const complete = build ? build.complete : true;
+    const isDraft = status === 'draft';
+
+    return (
+      <>
+        <Button
+          type="button"
+          variant="bordered"
+          className="border-line text-ink"
+          isDisabled={isSubmitting || !isDirty}
+          onPress={() => reset(initialSheet ?? newGuidedSheet())}
+        >
+          Reset
+        </Button>
+
+        {/*
+          Offered while anything is outstanding, and while an already-saved
+          draft is being worked on. A finished hero being edited has nothing to
+          gain from being pushed back into the drafts pile.
+        */}
+        {(!complete || isDraft || !characterId) && (
+          <Button
+            type="button"
+            variant="bordered"
+            className="border-line text-ink"
+            isLoading={isSubmitting}
+            isDisabled={!named}
+            title={named ? undefined : 'Give your hero a name first.'}
+            onPress={() => void save('draft')}
+          >
+            Save draft
+          </Button>
+        )}
+
+        {complete ? (
+          <Button
+            type="button"
+            size="lg"
+            isLoading={isSubmitting}
+            color="primary"
+            className="px-8"
+            onPress={() => void save('ready')}
+          >
+            {characterId && !isDraft ? 'Save changes' : 'Finish this hero'}
+          </Button>
+        ) : (
+          <p className="max-w-xs text-sm text-ink-muted">
+            {build!.remaining} decision
+            {build!.remaining === 1 ? '' : 's'} left before this hero can join a
+            party or go on the shelf.
+          </p>
+        )}
+      </>
+    );
+  };
 
   const campaignPicker = campaigns.length > 0 && (
     <div className="rounded-lg border border-line bg-surface p-3">
@@ -388,11 +505,23 @@ export function CharacterForm({
           This table uses the standard rules.
         </p>
       )}
+      {/*
+        The table is chosen now and honoured at the end. Saying so is the point
+        of the line: the picker narrows the options from this moment, so it has
+        to be answerable before the hero is finished, and a player who saves a
+        draft should know the seat is not taken yet.
+      */}
+      {campaign && (
+        <p className="mt-2 text-sm text-ink-subtle">
+          The options below are already narrowed to this table. Your hero takes
+          their seat when the build is finished — a draft holds no chair.
+        </p>
+      )}
     </div>
   );
 
   return (
-    <form onSubmit={onSubmit} className="space-y-6">
+    <form onSubmit={e => e.preventDefault()} className="space-y-6">
       {banner && (
         <div
           className={`rounded-lg border p-3 text-center text-sm ${
@@ -416,7 +545,9 @@ export function CharacterForm({
           limits={limits}
           campaignId={campaignId || undefined}
           content={resolved}
-          initialPick={characterId ? undefined : initialPick}
+          initialPick={openedWith ? undefined : initialPick}
+          onRefreshCatalog={refreshCatalog}
+          campaignName={campaign?.name}
           header={campaignPicker}
           footer={actions}
           onSwitchToSheet={enterSheet}
@@ -509,7 +640,8 @@ export function CharacterForm({
         </div>
       )}
 
-      <ChangeLogSection control={control} />
+      {/* A brand-new hero has no history yet; an empty log is furniture. */}
+      {characterId && <ChangeLogSection control={control} />}
     </form>
   );
 }
