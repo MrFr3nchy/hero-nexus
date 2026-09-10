@@ -8,9 +8,10 @@ campaign that runs for a year, from both chairs. The build order is in
 in the light of a decision recorded here.
 
 Every "today" below was read out of the code at the branch point, `d1edb23`, and is
-kept in the present tense as the record of what was found. **Phases 1 and 2 and the
-first of phase 6 are now built**; what each proved is under "What has been verified" at
-the foot of this file, and [phases.md](phases.md) carries the box-by-box state.
+kept in the present tense as the record of what was found. **Phases 1, 2 and 7 are now
+built, along with the first two items of phase 6**; what each proved is under "What has
+been verified" at the foot of this file, and [phases.md](phases.md) carries the
+box-by-box state. Phases 3, 4 and 5 are untouched.
 
 ---
 
@@ -58,7 +59,7 @@ leaving, and may sit at none — so a portrait cannot live in `campaign_images` 
 inheriting an access rule that is wrong for it. The sharing model's note that there is
 no user-level image store is the same gap seen from the other side.
 
-This needs its own table. See [phases.md](phases.md) Phase 1 for the shape and why it
+This needs its own table. See [phases.md](phases.md) Phase 7 for the shape and why it
 is not a column on `characters`.
 
 ### 2. Nothing derives an attack _(built — phase 2)_
