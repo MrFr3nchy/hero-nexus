@@ -75,6 +75,11 @@ interface CharacterWizardProps {
    */
   initialPick?: InitialPick;
   /**
+   * Which step to open on. Only read on mount — this is where a "Level up"
+   * link lands, and re-reading it would fight the rail on every render.
+   */
+  initialStep?: StepId;
+  /**
    * Reload the option catalog. Awaited after something is forged mid-build, so
    * the thing just made is in the list before the wizard tries to select it.
    */
@@ -147,9 +152,10 @@ export function CharacterWizard({
   header,
   footer,
   onSwitchToSheet,
+  initialStep,
 }: CharacterWizardProps) {
   const sheet = useWatch({ control }) as CharacterSheet;
-  const [stepId, setStepId] = useState<StepId>('class');
+  const [stepId, setStepId] = useState<StepId>(initialStep ?? 'class');
   const [forgeKind, setForgeKind] = useState<ForgeKind | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);

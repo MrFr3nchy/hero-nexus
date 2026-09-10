@@ -61,6 +61,11 @@ interface CharacterFormProps {
   /** The table `catalog` was loaded for. Changing tables refetches it. */
   catalogCampaignId?: string;
   characterId?: string;
+  /**
+   * Why the builder was opened. `level-up` lands a guided build on the Levels
+   * step instead of Class; anything else opens where it always did.
+   */
+  intent?: 'level-up';
   initialSheet?: CharacterSheet;
   /** Campaigns the player belongs to and can attach this character to. */
   campaigns: BuilderCampaignRow[];
@@ -104,6 +109,7 @@ export function CharacterForm({
   catalog: initialCatalog,
   catalogCampaignId,
   characterId: openedWith,
+  intent,
   initialSheet,
   campaigns,
   initialCampaignId,
@@ -228,7 +234,23 @@ export function CharacterForm({
   const [view, setView] = useState<View>(() =>
     !initialSheet || initialSheet.build.mode === 'guided' ? 'guided' : 'sheet'
   );
+  // 'core' already carries the level box, which is where a hand-written sheet
+  // wants to land for a level-up. See `wizardStep` below.
   const [sheetTab, setSheetTab] = useState<SheetTab>('core');
+
+  /**
+   * Where a "Level up" link lands.
+   *
+   * A guided build gets the Levels step, which walks the class table and
+   * records hit points, subclass and every ASI into the DM's log. A
+   * hand-written sheet gets the sheet it was written as, because switching it
+   * to guided would hand `composeSheet` ownership of fields the player typed
+   * themselves — the ladder is offered, never forced.
+   */
+  const wizardStep =
+    intent === 'level-up' && initialSheet?.build.mode === 'guided'
+      ? ('advancement' as const)
+      : undefined;
 
   // Stats for the content the sheet points at — the inventory and spell list
   // hold references, so their numbers are fetched rather than stored.
@@ -574,6 +596,7 @@ export function CharacterForm({
           header={campaignPicker}
           footer={actions}
           onSwitchToSheet={enterSheet}
+          initialStep={wizardStep}
         />
       ) : (
         <div className="space-y-5">

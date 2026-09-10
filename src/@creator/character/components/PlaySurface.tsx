@@ -99,6 +99,12 @@ export function PlaySurface({
           Read the sheet
         </Link>
         <Link
+          href={`/creator/character?id=${state.characterId}&intent=level-up`}
+          className="text-sm text-ink-muted hover:text-ink"
+        >
+          Level up
+        </Link>
+        <Link
           href={`/creator/character?id=${state.characterId}`}
           className="text-sm text-ink-muted hover:text-ink"
         >

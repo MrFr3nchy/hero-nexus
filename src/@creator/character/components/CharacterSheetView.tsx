@@ -7,6 +7,7 @@ import {
   Stat,
   StatBlock,
 } from '@/@shared/components/ui';
+import { xpStanding } from '../lib/advancement';
 import { AttacksSection } from './sections/AttacksSection';
 import {
   abilityModifier,
@@ -38,6 +39,42 @@ function Field({ label, value }: { label: string; value: string | number }) {
         {label}
       </div>
       <div className="text-ink">{value || '—'}</div>
+    </div>
+  );
+}
+
+/**
+ * Experience, with what it means beside it.
+ *
+ * `identity.xp` has always been on the sheet and nothing has ever read it, so
+ * this is a number a player typed into a box for no reason. The threshold
+ * gives it one — and the second line says milestones out loud, because a
+ * table that levels on story beats is not a table whose sheet should imply
+ * they are behind.
+ */
+function XpField({ sheet }: { sheet: CharacterSheet }) {
+  const xp = sheet.identity.xp;
+  const standing = xpStanding(xp, sheet.identity.level);
+
+  return (
+    <div>
+      <div className="text-[0.7rem] font-medium uppercase tracking-[0.1em] text-ink-subtle">
+        XP
+      </div>
+      <div className="text-ink">
+        {xp || '—'}
+        {standing.canLevel && (
+          <span className="ml-2 text-xs text-gold-strong dark:text-gold">
+            enough for level {standing.earnedLevel}
+          </span>
+        )}
+      </div>
+      {standing.remaining !== null && !standing.canLevel && (
+        <div className="text-xs text-ink-subtle">
+          {standing.remaining.toLocaleString()} more for level{' '}
+          {sheet.identity.level + 1}, if your table counts it
+        </div>
+      )}
     </div>
   );
 }
@@ -117,7 +154,7 @@ export function CharacterSheetView({
           <Field label="Background" value={sheet.identity.background} />
           <Field label="Alignment" value={sheet.identity.alignment} />
           <Field label="Level" value={sheet.identity.level} />
-          <Field label="XP" value={sheet.identity.xp} />
+          <XpField sheet={sheet} />
           <Field label="Size" value={sheet.identity.size} />
         </div>
         {slots?.identity}
