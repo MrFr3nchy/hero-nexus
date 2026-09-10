@@ -52,6 +52,13 @@ export interface CharacterRow {
   status: CharacterStatus;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The table this hero sits at, or null. Denormalised onto the row because
+   * the roster is the one surface that has to say it, and a card that cannot
+   * name its campaign is the reason a player opens five sheets looking for
+   * the one their DM meant.
+   */
+  table: { campaignId: string; name: string } | null;
 }
 
 export interface CharacterAuditEntry {
@@ -100,13 +107,59 @@ const listColumns = {
   updatedAt: characters.updatedAt,
 };
 
+/**
+ * The table a character sits at, or null for one that sits at none.
+ *
+ * `campaign_members` carries a unique index on `(campaignId, userId)` and one
+ * nullable `characterId`, so a player fields at most one character per
+ * campaign and this is at most one row. That index is the reason this returns
+ * a single table rather than a list: taking a second seat with the same hero
+ * is not a thing the schema allows, and a function shaped like it could would
+ * invite a caller to render a list that is always one long.
+ */
+export async function characterTable(
+  characterId: string
+): Promise<{ campaignId: string; name: string } | null> {
+  const row = await db
+    .select({ campaignId: campaigns.id, name: campaigns.name })
+    .from(campaignMembers)
+    .innerJoin(campaigns, eq(campaigns.id, campaignMembers.campaignId))
+    .where(eq(campaignMembers.characterId, characterId))
+    .limit(1);
+  return row[0] ?? null;
+}
+
 export async function listCharacters(): Promise<CharacterRow[]> {
   const userId = await requireUserId();
-  return db
+  const rows = await db
     .select(listColumns)
     .from(characters)
     .where(eq(characters.ownerId, userId))
     .orderBy(desc(characters.updatedAt));
+
+  // One query for every seat this player holds, rather than one per hero: a
+  // roster of twelve should not cost twelve round trips to answer a question
+  // the membership table answers in a single pass.
+  const seats = await db
+    .select({
+      characterId: campaignMembers.characterId,
+      campaignId: campaigns.id,
+      campaignName: campaigns.name,
+    })
+    .from(campaignMembers)
+    .innerJoin(campaigns, eq(campaigns.id, campaignMembers.campaignId))
+    .where(eq(campaignMembers.userId, userId));
+
+  const byCharacter = new Map(
+    seats
+      .filter(s => s.characterId)
+      .map(s => [
+        s.characterId as string,
+        { campaignId: s.campaignId, name: s.campaignName },
+      ])
+  );
+
+  return rows.map(row => ({ ...row, table: byCharacter.get(row.id) ?? null }));
 }
 
 export async function getCharacter(
@@ -129,6 +182,7 @@ export async function getCharacter(
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    table: await characterTable(row.id),
     sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
   };
 }
@@ -169,6 +223,7 @@ export async function getCharacterForCampaign(
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    table: await characterTable(row.id),
     sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
   };
 }

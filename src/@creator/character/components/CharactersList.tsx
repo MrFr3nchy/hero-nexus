@@ -1,7 +1,6 @@
 'use client';
 
 import { Button, Link } from '@heroui/react';
-import { Icon } from '@iconify/react';
 import { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -153,6 +152,12 @@ export function CharactersList() {
  * cannot yet do what the others can (design rule 6: ornament encodes state)
  * and points its click at the builder rather than the finished sheet — there
  * is no finished sheet to read.
+ *
+ * The table a hero sits at is the card's `note`, in the margin voice, and it
+ * is never the only way that fact is available — the sheet names it in its
+ * header too (rule 5: marginalia is not load-bearing). Before this the roster
+ * could not say it at all, which is how a player ends up opening five sheets
+ * looking for the one their DM meant.
  */
 function Card({
   character: c,
@@ -163,6 +168,12 @@ function Card({
   onDelete: (c: CharacterRow) => void;
   draft?: boolean;
 }) {
+  const note = c.table
+    ? `at ${c.table.name}`
+    : c.hasHomebrew
+      ? 'homebrew in play'
+      : undefined;
+
   return (
     <div className="group relative w-52">
       <HeroCard
@@ -172,7 +183,7 @@ function Card({
         charClass={c.class || undefined}
         level={c.level}
         species={c.species || undefined}
-        note={c.hasHomebrew ? 'homebrew in play' : undefined}
+        note={note}
       />
       {draft && (
         <Ribbon tone="warning" className="absolute -left-1 top-3">
@@ -180,12 +191,22 @@ function Card({
         </Ribbon>
       )}
       <div className="absolute -right-2 -top-2 hidden gap-1 group-hover:flex">
+        {/* A draft has nothing to run — no hit points, no dice to spend. */}
+        {!draft && (
+          <Link
+            href={`/characters/${c.id}/play`}
+            aria-label={`Run ${c.name || 'character'}`}
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-line bg-surface text-ink-subtle shadow-sm transition-colors hover:text-gold"
+          >
+            <Glyph name="die" size={13} />
+          </Link>
+        )}
         <Link
           href={`/creator/character?id=${c.id}`}
           aria-label={`${draft ? 'Continue' : 'Edit'} ${c.name || 'character'}`}
           className="flex h-7 w-7 items-center justify-center rounded-full border border-line bg-surface text-ink-subtle shadow-sm transition-colors hover:text-gold"
         >
-          <Icon icon="ph:pencil-simple-bold" width={13} />
+          <Glyph name="pencil" size={13} />
         </Link>
         <button
           type="button"
@@ -193,7 +214,7 @@ function Card({
           aria-label={`${draft ? 'Discard' : 'Retire'} ${c.name || 'character'}`}
           className="flex h-7 w-7 items-center justify-center rounded-full border border-line bg-surface text-ink-subtle shadow-sm transition-colors hover:text-danger"
         >
-          <Icon icon="ph:x-bold" width={13} />
+          <Glyph name="x" size={13} />
         </button>
       </div>
     </div>

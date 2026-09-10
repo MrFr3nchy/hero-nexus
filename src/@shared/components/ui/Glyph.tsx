@@ -61,7 +61,9 @@ export type GlyphName =
   | 'die'
   | 'key'
   | 'plus'
-  | 'arrow-right';
+  | 'arrow-right'
+  | 'x'
+  | 'pencil';
 
 /** Every glyph's artwork, drawn inside a 24×24 box. */
 const PATHS: Record<GlyphName, React.ReactNode> = {
@@ -295,6 +297,18 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   // "go there": the builder's outstanding-decision list jumps to the step
   // that settles each one. Drawn short and blunt so it still reads at 13px.
   'arrow-right': <path d="M5 12h13M12.5 6.5 18.5 12l-6 5.5" />,
+  // Furniture: dismiss, remove a row, close a sheet. Drawn rather than typed
+  // because the alternatives in use were a rotated `question` mark and an
+  // icon-CDN import, and rule 8 bans both for the same reason.
+  x: <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />,
+  // Furniture: the edit affordance on a card. A quill nib rather than a
+  // ballpoint, so it sits beside `quill` rather than fighting it.
+  pencil: (
+    <>
+      <path d="M4.5 19.5h4l10-10a2.1 2.1 0 0 0-3-3l-10 10z" />
+      <path d="M14.5 7.5l2 2" />
+    </>
+  ),
 };
 
 export interface GlyphProps extends Omit<SVGProps<SVGSVGElement>, 'name'> {
