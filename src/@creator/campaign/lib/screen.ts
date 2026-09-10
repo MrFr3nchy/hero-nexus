@@ -16,6 +16,7 @@ export const SCREEN_PANEL_KEYS = [
   'mine',
   'vitals',
   'dice',
+  'feed',
   'reveals',
   'notebook',
   'quests',
@@ -73,6 +74,15 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     glyph: 'die',
     description:
       'The shared roll log, and rolling in the open or behind the screen.',
+    players: true,
+  },
+  feed: {
+    key: 'feed',
+    label: 'The evening',
+    // Not the candle: `reveals` already carries that, and two boxes wearing
+    // one mark is the failure the glyph set exists to prevent.
+    glyph: 'tankard',
+    description: 'Everything the table has been told, in the order it landed.',
     players: true,
   },
   reveals: {

@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db';
@@ -15,6 +16,7 @@ import {
   users,
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
+import { bumpVersion, publish } from './live-hub';
 
 export type NoteVisibility = 'dm' | 'shared';
 export type RevealVisibility = 'party' | 'selected';
@@ -420,6 +422,25 @@ export async function revealExcerpt(
       createdBy: userId,
     });
   }
+
+  bumpVersion(campaignId);
+
+  /*
+   * Addressed exactly as the row is. A reveal to selected players announces to
+   * those players (and to staff, per `reaches`); one to the party announces to
+   * everyone. The audience is read off the same value that decided the row, so
+   * the two cannot drift apart.
+   */
+  publish(
+    campaignId,
+    {
+      kind: 'reveal',
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      excerpt: body.length > 160 ? `${body.slice(0, 157)}…` : body,
+    },
+    visibility === 'selected' ? { users: targetUserIds } : 'everyone'
+  );
 
   return row.id;
 }

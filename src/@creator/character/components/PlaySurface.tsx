@@ -14,6 +14,7 @@ import {
 import { ConditionPicker } from '@/@creator/campaign/components/session/ConditionPicker';
 import { conditionDef } from '@/@creator/campaign/lib/conditions';
 import { setOwnConditionsAction } from '@/@creator/campaign/play-actions';
+import { AtTable } from '@/@shared/table';
 import type { PlayLoadout, PlayState } from '@/server/play';
 import { AttacksSection } from './sections/AttacksSection';
 import { LoadoutSection } from './sections/LoadoutSection';
@@ -58,6 +59,11 @@ export function PlaySurface({
           </Button>
         </div>
       )}
+
+      {/* Running a seated character is being at that table, so this page
+          hears it too. A player with their own sheet open was the one person
+          the session could not reach. */}
+      <AtTable campaignId={campaign?.campaignId ?? null} />
 
       {/* The object is the hero (design rule 1): the card that moves the
           numbers leads, and everything explaining it comes after. */}

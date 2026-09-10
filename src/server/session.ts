@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
 
 import { serializeConditions } from '@/@creator/campaign/lib/conditions';
@@ -10,7 +11,12 @@ import {
   type ContentRef,
   type CreatureData,
 } from '@/@shared/content';
-import { rollDie, rollNotation, type NotationRoll } from '@/@shared/lib/dice';
+import {
+  critToneOf,
+  rollDie,
+  rollNotation,
+  type NotationRoll,
+} from '@/@shared/lib/dice';
 import { db } from '@/db';
 import {
   campaignHandouts,
@@ -24,7 +30,7 @@ import {
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { resolveContentRefs } from './content';
-import { bumpVersion } from './live-hub';
+import { bumpVersion, publish } from './live-hub';
 
 /** How much of the roll log the live view carries. */
 const ROLL_LOG_LIMIT = 40;
@@ -271,6 +277,20 @@ export async function startTimer(
     createdBy: userId,
   });
   bumpVersion(campaignId);
+
+  const visibility = input.visibility ?? 'shared';
+  publish(
+    campaignId,
+    {
+      kind: 'timer',
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      label: input.label.trim().slice(0, 120),
+      endsAt,
+      secret: visibility === 'dm',
+    },
+    visibility === 'dm' ? 'staff' : 'everyone'
+  );
 }
 
 /**
@@ -314,6 +334,13 @@ export async function createEncounter(
     .values({ campaignId, name: name.trim() || 'Encounter', isActive: true })
     .returning({ id: initiativeEncounters.id });
   bumpVersion(campaignId);
+  publish(campaignId, {
+    kind: 'encounter',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    encounterName: name.trim() || 'Encounter',
+    state: 'started',
+  });
   return row.id;
 }
 
@@ -328,11 +355,21 @@ async function encounterCampaign(encounterId: string): Promise<string> {
 export async function endEncounter(encounterId: string): Promise<void> {
   const campaignId = await encounterCampaign(encounterId);
   await staff(campaignId);
+  const enc = await db.query.initiativeEncounters.findFirst({
+    where: eq(initiativeEncounters.id, encounterId),
+  });
   await db
     .update(initiativeEncounters)
     .set({ isActive: false })
     .where(eq(initiativeEncounters.id, encounterId));
   bumpVersion(campaignId);
+  publish(campaignId, {
+    kind: 'encounter',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    encounterName: enc?.name ?? 'The fight',
+    state: 'ended',
+  });
 }
 
 export async function deleteEncounter(encounterId: string): Promise<void> {
@@ -354,12 +391,19 @@ export async function advanceTurn(
     where: eq(initiativeEncounters.id, encounterId),
   });
   if (!enc) throw new Error('NOT_FOUND');
-  const count = (
-    await db
-      .select({ id: initiativeEntries.id })
+  /*
+   * Ordered the way the tracker draws it, not the way the table returns it.
+   * `turnIndex` is an index into the *displayed* order, so naming whose turn
+   * it is off an unordered read announces the wrong person — and the person
+   * whose turn it actually is would be the one not told.
+   */
+  const ordered = orderEntries(
+    (await db
+      .select()
       .from(initiativeEntries)
-      .where(eq(initiativeEntries.encounterId, encounterId))
-  ).length;
+      .where(eq(initiativeEntries.encounterId, encounterId))) as EntryRow[]
+  );
+  const count = ordered.length;
   if (count === 0) return;
 
   let turn = enc.turnIndex + direction;
@@ -376,6 +420,17 @@ export async function advanceTurn(
     .set({ turnIndex: turn, round })
     .where(eq(initiativeEncounters.id, encounterId));
   bumpVersion(campaignId);
+
+  const up = ordered[turn];
+  publish(campaignId, {
+    kind: 'turn',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    encounterName: enc.name,
+    round,
+    label: up?.label ?? 'Somebody',
+    characterId: up?.characterId ?? null,
+  });
 }
 
 /* --- entries (staff) ------------------------------------------------- */
@@ -738,6 +793,28 @@ export async function rollForCampaign(
 
   bumpVersion(campaignId);
 
+  /*
+   * The announcement. A roll behind the screen publishes to staff and to
+   * nobody else — the audience is the whole of the secrecy decision, so it
+   * sits beside the `visibility` that decided it rather than three files away.
+   */
+  const secret = isStaff && (input.visibility ?? 'table') === 'dm';
+  publish(
+    campaignId,
+    {
+      kind: 'roll',
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      actorName,
+      label: (input.label ?? '').trim().slice(0, 80),
+      notation: result.notation,
+      total: result.total,
+      tone: critToneOf(result.notation, result.dice, result.dropped) ?? 'plain',
+      secret,
+    },
+    secret ? 'staff' : 'everyone'
+  );
+
   // Handed back so the roller can animate the faces the server actually
   // rolled. The log is still the record; this is only what to draw.
   return result;
@@ -808,6 +885,21 @@ export async function setHandoutVisibility(
     .set({ visibility })
     .where(eq(campaignHandouts.id, handoutId));
   bumpVersion(row.campaignId);
+
+  /*
+   * Only the crossing announces. A handout is created behind the screen and
+   * lives there until the DM pushes it, so the moment worth telling the table
+   * about is the push — not the making, and not the taking back.
+   */
+  if (visibility === 'shared') {
+    publish(row.campaignId, {
+      kind: 'handout',
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      title: row.title,
+      handoutKind: row.kind,
+    });
+  }
 }
 
 export async function deleteHandout(handoutId: string): Promise<string | null> {

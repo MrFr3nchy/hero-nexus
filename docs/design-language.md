@@ -65,11 +65,27 @@ collections — a spell list, a character roster — not for three feature blurb
 
 Exactly one interactive or animated moment per page. Everything else holds still.
 
-The dice tray is the one exception, and only because it is not on a page: it is a
-modal moment over the whole window, raised by an action the reader took and gone a
-couple of seconds later. Rolling dice is the app's loudest verb, so it gets the
-loudest animation — but it never counts against a page's one toy, and a page may
-not have a second animated element merely because its toy is a die.
+Two things are exempt, and both for the same reason: **they are not on a page.** Each
+is a moment over the whole window, mounted once at the root, gone a few seconds later.
+Neither counts against a page's one toy, and a page may not have a second animated
+element merely because one of them is on screen.
+
+- **The dice tray.** Raised by an action the reader took. Rolling dice is the app's
+  loudest verb, so it gets the loudest animation.
+- **The table's announcements** (`@shared/table`). Raised by something _somebody else_
+  did — a roll landing, a countdown starting, the DM asking you for a check. The
+  quieter of the two on purpose: a slip arriving in the corner, nothing behind it
+  moving. It exists because the alternative was worse — a timer the DM started reached
+  only whoever happened to be looking at the panel it lives in, which is the complaint
+  `docs/handoff/the-same-room/README.md` was written to answer.
+
+An announcement obeys every other rule without exception. Its title is load-bearing, so
+it is never the hand face (rule 5); its mark is a `Glyph`, never an emoji (rule 8); its
+colour encodes what happened, so gold is the table's own voice and `--danger` is
+reserved for something actually dangerous — "your turn" is gold (rule 6). Under
+`prefers-reduced-motion` it appears rather than slides. **A panel does not get to
+pulse, flash or bounce because an event arrived**; the slip is the whole animation, and
+a box that reacts to traffic is exactly the scattered motion this rule bans.
 
 - **Do** — home: the d20 that rolls a new fixture hero into the sheet and recomputes
   the ability modifiers. Dashboard: the d20 in the header that tumbles and lands on a
@@ -360,15 +376,16 @@ Fonts (aliases in the `@theme inline` block):
 
 ### New — added with this work
 
-| Primitive      | Use                                                                                                                                                |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Marginalia`   | hand-lettered aside (rule 5). Content prop + optional `dash`. Renders `<p>`. Never load-bearing.                                                   |
-| `Glyph`        | the house icon set (rule 8). `name` + `size`, stroked in `currentColor`, so it takes whatever ink colour it sits in.                               |
-| `Ledger`       | prose count line (rule 2). `items: {value, label}[]`. Drops to subtle ink when every value is `0`/`—`.                                             |
-| `HeroCard`     | the party card (rule 1): `charClass`-coloured spine, portrait/initials, level badge, HP track, optional `note`. Dashboard, roster, campaign pages. |
-| `SheetPreview` | read-only character sheet card (rule 1). Plain-object driven so marketing can feed it fixtures. Exports `abilityMod`.                              |
-| `DiceTray`     | every roll in the app. `useDiceTray().rollNotation('2d6+3')` / `.rollSpec()` / `.showNotationRoll()` — awaited, so callers act when the dice land. |
-| `DieGlyph`     | one die at rest, in the same drawing the tray throws. d4 / d6 / d8 / d10 / d12 / d20 / d100.                                                       |
+| Primitive       | Use                                                                                                                                                |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Marginalia`    | hand-lettered aside (rule 5). Content prop + optional `dash`. Renders `<p>`. Never load-bearing.                                                   |
+| `Glyph`         | the house icon set (rule 8). `name` + `size`, stroked in `currentColor`, so it takes whatever ink colour it sits in.                               |
+| `Ledger`        | prose count line (rule 2). `items: {value, label}[]`. Drops to subtle ink when every value is `0`/`—`.                                             |
+| `HeroCard`      | the party card (rule 1): `charClass`-coloured spine, portrait/initials, level badge, HP track, optional `note`. Dashboard, roster, campaign pages. |
+| `SheetPreview`  | read-only character sheet card (rule 1). Plain-object driven so marketing can feed it fixtures. Exports `abilityMod`.                              |
+| `DiceTray`      | every roll in the app. `useDiceTray().rollNotation('2d6+3')` / `.rollSpec()` / `.showNotationRoll()` — awaited, so callers act when the dice land. |
+| `DieGlyph`      | one die at rest, in the same drawing the tray throws. d4 / d6 / d8 / d10 / d12 / d20 / d100.                                                       |
+| `Announcements` | the table's word reaching you, wherever you are standing (rule 4's second exception). Mounted once at the root; fed by `useTable()`.               |
 
 ---
 

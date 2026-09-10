@@ -18,9 +18,16 @@
 import type { TableEvent } from './events';
 import { TABLE_EVENT_KINDS } from './events';
 
+/** Who the reader is at this table, read once when the stream opens. */
+export interface Seat {
+  role: 'gm' | 'co-gm' | 'player';
+  /** The reader's own character here, so "Your turn" can be said as such. */
+  characterId: string | null;
+}
+
 /** What a joiner is told. Connection status is a frame like any other. */
 export type Frame =
-  | { kind: 'open' }
+  | { kind: 'open'; seat: Seat }
   | { kind: 'closed' }
   /** Something changed. Deliberately carries no payload — re-read instead. */
   | { kind: 'state'; version: number }
@@ -34,6 +41,7 @@ interface Channel {
   source: EventSource | null;
   listeners: Set<Listener>;
   connected: boolean;
+  seat: Seat | null;
   /** Set while the last joiner has left but the socket is being held open. */
   reaper: ReturnType<typeof setTimeout> | null;
 }
@@ -57,6 +65,7 @@ function channelFor(campaignId: string): Channel {
       source: null,
       listeners: new Set(),
       connected: false,
+      seat: null,
       reaper: null,
     };
     channels.set(campaignId, channel);
@@ -77,9 +86,18 @@ function open(campaignId: string): void {
   const source = new EventSource(`/api/campaigns/${campaignId}/live`);
   channel.source = source;
 
-  source.addEventListener('hello', () => {
+  source.addEventListener('hello', message => {
     channel.connected = true;
-    emit(channel, { kind: 'open' });
+    try {
+      const data = JSON.parse((message as MessageEvent).data);
+      channel.seat = {
+        role: data?.role ?? 'player',
+        characterId: data?.characterId ?? null,
+      };
+    } catch {
+      channel.seat = { role: 'player', characterId: null };
+    }
+    emit(channel, { kind: 'open', seat: channel.seat });
   });
 
   source.addEventListener('state', message => {
@@ -142,7 +160,11 @@ export function joinTable(campaignId: string, listener: Listener): () => void {
   }
   channel.listeners.add(listener);
   open(campaignId);
-  if (channel.connected) listener({ kind: 'open' });
+  // A latecomer is told where it stands rather than waiting for the next
+  // frame: joining an already-open channel must not look like a dead one.
+  if (channel.connected && channel.seat) {
+    listener({ kind: 'open', seat: channel.seat });
+  }
 
   return () => {
     channel.listeners.delete(listener);

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { listCharactersAction } from '@/@creator/character/actions';
 import { DiceSpinner, Glyph, Ribbon } from '@/@shared/components/ui';
 import { useCampaignLive } from '@/@shared/hooks/useCampaignLive';
+import { AtTable } from '@/@shared/table';
 import type { SessionRow } from '@/server/campaign-sessions';
 import type { CampaignRole, CampaignRow } from '@/server/campaigns';
 import type { CharacterRow } from '@/server/characters';
@@ -32,6 +33,7 @@ import { HandoutsPanel } from '../session/HandoutsPanel';
 import { InitiativeTracker } from '../session/InitiativeTracker';
 import { RollPanel } from '../session/RollPanel';
 import { ConditionsCard } from './ConditionsCard';
+import { FeedPanel } from './FeedPanel';
 import { ScreenBox } from './ScreenBox';
 import { TimerPanel } from '../session/TimerPanel';
 import { MyHeroPanel } from './MyHeroPanel';
@@ -197,6 +199,9 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
           onError={ctx.onError}
         />
       ) : null;
+
+    case 'feed':
+      return <FeedPanel campaignId={ctx.campaignId} />;
 
     case 'reveals':
       return (
@@ -419,6 +424,8 @@ export function DmScreen({
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg">
+      <AtTable campaignId={campaign.id} />
+
       {/* One bar, not a page header: every row of chrome up here is a row of
           stat block down there. */}
       <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-surface px-3 py-2">

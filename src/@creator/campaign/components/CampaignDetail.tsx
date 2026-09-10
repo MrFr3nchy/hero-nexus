@@ -15,6 +15,7 @@ import {
   type GlyphName,
 } from '@/@shared/components/ui';
 import { countdownWords, formatCalendarDate } from '@/@shared/lib/dates';
+import { AtTable } from '@/@shared/table';
 import type { CampaignPulse } from '@/server/campaign-pulse';
 import type { CampaignRow } from '@/server/campaigns';
 import { getCampaignPulseAction } from '../chronicle-actions';
@@ -109,6 +110,10 @@ export function CampaignDetail({
 
   return (
     <PageShell width="wide">
+      {/* Announcements come out at the root, so they reach the reader on any
+          tab of this page — and keep reaching them after they wander off it. */}
+      <AtTable campaignId={campaign.id} />
+
       {campaign.settings.bannerImageId && (
         // Deliberately an <img>: the file is served through a role-checked
         // route, which next/image's optimiser cannot fetch on the server.

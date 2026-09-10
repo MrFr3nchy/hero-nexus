@@ -14,10 +14,10 @@
  * carry content and so carry an audience, applied in the hub.
  */
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { users } from '@/db/schema';
+import { campaignMembers, users } from '@/db/schema';
 import { requireCampaignRole } from '@/server/campaigns';
 import {
   connectionsHeldBy,
@@ -87,10 +87,25 @@ export async function GET(
     return new Response('Too many open views of this table', { status: 429 });
   }
 
-  const person = await db.query.users.findFirst({
-    columns: { name: true, email: true },
-    where: eq(users.id, userId),
-  });
+  const [person, seat] = await Promise.all([
+    db.query.users.findFirst({
+      columns: { name: true, email: true },
+      where: eq(users.id, userId),
+    }),
+    /*
+     * The viewer's seated character, read once at connect rather than on
+     * every poll. It is what lets an announcement say "Your turn" instead of
+     * naming somebody the reader has to recognise as themselves — and a seat
+     * does not change mid-session, so once is the right number of times.
+     */
+    db.query.campaignMembers.findFirst({
+      columns: { characterId: true },
+      where: and(
+        eq(campaignMembers.campaignId, campaignId),
+        eq(campaignMembers.userId, userId)
+      ),
+    }),
+  ]);
   const name =
     person?.name?.trim() ||
     person?.email?.split('@')[0] ||
@@ -152,6 +167,7 @@ export async function GET(
           v: versionOf(campaignId),
           seq: currentSeq(campaignId),
           role,
+          characterId: seat?.characterId ?? null,
         })}\n\n`
       );
 
