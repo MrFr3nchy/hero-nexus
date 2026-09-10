@@ -11,6 +11,7 @@ import {
   characterAuditLog,
   characterHistory,
   characterHomebrew,
+  characterPortraits,
   characters,
   homebrew,
   homebrewApprovals,
@@ -59,6 +60,8 @@ export interface CharacterRow {
    * the one their DM meant.
    */
   table: { campaignId: string; name: string } | null;
+  /** The hero's face, or null. Same reasoning as `table`: the roster shows it. */
+  portrait: { url: string; alt: string } | null;
 }
 
 export interface CharacterAuditEntry {
@@ -129,6 +132,20 @@ export async function characterTable(
   return row[0] ?? null;
 }
 
+/** One character's portrait, shaped for a row. No permission check. */
+async function portraitFor(
+  characterId: string
+): Promise<{ url: string; alt: string } | null> {
+  const row = await db.query.characterPortraits.findFirst({
+    where: eq(characterPortraits.characterId, characterId),
+  });
+  if (!row) return null;
+  return {
+    url: row.remoteUrl || `/api/characters/${characterId}/portrait`,
+    alt: row.alt,
+  };
+}
+
 export async function listCharacters(): Promise<CharacterRow[]> {
   const userId = await requireUserId();
   const rows = await db
@@ -159,7 +176,35 @@ export async function listCharacters(): Promise<CharacterRow[]> {
       ])
   );
 
-  return rows.map(row => ({ ...row, table: byCharacter.get(row.id) ?? null }));
+  // Every portrait for this owner's heroes in one query. Ownership is the
+  // access check here — these are all the caller's own characters — so this
+  // does not go through `getPortrait`, which re-derives that per row.
+  const faces = await db
+    .select({
+      characterId: characterPortraits.characterId,
+      filePath: characterPortraits.filePath,
+      remoteUrl: characterPortraits.remoteUrl,
+      alt: characterPortraits.alt,
+    })
+    .from(characterPortraits)
+    .innerJoin(characters, eq(characters.id, characterPortraits.characterId))
+    .where(eq(characters.ownerId, userId));
+
+  const byPortrait = new Map(
+    faces.map(f => [
+      f.characterId,
+      {
+        url: f.remoteUrl || `/api/characters/${f.characterId}/portrait`,
+        alt: f.alt,
+      },
+    ])
+  );
+
+  return rows.map(row => ({
+    ...row,
+    table: byCharacter.get(row.id) ?? null,
+    portrait: byPortrait.get(row.id) ?? null,
+  }));
 }
 
 export async function getCharacter(
@@ -183,6 +228,7 @@ export async function getCharacter(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     table: await characterTable(row.id),
+    portrait: await portraitFor(row.id),
     sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
   };
 }
@@ -224,6 +270,7 @@ export async function getCharacterForCampaign(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     table: await characterTable(row.id),
+    portrait: await portraitFor(row.id),
     sheet: characterSheetSchema.parse(migrateStoredSheet(row.sheet)),
   };
 }

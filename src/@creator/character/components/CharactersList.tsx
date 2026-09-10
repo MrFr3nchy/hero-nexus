@@ -184,6 +184,18 @@ function Card({
         level={c.level}
         species={c.species || undefined}
         note={note}
+        portrait={
+          c.portrait ? (
+            /* A linked portrait is an arbitrary off-site host, which
+               `next/image` would need configuring for one domain at a time. */
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={c.portrait.url}
+              alt={c.portrait.alt || `${c.name || 'Character'} portrait`}
+              className="h-full w-full object-cover"
+            />
+          ) : undefined
+        }
       />
       {draft && (
         <Ribbon tone="warning" className="absolute -left-1 top-3">

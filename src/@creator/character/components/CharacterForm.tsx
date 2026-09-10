@@ -11,8 +11,13 @@ import { describeRules } from '@/@creator/campaign/lib/rules';
 import type { BuilderCampaignRow } from '@/server/campaigns';
 
 import type { CharacterStatus } from '@/server/characters';
+import type { PortraitRow } from '@/server/character-portraits';
 
-import { getBuildCatalogAction, saveCharacterAction } from '../actions';
+import {
+  getBuildCatalogAction,
+  getPortraitAction,
+  saveCharacterAction,
+} from '../actions';
 import {
   characterSheetSchema,
   makeEmptySheet,
@@ -44,6 +49,8 @@ import {
   SpellcastingSection,
   SpellListSection,
 } from './sections';
+import { SectionCard } from '@/@shared/components/ui';
+import { PortraitControl } from './PortraitControl';
 import { CharacterWizard } from './wizard/CharacterWizard';
 import type { InitialPick } from './wizard/types';
 
@@ -119,6 +126,22 @@ export function CharacterForm({
    * minting a second character.
    */
   const [characterId, setCharacterId] = useState(openedWith);
+  // Fetched rather than passed in: the form is opened from several places and
+  // only one of them is a server component that could have loaded it.
+  const [portrait, setPortrait] = useState<PortraitRow | null>(null);
+  useEffect(() => {
+    if (!characterId) {
+      setPortrait(null);
+      return;
+    }
+    let live = true;
+    getPortraitAction(characterId).then(p => {
+      if (live) setPortrait(p);
+    });
+    return () => {
+      live = false;
+    };
+  }, [characterId]);
 
   /**
    * Whether the row is a draft *now*, not at page load — the first draft save
@@ -624,6 +647,24 @@ export function CharacterForm({
               <div className="grid gap-5 lg:grid-cols-2">
                 <DetailsSection control={control} />
                 <div className="space-y-5">
+                  {/*
+                    Only once the hero exists: a portrait is stored against a
+                    character id, and there is nothing to hang it on until the
+                    first save. A brand-new sheet gets the control the moment
+                    it is saved and reopened.
+                  */}
+                  {characterId && (
+                    <SectionCard
+                      title="Portrait"
+                      description="A face for the party cards and the initiative list."
+                    >
+                      <PortraitControl
+                        characterId={characterId}
+                        initial={portrait}
+                        onChange={setPortrait}
+                      />
+                    </SectionCard>
+                  )}
                   <EquipmentSection control={control} />
                   <CurrencySection control={control} />
                   {limits.allowHomebrew && (

@@ -1756,3 +1756,52 @@ export const publicationAssets = sqliteTable(
   },
   t => [index('publication_assets_publication_idx').on(t.publicationId)]
 );
+
+/* ------------------------------------------------------------------ */
+/* Character portraits (0034)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A character's portrait.
+ *
+ * Its own table rather than a column on `characters`, and deliberately not a
+ * row in `campaign_images`. A character precedes, outlives and may never have
+ * a campaign, so a portrait cannot inherit "are you at this table" as its
+ * access rule — that rule is wrong for a hero nobody has taken to a table yet,
+ * and wrong again for one who has left. Access here is judged from the
+ * character: the owner always, plus the members of whatever table it currently
+ * sits at.
+ *
+ * One row per character, enforced by the unique index — a portrait is not a
+ * gallery. Replacing one deletes the row and its file rather than accumulating
+ * versions nothing can reach.
+ *
+ * Bytes live on disk under `UPLOADS_DIR`, as with `campaign_images` and
+ * `publication_assets`; the reasoning is written out on the first of those and
+ * has not changed. `remote_url` is the other half of the same field: a
+ * portrait can be a link instead of an upload, and then no file exists and
+ * `file_path` is empty. Hero Nexus makes no outbound calls at runtime, so a
+ * remote portrait is fetched by the reader's browser and never by the server.
+ */
+export const characterPortraits = sqliteTable(
+  'character_portraits',
+  {
+    id: uuid(),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    /** Path under UPLOADS_DIR, e.g. "characters/<characterId>/<uuid>.webp". */
+    filePath: text('file_path').notNull().default(''),
+    /**
+     * An off-site image the reader's browser loads directly. Empty for an
+     * upload. Exactly one of this and `file_path` is set.
+     */
+    remoteUrl: text('remote_url').notNull().default(''),
+    mime: text('mime').notNull().default(''),
+    bytes: integer('bytes').notNull().default(0),
+    /** Shown when the image cannot load, and read out by screen readers. */
+    alt: text('alt').notNull().default(''),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [uniqueIndex('character_portraits_character_idx').on(t.characterId)]
+);
