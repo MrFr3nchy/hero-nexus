@@ -3,11 +3,12 @@
 import { Button, NumberInput, Tooltip } from '@heroui/react';
 import { useState } from 'react';
 
-import { Marginalia, Stat } from '@/@shared/components/ui';
+import { Glyph, Marginalia, Stat } from '@/@shared/components/ui';
 import type { PlayState } from '@/server/play';
 import { conditionDef } from '../lib/conditions';
 import { useDiceTray } from '@/@shared/components/dice';
 import type { DeathSaveMode } from '@/@creator/character/lib/dying';
+import { startTimerAction } from '../actions';
 import {
   applyPlayPatchAction,
   rollDeathSaveAction,
@@ -210,6 +211,64 @@ function DeathSaveControl({
             In secret
           </Button>
         </Tooltip>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The minute after a death.
+ *
+ * Revivify has to be cast within one minute of dying, and at a table that
+ * minute is the loudest thing in the room. This starts the ordinary countdown
+ * with sixty seconds and a label already in it — the timer is general, and
+ * this only knows why it was opened.
+ */
+function RevivifyWindow({
+  campaignId,
+  name,
+  onError,
+}: {
+  campaignId: string;
+  name: string;
+  onError: (message: string) => void;
+}) {
+  const [started, setStarted] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const start = async () => {
+    setBusy(true);
+    const res = await startTimerAction(campaignId, {
+      label: `The window to bring ${name} back`,
+      seconds: 60,
+      visibility: 'shared',
+    });
+    setBusy(false);
+    if (!res.ok) {
+      onError(res.error ?? 'Failed to start the countdown.');
+      return;
+    }
+    setStarted(true);
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2">
+      <Glyph name="hourglass" size={14} className="text-danger" />
+      <span className="text-sm text-ink-muted">
+        {started
+          ? 'The minute is running on the hourglass.'
+          : 'One minute to bring them back.'}
+      </span>
+      {!started && (
+        <Button
+          size="sm"
+          variant="flat"
+          isDisabled={busy}
+          onPress={start}
+          className="ml-auto"
+        >
+          Start the minute
+        </Button>
       )}
     </div>
   );
@@ -511,6 +570,20 @@ export function PlayCard({
           </>
         )}
       </div>
+
+      {/*
+        A death opens a window: revivify has to land within the minute. This is
+        the shortcut, not a special kind of timer — it starts an ordinary
+        countdown with the minute and the wording pre-filled, and the DM can
+        change either on the hourglass itself.
+      */}
+      {state.dying === 'dead' && canRollSecret && campaignId && (
+        <RevivifyWindow
+          campaignId={campaignId}
+          name={state.name}
+          onError={onError}
+        />
+      )}
 
       {state.dying === 'dying' && (
         <DeathSaveControl

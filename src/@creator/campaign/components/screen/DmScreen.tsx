@@ -33,6 +33,7 @@ import { InitiativeTracker } from '../session/InitiativeTracker';
 import { RollPanel } from '../session/RollPanel';
 import { ConditionsCard } from './ConditionsCard';
 import { ScreenBox } from './ScreenBox';
+import { TimerPanel } from '../session/TimerPanel';
 import { MyHeroPanel } from './MyHeroPanel';
 
 /**
@@ -153,6 +154,16 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
           onError={ctx.onError}
         />
       );
+
+    case 'timers':
+      return live.state ? (
+        <TimerPanel
+          campaignId={ctx.campaignId}
+          state={live.state}
+          isStaff={ctx.isStaff}
+          refresh={live.refresh}
+        />
+      ) : null;
 
     case 'vitals':
       return (

@@ -24,6 +24,8 @@ import {
   deleteHandout as deleteHandoutSrv,
   endEncounter,
   getLiveState,
+  startTimer,
+  stopTimer,
   removeEntry,
   rollForCampaign,
   rollInitiative,
@@ -377,6 +379,38 @@ export async function getLiveStateAction(
   campaignId: string
 ): Promise<LiveState> {
   return getLiveState(campaignId);
+}
+
+/* --- the hourglass --------------------------------------------------- */
+
+const timerSchema = z.object({
+  label: z.string().trim().max(120).default(''),
+  seconds: z
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60 * 60),
+  visibility: z.enum(['dm', 'shared']).optional(),
+});
+
+/** Start a countdown. Staff only — `startTimer` re-checks. */
+export async function startTimerAction(
+  campaignId: string,
+  input: unknown
+): Promise<Result> {
+  const parsed = timerSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid.' };
+  }
+  return sessionAction(() => startTimer(campaignId, parsed.data));
+}
+
+/** Call one off. The row is kept as a record that it ran. */
+export async function stopTimerAction(
+  campaignId: string,
+  timerId: string
+): Promise<Result> {
+  return sessionAction(() => stopTimer(campaignId, timerId));
 }
 
 async function sessionAction(fn: () => Promise<unknown>): Promise<Result> {
