@@ -20,6 +20,10 @@ the bundle. If the 3D work stalls, phase 1 still leaves the app better than it f
 **Branch: `feat/the-sand-table`, cut from `feat/the-same-room`.** Not from `main`: the
 map needs the stream, and the stream is on that branch.
 
+**Phase 1 is built and verified** — the model, the rules, the fog filter and the 2D
+board, with no `three` in `package.json`. Phases 2–5 are open. What the phase-1 run
+proved is at the foot of this file.
+
 Everything below was read out of `main` on 2026-09-10, before `feat/the-same-room`
 landed. Specific line references are deliberately avoided in favour of symbol names,
 because you can grep and I could not guarantee the line numbers would survive.
@@ -669,3 +673,77 @@ the size of the review.
 - **Physics.** Nothing falls, nothing collides, nothing bounces.
 - **Multi-level dungeons.** `elevation` handles a ledge and a pit. A second floor directly
   above a first floor is a different data model and it can wait until someone asks twice.
+
+---
+
+## What has been verified — phase 1
+
+### The rules, apart from the app
+
+59 assertions against `lib/battlemap.ts` directly, the way `dying.ts` was checked:
+
+- One step is 5 feet orthogonal **and** diagonal; two diagonals are 10, not 15. 2024.
+- Difficult terrain doubles the entry; a 5-foot climb adds 5; the two together are 15
+  (doubled once, then the climb). A 10-foot step is refused as a climb.
+- Void and lava refuse; water is difficult and not impassable.
+- A solid wall stops the step from either side and stops a diagonal that would cut its
+  corner. A closed door stops movement and sight; an open one neither. A window stops
+  movement and not sight. A rail stops nothing.
+- 30 feet reaches six tiles and not seven; an occupied tile cannot be entered.
+- Two cannot share a tile; a large covers 2×2, falls off the board edge, and refuses a
+  1-wide corridor. A blocking prop takes its tile; a non-blocking one does not.
+- An archer on a 15-foot gantry sees over a 10-foot wall; from a 5-foot step the same
+  wall blocks. Two people on 20-foot gantries see over a 10-foot ground wall, and not
+  one standing on the gantry between them.
+- `fogged` returns a **new document** and leaves the stored one untouched; the one
+  revealed tile keeps its material and height; every other is void at 0; the wall
+  touching the revealed tile survives and the far one does not; props and lights follow
+  the same rule. `visibleFrom` respects both radius and walls.
+
+### Fog, through real sessions
+
+- With nothing revealed, a player's payload was void at elevation 0 with **no** walls,
+  props, lights or tokens — not even the shape of the room.
+- Revealing the west room: west stone, east void, the 10-foot ledge flattened to 0, the
+  eight dividing walls present (they touch revealed tiles), the chest and west light
+  present, and the word `pillar` **absent from their bytes**. The DM's read had all of it.
+- A `dm`-visibility board came back as `null` for a player.
+
+### Tokens
+
+- Dealing a fight in placed the party from the top-left and foes from the bottom-right,
+  foes hidden. A player saw only their own token; the DM saw seven.
+- A player moved their own token; was refused a foe's ("not yours"), a pillar, an occupied
+  tile and an off-board tile ("nothing can stand there"); a stranger was refused with
+  "no longer exists". A DM moved a foe into the lit room and it stayed hidden until shown;
+  once shown, the one on a lit tile appeared for the player and the one in the dark did
+  not.
+- "Look around" from a party token revealed the whole lit room through a closed door and
+  nine more tiles once the door was opened.
+- A second token for one combatant is refused by name. Removing a combatant took their
+  token; deleting the fight left the board standing, unbound, with every combatant token
+  gone.
+
+### In a browser
+
+- The canvas drew floor, the ledge as a shade with `+10` for staff, walls, the open door
+  as a green dash, warm point lights, the chest and the pillar, tokens with the HP ring by
+  the `HeroCard` rule (Kessa red at 4/38), and the dashed gold active-turn ring on A1.
+- Selecting a token drew its reach as dashed outlines, through the open door and not
+  through the wall. Tapping a lit tile moved it and the selection followed.
+- Picking Water and dragging painted five tiles along the stroke, and they were in the
+  database half a second later.
+
+**One change it forced:** reach was first drawn as a gold fill, and so was the DM's
+revealed-wash, and two washes on one tile were one wash. Reach is an inset outline now.
+
+## Still to do in phase 1, deliberately
+
+- **Movement is not fenced.** `moveToken` checks bounds, void and occupancy and not
+  distance; the ghosted reach is advice. Fencing it needs speed on the sheet and a
+  decision about what a DM does when the table agrees somebody can get there anyway.
+- **Allies can be walked through in the rules, and not here.** `reachable` treats every
+  occupied tile as impassable — the strict reading. Relaxing it wants sides wired to the
+  board, which the token has via its entry but the reach computation does not read yet.
+- **No tab of its own on `/campaigns/[id]`.** The board lives on the Session tab and as
+  a screen panel. A tab may be wanted once it is the thing a fight is run from.
