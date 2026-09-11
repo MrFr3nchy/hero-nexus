@@ -1808,6 +1808,63 @@ export const campaignCheckTargets = sqliteTable(
   ]
 );
 
+/* --- Whispers (0043) ---------------------------------------------------- */
+
+/**
+ * A note passed under the table.
+ *
+ * Not a reveal — a reveal is canon, goes on the timeline of what the party
+ * knows and can be widened to everybody — and not chat, which the-same-room
+ * left out and said why. One line, from one person to one or more others,
+ * that the rest of the table is not shown. It lives in the evening and
+ * nowhere else. See `docs/handoff/the-three-tables/README.md`, decision 4.
+ */
+export const campaignWhispers = sqliteTable(
+  'campaign_whispers',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    fromUserId: text('from_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    body: text('body').notNull(),
+    /** The sitting it was passed in, when one was live. A record, not a gate. */
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_whispers_campaign_idx').on(t.campaignId, t.createdAt)]
+);
+
+/**
+ * Who a whisper was said to.
+ *
+ * Keyed on `user_id` like every other addressed thing here: the GM has no
+ * member row, and a player who later leaves the table was still told. Staff
+ * are never listed and always read everything — a DM who cannot see what the
+ * rogue told the wizard cannot run the table.
+ */
+export const campaignWhisperTargets = sqliteTable(
+  'campaign_whisper_targets',
+  {
+    id: uuid(),
+    whisperId: text('whisper_id')
+      .notNull()
+      .references(() => campaignWhispers.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('campaign_whisper_targets_pair_idx').on(t.whisperId, t.userId),
+    index('campaign_whisper_targets_user_idx').on(t.userId),
+  ]
+);
+
 /* --- The sand table (0041) -------------------------------------------- */
 
 /**

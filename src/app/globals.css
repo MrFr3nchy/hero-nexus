@@ -283,3 +283,11 @@ h4 {
 .shelf-dense h3 {
   font-size: 0.875rem;
 }
+
+/* A tracker row in a box or on the shelf: the name and the hit points keep a
+   floor, so the hit-point control and the condition picker wrap to a second
+   line instead of squeezing "150 / 150 hp · ac 17" into a column five lines
+   tall beside a number field. */
+.screen-box-body [data-entry-info] {
+  min-width: 11rem;
+}

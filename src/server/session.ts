@@ -40,6 +40,7 @@ import { listMaps, type MapRow } from './maps';
 import { listPartyPlayState, type PlayState } from './play';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { resolveContentRefs } from './content';
+import { listWhispers, type WhisperRow } from './whispers';
 
 /** How much of the roll log the live view carries. */
 const ROLL_LOG_LIMIT = 40;
@@ -186,8 +187,42 @@ export interface LiveState {
    * look at, which at their own table is all of them.
    */
   portraits: Record<string, string>;
+  /**
+   * The whispering this viewer may read — what they said, what was said to
+   * them, and for staff everything. Filtered in `whispers.ts`, which is the
+   * one place that decides.
+   */
+  whispers: WhisperRow[];
   /** The viewer's own linked character, so the tracker can say "your turn". */
   viewerCharacterId: string | null;
+}
+
+/**
+ * Which table a campaign is at, from the two facts that decide it.
+ *
+ * Derived, never stored — `docs/handoff/the-three-tables/README.md`,
+ * decision 1. No role check: the answer is not a secret, and the callers
+ * (`getLiveState`, the campaign page, the sitting bar) have each already
+ * established the reader belongs here.
+ */
+export async function tableAt(campaignId: string): Promise<TableKind> {
+  const [sitting, fight] = await Promise.all([
+    db.query.campaignSessions.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(campaignSessions.campaignId, campaignId),
+        eq(campaignSessions.status, 'live')
+      ),
+    }),
+    db.query.initiativeEncounters.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(initiativeEncounters.campaignId, campaignId),
+        eq(initiativeEncounters.isActive, true)
+      ),
+    }),
+  ]);
+  return !sitting ? 'desk' : fight ? 'battle' : 'table';
 }
 
 function orderEntries(rows: EntryRow[]): EntryRow[] {
@@ -357,17 +392,19 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
 
   // Both are their own modules and already role-filtered there — these are
   // reads, not second places that decide what a player may see.
-  const [checks, party, maps, battlemap, portraitRows] = await Promise.all([
-    listChecks(campaignId),
-    listPartyPlayState(campaignId),
-    listMaps(campaignId),
-    getBattleMapState(campaignId, { userId, role }),
-    portraitsFor(
-      rawEntries
-        .map(e => e.characterId)
-        .filter((id): id is string => id !== null)
-    ),
-  ]);
+  const [checks, party, maps, battlemap, portraitRows, whispers] =
+    await Promise.all([
+      listChecks(campaignId),
+      listPartyPlayState(campaignId),
+      listMaps(campaignId),
+      getBattleMapState(campaignId, { userId, role }),
+      portraitsFor(
+        rawEntries
+          .map(e => e.characterId)
+          .filter((id): id is string => id !== null)
+      ),
+      listWhispers(campaignId),
+    ]);
   const portraits: Record<string, string> = {};
   for (const [id, row] of portraitRows) portraits[id] = row.url;
   // `listMaps` already dropped anything this viewer may not see, and lighting
@@ -424,6 +461,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     spotlight,
     battlemap,
     portraits,
+    whispers,
     viewerCharacterId: membership?.characterId ?? null,
   };
 }

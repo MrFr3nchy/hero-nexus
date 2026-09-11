@@ -1,7 +1,7 @@
 'use client';
 
 import { Button, Link, Snippet, Tab, Tabs } from '@heroui/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import {
   Fleuron,
@@ -19,6 +19,7 @@ import { AtTable } from '@/@shared/table';
 import type { CampaignPulse } from '@/server/campaign-pulse';
 import type { CampaignRow } from '@/server/campaigns';
 import { getCampaignPulseAction } from '../chronicle-actions';
+import type { TableKind } from '../lib/screen';
 import { CampaignSearch } from './CampaignSearch';
 import { CanonPanel } from './CanonPanel';
 import { AwardsPanel } from './AwardsPanel';
@@ -80,18 +81,39 @@ function TabTitle({
 }
 
 /**
+ * Which tab leads at each of the three tables.
+ *
+ * The desk opens on the chronicle — between sittings a campaign is a record;
+ * the table opens on the session; the sand table opens on the board. The
+ * strip's order follows, so the leading tab is also the first one, and the
+ * rest keep the order they always had. Decided once, when the page is
+ * opened: tabs that rearrange themselves under a reader mid-sitting would be
+ * the app moving the furniture while somebody is sitting on it.
+ */
+const LEADING_TAB: Record<TableKind, string> = {
+  desk: 'chronicle',
+  table: 'table',
+  battle: 'board',
+};
+
+/**
  * The campaign, as a single object (design language: Single object archetype).
  *
- * The page opens on the table itself — the party, initiative, the dice — and
- * the numbers under the title are set as a sentence rather than a row of
- * tiles, because they are context for the page and not its subject.
+ * The page opens on whichever of the three tables the campaign is at — the
+ * chronicle between sittings, the session while one is sitting, the board
+ * while a fight is running — and the numbers under the title are set as a
+ * sentence rather than a row of tiles, because they are context for the page
+ * and not its subject.
  */
 export function CampaignDetail({
   campaign,
   viewerId,
+  table,
 }: {
   campaign: CampaignRow;
   viewerId: string;
+  /** Which of the three tables the campaign is at, read when the page opened. */
+  table: TableKind;
 }) {
   const isStaff = campaign.role === 'gm' || campaign.role === 'co-gm';
   const [pulse, setPulse] = useState<CampaignPulse | null>(null);
@@ -108,6 +130,219 @@ export function CampaignDetail({
   }, [loadPulse]);
 
   const soon = pulse?.next ? countdownWords(pulse.next.date) : null;
+
+  /*
+   * The tabs, in the order they have always had. The one that fits the table
+   * moves to the front and opens; nothing else moves.
+   */
+  const all: { key: string; title: ReactNode; content: ReactNode }[] = [
+    {
+      key: 'table',
+      title: <TabTitle glyph="die" label="Session" />,
+      content: (
+        <div className="pt-4">
+          <SessionPanel campaignId={campaign.id} />
+        </div>
+      ),
+    },
+    // The sand table gets a tab of its own, because a fight is run from it
+    // and a fight is a whole evening's attention: the tracker beside the
+    // board, and nothing else to scroll past. The Session tab keeps a copy,
+    // for a table that wants everything in one column.
+    {
+      key: 'board',
+      title: <TabTitle glyph="map" label="Board" />,
+      content: (
+        <div className="pt-4">
+          <BoardTab campaignId={campaign.id} />
+        </div>
+      ),
+    },
+    {
+      key: 'party',
+      title: <TabTitle glyph="person" label="Party" />,
+      content: (
+        <div className="space-y-5 pt-4">
+          <MembersPanel
+            campaignId={campaign.id}
+            viewerId={viewerId}
+            viewerRole={campaign.role}
+          />
+
+          {isStaff && campaign.joinCode && (
+            <SectionCard
+              title="Join code"
+              description="Share this so players can join themselves."
+            >
+              <Snippet symbol="" variant="flat" className="bg-surface-2">
+                {campaign.joinCode}
+              </Snippet>
+            </SectionCard>
+          )}
+
+          <PartySecrets campaignId={campaign.id} />
+          <LedgerPanel campaignId={campaign.id} />
+
+          {campaign.settings.customRules && (
+            <SectionCard title="House rules">
+              <p className="whitespace-pre-wrap text-sm text-ink-muted">
+                {campaign.settings.customRules}
+              </p>
+            </SectionCard>
+          )}
+          {campaign.settings.sessionNotes && (
+            <SectionCard
+              title="Table notes"
+              description="Standing notes about how this table runs."
+            >
+              <p className="whitespace-pre-wrap text-sm text-ink-muted">
+                {campaign.settings.sessionNotes}
+              </p>
+            </SectionCard>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'quests',
+      title: <TabTitle glyph="scroll" label="Quests" />,
+      content: (
+        <div className="space-y-5 pt-4">
+          <QuestPanel campaignId={campaign.id} viewerRole={campaign.role} />
+
+          {/* Threads the party pulls on, and the ones pulling back. They
+                belong on the same tab: a clock is a quest with a deadline
+                the party has not been told about. */}
+          <ClocksPanel campaignId={campaign.id} viewerRole={campaign.role} />
+        </div>
+      ),
+    },
+    {
+      key: 'chronicle',
+      title: (
+        <TabTitle
+          glyph="notebook"
+          label="Chronicle"
+          count={pulse?.unsentRecaps ?? 0}
+        />
+      ),
+      content: (
+        <div className="pt-4">
+          <ChroniclePanel
+            campaignId={campaign.id}
+            viewerId={viewerId}
+            viewerRole={campaign.role}
+          />
+
+          {/* Awards belong beside the sittings they were earned at, not on
+                a tab of their own — a DM hands out experience while marking
+                the register. */}
+          <AwardsPanel campaignId={campaign.id} viewerRole={campaign.role} />
+        </div>
+      ),
+    },
+    {
+      key: 'notes',
+      title: <TabTitle glyph="quill" label="Notes" />,
+      content: (
+        <div className="space-y-5 pt-4">
+          {isStaff ? (
+            <NotebookPanel
+              campaignId={campaign.id}
+              onRevealed={async () => setRevealSeq(n => n + 1)}
+            />
+          ) : (
+            <SharedNotes campaignId={campaign.id} />
+          )}
+
+          <SectionCard
+            title="What the party knows"
+            description="Every line handed over, in the order it was told."
+          >
+            <RevealTimeline
+              campaignId={campaign.id}
+              viewerRole={campaign.role}
+              reloadKey={revealSeq}
+            />
+          </SectionCard>
+        </div>
+      ),
+    },
+    {
+      key: 'journal',
+      title: <TabTitle glyph="quill" label="Journal" />,
+      content: (
+        <div className="pt-4">
+          <JournalPanel campaignId={campaign.id} viewerRole={campaign.role} />
+        </div>
+      ),
+    },
+    {
+      key: 'canon',
+      title: <TabTitle glyph="tome" label="Canon" />,
+      content: (
+        <div className="space-y-5 pt-4">
+          <CanonPanel
+            campaignId={campaign.id}
+            viewerId={viewerId}
+            viewerRole={campaign.role}
+          />
+
+          {/* Maps sit with the canon because a pin is a way into it: the
+                places are already written down, this says where they are. */}
+          <MapPanel campaignId={campaign.id} viewerRole={campaign.role} />
+        </div>
+      ),
+    },
+    {
+      key: 'downtime',
+      title: (
+        <TabTitle
+          glyph="hourglass"
+          label="Downtime"
+          count={pulse?.openDowntime ?? 0}
+        />
+      ),
+      content: (
+        <div className="pt-4">
+          <DowntimePanel
+            campaignId={campaign.id}
+            viewerId={viewerId}
+            viewerRole={campaign.role}
+          />
+        </div>
+      ),
+    },
+    {
+      key: 'content',
+      title: <TabTitle glyph="tome" label="Content" />,
+      content: (
+        <div className="pt-4">
+          <CampaignContentPanel campaignId={campaign.id} isStaff={isStaff} />
+        </div>
+      ),
+    },
+    {
+      key: 'homebrew',
+      title: (
+        <TabTitle
+          glyph="orb"
+          label="Homebrew"
+          count={pulse?.pendingApprovals ?? 0}
+        />
+      ),
+      content: (
+        <div className="pt-4">
+          <HomebrewApprovalPanel campaignId={campaign.id} isGM={isStaff} />
+        </div>
+      ),
+    },
+  ];
+  const leading = LEADING_TAB[table];
+  const tabs = [
+    ...all.filter(t => t.key === leading),
+    ...all.filter(t => t.key !== leading),
+  ];
 
   return (
     <PageShell width="wide">
@@ -220,6 +455,7 @@ export function CampaignDetail({
         <Tabs
           aria-label="Campaign sections"
           variant="underlined"
+          defaultSelectedKey={leading}
           onSelectionChange={() => loadPulse()}
           classNames={{
             // Seven tabs overflow a phone. Let the list scroll rather than
@@ -227,194 +463,11 @@ export function CampaignDetail({
             tabList: 'max-w-full overflow-x-auto',
           }}
         >
-          <Tab key="table" title={<TabTitle glyph="die" label="Session" />}>
-            <div className="pt-4">
-              <SessionPanel campaignId={campaign.id} />
-            </div>
-          </Tab>
-
-          {/* The sand table gets a tab of its own, because a fight is run from
-              it and a fight is a whole evening's attention: the tracker beside
-              the board, and nothing else to scroll past. The Session tab keeps
-              a copy, for a table that wants everything in one column. */}
-          <Tab key="board" title={<TabTitle glyph="map" label="Board" />}>
-            <div className="pt-4">
-              <BoardTab campaignId={campaign.id} />
-            </div>
-          </Tab>
-
-          <Tab key="party" title={<TabTitle glyph="person" label="Party" />}>
-            <div className="space-y-5 pt-4">
-              <MembersPanel
-                campaignId={campaign.id}
-                viewerId={viewerId}
-                viewerRole={campaign.role}
-              />
-
-              {isStaff && campaign.joinCode && (
-                <SectionCard
-                  title="Join code"
-                  description="Share this so players can join themselves."
-                >
-                  <Snippet symbol="" variant="flat" className="bg-surface-2">
-                    {campaign.joinCode}
-                  </Snippet>
-                </SectionCard>
-              )}
-
-              <PartySecrets campaignId={campaign.id} />
-              <LedgerPanel campaignId={campaign.id} />
-
-              {campaign.settings.customRules && (
-                <SectionCard title="House rules">
-                  <p className="whitespace-pre-wrap text-sm text-ink-muted">
-                    {campaign.settings.customRules}
-                  </p>
-                </SectionCard>
-              )}
-              {campaign.settings.sessionNotes && (
-                <SectionCard
-                  title="Table notes"
-                  description="Standing notes about how this table runs."
-                >
-                  <p className="whitespace-pre-wrap text-sm text-ink-muted">
-                    {campaign.settings.sessionNotes}
-                  </p>
-                </SectionCard>
-              )}
-            </div>
-          </Tab>
-
-          <Tab key="quests" title={<TabTitle glyph="scroll" label="Quests" />}>
-            <div className="space-y-5 pt-4">
-              <QuestPanel campaignId={campaign.id} viewerRole={campaign.role} />
-
-              {/* Threads the party pulls on, and the ones pulling back. They
-                  belong on the same tab: a clock is a quest with a deadline
-                  the party has not been told about. */}
-              <ClocksPanel
-                campaignId={campaign.id}
-                viewerRole={campaign.role}
-              />
-            </div>
-          </Tab>
-
-          <Tab
-            key="chronicle"
-            title={
-              <TabTitle
-                glyph="notebook"
-                label="Chronicle"
-                count={pulse?.unsentRecaps ?? 0}
-              />
-            }
-          >
-            <div className="pt-4">
-              <ChroniclePanel
-                campaignId={campaign.id}
-                viewerId={viewerId}
-                viewerRole={campaign.role}
-              />
-
-              {/* Awards belong beside the sittings they were earned at, not on
-                  a tab of their own — a DM hands out experience while marking
-                  the register. */}
-              <AwardsPanel
-                campaignId={campaign.id}
-                viewerRole={campaign.role}
-              />
-            </div>
-          </Tab>
-
-          <Tab key="notes" title={<TabTitle glyph="quill" label="Notes" />}>
-            <div className="space-y-5 pt-4">
-              {isStaff ? (
-                <NotebookPanel
-                  campaignId={campaign.id}
-                  onRevealed={async () => setRevealSeq(n => n + 1)}
-                />
-              ) : (
-                <SharedNotes campaignId={campaign.id} />
-              )}
-
-              <SectionCard
-                title="What the party knows"
-                description="Every line handed over, in the order it was told."
-              >
-                <RevealTimeline
-                  campaignId={campaign.id}
-                  viewerRole={campaign.role}
-                  reloadKey={revealSeq}
-                />
-              </SectionCard>
-            </div>
-          </Tab>
-
-          <Tab key="journal" title={<TabTitle glyph="quill" label="Journal" />}>
-            <div className="pt-4">
-              <JournalPanel
-                campaignId={campaign.id}
-                viewerRole={campaign.role}
-              />
-            </div>
-          </Tab>
-
-          <Tab key="canon" title={<TabTitle glyph="tome" label="Canon" />}>
-            <div className="space-y-5 pt-4">
-              <CanonPanel
-                campaignId={campaign.id}
-                viewerId={viewerId}
-                viewerRole={campaign.role}
-              />
-
-              {/* Maps sit with the canon because a pin is a way into it: the
-                  places are already written down, this says where they are. */}
-              <MapPanel campaignId={campaign.id} viewerRole={campaign.role} />
-            </div>
-          </Tab>
-
-          <Tab
-            key="downtime"
-            title={
-              <TabTitle
-                glyph="hourglass"
-                label="Downtime"
-                count={pulse?.openDowntime ?? 0}
-              />
-            }
-          >
-            <div className="pt-4">
-              <DowntimePanel
-                campaignId={campaign.id}
-                viewerId={viewerId}
-                viewerRole={campaign.role}
-              />
-            </div>
-          </Tab>
-
-          <Tab key="content" title={<TabTitle glyph="tome" label="Content" />}>
-            <div className="pt-4">
-              <CampaignContentPanel
-                campaignId={campaign.id}
-                isStaff={isStaff}
-              />
-            </div>
-          </Tab>
-
-          <Tab
-            key="homebrew"
-            title={
-              <TabTitle
-                glyph="orb"
-                label="Homebrew"
-                count={pulse?.pendingApprovals ?? 0}
-              />
-            }
-          >
-            <div className="pt-4">
-              <HomebrewApprovalPanel campaignId={campaign.id} isGM={isStaff} />
-            </div>
-          </Tab>
+          {tabs.map(t => (
+            <Tab key={t.key} title={t.title}>
+              {t.content}
+            </Tab>
+          ))}
         </Tabs>
       </div>
 

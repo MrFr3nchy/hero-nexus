@@ -25,10 +25,17 @@ import { getPlayLoadoutAction } from '../../play-actions';
 export function MyHeroPanel({
   campaignId,
   myCharacters,
+  loadoutKey,
   onError,
 }: {
   campaignId: string;
   myCharacters: CharacterRow[];
+  /**
+   * The viewer's own `PlayState.loadoutKey` off the live state, when the
+   * caller has it. It moves when the pack or the purse does — a potion handed
+   * over by somebody else included — and the loadout is re-read when it does.
+   */
+  loadoutKey?: string;
   onError: (message: string) => void;
 }) {
   // At most one, by the unique index on `(campaignId, userId)` — a player
@@ -48,7 +55,7 @@ export function MyHeroPanel({
     return () => {
       live = false;
     };
-  }, [mine, campaignId]);
+  }, [mine, campaignId, loadoutKey]);
 
   if (!mine) {
     return (

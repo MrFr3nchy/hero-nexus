@@ -29,6 +29,18 @@ export interface TablePreferences {
    * is the fastest way to have the whole feature muted.
    */
   sound: boolean;
+  /**
+   * When this reader last looked at the whispers at each table, as the
+   * `createdAt` of the newest one they had in front of them, keyed by
+   * campaign id.
+   *
+   * Here rather than in a row because "have I read this" is a fact about a
+   * reader on a device, the same as mute — and because a per-user read marker
+   * in SQLite is a table that needs a row per person per whisper, or a
+   * high-water mark that is wrong the moment they open a second browser.
+   * The badge on the folded shelf reads this; the panel writes it.
+   */
+  whispersReadAt: Record<string, string>;
 }
 
 /**
@@ -44,7 +56,7 @@ export function defaultPreferences(): TablePreferences {
   const announce = Object.fromEntries(
     TABLE_EVENT_KINDS.map(k => [k, k !== 'turn'])
   ) as Record<TableEventKind, boolean>;
-  return { announce, sound: false };
+  return { announce, sound: false, whispersReadAt: {} };
 }
 
 export function readPreferences(): TablePreferences {
@@ -58,6 +70,10 @@ export function readPreferences(): TablePreferences {
       // after somebody last saved gets its default instead of `undefined`.
       announce: { ...base.announce, ...(stored.announce ?? {}) },
       sound: stored.sound ?? base.sound,
+      whispersReadAt:
+        stored.whispersReadAt && typeof stored.whispersReadAt === 'object'
+          ? { ...stored.whispersReadAt }
+          : {},
     };
   } catch {
     return base;

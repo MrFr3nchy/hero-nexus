@@ -239,7 +239,10 @@ function EntryLine({
         {entry.initiative}
       </span>
 
-      <div className="min-w-0 flex-1">
+      {/* `data-entry-info` is a hook for the screen, which gives this block a
+          floor so the controls wrap under it rather than squeezing the name
+          and the hit points into a five-line column beside them. */}
+      <div data-entry-info className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {current && (
             <span aria-hidden="true" className="text-gold">

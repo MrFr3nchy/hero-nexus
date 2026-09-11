@@ -55,14 +55,15 @@ export function AttacksPanel({
   }, [characterId, campaignId]);
 
   // Re-read when the loadout changes: `party` carries the viewer's own play
-  // state, and equipping a weapon moves its armour class, which moves this.
+  // state, and its `loadoutKey` moves when anything is drawn, stowed, given
+  // or received. Armour class alone missed a longbow being drawn.
   const mine = useMemo(
     () => state.party.find(p => p.characterId === characterId) ?? null,
     [state.party, characterId]
   );
   useEffect(() => {
     load();
-  }, [load, mine?.armorClass]);
+  }, [load, mine?.loadoutKey]);
 
   /* --- the target ------------------------------------------------------ */
 
@@ -84,7 +85,10 @@ export function AttacksPanel({
       : undefined;
     return {
       token,
-      name: entry?.label ?? token.label ?? 'that',
+      // `||`, not `??`: a token's label is the empty string, not null, when
+      // it has none — and a foe the DM has not named is "Something" here for
+      // the same reason it is on the board's own status line.
+      name: entry?.label || token.label || 'Something',
       feet: myToken ? distanceFeet(myToken, token) : null,
     };
   }, [board, selectedId, myToken, state.entries]);

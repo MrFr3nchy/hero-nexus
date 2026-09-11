@@ -57,10 +57,18 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
   );
   const isPublicRoute = publicRoutes.some(route => pathname === route);
 
+  // The screen fills the window and never scrolls; every box scrolls on its
+  // own. That only holds if the shell around it is the window's height too —
+  // a `min-h-screen` column with the sitting bar above a `100dvh` page is one
+  // bar taller than the window, and the page scrolls by exactly that much.
+  // Bounded here rather than on every route, because the other pages scroll
+  // the document and Next's scroll restoration expects them to.
+  const fillsTheWindow = /^\/campaigns\/[^/]+\/screen$/.test(pathname);
+
   // If user is logged in and on a private route, show side navigation
   if (currentUser && isPrivateRoute) {
     return (
-      <div className="flex min-h-screen">
+      <div className={fillsTheWindow ? 'flex h-dvh' : 'flex min-h-screen'}>
         <SideNavigation />
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Above the page, not inside it: a table that has sat down is the
