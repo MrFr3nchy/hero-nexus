@@ -42,7 +42,9 @@ import { RollPanel } from '../session/RollPanel';
 import { SpotlightPanel } from '../session/SpotlightPanel';
 import { SittingCard } from '../session/SittingCard';
 import { ConditionsCard } from './ConditionsCard';
+import { AttacksPanel } from './AttacksPanel';
 import { FeedPanel } from './FeedPanel';
+import { StatBlockPanel } from './StatBlockPanel';
 import { ScreenBox } from './ScreenBox';
 import { TimerPanel } from '../session/TimerPanel';
 import { MyHeroPanel } from './MyHeroPanel';
@@ -259,14 +261,22 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
       return <FeedPanel campaignId={ctx.campaignId} />;
 
     case 'attacks':
+      return live.state ? (
+        <AttacksPanel
+          campaignId={ctx.campaignId}
+          state={live.state}
+          onError={ctx.onError}
+        />
+      ) : null;
+
     case 'statblock':
-      // Registered ahead of being built, so a shelf can be arranged around
-      // them. Phase 2 of the-three-tables fills these in.
-      return (
-        <p className="px-1 py-2 text-xs text-ink-subtle">
-          {SCREEN_PANELS[id].label} is on its way.
-        </p>
-      );
+      return live.state ? (
+        <StatBlockPanel
+          campaignId={ctx.campaignId}
+          state={live.state}
+          onError={ctx.onError}
+        />
+      ) : null;
 
     case 'reveals':
       return (

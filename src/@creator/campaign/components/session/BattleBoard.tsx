@@ -75,6 +75,7 @@ import { useDiceTray } from '@/@shared/components/dice';
 import { withAdvantage } from '@/@shared/lib/dice';
 import { rollAction } from '../../actions';
 import { usePortraits } from '@/@shared/battlemap/portraits';
+import { setSelectedToken } from '@/@shared/battlemap/selection';
 
 /* --- tools ------------------------------------------------------------- */
 
@@ -232,7 +233,15 @@ export function BattleBoard({
   }, [board]);
 
   const [tool, setTool] = useState<Tool>({ kind: 'select' });
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelectedLocal] = useState<string | null>(null);
+  // Published, so the shelf beside the board knows the target and the foe.
+  const setSelected = useCallback(
+    (id: string | null) => {
+      setSelectedLocal(id);
+      setSelectedToken(campaignId, id);
+    },
+    [campaignId]
+  );
   const tray = useDiceTray();
 
   /**

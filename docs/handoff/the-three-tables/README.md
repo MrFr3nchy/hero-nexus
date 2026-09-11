@@ -214,6 +214,10 @@ palettes; reduced motion.
 
 ## The work
 
+The record of what has landed, and what each run proved, is in [phases.md](phases.md).
+Phases 1 and 2 are built on `main`; the bullet about `/campaigns/[id]` opening on the
+fitting tab moved from phase 1 to phase 4, where the rest of the campaign page work is.
+
 ### Phase 1 — The table is known, and the screen follows it
 
 - `LiveState.table`, derived. A `TableRibbon` in the screen header saying which table

@@ -76,6 +76,8 @@ export interface EntryRow {
   concentrating: boolean;
   side: EntrySide;
   sort: number;
+  /** Where the block is. Staff only; null for a player and for a hand-typed foe. */
+  creatureRef: ContentRef | null;
 }
 
 export interface RollRow {
@@ -236,8 +238,17 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     ? rawEntries
     : rawEntries.map(e =>
         e.side === 'party'
-          ? e
-          : { ...e, hpCurrent: null, hpMax: null, hpTemp: 0, armorClass: null }
+          ? { ...e, creatureRef: null }
+          : {
+              ...e,
+              hpCurrent: null,
+              hpMax: null,
+              hpTemp: 0,
+              armorClass: null,
+              // The block is the DM's. A player knows what an aboleth is from
+              // its name; they do not get a key into the bestiary from it.
+              creatureRef: null,
+            }
       );
 
   const handoutRows = await db
@@ -617,6 +628,7 @@ export interface EntryInput {
   conditionKeys?: string;
   concentrating?: boolean;
   side?: EntrySide;
+  creatureRef?: ContentRef | null;
 }
 
 /**
@@ -692,6 +704,7 @@ export async function addEntry(
     concentrating: input.concentrating ?? false,
     side: input.side ?? (input.characterId ? 'party' : 'foe'),
     sort: nextSort,
+    creatureRef: input.creatureRef ?? null,
   });
   // Coalesced in the hub, so the loops in `addPartyToEncounter` and
   // `addCreaturesToEncounter` cost one nudge between them rather than five.
@@ -867,6 +880,7 @@ export async function addCreaturesToEncounter(
       hpMax: d.hit_points,
       armorClass: d.armor_class,
       side: 'foe',
+      creatureRef: ref,
     });
   }
 }

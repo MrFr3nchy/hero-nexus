@@ -518,6 +518,13 @@ export const initiativeEntries = sqliteTable(
       .notNull()
       .default('foe'),
     sort: integer('sort').notNull().default(0),
+    /**
+     * The creature this was dealt from, as a `ContentRef` — a reference,
+     * never a copy of the block (content-model rule 1). Null for a combatant
+     * typed in by hand. What lets the DM's shelf show what an aboleth *does*
+     * rather than only that one is standing there.
+     */
+    creatureRef: text('creature_ref', { mode: 'json' }),
   },
   t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
 );
