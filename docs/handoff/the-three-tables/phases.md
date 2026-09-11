@@ -28,7 +28,7 @@ copy).
 - [x] The viewer's **pin**: hold the screen at a table the campaign is not at. Stored
       with the viewer's layouts as `layouts.pin`; says nothing to anybody else.
 - [x] `campaign_screen_layouts.layout` is now `ScreenLayouts { desk, table, battle,
-  pin }`. `normalizeLayouts` reads both older shapes (`{columns}` and
+pin }`. `normalizeLayouts` reads both older shapes (`{columns}` and
       `{main, rail}`) as the `table` arrangement, so nobody's screen reset.
 - [x] The **battle arrangement** (`BattleArrangement.tsx`): board fitted to the main
       region by a `ResizeObserver`, a shelf beside it (`22rem`, `26rem` at `xl`) that
@@ -69,7 +69,7 @@ table swapping to columns and unpinning swapping back.
       `vs Aboleth 3 · 25 ft` and says in reach / in range / long / out — and refuses
       nothing. The label carries weapon, what, and target.
 - [x] **Stat block** panel, staff only: the selected foe's block through `StatBlock
-  headless` in a `<details>`, its actions above it with roll buttons wherever the
+headless` in a `<details>`, its actions above it with roll buttons wherever the
       prose parses — `Attack Roll: +9` becomes _Hit +9_, `(2d6 + 5)` becomes _Damage
       2d6+5_, a save-only action gets only its damage. Rolls go through `rollAction`
       with no character and the label `Aboleth 3 · Tentacle · to hit`.
@@ -88,7 +88,7 @@ their bonuses and the longbow's range.
 
 - [x] Tap-to-aim proven in a browser, with phase 3. As the player, a foe revealed on
       the board was tapped and the row read `Something · 25 ft`, the longsword `out of
-    reach`, the longbow `in range`; _Hit_ on the longbow rolled a natural 20 in the
+  reach`, the longbow `in range`; _Hit_ on the longbow rolled a natural 20 in the
       tray with the hint `to hit vs Something · 25 ft`, and the log carries the same
       label. Found on the way: the target's name was blank for a token whose entry is
       not in the running order — `??` on a label that is the empty string, not null —
@@ -230,6 +230,74 @@ on Chronicle with no bar and Session 4 filed with Kessa and Rurik in the registe
 _Take your seats_ raised the bar the same moment, and _Call for initiative_ flipped it
 to the sand table without a reload.
 
+## The second pass — sitting at all three tables
+
+After the four phases were built, the question was put differently: not "does the doc's
+list pass" but "could a table play a whole evening on this". So a DM's evening and a
+player's were sat through in Chrome — desk, table, sand table, the 3D board stood up,
+a fight dealt, a character knocked down and saved — with the brief to log every rough
+edge against the design language and fix what could be fixed here. What was found, in
+the order it was found:
+
+- [x] **Last week's tokens on tonight's board.** A board keeps the id of the fight it
+      was last dealt for, and `createEncounter` never rebound it — so "Call for
+      initiative → Deal them in" dealt into an ended fight, and eleven `?` tokens from
+      three previous fights sat on the DM's own board. `bindBoardToFight` in
+      `battlemap.ts`: called by `createEncounter`, `setBattleMapActive` and
+      `dealEncounterIn`; drops tokens whose entries belong to another fight, keeps
+      scenery (a brazier is on the map and not in the order); and `getBattleMapState`
+      draws only tokens of the bound fight, for boards bound before the rule existed.
+      Proven headless: six tokens → one brazier on a new fight, and the map rebound.
+- [x] **The tracker's damage never reached the sheet.** `applyHp` wrote the initiative
+      row and nothing else: the DM's tracker said 0 while the player's card said 4,
+      nothing announced "goes down", no death saves began. A party entry now goes
+      through `applyPlayPatch` — the sheet, the mirrored row, the vitals event — with
+      the row-only path kept for foes and for a character whose seat has gone. Seen
+      from both sides: 14 → 0 on the tracker put "Kessa goes down" in the player's
+      corner and the death-save pips on their card; a heal on the tracker moved both.
+- [x] **The tray lied about a death save.** `DeathSaveControl` rolled its own d20 for
+      the animation while the server rolled another for the record — the log said 7,
+      the tray said 19, and the comment above the call claimed the opposite.
+      `rollDeathSave` now returns the faces beside the state and the tray draws them.
+      Seen: log 2, tray 2.
+- [x] **The player's shelf had no hit points.** The default player shelf carried gear
+      and spells under _Your hero_ and their hit points nowhere — the party panel is
+      not on it. `MyHeroPanel` now leads with the viewer's own `PlayCard` off the live
+      read (Take / Heal, hit dice, death saves, slots, conditions), the loadout below.
+- [x] **Type an amount, press Take, nothing happens.** `NumberInput` commits on blur,
+      the blur is the same click that presses the button, and a button disabled at
+      pointer-down never sees the press. `PlayCard`, the treasury's _Bank it_ / _Spend
+      it_ and the awards' _Hand it out_ now guard in the press instead of disabling on
+      the typed value.
+- [x] **The 3D view floated in the top half of its region**, sized at 62% of its width
+      whatever the room. `BattleMap3D` takes `fill`, measures the region the way the
+      2D board does, and frames the camera to the board's bounds on first layout for
+      whatever aspect that gives — a fixed distance cropped it tall and dwarfed it wide.
+- [x] **A tap in 3D selected nothing.** The 2D board published its selection to the
+      shelf; the 3D view did not, so the stat block and the attacks panel waited for a
+      tap that could not come while the board was stood up. It publishes now, and
+      draws the selected token's own ring, ink and outside the turn ring.
+- [x] **The sitting bar shoved every page down a beat after it painted.** A client
+      fetch after hydration. It now paints what the tab last knew before the first
+      frame (`sessionStorage`, wrapped) and the real answer overwrites it.
+- [x] **Stat labels stacked letter by letter** in the party panel a third of a screen
+      wide — viewport breakpoints in a container problem. `@container` on the card
+      and the panel; six across only when the card is wide enough for six.
+- [x] The folded sidebar's sign-out was an unlabelled icon button. It has a name now.
+
+**Verified** — each item above was seen fixed in Chrome (DM's and player's seats) and
+the two server-side ones proven headless as well. `npm run check` clean but for the
+six pre-existing; `npm run build` passes.
+
+**Judged and left.** The 3D board is coherent — parchment floor, muted walls, warm
+brazier light, portraits or initials on the bases, the gold turn ring, HP rings by
+the `HeroCard` rule — and it is not epic. It is boxes: an extruded grid with grey
+slabs for walls and a cylinder for a pillar. Making it more than that is textures,
+models or lighting work the sand-table handoff put out of scope on purpose (no glTF,
+no asset library), and it is a decision for the owner rather than a fix for a pass.
+What the pass could do for it — fill the room, frame the board, make a tap mean
+something — it did.
+
 ## Still open
 
 - **Two viewers on two machines.** Every browser check above was one Chrome, signed in
@@ -240,3 +308,8 @@ to the sand table without a reload.
 - **Folding a panel loses what was typed in it.** A fold unmounts; the compose box and
   its recipient reset. Keeping a folded panel mounted would also keep marking whispers
   read, which is the wrong trade.
+- **The evening is per tab.** The feed empties when the tab closes, by the-same-room's
+  design; rolls, whispers, checks, reveals and gifts are rows and outlive it, but there
+  is no one place that reads the whole evening back in order. If "everything saved and
+  easy to get to" is the bar, that is the piece missing, and it is a handoff of its own.
+- **The 3D board's look.** See "Judged and left" above.

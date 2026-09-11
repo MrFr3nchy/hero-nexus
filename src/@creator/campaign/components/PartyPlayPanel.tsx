@@ -110,18 +110,22 @@ export function PartyPlayPanel({
           onError={onError}
         />
       ))}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {rest.map(p => (
-          <PlayCard
-            key={p.characterId}
-            state={p}
-            campaignId={campaignId}
-            canRollSecret={isStaff}
-            compact={!isStaff}
-            onChange={replace}
-            onError={onError}
-          />
-        ))}
+      {/* Two across when the panel is wide enough for two cards, whatever
+          the window is: on the screen this panel is a third of it. */}
+      <div className="@container">
+        <div className="grid gap-3 @xl:grid-cols-2">
+          {rest.map(p => (
+            <PlayCard
+              key={p.characterId}
+              state={p}
+              campaignId={campaignId}
+              canRollSecret={isStaff}
+              compact={!isStaff}
+              onChange={replace}
+              onError={onError}
+            />
+          ))}
+        </div>
       </div>
     </SectionCard>
   );

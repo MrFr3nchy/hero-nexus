@@ -33,11 +33,16 @@ import {
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { portraitsFor } from './character-portraits';
-import { getBattleMapState, type BattleMapState } from './battlemap';
+import {
+  activeBoardId,
+  bindBoardToFight,
+  getBattleMapState,
+  type BattleMapState,
+} from './battlemap';
 import type { TableKind } from '@/@creator/campaign/lib/screen';
 import { listChecks, type CheckRow } from './checks';
 import { listMaps, type MapRow } from './maps';
-import { listPartyPlayState, type PlayState } from './play';
+import { applyPlayPatch, listPartyPlayState, type PlayState } from './play';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { resolveContentRefs } from './content';
 import { listWhispers, type WhisperRow } from './whispers';
@@ -550,6 +555,10 @@ export async function createEncounter(
     .insert(initiativeEncounters)
     .values({ campaignId, name: name.trim() || 'Encounter', isActive: true })
     .returning({ id: initiativeEncounters.id });
+  // The board on the table follows the fight: last week's tokens come off it
+  // now, not when the DM next presses "Deal them in".
+  const boardId = await activeBoardId(campaignId);
+  if (boardId) await bindBoardToFight(boardId, row.id);
   bumpVersion(campaignId);
   publish(campaignId, {
     kind: 'encounter',
@@ -789,6 +798,27 @@ export async function applyHp(entryId: string, delta: number): Promise<void> {
   });
   if (!entry) throw new Error('NOT_FOUND');
   if (entry.hpCurrent == null) return;
+
+  /*
+   * A seated character's hit points live on the sheet, and the tracker row
+   * is a mirror of it. Writing the row alone left the DM's tracker saying 0
+   * while the player's card said 4, announced nothing when somebody went
+   * down, and started no death saves — so a party entry goes through the
+   * play patch, which writes the sheet, mirrors the row, and tells the table.
+   * The row-only path below is for foes, and for a character whose seat has
+   * since gone (the patch refuses it, and the row is all there is).
+   */
+  if (entry.characterId) {
+    try {
+      await applyPlayPatch(entry.characterId, campaignId, {
+        hpCurrentDelta: delta,
+      });
+      return;
+    } catch (err) {
+      const code = err instanceof Error ? err.message : '';
+      if (code !== 'FORBIDDEN' && code !== 'NOT_FOUND') throw err;
+    }
+  }
 
   if (delta < 0) {
     const damage = -delta;

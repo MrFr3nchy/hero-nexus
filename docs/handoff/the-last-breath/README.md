@@ -91,6 +91,14 @@ The secret half falls out of that for free. `visibility: 'dm'` already exists, p
 are already forbidden from setting it, and the log already filters. A hidden death save
 is a normal roll with a flag — not a second code path.
 
+**Amended by the-three-tables' second pass.** The record was right and the picture was
+not: the control rolled a second d20 in the browser for the tray, so the log could say
+7 while the player watched a 19 land. `rollDeathSave` now hands the faces back beside
+the state and the tray draws those. In the same pass, `applyHp` on the tracker — which
+wrote the initiative row and not the sheet, so a character the DM took to 0 never
+began dying — now goes through `applyPlayPatch` for a seated character. Both in
+`docs/handoff/the-three-tables/phases.md`.
+
 ### 3. A seat is the DM's to give and to take
 
 Once a character is seated, the player cannot unseat or swap them. That is the

@@ -160,19 +160,20 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
         />
       );
 
-    case 'mine':
+    case 'mine': {
+      const own = live.state?.party.find(
+        p => p.characterId === live.state?.viewerCharacterId
+      );
       return (
         <MyHeroPanel
           campaignId={ctx.campaignId}
           myCharacters={ctx.myCharacters}
-          loadoutKey={
-            live.state?.party.find(
-              p => p.characterId === live.state?.viewerCharacterId
-            )?.loadoutKey
-          }
+          play={own}
+          loadoutKey={own?.loadoutKey}
           onError={ctx.onError}
         />
       );
+    }
 
     case 'timers':
       return live.state ? (

@@ -29,7 +29,7 @@ import {
   type SpellSlotLevel,
 } from '@/@creator/character/schema';
 import { parseContentData, refKey } from '@/@shared/content';
-import { rollDie } from '@/@shared/lib/dice';
+import { rollDie, type NotationRoll } from '@/@shared/lib/dice';
 import { randomUUID } from 'node:crypto';
 import { resolveContentRefs } from './content';
 import { db } from '@/db';
@@ -1088,11 +1088,23 @@ export async function giveCoin(
  *
  * The rules live in `character/lib/dying.ts`, pure and tested apart from this.
  */
+/** What a death save hands back: the sheet after it, and the faces to draw. */
+export interface DeathSaveResult {
+  state: PlayState;
+  /**
+   * The roll as the log has it, so the tray can draw the server's faces. Two
+   * rolls for one save — one on the server for the record, one in the browser
+   * for the animation — is how a log and a screen start disagreeing, and it
+   * did: the log said 7 and the tray said 19.
+   */
+  roll: NotationRoll;
+}
+
 export async function rollDeathSave(
   characterId: string,
   campaignId: string | null,
   options: { mode?: DeathSaveMode; secret?: boolean } = {}
-): Promise<PlayState> {
+): Promise<DeathSaveResult> {
   const { character, canEdit } = await authorize(characterId, campaignId);
   if (!canEdit) throw new Error('FORBIDDEN');
 
@@ -1143,6 +1155,9 @@ export async function rollDeathSave(
   if (outcome.hpCurrent !== null) {
     combat.hitPointsCurrent = outcome.hpCurrent;
   }
+  // The die that did not count is shown as dropped, so a reader can see the
+  // advantage rather than being told the total.
+  const dropped = dice.length === 2 ? [dice[0] === outcome.result ? 1 : 0] : [];
 
   const next: CharacterSheet = { ...sheet, combat };
 
@@ -1165,9 +1180,7 @@ export async function rollDeathSave(
       label: `Death save — ${outcome.summary}`,
       notation: mode === 'straight' ? '1d20' : '2d20',
       dice,
-      // The die that did not count is shown as dropped, so a reader can see
-      // the advantage rather than being told the total.
-      dropped: dice.length === 2 ? [dice[0] === outcome.result ? 1 : 0] : [],
+      dropped,
       modifier: 0,
       total: outcome.result,
       visibility: secret ? 'dm' : 'table',
@@ -1192,11 +1205,20 @@ export async function rollDeathSave(
     })
   );
 
-  return toPlayState(
-    { ...character, sheet: next },
-    canEdit,
-    await conditionsFor(characterId)
-  );
+  return {
+    state: toPlayState(
+      { ...character, sheet: next },
+      canEdit,
+      await conditionsFor(characterId)
+    ),
+    roll: {
+      notation: mode === 'straight' ? '1d20' : '2d20',
+      dice,
+      dropped,
+      modifier: 0,
+      total: outcome.result,
+    },
+  };
 }
 
 /**

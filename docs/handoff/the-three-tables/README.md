@@ -370,6 +370,15 @@ controls wrap). And one the browser made obvious: the bar's sixty-second poll le
 _at the sand table_ standing for a minute after the fight ended, so the bar now
 re-asks on the fight and sitting events it was already hearing.
 
+### The second pass
+
+After the phases, an evening was sat through at all three tables as the DM and as a
+player, with the brief to find what a table would trip on rather than what the list
+said. It found ten things and fixed them — among them last week's tokens on tonight's
+board, tracker damage that never reached the sheet, a tray that showed a different
+death save than the log recorded, and a player's shelf with no hit points on it. The
+list, with what proved each, is in [phases.md](phases.md) under _The second pass_.
+
 ### Still to verify
 
 - Two viewers on two machines, as the-same-room also recorded.

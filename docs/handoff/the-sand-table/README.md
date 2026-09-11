@@ -28,6 +28,11 @@ reveal brush that writes once per stroke. **Phase 5 is built** — portraits, in
 movement, the turn ring, HP rings, elevation, candlelight, and rolling from the board.
 What each run proved is at the foot of this file.
 
+**Amended by the-three-tables' second pass** (`docs/handoff/the-three-tables/phases.md`):
+a board now follows the fight — `bindBoardToFight` clears the previous fight's tokens
+when a new one starts — and the 3D view fills its region, frames the camera to the
+board, and publishes a tap to the shelf's selection.
+
 Everything below was read out of `main` on 2026-09-10, before `feat/the-same-room`
 landed. Specific line references are deliberately avoided in favour of symbol names,
 because you can grep and I could not guarantee the line numbers would survive.

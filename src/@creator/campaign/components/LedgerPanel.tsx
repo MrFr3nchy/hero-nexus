@@ -71,7 +71,13 @@ function Purse({
 
   const split = useMemo(() => splitTreasury(treasury, ways), [treasury, ways]);
 
+  const anyDelta = COIN_KEYS.some(key => (delta[key] ?? 0) !== 0);
+
   const apply = async (sign: 1 | -1) => {
+    // Guarded here rather than by disabling the buttons: `NumberInput`
+    // commits on blur, and the blur is the same click that presses the
+    // button, so a button disabled at pointer-down never sees the press.
+    if (!anyDelta) return;
     const signed = Object.fromEntries(
       COIN_KEYS.map(key => [key, (delta[key] ?? 0) * sign])
     );
@@ -83,8 +89,6 @@ function Purse({
     setDelta({});
     onChange(res.data);
   };
-
-  const anyDelta = COIN_KEYS.some(key => (delta[key] ?? 0) !== 0);
 
   return (
     <SectionCard
@@ -135,7 +139,6 @@ function Purse({
             size="sm"
             variant="flat"
             className="text-success"
-            isDisabled={!anyDelta}
             onPress={() => apply(1)}
           >
             Bank it
@@ -144,7 +147,6 @@ function Purse({
             size="sm"
             variant="flat"
             className="text-danger"
-            isDisabled={!anyDelta}
             onPress={() => apply(-1)}
           >
             Spend it

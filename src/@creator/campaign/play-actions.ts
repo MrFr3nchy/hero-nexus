@@ -15,6 +15,7 @@ import {
   setOwnConditions,
   setPlayConditions,
   spendHitDice,
+  type DeathSaveResult,
   type PlayLoadout,
   type PlayState,
 } from '@/server/play';
@@ -224,7 +225,7 @@ export async function rollDeathSaveAction(
   characterId: string,
   campaignId: string | null,
   input: unknown
-): Promise<Result<PlayState>> {
+): Promise<Result<DeathSaveResult>> {
   const parsed = deathSaveSchema.safeParse(input ?? {});
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid.' };

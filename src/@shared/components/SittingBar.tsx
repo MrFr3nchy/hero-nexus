@@ -21,7 +21,7 @@
  */
 import { Link } from '@heroui/react';
 import { usePathname } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 
 import { mySittingAction } from '@/@creator/campaign/chronicle-actions';
 import { AtTable, useTable } from '@/@shared/table';
@@ -40,6 +40,36 @@ type Sitting = Awaited<ReturnType<typeof mySittingAction>>;
  */
 const ASK_MS = 60_000;
 
+/**
+ * The last answer, kept per tab.
+ *
+ * The bar is chrome, and chrome that arrives a beat after the page and shoves
+ * everything down by its own height reads as the page jumping. A full load
+ * paints what this tab last knew before the first frame, and the real ask
+ * overwrites it a moment later — wrong for at most that moment, and only when
+ * the table rose between two full page loads in one tab. Every read and write
+ * is wrapped: storage can be refused, and the bar must not care.
+ */
+const CACHE_KEY = 'hero-nexus.sitting';
+
+function readCached(): Sitting {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Sitting) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCached(sitting: Sitting): void {
+  try {
+    if (sitting) sessionStorage.setItem(CACHE_KEY, JSON.stringify(sitting));
+    else sessionStorage.removeItem(CACHE_KEY);
+  } catch {
+    // Nothing to do: the next load pays the one-frame shift instead.
+  }
+}
+
 /** "for 1h 20m", or nothing while it is still fresh. */
 function sittingFor(startedAt: string | null): string | null {
   if (!startedAt) return null;
@@ -56,7 +86,14 @@ export function SittingBar() {
   const { history } = useTable();
 
   const ask = useCallback(async () => {
-    setSitting(await mySittingAction());
+    const next = await mySittingAction();
+    setSitting(next);
+    writeCached(next);
+  }, []);
+
+  // Before the first frame, not after it — that is the whole point.
+  useLayoutEffect(() => {
+    setSitting(readCached());
   }, []);
 
   /*

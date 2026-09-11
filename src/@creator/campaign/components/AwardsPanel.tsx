@@ -96,6 +96,9 @@ export function AwardsPanel({
   const receiving = chosen ?? recipients.map(r => r.characterId);
 
   const hand = async () => {
+    // The XP guard lives here, not on the button: `NumberInput` commits on
+    // blur, and a button disabled at pointer-down never sees the press.
+    if (kind === 'xp' && xp <= 0) return;
     const res = await awardExperienceAction(campaignId, {
       sessionId: sessionId || null,
       kind,
@@ -251,9 +254,7 @@ export function AwardsPanel({
               <Button
                 size="sm"
                 color="primary"
-                isDisabled={
-                  receiving.length === 0 || (kind === 'xp' && xp <= 0)
-                }
+                isDisabled={receiving.length === 0}
                 onPress={hand}
               >
                 Hand it out

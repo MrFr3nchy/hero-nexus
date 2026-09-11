@@ -309,6 +309,8 @@ export function SideNavigation() {
           variant="light"
           size="sm"
           onPress={() => logout()}
+          aria-label="Sign out"
+          title={collapsed ? 'Sign out' : undefined}
           className="mt-1 w-full justify-start text-ink-muted data-[hover=true]:text-danger"
           startContent={<Icon icon="ph:sign-out-bold" width={16} />}
         >
