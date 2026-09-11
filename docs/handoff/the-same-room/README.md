@@ -17,8 +17,8 @@ Every "today" below was read out of the code at `dbeee3a` and is kept in the pre
 tense as the record of what was found — so the "what is actually wrong" section still
 describes the app this work started from, not the app it produced.
 
-**Phases 1–5 are built.** [phases.md](phases.md) carries the item-by-item state, and
-what each run proved is at the foot of this file. Phases 6 and 7 are open.
+**All seven phases are built.** [phases.md](phases.md) carries the item-by-item state,
+and what each run proved is at the foot of this file.
 
 ---
 
@@ -441,6 +441,21 @@ This is the one that mattered, and it is the reason the state channel carries no
   `0/38` **with nothing pressed on the DM's side** — the thing that was not true before.
 - Two death saves produced exactly two announcements, `down` then `dead`, rather than one
   per roll. Healing from dead announced `up`. Damage while conscious announced nothing.
+
+### The room
+
+- An addressed clue reached its one player and the DM, and **not** the second player.
+  The image bytes went `404/404/404` behind the screen, `200/200/404` addressed, and
+  `200/200/200` shared — with a stranger refused throughout. Only staff were told who
+  else was shown it; addressing a handout to nobody was refused.
+- Lighting a map put it on all three reads and announced. A DM-only pin on the lit map
+  stayed off the player's read. Lighting a second darkened the first; taking a map back
+  from the party darkened it; a player was refused the verb.
+
+### The quiet parts
+
+- Muting dice left the roll in the feed and raised no slip, while an unmuted countdown
+  raised one. Turns default to off. Sound defaults to off.
 
 ### In a browser, light and dark
 

@@ -2,9 +2,10 @@
 
 Build order. Each phase leaves the app usable, and each is worth landing alone.
 
-**Phases 1–5 are built** on `feat/the-same-room`. Phases 6 and 7 are open. What each
-run proved is at the foot of [README.md](README.md); `[x]` below means landed and
-verified, not merely written.
+**All seven phases are built** on `feat/the-same-room`. What each run proved is at the
+foot of [README.md](README.md); `[x]` below means landed and verified, not merely
+written, and the handful of `[ ]` that remain are recorded as deliberately open rather
+than forgotten.
 
 The model is in [README.md](README.md). Read it first: phases 1, 2 and 4 are only correct
 in the light of decisions recorded there, particularly why the state channel carries no
@@ -30,7 +31,7 @@ the thing everything after this stands on gets proven before anything is built o
       bump that lives in the wrapper is one every future writer forgets.
 - [x] `GET /api/campaigns/[id]/live` — `runtime = 'nodejs'`, a `ReadableStream` of
       `text/event-stream`. Authorised through `requireCampaignRole(id, ['gm','co-gm',
-  'player'])` before a single byte is written; a non-member gets a 404, not a stream
+'player'])` before a single byte is written; a non-member gets a 404, not a stream
       that sends nothing.
 - [x] Headers: `Cache-Control: no-store, no-transform`, `Connection: keep-alive`,
       `X-Accel-Buffering: no`. A comment heartbeat every ~25s. Cleanup on
@@ -157,24 +158,42 @@ cheapest ask in the whole document.
 - [x] A player's own hit points changing does **not** raise an announcement on their own
       screen. They pressed the button; being told is noise.
 
-## Phase 6 — The room `[open]`
+## Phase 6 — The room `[built]`
 
-- [ ] Handouts gain targeting: `visibility` grows a `selected` state and a targets table,
-      mirroring `campaign_reveals` exactly rather than inventing a second shape. This is
-      what a puzzle clue actually needs, and it is the one real gap behind the brief's
-      "puzzles".
-- [ ] A map can be **spotlighted** — pushed onto every screen at once, and dismissed the
-      same way. Pins are already fractions of the image, which is what makes one
-      spotlight land in the same place on a phone and a monitor.
-- [ ] Reveal a pin to the party one at a time, from the same control that reveals a line
-      of the notebook. Same verb, same timeline.
-- [ ] A `presence` panel and a `map` panel on the screen; `SCREEN_PANELS` gains both
-      entries and `defaultLayout` is revisited so a player's first screen shows the room.
-- [ ] Naming pass: "Open the screen" reads as the DM's furniture to a player, and the
-      page has been theirs since it was built. One word change on `CampaignDetail`, and
-      the per-route line in `docs/design-language.md` follows it.
-- [ ] The campaign page's Session tab and the screen stop diverging — whatever the screen
-      gains, the tab reaches by the same components.
+- [x] Handouts gain targeting: `visibility` grows a `selected` state and a targets table
+      (`0039`), mirroring `campaign_reveals` exactly rather than inventing a second shape.
+      The file route authorises separately, so a guessed id is refused the bytes.
+- [x] A map can be **spotlighted** (`0040`) — lit on every screen at once, and put away
+      the same way. At most one is lit, cleared first, following
+      `initiative_encounters.is_active`. Lighting shares it; taking a map back darkens it.
+- [ ] **Deliberately not built:** revealing a pin from the same control that reveals a
+      notebook line. Pins already have their own `show them` toggle on the map, and a
+      second verb for the same act was more surface than the gap deserved.
+- [x] `sitting` and `spotlight` panels on the screen, and `defaultLayout` revisited: both
+      roles now open with `checks` and `feed`, and a player opens on their own hero.
+- [x] Naming pass: "Take your seat" for a player, "Behind the screen" for staff, on the
+      campaign page and the shell bar alike. The bar also stops offering a way into the
+      room you are already standing in.
+- [x] The Session tab and the screen read the same components — `SittingCard`,
+      `ChecksPanel`, `SpotlightPanel`, `PartyPlayPanel` — over the same `LiveState`.
+
+## Phase 7 — The quiet parts `[built]`
+
+Small, and the difference between a feature people keep on and one they turn off.
+
+- [x] One opt-in tone, **off by default**, per reader: two oscillator notes in WebAudio,
+      nothing fetched, nothing shipped.
+- [x] **Per reader, not per table** — a deliberate change from the plan. A DM running a
+      fight and a player with the tab on a second monitor want different answers, and a
+      campaign setting would make one of them wrong. `localStorage`, folded over
+      defaults so a kind added later gets its default rather than `undefined`. Turns are
+      off by default; a question always gets through, muted or not.
+- [x] Reduced-motion honoured on every slip (appears rather than slides); `aria-live`
+      polite on the region; verified in light and dark in a browser.
+- [ ] **Open:** connection caps, stream rate limits and the hub ceiling revisited under
+      a real six-player evening. The numbers are set; they have not been watched.
+- [x] `docs/handoff/the-same-room/README.md` § "What has been verified" written from the
+      runs.
 
 ## Phase 7 — The quiet parts `[open]`
 
@@ -200,6 +219,6 @@ Small, and the difference between a feature people keep on and one they turn off
 - **Phase 4 depends on 1 and 2 and nothing else.** It does not need the sitting.
 - **Phase 5 is the cheapest visible win** and could be pulled ahead of 3 or 4 if the DM's
   blindness to the party is the complaint that stings most.
-- **Phase 6 assumes the owner has answered open question 1.** If the battle grid is
-  wanted, the map half of phase 6 is a down payment on it and should be shaped
-  accordingly rather than built to be thrown away.
+- **Open question 1 has been answered: the battle grid is wanted.** Its plan is
+  [the-sand-table](../the-sand-table/README.md), and it rides on this branch's stream —
+  a token move is a `bumpVersion` and, where it deserves announcing, an event.

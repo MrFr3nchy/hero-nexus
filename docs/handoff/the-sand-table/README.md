@@ -13,48 +13,63 @@ argues it properly.
 shippable on its own and produces a working 2D battle map with no Three.js anywhere in
 the bundle. If the 3D work stalls, phase 1 still leaves the app better than it found it.
 
-Suggested home for this file once work starts: `docs/handoff/the-sand-table/README.md`,
-matching `the-last-breath` and `the-long-campaign`.
-
 ---
 
 ## Status
 
-**No branch exists. Start clean from `main`.**
+**Branch: `feat/the-sand-table`, cut from `feat/the-same-room`.** Not from `main`: the
+map needs the stream, and the stream is on that branch.
 
-Everything below was read out of `main` on 2026-09-10. Specific line references are
-deliberately avoided in favour of symbol names, because you can grep and I could not
-guarantee the line numbers would survive.
+Everything below was read out of `main` on 2026-09-10, before `feat/the-same-room`
+landed. Specific line references are deliberately avoided in favour of symbol names,
+because you can grep and I could not guarantee the line numbers would survive.
 
-**One thing I could not verify:** the owner said he is *"currently adding in web
-sockets"* to this repo. Nothing on `main` reflects that — `useCampaignLive.ts` is still
-a 3s `setInterval` poller, and `package.json` has no `ws`, `socket.io`, `pusher`, or
-`@vercel/*` realtime dependency. **Before you write any transport code, check for an
-unpushed local branch or an open PR.** If a WebSocket channel already exists, the map
-rides it and section [Transport](#transport-what-the-map-needs-from-the-wire) tells you
-what it needs to carry. If it does not, phase 1 works fine on the existing poller and
-you should not build one.
+**The transport question this section originally raised is settled.** The author of
+this document could not see an unpushed branch and warned the next reader to look for
+one. It exists: [the-same-room](../the-same-room/README.md) built Server-Sent Events
+over a process-local hub — exactly the shape recommended below, for the reasons given
+below — and it is verified. What that means for the map, concretely:
+
+- **Do not build a transport.** `src/server/live-hub.ts` has `bumpVersion(campaignId)`
+  and `publish(campaignId, event, audience)`. A token move is a bump; a fight starting
+  is already an event.
+- **`useCampaignLive` no longer polls at 3s.** It joins one stream per browser through
+  `src/@shared/table/connection.ts` and re-reads `getLiveState` on a nudge, with a 30s
+  floor. `useBattleMapLive` should be built the same way, or — simpler — the battle map
+  state should ride `LiveState` as `checks`, `party` and `spotlight` already do, so
+  there is one read and one nudge rather than two of each.
+- **The state channel carries no payload, on purpose.** Model decision 3 there: the
+  server sends a version number and the browser re-reads through the role-filtered
+  path. Fog of war is that same rule applied to terrain, and `getBattleMapState` is the
+  filter. Nothing about the board is ever composed into a broadcast.
+
+**Migration numbering has moved on.** `0037`–`0040` are taken by the-same-room. **Your
+first file is `0041_battle_maps.sql`.**
+
+**`campaign_maps` gained a `spotlighted` flag in `0040`** — a region map lit on every
+screen at once. That is the region map doing the "look at this" half of what a table
+uses a map for, and it is not a battle map. The naming-collision warning below stands.
 
 ### What already exists, and is the reason this is a 6/10 and not a 9/10
 
 The combat model is **already built and already server-authoritative**. This is the part
 people assume they have to write and this repo does not.
 
-| Piece | Where | State |
-| --- | --- | --- |
-| Encounters, rounds, turn index | `src/server/session.ts` — `initiativeEncounters` | Built. `advanceTurn(encounterId, ±1)` wraps the round. |
-| Combatants with HP / AC / conditions / side | `initiativeEntries`, `EntryRow` | Built. `party` \| `foe` \| `other`. |
-| Server-rolled initiative | `addPartyToEncounter`, `addCreaturesToEncounter` | Built. Reads Dex off the sheet; foes roll from `initiative_bonus`. |
-| Damage/heal with temp-HP rules | `applyHp(entryId, delta)` | Built. |
-| Role-filtered live state | `getLiveState(campaignId)` | Built. Strips foe HP/AC for players; strips `visibility: 'dm'` rolls. |
-| Encounter prep → live fight | `src/server/encounter-plans.ts` — `runPlan` | Built. |
-| Player portraits | `src/server/character-portraits.ts` | Built. **This is your token art. Use it.** |
-| Countdown timers, shared or secret | `campaignTimers`, `startTimer` | Built. |
-| Dice thrown across the window | `DiceTray`, `useDiceTray()` | Built. |
+| Piece                                       | Where                                            | State                                                                 |
+| ------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------- |
+| Encounters, rounds, turn index              | `src/server/session.ts` — `initiativeEncounters` | Built. `advanceTurn(encounterId, ±1)` wraps the round.                |
+| Combatants with HP / AC / conditions / side | `initiativeEntries`, `EntryRow`                  | Built. `party` \| `foe` \| `other`.                                   |
+| Server-rolled initiative                    | `addPartyToEncounter`, `addCreaturesToEncounter` | Built. Reads Dex off the sheet; foes roll from `initiative_bonus`.    |
+| Damage/heal with temp-HP rules              | `applyHp(entryId, delta)`                        | Built.                                                                |
+| Role-filtered live state                    | `getLiveState(campaignId)`                       | Built. Strips foe HP/AC for players; strips `visibility: 'dm'` rolls. |
+| Encounter prep → live fight                 | `src/server/encounter-plans.ts` — `runPlan`      | Built.                                                                |
+| Player portraits                            | `src/server/character-portraits.ts`              | Built. **This is your token art. Use it.**                            |
+| Countdown timers, shared or secret          | `campaignTimers`, `startTimer`                   | Built.                                                                |
+| Dice thrown across the window               | `DiceTray`, `useDiceTray()`                      | Built.                                                                |
 
 So a token is **not a new object**. A token is a position for an `initiative_entries`
 row that already knows its own name, HP, AC, conditions, side, and turn order. The whole
-feature is: *give the existing combatants coordinates, and draw them.*
+feature is: _give the existing combatants coordinates, and draw them._
 
 ### What does not exist
 
@@ -64,8 +79,8 @@ feature is: *give the existing combatants coordinates, and draw them.*
 
 ### A naming collision that will bite you
 
-**`campaign_maps` already exists and is not this.** `src/server/maps.ts` is a *region
-map*: an uploaded image with pins on it, pins carrying DM notes and links to canon
+**`campaign_maps` already exists and is not this.** `src/server/maps.ts` is a _region
+map_: an uploaded image with pins on it, pins carrying DM notes and links to canon
 entries. It is lore furniture. Migration `0028_maps_and_pins.sql`.
 
 It exports `MapRow`, `MapPinRow`, `MapInput`, `PinInput`, `listMaps`, `createMap`,
@@ -115,14 +130,14 @@ feature that works offline today, and it buys nothing SSE does not already give 
 this scale.
 
 **2. Migrations are hand-written and paired with `schema.ts` in the same commit.** From
-`CLAUDE.md`: *"`src/db/schema.ts` and `src/db/migrations/*.sql` are hand-written and
+`CLAUDE.md`: _"`src/db/schema.ts` and `src/db/migrations/_.sql` are hand-written and
 edited together, in the same change. There is no drizzle-kit generate step here, and
 reaching for one produces SQL nothing applies and a schema nothing matches. This is the
-rule that gets broken most."*
+rule that gets broken most."\*
 
-Latest migration on `main` is `0036_campaign_timers.sql`. **Your next file is
-`0037_battle_maps.sql`.** The numbering has gaps (0018, 0023, 0024, 0027 are absent) —
-that is normal, files apply in lexical order, do not try to fill them.
+Latest migration on `feat/the-same-room` is `0040_map_spotlight.sql`. **Your next file
+is `0041_battle_maps.sql`.** The numbering has gaps (0018, 0023, 0024, 0027 are absent)
+— that is normal, files apply in lexical order, do not try to fill them.
 
 **3. `npm run check` does not typecheck.** `npm run build` is the only typecheck.
 
@@ -153,7 +168,7 @@ What is worth stealing, and it is worth stealing:
   wrong for you.
 - **"Store intent, not geometry."** `cartograph`'s `CityDoc` comment puts it well: a
   hundred thousand buildings is eight megabytes of coordinates and about two kilobytes of
-  *decisions*, and only the decisions are worth keeping in a file that syncs on every
+  _decisions_, and only the decisions are worth keeping in a file that syncs on every
   save. That is exactly the argument for the tile-grid document below.
 - Possibly the scene/camera scaffolding, as a reference for how the owner likes Three.js
   set up. Read it, don't import it.
@@ -172,20 +187,20 @@ engine with a subscription.
 
 A tile grid is a **spreadsheet with a nice hat**. A DM who has used Dungeondraft or drawn
 on graph paper already knows how to use it: click a tile, set its height, drag an edge to
-put a wall there. The 3D is then a pure function of that grid, which means it is a *view*
+put a wall there. The 3D is then a pure function of that grid, which means it is a _view_
 — and views are cheap, replaceable, and cannot corrupt your data.
 
 This also means the 2D view is not a fallback you build later out of pity. It is the
 authoring surface, it always exists, and it is what renders on a phone, on a laptop with
 a dead GPU, and in the DM's prep session at 1am.
 
-### 2. Walls live on tile *edges*, not on tiles
+### 2. Walls live on tile _edges_, not on tiles
 
 The tempting model is "a tile is floor or wall". It is wrong, and it is wrong in a way
 that is expensive to fix later.
 
 A wall that occupies a tile eats a 5-foot square of the battlefield. A door that occupies
-a tile means a character standing *in* a doorway is standing inside a wall. And a
+a tile means a character standing _in_ a doorway is standing inside a wall. And a
 tile-based wall gives you no surface to compute line of sight against — you end up
 raycasting through a voxel field.
 
@@ -218,7 +233,7 @@ be the wrong design.
 ### 5. Positions are authoritative on the server, movement is optimistic on the client
 
 Same argument the repo already makes twice, in `session.ts` and again in the-last-breath:
-*a total the browser produced is a claim about a roll, not a record of one.* A position
+_a total the browser produced is a claim about a roll, not a record of one._ A position
 the browser produced is a claim about where a token is.
 
 But a token that waits 80ms for a round trip before it visibly moves feels broken, so:
@@ -236,7 +251,7 @@ The repo already has the pattern, twice, in code you should read before writing 
 
 - `getLiveState` strips `hpCurrent` / `hpMax` / `armorClass` from every entry whose `side`
   is not `'party'`, **on the server**, with a comment saying exactly why.
-- `listMaps` in `maps.ts` runs *two* filters — a shared map can carry pins the party has
+- `listMaps` in `maps.ts` runs _two_ filters — a shared map can carry pins the party has
   not been shown — and nulls `dmNote` for non-staff rather than trusting the client.
 
 `getBattleMapState` must do the same: build a per-viewer terrain document containing only
@@ -253,9 +268,9 @@ contains both a migration and a renderer.
 
 ### Phase 1 — the model and the 2D board
 
-*No Three.js. No `three` in `package.json`. This phase ships a usable 2D battle map.*
+_No Three.js. No `three` in `package.json`. This phase ships a usable 2D battle map._
 
-**Schema.** New migration `src/db/migrations/0037_battle_maps.sql` plus matching Drizzle
+**Schema.** New migration `src/db/migrations/0041_battle_maps.sql` plus matching Drizzle
 definitions in `src/db/schema.ts`, **in the same commit**. Read an existing table in
 `schema.ts` first and copy its id/timestamp/FK helper conventions rather than inventing
 them — I did not read `schema.ts` in full and will not guess at its column helpers.
@@ -377,7 +392,9 @@ and consistent.
 The read path is one function:
 
 ```ts
-export async function getBattleMapState(campaignId: string): Promise<BattleMapState>
+export async function getBattleMapState(
+  campaignId: string
+): Promise<BattleMapState>;
 ```
 
 Role-filtered, exactly as `getLiveState` is. For a player it returns a `TerrainDoc` whose
@@ -476,18 +493,18 @@ See below. **Estimate: a week, and it is the week that decides whether people lo
 
 `docs/design-language.md` is binding and two rules bear directly on this.
 
-**Rule 1 — "the object is the hero."** You are safe. The battle map *is* the artifact.
+**Rule 1 — "the object is the hero."** You are safe. The battle map _is_ the artifact.
 The page leads with the board; controls go in a rail.
 
 **Rule 4 — "one toy per page, and it must demo the product."** This is the one that will
 trip you. A 3D battle map is a giant animated thing. Read the rule carefully: the toy is
-one *interactive or animated moment*, and the map is the product surface, not an
+one _interactive or animated moment_, and the map is the product surface, not an
 ornament. But it means **the map's one animated flourish is the active-turn marker, and
 nothing else on that route animates.** No fade-in panels, no floating props, no bobbing
 water, no animated fog. Everything else holds still.
 
-The dice tray is the stated exception and does not count against the budget: *"Rolling
-dice is the app's loudest verb, so it gets the loudest animation."* Which is a gift —
+The dice tray is the stated exception and does not count against the budget: _"Rolling
+dice is the app's loudest verb, so it gets the loudest animation."_ Which is a gift —
 your loudest moment on this page is already built and already gorgeous. Wire attacks and
 saves rolled from the map through `useDiceTray()` and let it throw across the window.
 
@@ -495,7 +512,7 @@ Where the pizzazz actually comes from, cheapest first:
 
 1. **Portraits on the board.** `character_portraits` exists. A billboarded portrait on a
    token base, cropped to a circle, is the single highest ratio of impact to effort in
-   this whole document. Players see *their character* standing in the room.
+   this whole document. Players see _their character_ standing in the room.
 2. **Movement is interpolated, not teleported.** ~250ms ease-out on position change,
    including for other viewers. Costs eight lines. Feels like a different product.
    **Snap instantly under `prefers-reduced-motion`** — review checklist item 10.
@@ -524,23 +541,24 @@ includes any icon in the map's toolbar.
 
 ## Transport — what the map needs from the wire
 
-Whatever the transport ends up being, `useCampaignLive.ts` is the seam. Its own comment
-says so: *"Swap the fetch for an SSE stream later without touching consumers."* Honour
-that. Add `useBattleMapLive(campaignId)` beside it with the same shape — `{ state, error,
-refresh }` — so the map is transport-agnostic from day one.
+The transport is settled — see [Status](#status). `useCampaignLive.ts` is still the
+seam, and it now returns `{ state, error, refresh, connected }` off a stream. The
+recommendation is to put the board on `LiveState` rather than beside it: one read, one
+nudge, and the fog filter runs in the same place every other role filter does.
 
 Rates, so nobody over-engineers this:
 
-| Event | Frequency | Payload |
-| --- | --- | --- |
-| Token moved | A few per minute, at most | ~40 bytes |
-| Turn advanced | Once per combatant per round | Already in `LiveState` |
-| Terrain edited | Prep only. Never mid-fight. | Whole doc, and that is fine |
-| Fog revealed | A few times per session | Delta of tile indices |
+| Event          | Frequency                    | Payload                     |
+| -------------- | ---------------------------- | --------------------------- |
+| Token moved    | A few per minute, at most    | ~40 bytes                   |
+| Turn advanced  | Once per combatant per round | Already in `LiveState`      |
+| Terrain edited | Prep only. Never mid-fight.  | Whole doc, and that is fine |
+| Fog revealed   | A few times per session      | Delta of tile indices       |
 
 **Peak load is single-digit events per second for a table of six.** That number is the
 reason SSE is enough and the reason Pusher is a solution to a problem this app does not
-have. If phase 1 ships on the existing 3s poller and nobody complains, that is data.
+have. The hub coalesces bumps inside 40ms into one nudge, so a DM painting terrain in
+prep does not make a storm of them.
 
 ---
 
@@ -615,7 +633,7 @@ and dark palettes and the review checklist requires both to be verified. `getCom
 (document.documentElement).getPropertyValue('--gold')` at scene build, and rebuild
 materials on theme change.
 
-**`getLiveState` prefers the *active* encounter and falls back to the most recent one.**
+**`getLiveState` prefers the _active_ encounter and falls back to the most recent one.**
 Read it — the `??` chain means a campaign with no active fight still returns the last
 encounter's entries. Your map's "deal the party in" needs to be explicit about which
 encounter it is dealing into, or it will silently populate from a fight that ended in
