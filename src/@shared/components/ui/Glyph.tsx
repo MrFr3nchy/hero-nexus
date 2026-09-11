@@ -65,7 +65,8 @@ export type GlyphName =
   | 'chevron-up'
   | 'chevron-down'
   | 'x'
-  | 'pencil';
+  | 'pencil'
+  | 'whisper';
 
 /** Every glyph's artwork, drawn inside a 24×24 box. */
 const PATHS: Record<GlyphName, React.ReactNode> = {
@@ -313,6 +314,16 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
     <>
       <path d="M4.5 19.5h4l10-10a2.1 2.1 0 0 0-3-3l-10 10z" />
       <path d="M14.5 7.5l2 2" />
+    </>
+  ),
+  // A note passed under the table: a speech bubble with one short line in it
+  // and a small tail. Deliberately not the three-dot "chat" mark — a whisper
+  // is one line said to one person, and the glyph should not promise a
+  // stream. Reads at 13px on the shelf strip.
+  whisper: (
+    <>
+      <path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H10l-4 3.5v-3.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5Z" />
+      <path d="M8.5 11h7" />
     </>
   ),
 };

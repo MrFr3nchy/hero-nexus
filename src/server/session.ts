@@ -33,13 +33,19 @@ import {
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { portraitsFor } from './character-portraits';
-import { getBattleMapState, type BattleMapState } from './battlemap';
+import {
+  activeBoardId,
+  bindBoardToFight,
+  getBattleMapState,
+  type BattleMapState,
+} from './battlemap';
 import type { TableKind } from '@/@creator/campaign/lib/screen';
 import { listChecks, type CheckRow } from './checks';
 import { listMaps, type MapRow } from './maps';
-import { listPartyPlayState, type PlayState } from './play';
+import { applyPlayPatch, listPartyPlayState, type PlayState } from './play';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { resolveContentRefs } from './content';
+import { listWhispers, type WhisperRow } from './whispers';
 
 /** How much of the roll log the live view carries. */
 const ROLL_LOG_LIMIT = 40;
@@ -186,8 +192,42 @@ export interface LiveState {
    * look at, which at their own table is all of them.
    */
   portraits: Record<string, string>;
+  /**
+   * The whispering this viewer may read — what they said, what was said to
+   * them, and for staff everything. Filtered in `whispers.ts`, which is the
+   * one place that decides.
+   */
+  whispers: WhisperRow[];
   /** The viewer's own linked character, so the tracker can say "your turn". */
   viewerCharacterId: string | null;
+}
+
+/**
+ * Which table a campaign is at, from the two facts that decide it.
+ *
+ * Derived, never stored — `docs/handoff/the-three-tables/README.md`,
+ * decision 1. No role check: the answer is not a secret, and the callers
+ * (`getLiveState`, the campaign page, the sitting bar) have each already
+ * established the reader belongs here.
+ */
+export async function tableAt(campaignId: string): Promise<TableKind> {
+  const [sitting, fight] = await Promise.all([
+    db.query.campaignSessions.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(campaignSessions.campaignId, campaignId),
+        eq(campaignSessions.status, 'live')
+      ),
+    }),
+    db.query.initiativeEncounters.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(initiativeEncounters.campaignId, campaignId),
+        eq(initiativeEncounters.isActive, true)
+      ),
+    }),
+  ]);
+  return !sitting ? 'desk' : fight ? 'battle' : 'table';
 }
 
 function orderEntries(rows: EntryRow[]): EntryRow[] {
@@ -357,17 +397,19 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
 
   // Both are their own modules and already role-filtered there — these are
   // reads, not second places that decide what a player may see.
-  const [checks, party, maps, battlemap, portraitRows] = await Promise.all([
-    listChecks(campaignId),
-    listPartyPlayState(campaignId),
-    listMaps(campaignId),
-    getBattleMapState(campaignId, { userId, role }),
-    portraitsFor(
-      rawEntries
-        .map(e => e.characterId)
-        .filter((id): id is string => id !== null)
-    ),
-  ]);
+  const [checks, party, maps, battlemap, portraitRows, whispers] =
+    await Promise.all([
+      listChecks(campaignId),
+      listPartyPlayState(campaignId),
+      listMaps(campaignId),
+      getBattleMapState(campaignId, { userId, role }),
+      portraitsFor(
+        rawEntries
+          .map(e => e.characterId)
+          .filter((id): id is string => id !== null)
+      ),
+      listWhispers(campaignId),
+    ]);
   const portraits: Record<string, string> = {};
   for (const [id, row] of portraitRows) portraits[id] = row.url;
   // `listMaps` already dropped anything this viewer may not see, and lighting
@@ -424,6 +466,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     spotlight,
     battlemap,
     portraits,
+    whispers,
     viewerCharacterId: membership?.characterId ?? null,
   };
 }
@@ -512,6 +555,10 @@ export async function createEncounter(
     .insert(initiativeEncounters)
     .values({ campaignId, name: name.trim() || 'Encounter', isActive: true })
     .returning({ id: initiativeEncounters.id });
+  // The board on the table follows the fight: last week's tokens come off it
+  // now, not when the DM next presses "Deal them in".
+  const boardId = await activeBoardId(campaignId);
+  if (boardId) await bindBoardToFight(boardId, row.id);
   bumpVersion(campaignId);
   publish(campaignId, {
     kind: 'encounter',
@@ -751,6 +798,27 @@ export async function applyHp(entryId: string, delta: number): Promise<void> {
   });
   if (!entry) throw new Error('NOT_FOUND');
   if (entry.hpCurrent == null) return;
+
+  /*
+   * A seated character's hit points live on the sheet, and the tracker row
+   * is a mirror of it. Writing the row alone left the DM's tracker saying 0
+   * while the player's card said 4, announced nothing when somebody went
+   * down, and started no death saves — so a party entry goes through the
+   * play patch, which writes the sheet, mirrors the row, and tells the table.
+   * The row-only path below is for foes, and for a character whose seat has
+   * since gone (the patch refuses it, and the row is all there is).
+   */
+  if (entry.characterId) {
+    try {
+      await applyPlayPatch(entry.characterId, campaignId, {
+        hpCurrentDelta: delta,
+      });
+      return;
+    } catch (err) {
+      const code = err instanceof Error ? err.message : '';
+      if (code !== 'FORBIDDEN' && code !== 'NOT_FOUND') throw err;
+    }
+  }
 
   if (delta < 0) {
     const damage = -delta;

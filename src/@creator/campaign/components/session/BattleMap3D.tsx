@@ -353,7 +353,9 @@ export function buildTokens(
   entries: Map<string, EntryRow>,
   currentEntryId: string | null,
   p: Palette,
-  faceFor: (entry: EntryRow | undefined) => HTMLImageElement | null = () => null
+  faceFor: (entry: EntryRow | undefined) => HTMLImageElement | null = () =>
+    null,
+  selectedId: string | null = null
 ): TokenScene {
   const pieces = new Map<string, TokenPiece>();
   let activeRing: THREE.Mesh | null = null;
@@ -424,6 +426,18 @@ export function buildTokens(
       activeRing = ring;
     }
 
+    // The selected token — the target, the foe on the shelf. Ink, thin, and
+    // outside the turn ring, so the two never read as one mark.
+    if (t.id === selectedId) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(r + 0.28, 0.025, 8, 48),
+        new THREE.MeshBasicMaterial({ color: p.ink })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(cx, top0 + 0.17, cz);
+      group.add(ring);
+    }
+
     const sprite = labelSprite(
       initials(label),
       `#${p.ink.getHexString()}`,
@@ -460,6 +474,21 @@ export interface BattleMap3DProps {
   onMove?: (tokenId: string, to: { x: number; y: number }) => Promise<boolean>;
   /** Feet of movement for a token, off the sheet or the default. */
   speedOf?: (token: BattleTokenRow) => number;
+  /**
+   * A token was tapped. The board publishes it the same way the 2D view
+   * does, so the shelf's attacks and stat block follow a tap here too — any
+   * token, not only one the reader may move, because aiming at a foe is the
+   * commonest reason to tap one.
+   */
+  onSelect?: (tokenId: string) => void;
+  /** The token the reader has selected, drawn with a ring of its own. */
+  selectedId?: string | null;
+  /**
+   * Fill whatever height is left in the nearest `[data-board-region]` rather
+   * than sizing off the width. Set by the screen, where the board is the main
+   * region and a canvas at 62% of its width floated in the top half of it.
+   */
+  fill?: boolean;
 }
 
 export default function BattleMap3D({
@@ -472,13 +501,23 @@ export default function BattleMap3D({
   dark,
   onMove,
   speedOf,
+  onSelect,
+  selectedId = null,
+  fill = false,
 }: BattleMap3DProps) {
   const mount = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
 
   // Read by the pointer handlers without re-binding them on every change.
-  const latest = useRef({ terrain, tokens, entries, onMove, speedOf });
-  latest.current = { terrain, tokens, entries, onMove, speedOf };
+  const latest = useRef({
+    terrain,
+    tokens,
+    entries,
+    onMove,
+    speedOf,
+    onSelect,
+  });
+  latest.current = { terrain, tokens, entries, onMove, speedOf, onSelect };
 
   // Long-lived pieces, created once per mount.
   const world = useRef<{
@@ -532,6 +571,29 @@ export default function BattleMap3D({
     const cz = terrain.h / 2;
     const span = Math.max(terrain.w, terrain.h);
     camera.position.set(cx + span * 0.35, span * 0.9, cz + span * 0.9);
+    /*
+     * Where the camera starts is decided by the frame, not by the board's
+     * span: the same direction as above, at whatever distance puts the whole
+     * board in view for this canvas's aspect — a canvas filling a tall region
+     * is a different shape from one at 62% of its width, and a fixed distance
+     * cropped the board in one and left it small in the other. Done once, on
+     * the first layout; after that the orbit is the reader's.
+     */
+    const bearing = new THREE.Vector3(0.35, 0.9, 0.9).normalize();
+    const radius = Math.hypot(terrain.w, terrain.h) / 2 + 0.5;
+    let framed = false;
+    const frame = () => {
+      const vfov = THREE.MathUtils.degToRad(camera.fov);
+      const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
+      const dist = radius / Math.sin(Math.min(vfov, hfov) / 2);
+      camera.position
+        .copy(bearing)
+        .multiplyScalar(dist)
+        .add(new THREE.Vector3(cx, 0, cz));
+      // A narrow canvas can want more distance than the orbit's ceiling
+      // allows; the ceiling gives way rather than the framing.
+      controls.maxDistance = Math.max(controls.maxDistance, dist * 1.5);
+    };
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(cx, 0, cz);
@@ -587,18 +649,33 @@ export default function BattleMap3D({
       ghost: null,
     };
 
+    // Whatever sits above the canvas inside the region is measured rather
+    // than guessed — the same rule the 2D board applies to `fitHeight`.
+    const region = fill ? el.closest('[data-board-region]') : null;
     const resize = () => {
       const w = el.clientWidth;
-      const h = Math.max(240, Math.round(w * 0.62));
+      let h = Math.max(240, Math.round(w * 0.62));
+      if (region) {
+        const above =
+          el.getBoundingClientRect().top - region.getBoundingClientRect().top;
+        // The status line and the scrawl under the canvas keep their room.
+        h = Math.max(240, region.clientHeight - above - 72);
+      }
       renderer.setSize(w, h, false);
       renderer.domElement.style.width = `${w}px`;
       renderer.domElement.style.height = `${h}px`;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      if (!framed) {
+        framed = true;
+        frame();
+        controls.update();
+      }
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(el);
+    if (region) ro.observe(region);
 
     // "t" for the top-down view: the 2D board rendered in 3D, which is what
     // people actually fight in. The lerp is the continuity that sells the
@@ -707,6 +784,7 @@ export default function BattleMap3D({
       if (!w || ev.button !== 0) return;
       const id = tokenUnder(ev);
       if (!id) return;
+      latest.current.onSelect?.(id);
       const token = latest.current.tokens.find(t => t.id === id);
       const piece = w.pieces.get(id);
       if (!token || !piece || !token.mine || !latest.current.onMove) return;
@@ -908,7 +986,8 @@ export default function BattleMap3D({
       byId,
       currentEntryId,
       p,
-      faceFor
+      faceFor,
+      selectedId
     );
     w.pieces = built.pieces;
     w.activeRing = built.activeRing;
@@ -935,6 +1014,7 @@ export default function BattleMap3D({
     tokens,
     entries,
     currentEntryId,
+    selectedId,
     dark,
     portraits,
     faces,

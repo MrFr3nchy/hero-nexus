@@ -1,14 +1,118 @@
 'use client';
 
-import { Checkbox, Tooltip } from '@heroui/react';
-import { useState } from 'react';
+import {
+  Button,
+  Checkbox,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Select,
+  SelectItem,
+  Tooltip,
+} from '@heroui/react';
+import { useEffect, useState } from 'react';
 
 import {
   applyLoadoutPatchAction,
+  giveCoinAction,
+  giveItemAction,
   type LoadoutPatchInput,
 } from '@/@creator/campaign/play-actions';
 import { Glyph, Pill, SectionCard } from '@/@shared/components/ui';
-import type { PlayLoadout } from '@/server/play';
+import type { Coins, CoinKey, PlayLoadout, Seat } from '@/server/play';
+
+const COINS: CoinKey[] = ['pp', 'gp', 'ep', 'sp', 'cp'];
+
+/** "12 gp · 3 sp", or nothing for an empty purse. */
+function purseLine(coins: Coins): string {
+  return COINS.filter(k => coins[k] > 0)
+    .map(k => `${coins[k]} ${k}`)
+    .join(' · ');
+}
+
+/**
+ * Who a thing goes to, and the one press that moves it.
+ *
+ * Given, not offered — the table already has an accept/refuse flow, and it is
+ * the person across from you saying no. One popover for both items and
+ * coins: pick a seat, say how much, hand it over. The server moves it in one
+ * write and writes both sheets' history; this only redraws.
+ */
+function GivePopover({
+  label,
+  others,
+  disabled,
+  children,
+  onGive,
+}: {
+  label: string;
+  others: Seat[];
+  disabled: boolean;
+  /** The amount controls, rendered inside the popover. */
+  children?: React.ReactNode;
+  onGive: (toCharacterId: string) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState<string>(others[0]?.characterId ?? '');
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Popover
+      placement="bottom-end"
+      isOpen={open}
+      onOpenChange={setOpen}
+      shouldCloseOnBlur
+    >
+      <PopoverTrigger>
+        <Button
+          size="sm"
+          variant="light"
+          className="h-6 min-w-0 px-1.5 text-xs text-ink-muted"
+          isDisabled={disabled}
+          aria-label={label}
+        >
+          Give
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 border border-line bg-surface p-3">
+        <div className="flex w-full flex-col gap-2">
+          <p className="text-xs text-ink-muted">{label}</p>
+          <Select
+            aria-label="To whom"
+            size="sm"
+            selectedKeys={to ? [to] : []}
+            onSelectionChange={keys => {
+              const key = Array.from(keys)[0];
+              if (key) setTo(String(key));
+            }}
+          >
+            {others.map(o => (
+              <SelectItem key={o.characterId} textValue={o.name}>
+                {o.name}
+              </SelectItem>
+            ))}
+          </Select>
+          {children}
+          <Button
+            size="sm"
+            color="primary"
+            isDisabled={!to || busy}
+            isLoading={busy}
+            onPress={async () => {
+              setBusy(true);
+              const ok = await onGive(to);
+              setBusy(false);
+              if (ok) setOpen(false);
+            }}
+          >
+            Hand it over
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 const ORDINAL = [
   'Cantrips',
@@ -57,8 +161,54 @@ export function LoadoutSection({
   stacked?: boolean;
 }) {
   const [loadout, setLoadout] = useState(initial);
+  // The caller re-reads when the sheet moves under this — a gift arriving
+  // from across the table — and the newer read wins. Synced rather than keyed
+  // so an open popover survives it.
+  useEffect(() => setLoadout(initial), [initial]);
   const [busy, setBusy] = useState(false);
   const locked = !loadout.canEdit || busy;
+  // How many of a stack to give, per row, while its popover is open.
+  const [giving, setGiving] = useState<Record<string, string>>({});
+  const [coins, setCoins] = useState<Partial<Record<CoinKey, string>>>({});
+
+  // A gift is a table verb: it needs a table and somebody else seated at it.
+  const canGive =
+    campaignId !== null && loadout.canEdit && loadout.others.length > 0;
+
+  const give = async (input: unknown): Promise<boolean> => {
+    if (!campaignId) return false;
+    setBusy(true);
+    const res = await giveItemAction(characterId, campaignId, input);
+    setBusy(false);
+    if (!res.ok) {
+      onError(res.error);
+      return false;
+    }
+    setLoadout(res.data);
+    return true;
+  };
+
+  const giveCoins = async (toCharacterId: string): Promise<boolean> => {
+    if (!campaignId) return false;
+    const amounts: Partial<Coins> = {};
+    for (const k of COINS) {
+      const n = Number(coins[k] ?? 0);
+      if (Number.isFinite(n) && n > 0) amounts[k] = Math.trunc(n);
+    }
+    setBusy(true);
+    const res = await giveCoinAction(characterId, campaignId, {
+      toCharacterId,
+      coins: amounts,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      onError(res.error);
+      return false;
+    }
+    setLoadout(res.data);
+    setCoins({});
+    return true;
+  };
 
   const patch = async (input: LoadoutPatchInput) => {
     setBusy(true);
@@ -157,10 +307,91 @@ export function LoadoutSection({
                     </span>
                   </Tooltip>
                 )}
+
+                {/* Attunement is a bond with the owner and does not travel:
+                    an attuned row has no Give, and says why on hover. */}
+                {canGive &&
+                  (item.attuned ? (
+                    <Tooltip content="Break the attunement first, then give it.">
+                      <span className="text-xs text-ink-subtle">Bound</span>
+                    </Tooltip>
+                  ) : (
+                    <GivePopover
+                      label={`Give ${item.name}`}
+                      others={loadout.others}
+                      disabled={locked || item.quantity === 0}
+                      onGive={to =>
+                        give({
+                          itemId: item.id,
+                          toCharacterId: to,
+                          quantity:
+                            item.quantity > 1
+                              ? Math.max(
+                                  1,
+                                  Math.min(
+                                    item.quantity,
+                                    Math.trunc(Number(giving[item.id])) ||
+                                      item.quantity
+                                  )
+                                )
+                              : undefined,
+                        })
+                      }
+                    >
+                      {item.quantity > 1 && (
+                        <Input
+                          size="sm"
+                          type="number"
+                          label="How many"
+                          min={1}
+                          max={item.quantity}
+                          value={giving[item.id] ?? String(item.quantity)}
+                          onValueChange={v =>
+                            setGiving(prev => ({ ...prev, [item.id]: v }))
+                          }
+                        />
+                      )}
+                    </GivePopover>
+                  ))}
               </li>
             ))}
           </ul>
         )}
+
+        {/* The purse. Coins move the same way an item does; each denomination
+            on its own, because the app cannot know what this table thinks an
+            electrum piece is worth. */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
+          <Glyph name="coins" size={13} className="text-gold" />
+          <span className="min-w-0 flex-1 text-sm tabular-nums text-ink">
+            {purseLine(loadout.currency) || (
+              <span className="text-ink-subtle">An empty purse</span>
+            )}
+          </span>
+          {canGive && purseLine(loadout.currency) && (
+            <GivePopover
+              label="Give coins"
+              others={loadout.others}
+              disabled={locked}
+              onGive={giveCoins}
+            >
+              <div className="grid grid-cols-2 gap-1.5">
+                {COINS.filter(k => loadout.currency[k] > 0).map(k => (
+                  <Input
+                    key={k}
+                    size="sm"
+                    type="number"
+                    label={`${k} (of ${loadout.currency[k]})`}
+                    min={0}
+                    max={loadout.currency[k]}
+                    value={coins[k] ?? ''}
+                    onValueChange={v => setCoins(prev => ({ ...prev, [k]: v }))}
+                  />
+                ))}
+              </div>
+            </GivePopover>
+          )}
+        </div>
       </SectionCard>
 
       <SectionCard

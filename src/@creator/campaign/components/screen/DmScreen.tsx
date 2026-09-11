@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { listCharactersAction } from '@/@creator/character/actions';
 import { DiceSpinner, Glyph, Ribbon } from '@/@shared/components/ui';
 import { useCampaignLive } from '@/@shared/hooks/useCampaignLive';
-import { AtTable } from '@/@shared/table';
+import { AtTable, useTable } from '@/@shared/table';
 import type { SessionRow } from '@/server/campaign-sessions';
 import type { CampaignRole, CampaignRow } from '@/server/campaigns';
 import type { CharacterRow } from '@/server/characters';
@@ -45,6 +45,7 @@ import { ConditionsCard } from './ConditionsCard';
 import { AttacksPanel } from './AttacksPanel';
 import { FeedPanel } from './FeedPanel';
 import { StatBlockPanel } from './StatBlockPanel';
+import { unreadWhispers, WhispersPanel } from './WhispersPanel';
 import { ScreenBox } from './ScreenBox';
 import { TimerPanel } from '../session/TimerPanel';
 import { MyHeroPanel } from './MyHeroPanel';
@@ -159,14 +160,20 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
         />
       );
 
-    case 'mine':
+    case 'mine': {
+      const own = live.state?.party.find(
+        p => p.characterId === live.state?.viewerCharacterId
+      );
       return (
         <MyHeroPanel
           campaignId={ctx.campaignId}
           myCharacters={ctx.myCharacters}
+          play={own}
+          loadoutKey={own?.loadoutKey}
           onError={ctx.onError}
         />
       );
+    }
 
     case 'timers':
       return live.state ? (
@@ -274,6 +281,17 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
         <StatBlockPanel
           campaignId={ctx.campaignId}
           state={live.state}
+          onError={ctx.onError}
+        />
+      ) : null;
+
+    case 'whispers':
+      return live.state ? (
+        <WhispersPanel
+          campaignId={ctx.campaignId}
+          state={live.state}
+          viewerId={ctx.viewerId}
+          isStaff={ctx.isStaff}
           onError={ctx.onError}
         />
       ) : null;
@@ -393,6 +411,7 @@ export function DmScreen({
   const isStaff = campaign.role === 'gm' || campaign.role === 'co-gm';
 
   const live = useCampaignLive(campaign.id);
+  const { preferences } = useTable();
   const [layouts, setLayouts] = useState<ScreenLayouts | null>(null);
   const [arranging, setArranging] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -439,7 +458,7 @@ export function DmScreen({
 
   if (!layouts) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center bg-bg">
+      <div className="flex h-full items-center justify-center bg-bg">
         <DiceSpinner label="Setting up the screen…" />
       </div>
     );
@@ -478,6 +497,23 @@ export function DmScreen({
     revealSeq,
     bumpReveals: () => setRevealSeq(n => n + 1),
   };
+
+  /*
+   * What the folded shelf may wear a number for: an ask waiting on the
+   * viewer, and whispers they have not looked at. Design language rule 2 bans
+   * counts as furniture on a page; a folded strip is not a page, and the
+   * number is the reason to open it — named as broken on purpose in the
+   * three-tables handoff.
+   */
+  const badges: Partial<Record<ScreenPanelKey, number>> = live.state
+    ? {
+        checks: live.state.checks.filter(c => c.mine).length,
+        whispers: unreadWhispers(
+          live.state.whispers,
+          preferences.whispersReadAt[campaign.id]
+        ),
+      }
+    : {};
 
   const columnCount = layout.columns.length;
   const onScreen = panelsOn(layout);
@@ -522,7 +558,7 @@ export function DmScreen({
   };
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg">
+    <div className="flex h-full flex-col overflow-hidden bg-bg">
       <AtTable campaignId={campaign.id} />
 
       {/* One bar, not a page header: every row of chrome up here is a row of
@@ -633,6 +669,7 @@ export function DmScreen({
           layout={layouts.battle}
           arranging={arranging}
           isStaff={isStaff}
+          badges={badges}
           onChange={changeBattle}
           board={fitHeight => (
             <BattleBoard

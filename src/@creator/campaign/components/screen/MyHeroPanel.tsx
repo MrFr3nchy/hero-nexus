@@ -6,8 +6,9 @@ import { useEffect, useState } from 'react';
 import { LoadoutSection } from '@/@creator/character/components/sections/LoadoutSection';
 import { EmptyState, CandleScene } from '@/@shared/components/ui';
 import type { CharacterRow } from '@/server/characters';
-import type { PlayLoadout } from '@/server/play';
+import type { PlayLoadout, PlayState } from '@/server/play';
 import { getPlayLoadoutAction } from '../../play-actions';
+import { PlayCard } from '../PlayCard';
 
 /**
  * The player's own hero, on the table screen.
@@ -20,21 +21,39 @@ import { getPlayLoadoutAction } from '../../play-actions';
  *
  * This is the same `LoadoutSection` the play surface mounts, not a second copy
  * of it — a spell prepared here is prepared there, because it is one component
- * over one server pair.
+ * over one server pair. Above it, the same `PlayCard` the party panel draws:
+ * hit points, hit dice, death saves, slots, conditions. A player at the sand
+ * table whose shelf carried their gear but not their hit points had nowhere
+ * to take the hit, which is the one thing a fight is made of.
  */
 export function MyHeroPanel({
   campaignId,
   myCharacters,
+  play,
+  loadoutKey,
   onError,
 }: {
   campaignId: string;
   myCharacters: CharacterRow[];
+  /** The viewer's own at-the-table numbers off the live read, when seated. */
+  play?: PlayState;
+  /**
+   * The viewer's own `PlayState.loadoutKey` off the live state, when the
+   * caller has it. It moves when the pack or the purse does — a potion handed
+   * over by somebody else included — and the loadout is re-read when it does.
+   */
+  loadoutKey?: string;
   onError: (message: string) => void;
 }) {
   // At most one, by the unique index on `(campaignId, userId)` — a player
   // fields one character per table.
   const mine = myCharacters.find(c => c.table?.campaignId === campaignId);
   const [loadout, setLoadout] = useState<PlayLoadout | null>(null);
+  // A local copy so a press moves the number before the round trip lands;
+  // the next live read overwrites it with the same answer — the party panel's
+  // own reasoning, and the same card.
+  const [local, setLocal] = useState<PlayState | undefined>(play);
+  useEffect(() => setLocal(play), [play]);
 
   useEffect(() => {
     if (!mine) {
@@ -48,7 +67,7 @@ export function MyHeroPanel({
     return () => {
       live = false;
     };
-  }, [mine, campaignId]);
+  }, [mine, campaignId, loadoutKey]);
 
   if (!mine) {
     return (
@@ -71,6 +90,14 @@ export function MyHeroPanel({
           Open the full sheet
         </Link>
       </div>
+      {local && (
+        <PlayCard
+          state={local}
+          campaignId={campaignId}
+          onChange={setLocal}
+          onError={onError}
+        />
+      )}
       {loadout ? (
         <LoadoutSection
           initial={loadout}

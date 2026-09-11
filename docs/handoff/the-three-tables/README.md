@@ -1,6 +1,8 @@
 # Handoff — the three tables
 
-Branch: work lands on `main` directly, phase by phase, each verified before the next.
+Branch: phases 1 and 2 landed on `main` directly; phases 3 and 4 on
+`feat/the-three-tables-3-4`. **All four phases are built**; [phases.md](phases.md)
+carries the item-by-item state, and what each run proved is at the foot of this file.
 
 A campaign is lived at three tables, and the app has been treating them as one:
 
@@ -215,8 +217,13 @@ palettes; reduced motion.
 ## The work
 
 The record of what has landed, and what each run proved, is in [phases.md](phases.md).
-Phases 1 and 2 are built on `main`; the bullet about `/campaigns/[id]` opening on the
-fitting tab moved from phase 1 to phase 4, where the rest of the campaign page work is.
+All four are built; the bullet about `/campaigns/[id]` opening on the fitting tab
+moved from phase 1 to phase 4, where the rest of the campaign page work is. Where the
+build departed from the plan below, phases.md says how and why — the sitting bar's link
+already went to the screen, so phase 4 changed its wording rather than its target; the
+default shelves grew a `whispers` panel; and three things found in the browser (a blank
+target name, a page that scrolled by one bar, a tracker row squeezed to five lines) were
+fixed on the way.
 
 ### Phase 1 — The table is known, and the screen follows it
 
@@ -272,18 +279,22 @@ fitting tab moved from phase 1 to phase 4, where the rest of the campaign page w
 tables, because a shelf's density and a collapsed strip's legibility are the whole
 point and cannot be asserted on.
 
-- `table` derives correctly through all four transitions: seats → fight → end → rise.
-- A saved single-arrangement layout normalises to `table` and nobody's screen resets.
-- A whisper reaches its recipient and staff and **nobody else** — the same three-jar
-  test the-same-room ran for reveals.
-- A gift moves the row, merges quantity, refuses an attuned item, refuses a character the
-  giver does not own, and writes two history rows.
-- A dealt creature's entry carries its ref; a hand-typed one carries null and the stat
-  block panel says so rather than breaking.
-- An attack roll lands in the log as the character with the weapon and target in its
-  label, and the tray drew the server's faces.
-- In a browser: the battle layout at laptop width and at phone width; the shelf
-  collapsed and open; a player's shelf and the DM's; both palettes.
+- [x] `table` derives correctly through all four transitions: seats → fight → end →
+      rise. (Phase 1, headless; phase 4 again, from the ribbon, in a browser.)
+- [x] A saved single-arrangement layout normalises to `table` and nobody's screen
+      resets. (Phase 1.)
+- [x] A whisper reaches its recipient and staff and **nobody else** — the same
+      three-jar test the-same-room ran for reveals. (Phase 3, on the rows and on the
+      wire.)
+- [x] A gift moves the row, merges quantity, refuses an attuned item, refuses a
+      character the giver does not own, and writes two history rows. (Phase 3.)
+- [x] A dealt creature's entry carries its ref; a hand-typed one carries null and the
+      stat block panel says so rather than breaking. (Phase 2.)
+- [x] An attack roll lands in the log as the character with the weapon and target in
+      its label, and the tray drew the server's faces. (Phase 2 headless; a natural 20
+      in the tray in phase 3's browser pass.)
+- [x] In a browser: the battle layout at laptop width and at phone width; the shelf
+      collapsed and open; a player's shelf and the DM's; both palettes. (Phase 4.)
 
 ## Deliberately not in this plan
 
@@ -294,3 +305,82 @@ point and cannot be asserted on.
 - **Spell casting from the shelf.** Slots are already spent on `PlayCard`; the spell's
   effect is narrated. A spell panel that rolls save DCs against tokens is the same
   project as attack automation and waits for the same reason.
+
+---
+
+## What has been verified
+
+Phases 1 and 2 are recorded in [phases.md](phases.md). Phases 3 and 4, against a
+production build, with four real accounts, four cookie jars and real server-action
+POSTs following `docs/handoff/verifying-without-a-browser.md` — and then, for the half
+that method cannot reach, by driving the real app in Chrome as the player and as the DM.
+
+### Whispers
+
+- **The rows.** Three whispers written — player → DM, player → player, DM → one
+  player. Read back through `getLiveStateAction`, the DM saw all three, the player saw
+  only the two they said, the other player saw only the two said to them, and a
+  stranger saw nothing. An empty line, a line to yourself, a line to somebody not at
+  the table and a stranger's line were each refused.
+- **The wire.** With three streams open, a marked string the DM whispered to one player
+  reached the DM's and that player's bytes and **never the other player's**, while the
+  state nudges reached all three. The same shape as the-same-room's leak test, and the
+  same result.
+- **In a browser.** The thread, the compose, Enter to send, the line landing in The
+  evening; two whispers arriving with the shelf folded raised two slips and a **2** on
+  the strip's whisper glyph beside the asking's **4**; opening the panel cleared the 2
+  and left the 4. The DM's thread named both ends of a line between two players.
+
+### Trading
+
+- A partial stack merged onto the receiver's matching row; a whole row moved and landed
+  fresh; an attuned item, a sheet the giver does not own, a hero at another table, the
+  giver themself, a stranger, more coin than the purse holds and an empty gift were
+  each refused with their own sentence; the DM gave from a player's sheet; coins moved
+  by denomination. Two `character_history` rows per gift, on both sheets, with the
+  purse before and after. The `gift` announcement reached both owners and the DM.
+- **In a browser.** _Give_ on a row, the popover, 2 → 1. A gift arriving from another
+  jar moved the purse 24 → 27 gp with nothing pressed on the receiver's side — the
+  `loadoutKey` re-read doing its job.
+
+### The desk getting out of the way
+
+- At the table the page opened on Session; in a fight on Board, first in the strip;
+  at the desk on Chronicle. The bar read _is sitting_, then _is at the sand table ·
+  The cistern_ in the danger tone with _To the sand table_, then nothing. _Take your
+  seats_ raised the bar the same moment and _Call for initiative_ flipped it, both
+  without a reload.
+
+### The two phase 2 items
+
+- Tap-to-aim: a revealed foe tapped, `Something · 25 ft`, the longsword out of reach
+  and the longbow in range, a natural 20 in the tray labelled `to hit vs Something ·
+25 ft`.
+- The DM's shelf: tracker and stat block side by side, Tentacle rollable at `+9` and
+  `2d6+5`.
+
+### Found in the browser, fixed here
+
+Three things no headless run would have shown: a target whose name was the empty
+string read as nothing (now `Something`); the screen, `100dvh` tall under the sitting
+bar, scrolled by exactly one bar (the shell is now `h-dvh` on that route only); and a
+tracker row in a column a third of the window wide squeezed its hit points into five
+lines beside the field that edits them (the info block now keeps a floor and the
+controls wrap). And one the browser made obvious: the bar's sixty-second poll left
+_at the sand table_ standing for a minute after the fight ended, so the bar now
+re-asks on the fight and sitting events it was already hearing.
+
+### The second pass
+
+After the phases, an evening was sat through at all three tables as the DM and as a
+player, with the brief to find what a table would trip on rather than what the list
+said. It found ten things and fixed them — among them last week's tokens on tonight's
+board, tracker damage that never reached the sheet, a tray that showed a different
+death save than the log recorded, and a player's shelf with no hit points on it. The
+list, with what proved each, is in [phases.md](phases.md) under _The second pass_.
+
+### Still to verify
+
+- Two viewers on two machines, as the-same-room also recorded.
+- A whole evening: the whisper thread carries the last forty, and the folded strip's
+  count has only been watched for two.

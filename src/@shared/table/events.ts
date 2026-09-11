@@ -33,6 +33,8 @@ export const TABLE_EVENT_KINDS = [
   'sitting',
   'vitals',
   'map',
+  'whisper',
+  'gift',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -145,6 +147,31 @@ export interface VitalsEvent extends BaseEvent {
   state: 'down' | 'up' | 'dead' | 'stable';
 }
 
+/**
+ * A note passed under the table. Published to the sender, the people it was
+ * said to, and — through `reaches` — staff, and to nobody else; so the line
+ * itself may travel, because everybody who receives it was meant to.
+ */
+export interface WhisperEvent extends BaseEvent {
+  kind: 'whisper';
+  whisperId: string;
+  fromName: string;
+  /** Who it was said to, so the corner can say "to you" or "to Kessa". */
+  toUserIds: string[];
+  toNames: string[];
+  /** The whole line. A whisper is one line; there is nothing to excerpt. */
+  body: string;
+}
+
+/** Something changed hands between two seated characters. */
+export interface GiftEvent extends BaseEvent {
+  kind: 'gift';
+  fromName: string;
+  toName: string;
+  /** "Potion of Healing ×2", "12 gp, 3 sp". Already composed for reading. */
+  what: string;
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -155,7 +182,9 @@ export type TableEvent =
   | CheckEvent
   | SittingEvent
   | VitalsEvent
-  | MapEvent;
+  | MapEvent
+  | WhisperEvent
+  | GiftEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -191,6 +220,8 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   sitting: 'tankard',
   vitals: 'shield',
   map: 'map',
+  whisper: 'whisper',
+  gift: 'chest',
 };
 
 /**
@@ -327,6 +358,26 @@ export function describe(
           event.state === 'lit'
             ? `Look at this — ${event.title}`
             : `${event.title} is put away`,
+        tone: 'gold',
+      };
+
+    case 'whisper': {
+      const toYou = event.toUserIds.includes(viewer.userId);
+      // Staff overhear every whisper; for them the corner names both ends,
+      // because "Rurik whispers" with no recipient is half a sentence.
+      const to = toYou ? 'you' : event.toNames.join(', ') || 'somebody';
+      return {
+        glyph,
+        title: `${event.fromName} whispers to ${to}`,
+        detail: event.body,
+        tone: 'arcane',
+      };
+    }
+
+    case 'gift':
+      return {
+        glyph,
+        title: `${event.fromName} gives ${event.toName} ${event.what}`,
         tone: 'gold',
       };
 

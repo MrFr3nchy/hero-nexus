@@ -164,10 +164,12 @@ function DeathSaveControl({
       onError(res.error);
       return;
     }
-    onChange(res.data);
+    onChange(res.data.state);
     // The tray draws what the server rolled rather than rolling again — two
-    // rolls for one save is how a log and a screen start disagreeing.
-    void tray.rollNotation(mode === 'straight' ? '1d20' : '2d20', {
+    // rolls for one save is how a log and a screen start disagreeing. (It
+    // did: this used to call `rollNotation`, and the log said 7 while the
+    // tray said 19.)
+    void tray.showNotationRoll(res.data.roll, {
       title: 'Death save',
       hint: secret ? 'behind the screen' : undefined,
     });
@@ -348,7 +350,7 @@ export function PlayCard({
 
   return (
     <div
-      className={`rounded-[var(--radius-card)] border bg-surface p-4 [box-shadow:var(--shadow-card)] ${
+      className={`@container rounded-[var(--radius-card)] border bg-surface p-4 [box-shadow:var(--shadow-card)] ${
         down ? 'border-danger/50' : 'border-line'
       }`}
     >
@@ -411,12 +413,18 @@ export function PlayCard({
       {/* damage / heal */}
       {state.canEdit && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {/* Not disabled while the amount is 0: `NumberInput` commits on
+              blur, and the blur is the same click that presses this — a
+              button disabled at pointer-down never sees the pointer-up, so
+              "type 7, press Take" did nothing the first time. The guard is in
+              the press instead. */}
           <Button
             size="sm"
             variant="flat"
             className="min-w-0 px-3 text-danger"
-            isDisabled={locked || !amount}
+            isDisabled={locked}
             onPress={() => {
+              if (!amount) return;
               patch({ hpCurrentDelta: -Math.abs(amount) });
               setAmount(0);
             }}
@@ -436,8 +444,9 @@ export function PlayCard({
             size="sm"
             variant="flat"
             className="min-w-0 px-3 text-success"
-            isDisabled={locked || !amount}
+            isDisabled={locked}
             onPress={() => {
+              if (!amount) return;
               patch({ hpCurrentDelta: Math.abs(amount) });
               setAmount(0);
             }}
@@ -448,8 +457,9 @@ export function PlayCard({
             size="sm"
             variant="light"
             className="min-w-0 px-2 text-ink-muted"
-            isDisabled={locked || !amount}
+            isDisabled={locked}
             onPress={() => {
+              if (!amount) return;
               patch({ hpTemp: amount });
               setAmount(0);
             }}
@@ -608,7 +618,10 @@ export function PlayCard({
 
       {!compact && (
         <>
-          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-3 sm:grid-cols-6">
+          {/* Six across only when the *card* is wide enough for six labels —
+              a container query, not a viewport one, because this card sits
+              in a third of a screen as often as in a page. */}
+          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-3 @sm:grid-cols-6">
             <Stat plain label="AC" value={state.armorClass} />
             <Stat plain label="Init" value={mod(state.initiative)} />
             <Stat plain label="Speed" value={state.speed} />

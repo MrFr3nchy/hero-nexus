@@ -11,6 +11,19 @@ import {
   type ScreenPanelKey,
 } from '../../lib/screen';
 
+/** A count worn on a glyph. Only ever drawn when it is above zero. */
+function Badge({ count }: { count: number | undefined }) {
+  if (!count) return null;
+  return (
+    <span
+      aria-label={`${count} waiting`}
+      className="absolute -right-0.5 -top-0.5 min-w-[1rem] rounded-full bg-gold px-1 text-center text-[0.6rem] font-medium leading-4 tabular-nums text-bg"
+    >
+      {count > 9 ? '9+' : count}
+    </span>
+  );
+}
+
 /**
  * The sand table's arrangement: the board in front, a shelf beside it.
  *
@@ -30,6 +43,7 @@ export function BattleArrangement({
   layout,
   arranging,
   isStaff,
+  badges = {},
   onChange,
   board,
   renderPanel,
@@ -37,6 +51,11 @@ export function BattleArrangement({
   layout: BattleLayout;
   arranging: boolean;
   isStaff: boolean;
+  /**
+   * Counts to wear on the strip and on a folded panel's header: an ask
+   * waiting on the viewer, a whisper unread. Nothing else earns one.
+   */
+  badges?: Partial<Record<ScreenPanelKey, number>>;
   onChange: (next: BattleLayout) => void;
   board: (fitHeight: number) => ReactNode;
   renderPanel: (key: ScreenPanelKey) => ReactNode;
@@ -159,9 +178,10 @@ export function BattleArrangement({
                   }}
                   title={SCREEN_PANELS[key].label}
                   aria-label={`Open ${SCREEN_PANELS[key].label}`}
-                  className="rounded p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink"
+                  className="relative rounded p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink"
                 >
                   <Glyph name={SCREEN_PANELS[key].glyph} size={15} />
+                  <Badge count={badges[key]} />
                 </button>
               </li>
             ))}
@@ -195,6 +215,13 @@ export function BattleArrangement({
                       <span className="truncate font-display-alt text-[0.6rem] uppercase tracking-[0.14em]">
                         {meta.label}
                       </span>
+                      {/* A folded panel with something waiting says so; an
+                          open one is showing it already. */}
+                      {isFolded && !!badges[key] && (
+                        <span className="rounded-full bg-gold px-1.5 text-[0.6rem] font-medium tabular-nums text-bg">
+                          {badges[key]}
+                        </span>
+                      )}
                     </button>
                     {arranging && (
                       <span className="flex shrink-0 gap-0.5">

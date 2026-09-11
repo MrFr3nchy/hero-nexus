@@ -15,6 +15,7 @@ import {
   initiativeEncounters,
   users,
 } from '@/db/schema';
+import type { TableKind } from '@/@creator/campaign/lib/screen';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
 import { requireUserId } from './session-user';
@@ -407,6 +408,14 @@ export async function mySitting(): Promise<{
   title: string;
   startedAt: string | null;
   isStaff: boolean;
+  /**
+   * Which table the sitting is at: `table`, or `battle` while a fight is
+   * running. Never `desk` — a sitting is by definition not the desk — but
+   * typed as the whole kind so the bar reads the same vocabulary the screen
+   * does. The fight's name rides along for the bar's second line.
+   */
+  table: TableKind;
+  fightName: string | null;
 } | null> {
   const userId = await requireUserId();
 
@@ -452,6 +461,18 @@ export async function mySitting(): Promise<{
 
   const found = row[0];
   if (!found) return null;
+
+  // The second of the two facts the table is derived from — see `tableAt`
+  // in session.ts. Read here rather than through it so the bar costs one
+  // query for the fight, not two.
+  const fight = await db.query.initiativeEncounters.findFirst({
+    columns: { name: true },
+    where: and(
+      eq(initiativeEncounters.campaignId, found.campaignId),
+      eq(initiativeEncounters.isActive, true)
+    ),
+  });
+
   return {
     campaignId: found.campaignId,
     campaignName: found.campaignName,
@@ -459,6 +480,8 @@ export async function mySitting(): Promise<{
     number: found.number,
     title: found.title,
     startedAt: found.startedAt,
+    table: fight ? 'battle' : 'table',
+    fightName: fight?.name ?? null,
     // A co-DM is staff here too, but the membership read above did not ask for
     // the role. The bar only uses this to word a button, and getting it wrong
     // costs a co-DM one extra press — not worth a third query on every page.

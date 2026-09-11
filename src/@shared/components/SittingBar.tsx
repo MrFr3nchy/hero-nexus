@@ -21,10 +21,10 @@
  */
 import { Link } from '@heroui/react';
 import { usePathname } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 
 import { mySittingAction } from '@/@creator/campaign/chronicle-actions';
-import { AtTable } from '@/@shared/table';
+import { AtTable, useTable } from '@/@shared/table';
 import { Glyph } from './ui';
 
 type Sitting = Awaited<ReturnType<typeof mySittingAction>>;
@@ -40,6 +40,36 @@ type Sitting = Awaited<ReturnType<typeof mySittingAction>>;
  */
 const ASK_MS = 60_000;
 
+/**
+ * The last answer, kept per tab.
+ *
+ * The bar is chrome, and chrome that arrives a beat after the page and shoves
+ * everything down by its own height reads as the page jumping. A full load
+ * paints what this tab last knew before the first frame, and the real ask
+ * overwrites it a moment later — wrong for at most that moment, and only when
+ * the table rose between two full page loads in one tab. Every read and write
+ * is wrapped: storage can be refused, and the bar must not care.
+ */
+const CACHE_KEY = 'hero-nexus.sitting';
+
+function readCached(): Sitting {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Sitting) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCached(sitting: Sitting): void {
+  try {
+    if (sitting) sessionStorage.setItem(CACHE_KEY, JSON.stringify(sitting));
+    else sessionStorage.removeItem(CACHE_KEY);
+  } catch {
+    // Nothing to do: the next load pays the one-frame shift instead.
+  }
+}
+
 /** "for 1h 20m", or nothing while it is still fresh. */
 function sittingFor(startedAt: string | null): string | null {
   if (!startedAt) return null;
@@ -53,10 +83,32 @@ function sittingFor(startedAt: string | null): string | null {
 export function SittingBar() {
   const [sitting, setSitting] = useState<Sitting>(null);
   const pathname = usePathname();
+  const { history } = useTable();
 
   const ask = useCallback(async () => {
-    setSitting(await mySittingAction());
+    const next = await mySittingAction();
+    setSitting(next);
+    writeCached(next);
   }, []);
+
+  // Before the first frame, not after it — that is the whole point.
+  useLayoutEffect(() => {
+    setSitting(readCached());
+  }, []);
+
+  /*
+   * The slow ask above only has to catch the table sitting down. Once it has,
+   * the bar is on the stream, and the two things that change what it says —
+   * a fight starting or ending, the table rising — each arrive as an event.
+   * Re-asking on those is what keeps "at the sand table" from outliving the
+   * fight by up to a minute.
+   */
+  const latest = history[0];
+  useEffect(() => {
+    if (!latest) return;
+    const kind = latest.event.kind;
+    if (kind === 'encounter' || kind === 'sitting') ask();
+  }, [latest, ask]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -86,6 +138,13 @@ export function SittingBar() {
   // knowing where you are. It still says the table is sitting, and how long
   // for — that is the half worth keeping on every page.
   const alreadyThere = pathname === `/campaigns/${sitting.campaignId}/screen`;
+  /*
+   * Which table, not only that one is sitting. A fight running is the one
+   * thing worth changing the bar's tone for — the sword and the danger ink
+   * are the same marks the screen's ribbon wears at the sand table — and the
+   * link goes straight to the screen, which opens on the board.
+   */
+  const fighting = sitting.table === 'battle';
 
   return (
     <>
@@ -93,27 +152,43 @@ export function SittingBar() {
           table's stream from wherever they happen to be standing. */}
       <AtTable campaignId={sitting.campaignId} />
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-gold/40 bg-gold/10 px-4 py-1.5 text-sm">
+      <div
+        className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-1.5 text-sm ${
+          fighting
+            ? 'border-danger/40 bg-danger/10'
+            : 'border-gold/40 bg-gold/10'
+        }`}
+      >
         <Glyph
-          name="tankard"
+          name={fighting ? 'sword' : 'tankard'}
           size={15}
-          className="shrink-0 text-gold-strong dark:text-gold"
+          className={`shrink-0 ${
+            fighting ? 'text-danger' : 'text-gold-strong dark:text-gold'
+          }`}
         />
         <span className="text-ink">
-          <span className="font-medium">{sitting.campaignName}</span> is sitting
+          <span className="font-medium">{sitting.campaignName}</span>{' '}
+          {fighting ? 'is at the sand table' : 'is sitting'}
         </span>
         <span className="text-ink-subtle">
           Session {sitting.number}
           {sitting.title ? ` · ${sitting.title}` : ''}
+          {fighting && sitting.fightName ? ` · ${sitting.fightName}` : ''}
           {been ? ` · ${been}` : ''}
         </span>
         {!alreadyThere && (
           <Link
             href={`/campaigns/${sitting.campaignId}/screen`}
             size="sm"
-            className="ml-auto text-gold-strong underline-offset-2 hover:underline dark:text-gold"
+            className={`ml-auto underline-offset-2 hover:underline ${
+              fighting ? 'text-danger' : 'text-gold-strong dark:text-gold'
+            }`}
           >
-            {sitting.isStaff ? 'Behind the screen' : 'Take your seat'}
+            {fighting
+              ? 'To the sand table'
+              : sitting.isStaff
+                ? 'Behind the screen'
+                : 'Take your seat'}
           </Link>
         )}
       </div>

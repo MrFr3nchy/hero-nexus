@@ -21,7 +21,7 @@
  */
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import {
   canStand,
@@ -170,7 +170,21 @@ export async function getBattleMapState(
     for (const r of rows) myEntries.add(r.id);
   }
 
+  // Tokens for entries of another fight are not drawn even where a board
+  // was bound before `bindBoardToFight` existed and still carries them.
+  const inOrder = new Set(
+    map.encounterId
+      ? (
+          await db
+            .select({ id: initiativeEntries.id })
+            .from(initiativeEntries)
+            .where(eq(initiativeEntries.encounterId, map.encounterId))
+        ).map(r => r.id)
+      : []
+  );
+
   const tokens: BattleTokenRow[] = tokenRows
+    .filter(t => t.entryId === null || inOrder.has(t.entryId))
     .filter(t => {
       if (isStaff) return true;
       if (t.visibility !== 'shared') return false;
@@ -317,6 +331,72 @@ export async function setBattleMapVisibility(
  * is running and the board has none: "the fight on the table" and "the board
  * on the table" are usually the same evening.
  */
+/**
+ * Bind a board to the fight that is running now, and clear the last one off
+ * it.
+ *
+ * A board keeps the id of the fight it was last used for, so its tokens
+ * survive the evening; but the moment a new fight starts, last week's goblins
+ * standing where they fell are furniture nobody asked for — they showed on
+ * the DM's own board as a row of `?`, because their entries were in an order
+ * that no longer exists. Tokens for entries of another fight go; scenery
+ * (`entryId` null) stays, because a brazier is on the map and not in the
+ * order. Idempotent: binding to the fight already bound touches nothing.
+ */
+export async function bindBoardToFight(
+  mapId: string,
+  encounterId: string
+): Promise<void> {
+  const map = await db.query.battleMaps.findFirst({
+    where: eq(battleMaps.id, mapId),
+  });
+  if (!map || map.encounterId === encounterId) return;
+
+  const rows = await db
+    .select({ id: battleMapTokens.id, entryId: battleMapTokens.entryId })
+    .from(battleMapTokens)
+    .where(eq(battleMapTokens.mapId, mapId));
+  const linked = rows.filter(r => r.entryId !== null);
+  if (linked.length > 0) {
+    const here = new Set(
+      (
+        await db
+          .select({ id: initiativeEntries.id })
+          .from(initiativeEntries)
+          .where(eq(initiativeEntries.encounterId, encounterId))
+      ).map(r => r.id)
+    );
+    const stale = linked.filter(r => !here.has(r.entryId as string));
+    if (stale.length > 0) {
+      await db.delete(battleMapTokens).where(
+        inArray(
+          battleMapTokens.id,
+          stale.map(r => r.id)
+        )
+      );
+    }
+  }
+
+  await db
+    .update(battleMaps)
+    .set({ encounterId, updatedAt: new Date().toISOString() })
+    .where(eq(battleMaps.id, mapId));
+}
+
+/** The board on the table at this campaign, if one is. */
+export async function activeBoardId(
+  campaignId: string
+): Promise<string | null> {
+  const map = await db.query.battleMaps.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(battleMaps.campaignId, campaignId),
+      eq(battleMaps.isActive, true)
+    ),
+  });
+  return map?.id ?? null;
+}
+
 export async function setBattleMapActive(
   mapId: string,
   active: boolean
@@ -343,11 +423,11 @@ export async function setBattleMapActive(
         eq(initiativeEncounters.isActive, true)
       ),
     });
-    const encounterId = fight?.id ?? map.encounterId;
     await db
       .update(battleMaps)
-      .set({ isActive: true, encounterId, updatedAt: new Date().toISOString() })
+      .set({ isActive: true, updatedAt: new Date().toISOString() })
       .where(eq(battleMaps.id, mapId));
+    if (fight) await bindBoardToFight(mapId, fight.id);
   }
 
   bumpVersion(map.campaignId);
@@ -546,7 +626,19 @@ export async function placeToken(
  * `addPartyToEncounter`: pressing it twice is harmless.
  */
 export async function dealEncounterIn(mapId: string): Promise<number> {
-  const { map } = await staffForMap(mapId);
+  const { map: found } = await staffForMap(mapId);
+  // Tonight's fight, whatever the board remembered — the same rule
+  // `setBattleMapActive` applies, so "Call for initiative → Deal them in"
+  // deals tonight's order rather than nobody.
+  const fight = await db.query.initiativeEncounters.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(initiativeEncounters.campaignId, found.campaignId),
+      eq(initiativeEncounters.isActive, true)
+    ),
+  });
+  if (fight) await bindBoardToFight(mapId, fight.id);
+  const map = fight ? { ...found, encounterId: fight.id } : found;
   if (!map.encounterId) throw new Error('NO_FIGHT');
   const doc = normalizeTerrain(map.terrain);
 

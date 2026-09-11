@@ -7,12 +7,15 @@ import {
   applyPlayPatch,
   getPlayLoadout,
   getPlayState,
+  giveCoin,
+  giveItem,
   listPartyPlayState,
   restParty,
   rollDeathSave,
   setOwnConditions,
   setPlayConditions,
   spendHitDice,
+  type DeathSaveResult,
   type PlayLoadout,
   type PlayState,
 } from '@/server/play';
@@ -34,6 +37,12 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     SECRET_NEEDS_A_TABLE: 'A secret roll needs a table to be secret from.',
     FORBIDDEN: 'That sheet is not yours to change.',
     ATTUNEMENT_FULL: 'You are already attuned to three items. Break one first.',
+    NOT_AT_TABLE: 'They are not seated at this table.',
+    NO_SUCH_ITEM: 'That is not in your pack any more.',
+    ATTUNED:
+      'You are attuned to that. Break the attunement first, then give it.',
+    NOTHING_TO_GIVE: 'There is nothing to hand over.',
+    NOT_ENOUGH_COIN: 'You do not have that much.',
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
   // invisible in a bug report. Keep the real one in the server log.
@@ -216,7 +225,7 @@ export async function rollDeathSaveAction(
   characterId: string,
   campaignId: string | null,
   input: unknown
-): Promise<Result<PlayState>> {
+): Promise<Result<DeathSaveResult>> {
   const parsed = deathSaveSchema.safeParse(input ?? {});
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid.' };
@@ -226,5 +235,62 @@ export async function rollDeathSaveAction(
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Failed to roll the death save.');
+  }
+}
+
+/* --- trading: a move, not an offer ------------------------------------- */
+
+const giveItemSchema = z.object({
+  itemId: z.string().min(1).max(64),
+  toCharacterId: z.string().min(1).max(64),
+  quantity: z.number().int().min(1).max(9999).optional(),
+});
+
+const coinSchema = z.object({
+  toCharacterId: z.string().min(1).max(64),
+  coins: z.object({
+    cp: z.number().int().min(0).max(999999).optional(),
+    sp: z.number().int().min(0).max(999999).optional(),
+    ep: z.number().int().min(0).max(999999).optional(),
+    gp: z.number().int().min(0).max(999999).optional(),
+    pp: z.number().int().min(0).max(999999).optional(),
+  }),
+});
+
+/**
+ * Hand an item to another character at the table. Returns the giver's
+ * loadout, so the control that pressed it can redraw without a second read.
+ */
+export async function giveItemAction(
+  characterId: string,
+  campaignId: string,
+  input: unknown
+): Promise<Result<PlayLoadout>> {
+  const parsed = giveItemSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid.' };
+  }
+  try {
+    const data = await giveItem(characterId, campaignId, parsed.data);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Failed to hand it over.');
+  }
+}
+
+export async function giveCoinAction(
+  characterId: string,
+  campaignId: string,
+  input: unknown
+): Promise<Result<PlayLoadout>> {
+  const parsed = coinSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid.' };
+  }
+  try {
+    const data = await giveCoin(characterId, campaignId, parsed.data);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Failed to hand the coins over.');
   }
 }

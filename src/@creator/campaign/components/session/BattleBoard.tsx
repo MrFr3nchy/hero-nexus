@@ -1205,7 +1205,10 @@ export function BattleBoard({
           portraits={state.portraits}
           faces={faces}
           dark={dark}
+          fill={Boolean(fitHeight)}
           speedOf={speedOf}
+          onSelect={setSelected}
+          selectedId={selected}
           onMove={async (tokenId, to) => {
             const res = await moveTokenAction(tokenId, to);
             if (!res.ok) onError(res.error);

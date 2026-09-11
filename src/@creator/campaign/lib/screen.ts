@@ -21,6 +21,7 @@ export const SCREEN_PANEL_KEYS = [
   'checks',
   'attacks',
   'statblock',
+  'whispers',
   'spotlight',
   'feed',
   'reveals',
@@ -119,6 +120,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     glyph: 'dragon',
     description: 'The selected foe, as the bestiary has it, with its actions.',
     players: false,
+  },
+  whispers: {
+    key: 'whispers',
+    label: 'Whispers',
+    glyph: 'whisper',
+    description:
+      'A note passed under the table: to the DM, to a player, from anyone.',
+    players: true,
   },
   spotlight: {
     key: 'spotlight',
@@ -248,6 +257,11 @@ export interface ScreenLayout {
  * to turn it down. A player also opens on their own hero rather than on the
  * party's hit points — they have the party in the corner now, and what they
  * did not have was their own spell slots.
+ *
+ * A player's table opens on `whispers` where it used to open on the
+ * spotlight: the table is where "I pocket the key" gets said, and a lit map
+ * announces itself and can be added back. The DM's default is unchanged —
+ * every whisper reaches them in the corner and the feed regardless.
  */
 export function defaultLayout(isStaff: boolean): ScreenLayout {
   return isStaff
@@ -261,7 +275,7 @@ export function defaultLayout(isStaff: boolean): ScreenLayout {
     : {
         columns: [
           ['mine', 'initiative'],
-          ['checks', 'spotlight'],
+          ['checks', 'whispers'],
           ['handouts', 'feed'],
         ],
       };
@@ -362,8 +376,8 @@ export function defaultDeskLayout(isStaff: boolean): ScreenLayout {
 export function defaultBattleLayout(isStaff: boolean): BattleLayout {
   return {
     shelf: isStaff
-      ? ['initiative', 'statblock', 'dice', 'checks', 'feed']
-      : ['mine', 'attacks', 'dice', 'checks', 'feed'],
+      ? ['initiative', 'statblock', 'dice', 'checks', 'whispers', 'feed']
+      : ['mine', 'attacks', 'dice', 'checks', 'whispers', 'feed'],
     shelfOpen: true,
   };
 }
