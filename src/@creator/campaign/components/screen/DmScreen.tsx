@@ -31,6 +31,7 @@ import { QuestPanel } from '../QuestPanel';
 import { RevealTimeline } from '../RevealTimeline';
 import { HandoutsPanel } from '../session/HandoutsPanel';
 import { InitiativeTracker } from '../session/InitiativeTracker';
+import { BattleBoard } from '../session/BattleBoard';
 import { ChecksPanel } from '../session/ChecksPanel';
 import { RollPanel } from '../session/RollPanel';
 import { SpotlightPanel } from '../session/SpotlightPanel';
@@ -200,6 +201,17 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
           state={live.state}
           isStaff={ctx.isStaff}
           sessions={ctx.sessions}
+          refresh={live.refresh}
+          onError={ctx.onError}
+        />
+      ) : null;
+
+    case 'board':
+      return live.state ? (
+        <BattleBoard
+          campaignId={ctx.campaignId}
+          state={live.state}
+          isStaff={ctx.isStaff}
           refresh={live.refresh}
           onError={ctx.onError}
         />

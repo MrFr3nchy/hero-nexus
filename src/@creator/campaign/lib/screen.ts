@@ -13,6 +13,7 @@ import type { GlyphName } from '@/@shared/components/ui/Glyph';
 
 export const SCREEN_PANEL_KEYS = [
   'sitting',
+  'board',
   'initiative',
   'mine',
   'vitals',
@@ -51,6 +52,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     label: 'The table',
     glyph: 'person',
     description: 'Whether the evening has been called, and who is looking.',
+    players: true,
+  },
+  board: {
+    key: 'board',
+    label: 'The sand table',
+    glyph: 'map',
+    description:
+      'The battlefield: a room painted on a grid, with the fight on it.',
     players: true,
   },
   initiative: {

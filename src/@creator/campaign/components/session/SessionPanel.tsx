@@ -15,6 +15,7 @@ import {
 } from '../../chronicle-actions';
 import { EncounterPlanner } from '../EncounterPlanner';
 import { PartyPlayPanel } from '../PartyPlayPanel';
+import { BattleBoard } from './BattleBoard';
 import { ChecksPanel } from './ChecksPanel';
 import { HandoutsPanel } from './HandoutsPanel';
 import { InitiativeTracker } from './InitiativeTracker';
@@ -194,6 +195,18 @@ export function SessionPanel({ campaignId }: { campaignId: string }) {
         refresh={refresh}
         onError={setError}
       />
+
+      {/* Under the order and above the dice: the board is where the order is
+          standing. For a player it only appears once there is one. */}
+      {(isStaff || state.battlemap) && (
+        <BattleBoard
+          campaignId={campaignId}
+          state={state}
+          isStaff={isStaff}
+          refresh={refresh}
+          onError={setError}
+        />
+      )}
 
       <TimerPanel
         campaignId={campaignId}

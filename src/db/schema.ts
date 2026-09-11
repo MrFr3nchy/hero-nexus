@@ -1801,6 +1801,100 @@ export const campaignCheckTargets = sqliteTable(
   ]
 );
 
+/* --- The sand table (0041) -------------------------------------------- */
+
+/**
+ * A battlefield: authored in 2D, rendered in 3D.
+ *
+ * **Not `campaignMaps`.** That is a region map — an uploaded picture with
+ * pins on it, lore furniture with a campaign's lifetime. This is a room with a
+ * fight in it. `terrain` is a `TerrainDoc` stored whole as JSON, the way
+ * `characters.sheet` is, because a document read whole and written whole has
+ * no business being 1,600 rows.
+ *
+ * Fog of war is `revealed` plus a **server-side** filter over it in
+ * `battlemap.ts` — never the renderer hiding things. If the whole document
+ * travels and the client hides the unrevealed parts, a player opens devtools
+ * and reads the dungeon. See `docs/handoff/the-sand-table/README.md`,
+ * decision 6.
+ */
+export const battleMaps = sqliteTable(
+  'battle_maps',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** The fight this board is for. Kept when the fight is deleted: the room is
+     * an authored thing the DM may run again. */
+    encounterId: text('encounter_id').references(
+      () => initiativeEncounters.id,
+      { onDelete: 'set null' }
+    ),
+    name: text('name').notNull().default(''),
+    /** `TerrainDoc`, JSON. Normalised on read by `normalizeTerrain`. */
+    terrain: text('terrain', { mode: 'json' }).notNull(),
+    /** Revealed tile indices, JSON array. Empty: the party has seen nothing. */
+    revealed: text('revealed', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    /** On the table now. At most one per campaign; partial unique index. */
+    isActive: integer('is_active', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('battle_maps_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * Where a combatant — or a barrel — is standing.
+ *
+ * A token is a **position for an `initiativeEntries` row**, not a second
+ * combatant model. The entry already carries label, HP, AC, conditions, side
+ * and turn order, and `getLiveState` already filters all of it by role. A
+ * parallel model is how a token shows 12 HP while the tracker shows 4.
+ *
+ * `entryId` is nullable for scenery, and cascades: a combatant removed from
+ * the fight leaves the board with them. `label` is read only when there is no
+ * entry — a combatant's token reads its name off the entry live, because
+ * `numberDuplicates` renames "Goblin" to "Goblin 1" when a second one arrives.
+ */
+export const battleMapTokens = sqliteTable(
+  'battle_map_tokens',
+  {
+    id: uuid(),
+    mapId: text('map_id')
+      .notNull()
+      .references(() => battleMaps.id, { onDelete: 'cascade' }),
+    entryId: text('entry_id').references(() => initiativeEntries.id, {
+      onDelete: 'cascade',
+    }),
+    label: text('label').notNull().default(''),
+    x: integer('x').notNull(),
+    y: integer('y').notNull(),
+    /** Feet above the tile's own elevation. */
+    altitude: integer('altitude').notNull().default(0),
+    /** 1 medium, 2 large, 3 huge — tiles per side. */
+    footprint: integer('footprint').notNull().default(1),
+    tint: text('tint').notNull().default(''),
+    /** `dm` is the ambush the party has not seen. */
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('shared'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('battle_map_tokens_map_idx').on(t.mapId)]
+);
+
 export const publications = sqliteTable(
   'publications',
   {

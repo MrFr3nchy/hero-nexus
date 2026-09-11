@@ -32,6 +32,7 @@ import {
   users,
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
+import { getBattleMapState, type BattleMapState } from './battlemap';
 import { listChecks, type CheckRow } from './checks';
 import { listMaps, type MapRow } from './maps';
 import { listPartyPlayState, type PlayState } from './play';
@@ -160,6 +161,13 @@ export interface LiveState {
    * may see on it. Null when nothing is lit.
    */
   spotlight: MapRow | null;
+  /**
+   * The battlefield on the table, fogged for a player. Null when none is
+   * active or a player may not see it. Read here rather than behind a poller
+   * of its own, so there is one filter for everything a player sees of a
+   * fight — the sand-table handoff's own recommendation.
+   */
+  battlemap: BattleMapState;
   /** The viewer's own linked character, so the tracker can say "your turn". */
   viewerCharacterId: string | null;
 }
@@ -322,10 +330,11 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
 
   // Both are their own modules and already role-filtered there — these are
   // reads, not second places that decide what a player may see.
-  const [checks, party, maps] = await Promise.all([
+  const [checks, party, maps, battlemap] = await Promise.all([
     listChecks(campaignId),
     listPartyPlayState(campaignId),
     listMaps(campaignId),
+    getBattleMapState(campaignId, { userId, role }),
   ]);
   // `listMaps` already dropped anything this viewer may not see, and lighting
   // a map shares it — so a spotlight found here is one they are allowed.
@@ -372,6 +381,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     checks,
     party,
     spotlight,
+    battlemap,
     viewerCharacterId: membership?.characterId ?? null,
   };
 }
