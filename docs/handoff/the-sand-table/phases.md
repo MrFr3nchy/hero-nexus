@@ -254,7 +254,7 @@ edit to the map. `0045_interactive_tokens.sql` puts `state`, `lock_dc`, `hp_curr
 hit points are on the sheet and in the order).
 
 - [x] **What a thing is.** `state` is null for a boulder, else `open | closed | locked
-    | broken`. Open and broken things do not block their tile — `blocksTile` in
+| broken`. Open and broken things do not block their tile — `blocksTile` in
       `@shared/battlemap/types.ts`, applied by the server when it checks a drop and by
       both boards when they light a reach, so the two cannot disagree. `lockDc` and
       the hit points are the DM's on the wire, the way a foe's numbers are: a player
@@ -300,6 +300,117 @@ put `{"kind":"thing","what":"opened"}` on the player's stream. In Chrome as the 
 the padlock on the 2D token, the _What it is_ popover reading the door back and
 setting it locked, _Pick the lock_ from the status line giving, the door standing as a
 north-facing plane in 3D and swung out of its frame once open, the _Thing_ row.
+
+## Phase 8 — Looking the part `[built]`
+
+Seven phases made the board correct. It did not look like anything: the owner's
+words were that the 2.5D idea was right but the render looked like "a bunch of game
+pieces from another board shoved together", cramped, and the 2D board "not looking
+good at all". Every one of those had a cause you could point at in Chrome: the board
+framed by its bounding sphere floated small in a black void; floors, walls and cliff
+sides were flat untextured boxes in the swatch colour; every token stood on a disc
+painted edge to edge in its side's colour — the counter, not the miniature; and the
+DM's 2D board was washed mustard because every _revealed_ tile got a gold tint, which
+is most of the board most of the time.
+
+**Not** models and textures from a pack — the README put that out of scope, and the
+app makes no outbound calls. Everything below is drawn from the palette's own swatches.
+
+- [x] **`src/@shared/battlemap/art.ts`.** The board's surfaces as small canvases:
+      flagstones with mortar and a worn edge, dirt with grit and pebbles, grass as
+      strokes, planks with grain and knots, still water, rubble, lava as crust and
+      cracks; running-bond masonry for walls; earth in strata for the side of a raised
+      tile; planks in iron bands for doors and barrels; a glow, a flame, a reach mark.
+      Seeded, so a floor tiles the same way on every rebuild (rule 4). Canvas 2D only,
+      shared by both boards, one canvas per look and palette, drawn once.
+- [x] **The 3D floor.** Each tile is a column from the board's lowest point to its
+      own top — a pit shows its neighbours' sides, and a tile below −7 ft no longer
+      gets a negative height — with the material's drawing on top and strata on the
+      sides (a box has six material slots, and instancing keeps them). A seeded shade
+      per instance so a room is not wallpaper. The five-foot grid is a darker line
+      baked into each tile's edge.
+- [x] **Walls, doors, windows, rails.** Masonry with a coping along the top, which is
+      what makes an extruded box read as something built. A door is two jambs, a
+      lintel and a plank leaf; open, the leaf is **swung on its hinge** rather than
+      shrunk to a stub. A window is a sill, a lintel and an arcane pane between; a rail
+      is posts and two rails in iron.
+- [x] **Props assembled from solids.** A barrel with hoops, a pillar with a plinth and
+      a capital, a tree as a trunk under three crowns, a chest with a lid and a gilt
+      clasp, a table on four legs, an altar with a candle, a statue on a pedestal,
+      rubble as three stones. Each recognisable from the opening camera.
+- [x] **Braziers.** An iron bowl on a post, coals, a still flame sprite, a pool of
+      warm light on the floor, and a stronger point light. Nothing flickers.
+- [x] **The table.** A wide plain surface under the board, the design language's own
+      ground at the centre darkening to the edge — a desk in the parchment palette, a
+      table in candlelight — with the fog and the backdrop sharing its far colour, so
+      the room sits on something. The sun now stands on the camera's side of the board
+      (the first cut had it opposite, and every face the opening view saw was its own
+      shadow), a cool rim behind, more fill in the dark palette.
+- [x] **Framing.** The board's _box_ corners are fitted to the canvas edges by binary
+      search on distance, from a lower bearing; the sphere fit left a long room small
+      in the middle. `F` frames it again; `T` still goes straight down. The canvas is
+      two-thirds of its width rather than 62%.
+- [x] **The miniature, not the counter.** A pewter base a third of a tile wide with
+      the side's colour as a thin rim; a soft ring of that colour on the floor under
+      it; a dark contact pool, since a sprite casts no shadow; hit points as an **arc**
+      round the base in the HeroCard tone, so the length says how much is left; the
+      turn marker a gold ring with four pips, turned by the loop, because a smooth
+      torus spinning on its own axis was motion nobody could see; a nameplate over
+      every head. A player still sees no arc on a foe (the server nulled the numbers).
+- [x] **Tap to move, in 3D.** Tap your token — its reach lights as dashed gold
+      squares, the mark the 2D board uses, so a reach covering the whole room still
+      reads as squares — then tap a lit tile to walk there. The same two taps the 2D
+      board takes, and the easier way in on a phone. Drag still works. The tile under
+      the pointer is outlined gold, or in the danger tone where the token cannot
+      stand; the cursor is a hand over a token. A tap on bare floor lets the selection
+      go; a pointer-up that has travelled is an orbit and touches nothing.
+- [x] **The 2D board.** Tiles drawn from the same surfaces, with a per-tile shade;
+      ledges as a shadow on the low side and a lit lip on the high side, with the feet
+      small for anybody who wants them; walls as dark masonry with a lit top and a
+      shadow beside them; a door as its leaf, swung with the arc it swept when open,
+      strapped when closed; braziers as a bowl with a flame in a pool of light; props
+      in stone, wood or leaf; tokens as the same pewter base, rim, halo and HP arc the
+      3D view stands up.
+- [x] **Fog, the other way round.** The DM's board hatches what the party has _not_
+      been shown, rather than washing what they have. The hidden part is the smaller
+      set and the one the DM is deciding about; the reach can be a gold fill again
+      because nothing else is.
+- [x] **The toolbar.** One strip of modes — Select, Floor, Height, Build, Things, Fog —
+      and one row of the chosen mode's tools, with a scrawl saying what a tap does now.
+      Twenty-five buttons across two rows became six and a row.
+
+**Traps.** `disposeGroup` in `BattleMap3D.tsx` disposes textures as well as
+materials — `material.dispose()` alone leaves the canvas texture on the GPU, and a
+board rebuilt on every paint stroke would collect them. The token `onSelect` now takes
+`null`. `buildTokens` grew a trailing `dark` parameter for the pewter.
+
+**Verified** — 29 headless assertions against `buildTerrain`, `buildTable` and
+`buildTokens` with a stub document: one instanced floor per material with six
+material slots and per-instance colour; a ledge column standing on the board's floor
+with its top at +2 units and a pit's column with a positive height; a wall's body and
+coping on the east edge of (1,1); a door on an east edge turned to lie along z with an
+open leaf swung on its hinge; a brazier with its light and flame; the table under the
+lowest column; Kessa's HP arc a quarter turn in the danger tone at 10/40, the turn
+marker with four pips, a nameplate; a Large ogre centred on its 2×2, no arc for a foe
+with nulled HP, a faint base for a DM-only token, the selection ring outside a Large
+base. `three` still in its own two chunks. In Chrome as the DM, both palettes: the
+framed board on its table, flagstones and masonry, the ledge's strata, the swung door,
+the brazier's flame, pewter bases with rims and arcs, nameplates; a tap on Kessa lit
+61 dashed squares and a tap on a tile walked her there and the database agreed; the
+hover outline gold on floor and following the pointer; the mode strip and the Build
+row; the 2D board with hatched fog, textured tiles, the wall's shadow and the door's
+swing. Found on the way and fixed on sight: the first sun lit the wrong faces (above);
+the dark palette's masonry and strata were drawn too dark to catch the fill; water
+with low roughness read as white plastic under the rim light; the pewter base on the
+parchment board read as a hole until it was warmed and shrunk; a reach of 61 tiles at
+0.22 opacity was invisible as a tint, which is why it is squares.
+
+**Verified from the player's seat** — signed in as the verification player, both
+boards: the unrevealed room absent (the same tiles the DM's board hatches); the ogres
+with a red rim and no HP arc; a tap on Kessa lighting her reach and a tap on a tile
+walking her there, the database agreeing at (1,6); a tap on an ogre selecting it with
+no reach and no hover outline; a tap on bare floor letting the selection go and moving
+nothing; a drag from the ogre orbiting the room and leaving it standing.
 
 ## Still to do
 

@@ -20,8 +20,9 @@ the bundle. If the 3D work stalls, phase 1 still leaves the app better than it f
 **Phase 6 — paper standees — is built**: heroes stand as their portraits, a token
 can stand as any of the campaign's pictures, and a picture can stand on a tile.
 **Phase 7 — things a table can do something to — is built**: a door that is open,
-closed or locked, picked or broken, by the people beside it. See
-[phases.md](phases.md).
+closed or locked, picked or broken, by the people beside it. **Phase 8 — looking the
+part — is built**: drawn surfaces on both boards, miniatures instead of counters, a
+table under the room, and tap-to-move in 3D. See [phases.md](phases.md).
 
 **Branch: `feat/the-sand-table`, cut from `feat/the-same-room`.** Not from `main`: the
 map needs the stream, and the stream is on that branch.
