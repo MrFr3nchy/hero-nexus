@@ -15,9 +15,14 @@ import {
   SCREEN_COLUMN_COUNTS,
   SCREEN_PANELS,
   SCREEN_PANEL_KEYS,
+  type BattleLayout,
   type ScreenLayout,
+  type ScreenLayouts,
   type ScreenPanelKey,
+  type TableKind,
 } from '../../lib/screen';
+import { BattleArrangement } from './BattleArrangement';
+import { TableRibbon } from './TableRibbon';
 import { createEncounterAction } from '../../actions';
 import { listSessionsAction } from '../../chronicle-actions';
 import { getScreenAction, saveScreenAction } from '../../screen-actions';
@@ -253,6 +258,16 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
     case 'feed':
       return <FeedPanel campaignId={ctx.campaignId} />;
 
+    case 'attacks':
+    case 'statblock':
+      // Registered ahead of being built, so a shelf can be arranged around
+      // them. Phase 2 of the-three-tables fills these in.
+      return (
+        <p className="px-1 py-2 text-xs text-ink-subtle">
+          {SCREEN_PANELS[id].label} is on its way.
+        </p>
+      );
+
     case 'reveals':
       return (
         <RevealTimeline
@@ -368,7 +383,7 @@ export function DmScreen({
   const isStaff = campaign.role === 'gm' || campaign.role === 'co-gm';
 
   const live = useCampaignLive(campaign.id);
-  const [layout, setLayout] = useState<ScreenLayout | null>(null);
+  const [layouts, setLayouts] = useState<ScreenLayouts | null>(null);
   const [arranging, setArranging] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -382,7 +397,7 @@ export function DmScreen({
 
   useEffect(() => {
     getScreenAction(campaign.id)
-      .then(s => setLayout(s.layout))
+      .then(s => setLayouts(s.layouts))
       .catch(() => setError('Failed to open your screen.'));
   }, [campaign.id]);
 
@@ -400,25 +415,46 @@ export function DmScreen({
   }, [loadSide]);
 
   const save = useCallback(
-    async (next: ScreenLayout) => {
+    async (next: ScreenLayouts) => {
       const res = await saveScreenAction(campaign.id, next);
       if (!res.ok) {
         setError(res.error);
         return;
       }
-      setLayout(res.data);
+      setLayouts(res.data);
       setDirty(false);
     },
     [campaign.id]
   );
 
-  if (!layout) {
+  if (!layouts) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-bg">
         <DiceSpinner label="Setting up the screen…" />
       </div>
     );
   }
+
+  /*
+   * Which table this screen is set for: the viewer's pin if they have one,
+   * else what the campaign is at, else the table while the first read lands.
+   * The arrangement follows it — and so does the shape, because the sand
+   * table is not columns but a board with a shelf.
+   */
+  const current: TableKind = layouts.pin ?? live.state?.table ?? 'table';
+  const layout: ScreenLayout =
+    current === 'battle' ? layouts.table : layouts[current];
+
+  const setPin = async (pin: TableKind | null) => {
+    const next = { ...layouts, pin };
+    setLayouts(next);
+    await save(next);
+  };
+
+  const changeBattle = (next: BattleLayout) => {
+    setLayouts({ ...layouts, battle: next });
+    setDirty(true);
+  };
 
   const ctx: ScreenContext = {
     campaignId: campaign.id,
@@ -441,7 +477,10 @@ export function DmScreen({
   const spare = allowed.filter(key => !onScreen.includes(key));
 
   const change = (next: ScreenLayout) => {
-    setLayout(next);
+    // Written into the arrangement for the table the screen is set to, and
+    // never into the battle one, which is a different shape.
+    const key: 'desk' | 'table' = current === 'desk' ? 'desk' : 'table';
+    setLayouts({ ...layouts, [key]: next });
     setDirty(true);
   };
 
@@ -483,6 +522,18 @@ export function DmScreen({
         <Ribbon tone={isStaff ? 'gold' : 'neutral'}>
           {isStaff ? 'Behind the screen' : 'At the table'}
         </Ribbon>
+        {live.state && (
+          <TableRibbon
+            campaignId={campaign.id}
+            state={live.state}
+            isStaff={isStaff}
+            current={current}
+            pinned={layouts.pin}
+            onPin={setPin}
+            refresh={live.refresh}
+            onError={setError}
+          />
+        )}
 
         {live.error && (
           <span className="text-xs text-warning">{live.error}</span>
@@ -490,7 +541,7 @@ export function DmScreen({
         {error && <span className="text-xs text-danger">{error}</span>}
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {arranging && (
+          {arranging && current !== 'battle' && (
             <>
               <Select
                 aria-label="How many columns"
@@ -550,7 +601,7 @@ export function DmScreen({
             variant={arranging ? 'solid' : 'flat'}
             color={arranging ? 'primary' : 'default'}
             onPress={async () => {
-              if (arranging && dirty) await save(layout);
+              if (arranging && dirty) await save(layouts);
               setArranging(!arranging);
             }}
           >
@@ -567,125 +618,145 @@ export function DmScreen({
         </div>
       </header>
 
-      {/* The desk. Columns of equal standing, with the fold given a grid
-          column of its own so it always lands in a gutter and never crosses a
-          box. Below `lg` the columns stack and the fold goes: a phone has no
-          middle. */}
-      <div
-        className="grid min-h-0 flex-1 gap-2 p-2 max-lg:!grid-cols-1 max-lg:overflow-y-auto"
-        style={{
-          // A crease in every gutter, not just the middle one. A real screen
-          // folds between each pair of panels, and with an odd number of
-          // columns there is no middle gutter to put a single fold in.
-          gridTemplateColumns: layout.columns
-            .map((_, i) => (i === 0 ? '1fr' : 'auto 1fr'))
-            .join(' '),
-        }}
-      >
-        {layout.columns.map((column, columnIndex) => (
-          <div key={columnIndex} className="contents">
-            {columnIndex > 0 && (
-              <div
-                aria-hidden="true"
-                className="relative w-3 self-stretch max-lg:hidden"
-              >
-                {/* The crease. Two hairlines with a shadow between them read as
+      {current === 'battle' && live.state ? (
+        <BattleArrangement
+          layout={layouts.battle}
+          arranging={arranging}
+          isStaff={isStaff}
+          onChange={changeBattle}
+          board={fitHeight => (
+            <BattleBoard
+              campaignId={campaign.id}
+              state={live.state!}
+              isStaff={isStaff}
+              refresh={live.refresh}
+              onError={setError}
+              fitHeight={fitHeight}
+            />
+          )}
+          renderPanel={key => <Panel id={key} ctx={ctx} />}
+        />
+      ) : (
+        /* The desk and the table: columns of equal standing, with the fold
+         given a grid column of its own so it always lands in a gutter and
+         never crosses a box. Below `lg` the columns stack and the fold goes:
+         a phone has no middle. */
+        <div
+          className="grid min-h-0 flex-1 gap-2 p-2 max-lg:!grid-cols-1 max-lg:overflow-y-auto"
+          style={{
+            // A crease in every gutter, not just the middle one. A real screen
+            // folds between each pair of panels, and with an odd number of
+            // columns there is no middle gutter to put a single fold in.
+            gridTemplateColumns: layout.columns
+              .map((_, i) => (i === 0 ? '1fr' : 'auto 1fr'))
+              .join(' '),
+          }}
+        >
+          {layout.columns.map((column, columnIndex) => (
+            <div key={columnIndex} className="contents">
+              {columnIndex > 0 && (
+                <div
+                  aria-hidden="true"
+                  className="relative w-3 self-stretch max-lg:hidden"
+                >
+                  {/* The crease. Two hairlines with a shadow between them read as
                     folded card at a glance; one line reads as a border. */}
-                <span className="absolute inset-y-2 left-1 w-px bg-gold/25" />
-                <span className="absolute inset-y-2 right-1 w-px bg-gold/25" />
-                <span className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-ink/20" />
-              </div>
-            )}
-
-            <div
-              ref={el => {
-                columnRefs.current[columnIndex] = el;
-              }}
-              onDragOver={event => {
-                if (!dragged) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-                setDropAt({
-                  column: columnIndex,
-                  index: dropIndexIn(columnIndex, event.clientY),
-                });
-              }}
-              onDrop={event => {
-                event.preventDefault();
-                if (!dragged || !dropAt) return;
-                change(movePanel(layout, dragged, dropAt));
-                setDragged(null);
-                setDropAt(null);
-              }}
-              className={`flex min-h-0 flex-col gap-2 rounded-[var(--radius-card)] max-lg:min-h-64 ${
-                arranging && column.length === 0
-                  ? 'border border-dashed border-line'
-                  : ''
-              } ${
-                dragged && dropAt?.column === columnIndex
-                  ? 'bg-gold/[0.05] outline outline-1 outline-gold/30'
-                  : ''
-              }`}
-            >
-              {column.length === 0 && arranging && (
-                <p className="m-auto px-2 text-center text-xs text-ink-subtle">
-                  Drop a box here
-                </p>
+                  <span className="absolute inset-y-2 left-1 w-px bg-gold/25" />
+                  <span className="absolute inset-y-2 right-1 w-px bg-gold/25" />
+                  <span className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-ink/20" />
+                </div>
               )}
 
-              {column.map((key, boxIndex) => {
-                const meta = SCREEN_PANELS[key];
-                return (
-                  <div key={key} className="contents">
-                    {dragged &&
-                      dropAt?.column === columnIndex &&
-                      dropAt.index === boxIndex && (
-                        <div
-                          aria-hidden="true"
-                          className="h-0.5 shrink-0 rounded bg-gold"
-                        />
-                      )}
-                    <ScreenBox
-                      id={key}
-                      title={meta.label}
-                      glyph={<Glyph name={meta.glyph} size={13} />}
-                      available={[key, ...spare]}
-                      arranging={arranging}
-                      dragging={dragged === key}
-                      onDragStart={() => setDragged(key)}
-                      onDragEnd={() => {
-                        setDragged(null);
-                        setDropAt(null);
-                      }}
-                      onSwap={next =>
-                        change({
-                          columns: layout.columns.map(col =>
-                            col.map(k => (k === key ? next : k))
-                          ),
-                        })
-                      }
-                      onRemove={() =>
-                        change({ columns: withoutPanel(layout, key) })
-                      }
-                    >
-                      <Panel id={key} ctx={ctx} />
-                    </ScreenBox>
-                  </div>
-                );
-              })}
-
-              {dragged &&
-                dropAt?.column === columnIndex &&
-                dropAt.index >= column.length && (
-                  <div
-                    aria-hidden="true"
-                    className="h-0.5 shrink-0 rounded bg-gold"
-                  />
+              <div
+                ref={el => {
+                  columnRefs.current[columnIndex] = el;
+                }}
+                onDragOver={event => {
+                  if (!dragged) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
+                  setDropAt({
+                    column: columnIndex,
+                    index: dropIndexIn(columnIndex, event.clientY),
+                  });
+                }}
+                onDrop={event => {
+                  event.preventDefault();
+                  if (!dragged || !dropAt) return;
+                  change(movePanel(layout, dragged, dropAt));
+                  setDragged(null);
+                  setDropAt(null);
+                }}
+                className={`flex min-h-0 flex-col gap-2 rounded-[var(--radius-card)] max-lg:min-h-64 ${
+                  arranging && column.length === 0
+                    ? 'border border-dashed border-line'
+                    : ''
+                } ${
+                  dragged && dropAt?.column === columnIndex
+                    ? 'bg-gold/[0.05] outline outline-1 outline-gold/30'
+                    : ''
+                }`}
+              >
+                {column.length === 0 && arranging && (
+                  <p className="m-auto px-2 text-center text-xs text-ink-subtle">
+                    Drop a box here
+                  </p>
                 )}
+
+                {column.map((key, boxIndex) => {
+                  const meta = SCREEN_PANELS[key];
+                  return (
+                    <div key={key} className="contents">
+                      {dragged &&
+                        dropAt?.column === columnIndex &&
+                        dropAt.index === boxIndex && (
+                          <div
+                            aria-hidden="true"
+                            className="h-0.5 shrink-0 rounded bg-gold"
+                          />
+                        )}
+                      <ScreenBox
+                        id={key}
+                        title={meta.label}
+                        glyph={<Glyph name={meta.glyph} size={13} />}
+                        available={[key, ...spare]}
+                        arranging={arranging}
+                        dragging={dragged === key}
+                        onDragStart={() => setDragged(key)}
+                        onDragEnd={() => {
+                          setDragged(null);
+                          setDropAt(null);
+                        }}
+                        onSwap={next =>
+                          change({
+                            columns: layout.columns.map(col =>
+                              col.map(k => (k === key ? next : k))
+                            ),
+                          })
+                        }
+                        onRemove={() =>
+                          change({ columns: withoutPanel(layout, key) })
+                        }
+                      >
+                        <Panel id={key} ctx={ctx} />
+                      </ScreenBox>
+                    </div>
+                  );
+                })}
+
+                {dragged &&
+                  dropAt?.column === columnIndex &&
+                  dropAt.index >= column.length && (
+                    <div
+                      aria-hidden="true"
+                      className="h-0.5 shrink-0 rounded bg-gold"
+                    />
+                  )}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

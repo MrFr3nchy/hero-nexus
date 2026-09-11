@@ -3,8 +3,8 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 
 import {
-  normalizeLayout,
-  type ScreenLayout,
+  normalizeLayouts,
+  type ScreenLayouts,
 } from '@/@creator/campaign/lib/screen';
 import { db } from '@/db';
 import { campaignScreenLayouts } from '@/db/schema';
@@ -12,7 +12,8 @@ import { requireCampaignRole, type CampaignRole } from './campaigns';
 
 export interface ScreenState {
   role: CampaignRole;
-  layout: ScreenLayout;
+  /** All three arrangements and the pin. One row, one read. */
+  layouts: ScreenLayouts;
 }
 
 /**
@@ -38,7 +39,7 @@ export async function getScreen(campaignId: string): Promise<ScreenState> {
     ),
   });
 
-  return { role, layout: normalizeLayout(row?.layout, isStaff) };
+  return { role, layouts: normalizeLayouts(row?.layout, isStaff) };
 }
 
 /**
@@ -51,14 +52,14 @@ export async function getScreen(campaignId: string): Promise<ScreenState> {
 export async function saveScreen(
   campaignId: string,
   layout: unknown
-): Promise<ScreenLayout> {
+): Promise<ScreenLayouts> {
   const { userId, role } = await requireCampaignRole(campaignId, [
     'gm',
     'co-gm',
     'player',
   ]);
   const isStaff = role === 'gm' || role === 'co-gm';
-  const clean = normalizeLayout(layout, isStaff);
+  const clean = normalizeLayouts(layout, isStaff);
 
   const existing = await db.query.campaignScreenLayouts.findFirst({
     where: and(

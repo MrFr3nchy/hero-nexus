@@ -261,3 +261,25 @@ h4 {
 .screen-box-body [data-empty-scene] {
   display: none;
 }
+
+/* ------------------------------------------------------------------
+ * The shelf beside the sand table.
+ *
+ * Denser than a screen box: the shelf is a column beside a battle map and
+ * every pixel of it is something a player reaches for mid-round. Named in
+ * docs/handoff/the-three-tables/README.md as a convention broken on purpose.
+ * ------------------------------------------------------------------ */
+
+.shelf-dense {
+  font-size: 0.8125rem;
+}
+
+.shelf-dense [data-card] > * {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.shelf-dense h2,
+.shelf-dense h3 {
+  font-size: 0.875rem;
+}

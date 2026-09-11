@@ -329,17 +329,21 @@ export async function setBattleMapActive(
     .where(eq(battleMaps.campaignId, map.campaignId));
 
   if (active) {
-    let encounterId = map.encounterId;
-    if (!encounterId) {
-      const fight = await db.query.initiativeEncounters.findFirst({
-        columns: { id: true },
-        where: and(
-          eq(initiativeEncounters.campaignId, map.campaignId),
-          eq(initiativeEncounters.isActive, true)
-        ),
-      });
-      encounterId = fight?.id ?? null;
-    }
+    /*
+     * Bind to the fight that is running now, whatever the board remembered.
+     * A board keeps the id of the last fight it was used for so its tokens
+     * survive the evening; but "put it on the table" means tonight's fight,
+     * and dealing tonight's combatants into last week's encounter dealt
+     * nobody — found when a re-activated board reported "dealt: 0".
+     */
+    const fight = await db.query.initiativeEncounters.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(initiativeEncounters.campaignId, map.campaignId),
+        eq(initiativeEncounters.isActive, true)
+      ),
+    });
+    const encounterId = fight?.id ?? map.encounterId;
     await db
       .update(battleMaps)
       .set({ isActive: true, encounterId, updatedAt: new Date().toISOString() })

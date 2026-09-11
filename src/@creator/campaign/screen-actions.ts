@@ -1,6 +1,6 @@
 'use server';
 
-import type { ScreenLayout } from './lib/screen';
+import type { ScreenLayouts } from './lib/screen';
 import { getScreen, saveScreen, type ScreenState } from '@/server/screen';
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -14,7 +14,7 @@ export async function getScreenAction(
 export async function saveScreenAction(
   campaignId: string,
   layout: unknown
-): Promise<Result<ScreenLayout>> {
+): Promise<Result<ScreenLayouts>> {
   try {
     return { ok: true, data: await saveScreen(campaignId, layout) };
   } catch (err) {

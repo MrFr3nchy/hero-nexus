@@ -34,6 +34,7 @@ import {
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { portraitsFor } from './character-portraits';
 import { getBattleMapState, type BattleMapState } from './battlemap';
+import type { TableKind } from '@/@creator/campaign/lib/screen';
 import { listChecks, type CheckRow } from './checks';
 import { listMaps, type MapRow } from './maps';
 import { listPartyPlayState, type PlayState } from './play';
@@ -124,6 +125,13 @@ export interface SittingRow {
 
 export interface LiveState {
   role: CampaignRole;
+  /**
+   * Which of the three tables the campaign is at. **Derived**: no sitting is
+   * the desk; a sitting with no fight running is the table; a sitting with a
+   * fight running is the sand table. The DM already has the two verbs that
+   * change it, and a stored mode would only ever disagree with them.
+   */
+  table: TableKind;
   /** The sitting in progress, or null. This is what makes a room a room. */
   sitting: SittingRow | null;
   /**
@@ -369,8 +377,15 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     ),
   });
 
+  const table: TableKind = !sittingRow
+    ? 'desk'
+    : encounter?.isActive
+      ? 'battle'
+      : 'table';
+
   return {
     role,
+    table,
     sitting: sittingRow
       ? {
           id: sittingRow.id,

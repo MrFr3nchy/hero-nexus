@@ -183,12 +183,20 @@ export function BattleBoard({
   isStaff,
   refresh,
   onError,
+  fitHeight,
 }: {
   campaignId: string;
   state: LiveState;
   isStaff: boolean;
   refresh: () => void | Promise<void>;
   onError: (message: string) => void;
+  /**
+   * Pixels of height the board may use, when it is the main region of a
+   * screen rather than a card on a page. Given, the tile size is the smaller
+   * of what fits across and what fits down, so the whole board is in view
+   * without scrolling — which is the point of putting it in front.
+   */
+  fitHeight?: number;
 }) {
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === 'dark';
@@ -651,7 +659,18 @@ export function BattleBoard({
     if (dimensional) return;
     const p = readPalette(dark);
     const width = wrap.clientWidth;
-    const size = Math.floor(width / terrain.w);
+    let size = Math.floor(width / terrain.w);
+    if (fitHeight) {
+      // Whatever sits above the canvas inside the region — the title bar, the
+      // tools — is measured rather than guessed, so a DM's two tool rows and
+      // a player's none both leave the board exactly filling what is left.
+      const region = wrap.closest('[data-board-region]');
+      const above = region
+        ? wrap.getBoundingClientRect().top - region.getBoundingClientRect().top
+        : 0;
+      const room = fitHeight - above - 48;
+      size = Math.max(2, Math.min(size, Math.floor(room / terrain.h)));
+    }
     if (size < 2) return;
     const W = size * terrain.w;
     const H = size * terrain.h;
@@ -1001,6 +1020,7 @@ export function BattleBoard({
     dimensional,
     pendingCount,
     brush,
+    fitHeight,
   ]);
 
   // Redraw on resize: the canvas is sized off its container.
@@ -1310,7 +1330,13 @@ export function BattleBoard({
 
       <div
         ref={wrapRef}
-        className={dimensional ? 'hidden' : 'w-full overflow-x-auto'}
+        className={
+          dimensional
+            ? 'hidden'
+            : fitHeight
+              ? 'flex w-full justify-center overflow-x-auto'
+              : 'w-full overflow-x-auto'
+        }
       >
         <canvas
           ref={canvasRef}

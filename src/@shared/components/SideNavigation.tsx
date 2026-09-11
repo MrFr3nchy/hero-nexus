@@ -154,7 +154,17 @@ export const NAV_HREFS: string[] = [
 export function SideNavigation() {
   const { logout, currentUser } = useAuth();
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
+  /*
+   * Folded to its icon strip on the screen route. The screen is the one page
+   * a table operates for four hours, and a 15rem column of shelves it is not
+   * reading is a fifth of a laptop given to the compendium. The hand control
+   * still works there; this only sets where it starts. Named in
+   * docs/handoff/the-three-tables/README.md as a convention broken on purpose.
+   */
+  const onScreen = /^\/campaigns\/[^/]+\/screen/.test(pathname);
+  const [collapsedByHand, setCollapsedByHand] = useState<boolean | null>(null);
+  const collapsed = collapsedByHand ?? onScreen;
+  const setCollapsed = (next: boolean) => setCollapsedByHand(next);
 
   const firstName =
     currentUser?.name?.trim().split(/\s+/)[0] ||
@@ -240,7 +250,7 @@ export function SideNavigation() {
           variant="light"
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           className="text-ink-muted"
-          onPress={() => setCollapsed(v => !v)}
+          onPress={() => setCollapsed(!collapsed)}
         >
           <Icon
             icon={collapsed ? 'ph:caret-right-bold' : 'ph:caret-left-bold'}

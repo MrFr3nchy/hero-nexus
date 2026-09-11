@@ -62,6 +62,8 @@ export type GlyphName =
   | 'key'
   | 'plus'
   | 'arrow-right'
+  | 'chevron-up'
+  | 'chevron-down'
   | 'x'
   | 'pencil';
 
@@ -297,6 +299,10 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
   // "go there": the builder's outstanding-decision list jumps to the step
   // that settles each one. Drawn short and blunt so it still reads at 13px.
   'arrow-right': <path d="M5 12h13M12.5 6.5 18.5 12l-6 5.5" />,
+  // Furniture: reorder a row on the shelf. Blunt, like the arrow, so a 11px
+  // chevron is still a chevron.
+  'chevron-up': <path d="M6 15l6-6 6 6" />,
+  'chevron-down': <path d="M6 9l6 6 6-6" />,
   // Furniture: dismiss, remove a row, close a sheet. Drawn rather than typed
   // because the alternatives in use were a rotated `question` mark and an
   // icon-CDN import, and rule 8 bans both for the same reason.
