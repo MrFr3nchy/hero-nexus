@@ -195,6 +195,14 @@ export function buildTerrain(
     if (!wallKinds.has(w.kind)) wallKinds.set(w.kind, []);
     wallKinds.get(w.kind)!.push(w);
   }
+  // A wall is masonry, not a line. `--ink` as a two-unit slab on parchment is
+  // a black monolith — seen on the first light-mode render — so solid walls
+  // and props are ink pulled halfway toward stone: muted, and still darker
+  // than the floor in both palettes.
+  const stoneSwatch = new THREE.Color(
+    dark ? MATERIALS[1].swatchDark : MATERIALS[1].swatch
+  );
+  const masonry = p.ink.clone().lerp(stoneSwatch, dark ? 0.35 : 0.55);
   for (const [kind, walls] of wallKinds) {
     const colour =
       kind === 'door'
@@ -203,7 +211,7 @@ export function buildTerrain(
           ? p.arcane
           : kind === 'rail'
             ? p.inkMuted
-            : p.ink;
+            : masonry;
     const mat = new THREE.MeshStandardMaterial({
       color: colour,
       roughness: 0.8,
@@ -248,7 +256,7 @@ export function buildTerrain(
 
   // Props: a few plain solids. Drawn, never typed, and muted like the floor.
   const propMat = new THREE.MeshStandardMaterial({
-    color: p.inkMuted,
+    color: masonry,
     roughness: 0.9,
   });
   const cylinder = new THREE.CylinderGeometry(0.3, 0.3, 1, 12);
@@ -477,7 +485,7 @@ export default function BattleMap3D({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = dark ? 0.9 : 1.1;
+    renderer.toneMappingExposure = dark ? 1.15 : 1.1;
     el.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
@@ -504,8 +512,12 @@ export default function BattleMap3D({
 
     // Lighting: one warm key that casts the only shadow, one cool fill, and
     // a faint sky so the undersides of ledges are not black.
-    const sun = new THREE.DirectionalLight(p.gold, dark ? 1.6 : 2.4);
-    sun.position.set(cx - span * 0.5, span * 1.2, cz - span * 0.3);
+    // Steep, so a ten-foot wall throws a short shadow rather than one that
+    // swallows the room beside it — seen on the first render, when the east
+    // room read as unlit. Brighter in the dark palette than the number looks:
+    // the floor there is nearly black and needs more light to read at all.
+    const sun = new THREE.DirectionalLight(p.gold, dark ? 2.6 : 2.4);
+    sun.position.set(cx - span * 0.25, span * 1.8, cz - span * 0.15);
     sun.target.position.set(cx, 0, cz);
     sun.castShadow = true;
     sun.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
@@ -518,9 +530,9 @@ export default function BattleMap3D({
     ortho.bottom = -span;
     sun.shadow.bias = -0.0005;
     scene.add(sun, sun.target);
-    scene.add(new THREE.HemisphereLight(p.surface, p.ink, dark ? 0.35 : 0.5));
+    scene.add(new THREE.HemisphereLight(p.surface, p.ink, dark ? 0.9 : 0.5));
     scene.add(
-      new THREE.AmbientLight(new THREE.Color('#8aa4bd'), dark ? 0.25 : 0.3)
+      new THREE.AmbientLight(new THREE.Color('#8aa4bd'), dark ? 0.55 : 0.3)
     );
 
     world.current = {

@@ -21,9 +21,8 @@ the bundle. If the 3D work stalls, phase 1 still leaves the app better than it f
 map needs the stream, and the stream is on that branch.
 
 **Phase 1 is built and verified** — the model, the rules, the fog filter and the 2D
-board. **Phase 2 is built** — the renderer, behind a `Stand it up` toggle, verified for
-geometry and bundle split but **not yet seen rendering**; the browser connection dropped
-before the pixel check and the record below says so. **Two of phase 5's five items are
+board. **Phase 2 is built and seen** — the renderer, behind a `Stand it up` toggle, verified
+for geometry, bundle split, and in a browser in both palettes. **Two of phase 5's five items are
 built** — portraits on the board and interpolated movement. Phases 3 and 4 are open.
 What each run proved is at the foot of this file.
 
@@ -777,15 +776,29 @@ wide enough for the label canvas:
 - After the group refactor: one piece per token by id, children local to the group,
   Kessa's face drawn into her sprite and the portraitless foe's not.
 
-### Not verified, and said plainly
+### In a browser, light and dark
 
-- **The WebGL render.** Nobody has looked at it. The next reader with a browser should:
-  press `Stand it up`, orbit, press `T`, move a token from the 2D board and watch it
-  travel in the 3D view, and confirm both palettes read. Two things most likely to be
-  wrong on first sight: the camera's starting distance for a large board, and the
-  point-light intensity in light mode.
-- **Reduced motion in the renderer.** The code snaps and never fills `moving`; it has
-  not been watched doing so.
+The render was looked at once the browser came back, and it earned three fixes on
+sight — which is the argument for looking:
+
+- **It crashed the page.** The 2D board's draw effect still ran while its canvas was
+  hidden behind the 3D view; a zero-width wrapper made every token radius negative and
+  `arc` threw. The effect now returns when the board is stood up, and radii are clamped.
+- **Dark mode was too dark.** The sun sat low to the west and a ten-foot wall threw a
+  shadow that swallowed the room beside it; the unlit floor was black. The sun is steeper
+  now, and the dark palette gets a brighter fill than the numbers suggest, because the
+  floor there starts nearly black.
+- **Light mode walls were monoliths.** `--ink` as a two-unit slab on parchment is a black
+  wall. Solid walls and props are now ink pulled halfway toward stone in both palettes.
+
+After those: the floor extruded, the ledge as a raised block, the wall with the open door
+as a gold stub at its foot, the chest, the pillar casting a short shadow, warm brazier
+glow on the floor, Kessa's base with a red ring and her billboard, foes with green rings
+and A1's gold turn ring. `T` lerped to straight down — the 2D board in 3D. Moving Kessa
+from outside the browser put her in the east room in the 3D view with nothing pressed.
+
+- **Not watched:** reduced motion in the renderer. The code snaps and never fills
+  `moving`; it has not been seen doing so.
 
 ## Open
 

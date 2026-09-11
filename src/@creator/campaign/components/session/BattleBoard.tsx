@@ -532,9 +532,14 @@ export function BattleBoard({
     const wrap = wrapRef.current;
     if (!canvas || !wrap || !terrain || !board) return;
 
+    // Hidden behind the 3D view the wrapper has no width, and a zero-size
+    // tile makes every radius below negative — `arc` throws on that and the
+    // whole page went down with it. Found in a browser, not by a typecheck.
+    if (dimensional) return;
     const p = readPalette(dark);
     const width = wrap.clientWidth;
     const size = Math.floor(width / terrain.w);
+    if (size < 2) return;
     const W = size * terrain.w;
     const H = size * terrain.h;
     const dpr = window.devicePixelRatio || 1;
@@ -745,7 +750,7 @@ export function BattleBoard({
       const label = entry?.label ?? t.label ?? '';
       const cx = (t.x + t.footprint / 2) * size;
       const cy = (t.y + t.footprint / 2) * size;
-      const r = (size * t.footprint) / 2 - Math.max(3, size * 0.1);
+      const r = Math.max(1, (size * t.footprint) / 2 - Math.max(3, size * 0.1));
 
       // Base.
       ctx.beginPath();
@@ -868,6 +873,7 @@ export function BattleBoard({
     hover,
     tool,
     faceFor,
+    dimensional,
   ]);
 
   // Redraw on resize: the canvas is sized off its container.
