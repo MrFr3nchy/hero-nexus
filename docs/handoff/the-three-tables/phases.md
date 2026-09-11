@@ -13,7 +13,7 @@ stat block only in the light of decision 6 (the entry remembers a reference, nev
 copy).
 
 **Every phase that touches the database edits `src/db/schema.ts` and a new
-`src/db/migrations/NNNN_*.sql` in the same change.** The next free number is `0044`.
+`src/db/migrations/NNNN_*.sql` in the same change.** The next free number is `0045`.
 
 ---
 
@@ -88,7 +88,7 @@ their bonuses and the longbow's range.
 
 - [x] Tap-to-aim proven in a browser, with phase 3. As the player, a foe revealed on
       the board was tapped and the row read `Something · 25 ft`, the longsword `out of
-  reach`, the longbow `in range`; _Hit_ on the longbow rolled a natural 20 in the
+reach`, the longbow `in range`; _Hit_ on the longbow rolled a natural 20 in the
       tray with the hint `to hit vs Something · 25 ft`, and the log carries the same
       label. Found on the way: the target's name was blank for a token whose entry is
       not in the running order — `??` on a label that is the empty string, not null —

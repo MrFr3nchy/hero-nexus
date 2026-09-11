@@ -11,7 +11,7 @@ the runs that proved each phase.
 **Every phase that touches the database edits `src/db/schema.ts` and a new
 `src/db/migrations/NNNN_*.sql` in the same change.** There is no drizzle-kit generate
 step. The sand table took `0041`; `0042` and `0043` went to the-three-tables; the
-next free number is `0044`, and phase 6's monster half wants it.
+next free number is `0045` — `0044` is phase 6's token images.
 
 ---
 
@@ -128,7 +128,7 @@ _No Three.js. No `three` in `package.json`. A usable 2D battle map on its own._
       "25 ft to Aboleth 2" — the same Chebyshev rule the reach uses, so nobody counts
       squares out loud.
 
-## Phase 6 — Paper standees `[hero half built]`
+## Phase 6 — Paper standees `[built]`
 
 The renderer drew every combatant as a disc with a circle floating above it — a face
 when the character had one, two letters when not — and the terrain as extruded boxes.
@@ -151,21 +151,52 @@ Three halves, cheapest and most visible first:
       faces — so this is an evolution of the existing billboard, not a new technique.
       The deckle is seeded, so a card tears the same way on every rebuild: a torn edge
       that changed on every token move would be motion nobody asked for (rule 4).
-- [ ] **Monsters.** A token needs a picture to stand up, and the SRD ships no art.
-      `0044`: a nullable `image_id` on `battle_map_tokens`, a reference into
-      `campaign_images` (content-model rule 1 — reference, never copy), chosen through
-      the existing `ImagePicker` from the token's own controls. A transparent PNG gives
-      a cut-out; anything else a card. No background removal: the app makes no outbound
-      calls, and a cut-out is the DM's to make.
-- [ ] **Trees, statues, furniture.** An `image` prop kind in the `TerrainDoc` beside
-      pillar and chest — `{ kind: 'image', imageId, height }` — painted with the prop
-      tool, rendered as a standee. Billboarded by default; a fixed-orientation option
-      only if somebody asks for a signpost. Bumps the terrain document's version.
+- [x] **Monsters.** `0044_token_images.sql`: a nullable `image_id` on
+      `battle_map_tokens`, a reference into `campaign_images` (content-model rule 1 —
+      reference, never copy), nulled when the image goes so the token stands as
+      initials rather than falling over. `updateToken` refuses an image from another
+      campaign (`NO_SUCH_IMAGE`). The token row carries `imageUrl`, composed on the
+      server so neither board learns the route. A _Give it a picture_ popover on the
+      selected token, staff only, through `ImagePicker` — which grew a `library`
+      strip of the campaign's pictures, because the same ogre stands up five times
+      and uploading it five times is five copies of one file.
+- [x] **Cut-outs stand as themselves.** `isCutout` samples a picture's four corners
+      once and remembers the answer. A cut-out is drawn whole, feet on the base, no
+      card, sized by its own proportions — a paper miniature is cut along its outline,
+      and a card behind an ogre with a raised club was a card, not an ogre. Paintings
+      and initials keep the parchment card.
+- [x] **Trees, statues, doors.** An `image` prop kind in the `TerrainDoc` —
+      `{ kind: 'image', imageId, height, blocks }` — additive and optional, so the
+      document's version did not need to move; `normalizeTerrain` drops an image prop
+      with no image and clamps the height to 1–100 ft. A _Picture_ tool beside the
+      prop select: choose from the library or upload, feet tall, whether it blocks the
+      tile, then tap a tile to stand it there and tap again to take it down. The 2D
+      board draws the picture fitted inside the tile; the 3D view stands it up as the
+      raw image, `height` feet tall, as wide as its proportions make it, billboarded.
+      Fog already drops props on unlit tiles, so a tree in the dark stays dark.
+- [x] **Found on the way: the DM could not see the party's faces.** `canViewCharacter`
+      looked for the viewer's member row, and the GM has none — the trap every targets
+      table in this schema records — so the DM's board drew initials where the players'
+      drew portraits. The GM of the seat's campaign may look now. And a replaced
+      portrait showed stale for five minutes behind the route's cache; the URL is
+      versioned by the portrait row.
 
 **Traps.** Textures are per image and cached by URL through the face cache the two
 boards already share. Fog stays honest — it is a server-side filter on whether the
 footprint is revealed, so a tall standee cannot peek out of the dark. Nothing here
 animates and nothing is an emoji.
+
+**Verified (monsters and props)** — six of the owner's pictures uploaded through the
+real route into the probe campaign's library (a 6 MB tree tripped a pre-existing limit
+on large multipart posts through the middleware — "Response body object should not be
+disturbed or locked" — and went in at 1400 px; recorded under _Still to do_). In
+Chrome as the DM: the library strip in the token popover; the ogre picture chosen for
+Ogre 1, which then stood as a cut-out on its red base with the HP ring, and wore the
+picture in its circle on the 2D board; the _Picture_ tool with the tree at 20 ft and
+the door at 10 ft tapped onto tiles, drawn fitted on the 2D board and standing in 3D;
+the party's faces on the DM's board for the first time. Headless as the player: the
+tree on a lit tile in the live state and the door on a dark one absent; the shared
+ogre's `imageUrl` present; an image id from nowhere refused.
 
 **Verified (heroes)** — in Chrome, from the player's seat, on the probe board with
 two seeded portraits: Kessa as a cut-out figure on a parchment card, Rurik as a painted
@@ -194,6 +225,19 @@ render in a browser — all three, because each catches what the others cannot:
 
 The last row is the argument for looking. Four real defects, none reachable by the
 other three layers, all found in the first ten minutes of having a screen.
+
+## Still to do
+
+- **Large uploads.** A multipart post above roughly 3 MB fails inside Next's
+  middleware body handling before the route runs. The image route's own limit is
+  8 MB, so the sentence in `ImagePicker` promises more than the wire delivers. Either
+  the middleware matcher should skip `/api/campaigns/*/images` or the limit should say
+  what is true.
+- **Size on the board.** An ogre is Large and stands on one tile: `addCreaturesToEncounter`
+  does not read the creature's size into the token's footprint. A cut-out scaled by
+  footprint would then be the right height without anyone setting it.
+- **A fixed-orientation picture.** Everything billboards. A signpost or a wall panel
+  wants to stand still; nobody has asked.
 
 ## Out of scope, deliberately
 

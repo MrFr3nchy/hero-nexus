@@ -19,7 +19,17 @@
  * Design language: the board is the artifact (rule 1), and its one animated
  * moment is the active-turn ring (rule 4). Nothing else on it moves.
  */
-import { Button, Select, SelectItem, Tooltip } from '@heroui/react';
+import {
+  Button,
+  Checkbox,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Select,
+  SelectItem,
+  Tooltip,
+} from '@heroui/react';
 import { useTheme } from 'next-themes';
 import {
   useCallback,
@@ -76,6 +86,7 @@ import { withAdvantage } from '@/@shared/lib/dice';
 import { rollAction } from '../../actions';
 import { usePortraits } from '@/@shared/battlemap/portraits';
 import { setSelectedToken } from '@/@shared/battlemap/selection';
+import { ImagePicker } from '../ImagePicker';
 
 /* --- tools ------------------------------------------------------------- */
 
@@ -86,6 +97,13 @@ type Tool =
   | { kind: 'wall'; wall: WallKind }
   | { kind: 'erase-wall' }
   | { kind: 'prop'; prop: PropKind; blocks: boolean }
+  /** A picture standing on a tile. Placed only once a picture is chosen. */
+  | {
+      kind: 'picture';
+      imageId: string | null;
+      height: number;
+      blocks: boolean;
+    }
   | { kind: 'light' }
   | { kind: 'reveal' }
   | { kind: 'scenery' };
@@ -353,13 +371,28 @@ export function BattleBoard({
 
   // Faces on the board. `character_portraits` was always this feature's token
   // art; the cache is shared with the 3D view so a face loads once.
-  const portraitUrls = useMemo(
-    () => Object.values(state.portraits ?? {}),
-    [state.portraits]
+  const imageUrlFor = useCallback(
+    (imageId: string) => `/api/campaigns/${campaignId}/images/${imageId}`,
+    [campaignId]
   );
+  // Portraits, the pictures tokens stand up as, and the pictures standing
+  // on tiles: one set, one cache, shared with the 3D view.
+  const portraitUrls = useMemo(() => {
+    const urls = new Set<string>(Object.values(state.portraits ?? {}));
+    for (const t of board?.tokens ?? []) if (t.imageUrl) urls.add(t.imageUrl);
+    for (const pr of terrain?.props ?? []) {
+      if (pr.kind === 'image' && pr.imageId) urls.add(imageUrlFor(pr.imageId));
+    }
+    return [...urls];
+  }, [state.portraits, board?.tokens, terrain?.props, imageUrlFor]);
   const faces = usePortraits(portraitUrls);
   const faceFor = useCallback(
-    (entry: EntryRow | undefined): HTMLImageElement | null => {
+    (
+      entry: EntryRow | undefined,
+      token?: { imageUrl: string | null }
+    ): HTMLImageElement | null => {
+      // The token's own picture first — the DM chose it for this ogre.
+      if (token?.imageUrl) return faces.get(token.imageUrl) ?? null;
       if (!entry?.characterId) return null;
       const url = state.portraits?.[entry.characterId];
       return url ? (faces.get(url) ?? null) : null;
@@ -498,6 +531,23 @@ export function BattleBoard({
           const has = next.props.findIndex(p => p.x === x && p.y === y);
           if (has >= 0) next.props.splice(has, 1);
           else next.props.push({ x, y, kind: tool.prop, blocks: tool.blocks });
+          break;
+        }
+        case 'picture': {
+          const has = next.props.findIndex(p => p.x === x && p.y === y);
+          if (has >= 0) {
+            next.props.splice(has, 1);
+            break;
+          }
+          if (!tool.imageId) return;
+          next.props.push({
+            x,
+            y,
+            kind: 'image',
+            blocks: tool.blocks,
+            imageId: tool.imageId,
+            height: tool.height,
+          });
           break;
         }
         case 'light': {
@@ -806,6 +856,28 @@ export function BattleBoard({
       const cx = (pr.x + 0.5) * size;
       const cy = (pr.y + 0.5) * size;
       const s = size * 0.3;
+      if (pr.kind === 'image') {
+        // The picture itself, fitted inside the tile, so the top-down board
+        // shows the tree the DM stood up rather than a mark for it. A
+        // dashed square while it loads.
+        const img = pr.imageId ? faces.get(imageUrlFor(pr.imageId)) : null;
+        const box = size * 0.9;
+        if (img) {
+          const scale = Math.min(
+            box / img.naturalWidth,
+            box / img.naturalHeight
+          );
+          const dw = img.naturalWidth * scale;
+          const dh = img.naturalHeight * scale;
+          ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+        } else {
+          ctx.strokeStyle = p.inkMuted;
+          ctx.setLineDash([3, 3]);
+          ctx.strokeRect(cx - box / 2, cy - box / 2, box, box);
+          ctx.setLineDash([]);
+        }
+        continue;
+      }
       ctx.strokeStyle = p.inkMuted;
       ctx.fillStyle = p.surface;
       ctx.lineWidth = 1.5;
@@ -950,7 +1022,7 @@ export function BattleBoard({
       }
 
       // The face, clipped to the base, or initials when there is none.
-      const face = faceFor(entry);
+      const face = faceFor(entry, t);
       if (face) {
         const inner = r - Math.max(2, size * 0.06);
         ctx.save();
@@ -1026,6 +1098,8 @@ export function BattleBoard({
     hover,
     tool,
     faceFor,
+    faces,
+    imageUrlFor,
     dimensional,
     pendingCount,
     brush,
@@ -1204,6 +1278,7 @@ export function BattleBoard({
           currentEntryId={currentEntryId}
           portraits={state.portraits}
           faces={faces}
+          imageUrlFor={imageUrlFor}
           dark={dark}
           fill={Boolean(fitHeight)}
           speedOf={speedOf}
@@ -1297,6 +1372,13 @@ export function BattleBoard({
                 </SelectItem>
               ))}
             </Select>
+            {toolButton(
+              'Picture',
+              tool.kind === 'picture'
+                ? tool
+                : { kind: 'picture', imageId: null, height: 10, blocks: true },
+              tool.kind === 'picture'
+            )}
             {toolButton('Light', { kind: 'light' }, tool.kind === 'light')}
             {toolButton(
               'Scenery',
@@ -1337,6 +1419,45 @@ export function BattleBoard({
               Fog it all
             </Button>
           </div>
+        </div>
+      )}
+
+      {isStaff && tool.kind === 'picture' && (
+        <div className="mb-2 flex flex-wrap items-end gap-3 rounded-md border border-line bg-surface-2 px-3 py-2">
+          <ImagePicker
+            campaignId={campaignId}
+            value={tool.imageId}
+            onChange={imageId => setTool({ ...tool, imageId })}
+            label="A picture to stand on a tile"
+            library
+          />
+          <Input
+            size="sm"
+            type="number"
+            label="Feet tall"
+            className="w-24"
+            min={1}
+            max={100}
+            value={String(tool.height)}
+            onValueChange={v =>
+              setTool({
+                ...tool,
+                height: Math.max(1, Math.min(100, Math.trunc(Number(v)) || 10)),
+              })
+            }
+          />
+          <Checkbox
+            size="sm"
+            isSelected={tool.blocks}
+            onValueChange={blocks => setTool({ ...tool, blocks })}
+          >
+            <span className="text-sm text-ink-muted">Blocks the tile</span>
+          </Checkbox>
+          <Marginalia dash>
+            {tool.imageId
+              ? 'tap a tile to stand it there; tap again to take it down'
+              : 'choose a picture first'}
+          </Marginalia>
         </div>
       )}
 
@@ -1414,10 +1535,36 @@ export function BattleBoard({
             <>
               {/* The ambush: a foe dealt in starts hidden, and this is the
                   moment the DM says "and then you see it". */}
+              {/* What it stands up as. A hero has a portrait; an ogre has
+                  whatever the DM uploaded, and it is the same ogre picture
+                  for all five of them. */}
+              <Popover placement="top-end">
+                <PopoverTrigger>
+                  <Button size="sm" variant="flat" className="ml-auto">
+                    {selectedToken.imageId ? 'Picture' : 'Give it a picture'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80 border border-line bg-surface p-3">
+                  <div className="w-full">
+                    <ImagePicker
+                      campaignId={campaignId}
+                      value={selectedToken.imageId}
+                      onChange={async imageId => {
+                        const res = await updateTokenAction(selectedToken.id, {
+                          imageId,
+                        });
+                        if (!res.ok) onError(res.error);
+                        await refresh();
+                      }}
+                      label="Stands up as"
+                      library
+                    />
+                  </div>
+                </PopoverContent>
+              </Popover>
               <Button
                 size="sm"
                 variant="flat"
-                className="ml-auto"
                 onPress={async () => {
                   const res = await updateTokenAction(selectedToken.id, {
                     visibility:

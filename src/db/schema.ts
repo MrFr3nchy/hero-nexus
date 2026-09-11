@@ -1953,6 +1953,14 @@ export const battleMapTokens = sqliteTable(
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('shared'),
+    /**
+     * The picture it stands up as, when it is not a hero with a portrait:
+     * one of the campaign's images, referenced and never copied (0044). Null
+     * when the image goes, and the token stands as initials on a card.
+     */
+    imageId: text('image_id').references(() => campaignImages.id, {
+      onDelete: 'set null',
+    }),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },

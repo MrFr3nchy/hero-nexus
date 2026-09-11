@@ -76,7 +76,13 @@ export type PropKind =
   | 'tree'
   | 'rubble'
   | 'altar'
-  | 'statue';
+  | 'statue'
+  /**
+   * A picture standing up: one of the campaign's images as a paper standee
+   * on the tile — a tree the DM drew, a statue, a door. The-sand-table's
+   * phase 6. Carries `imageId` and `height`; the other kinds carry neither.
+   */
+  | 'image';
 
 /** A thing standing on a tile that is not a combatant. */
 export interface Prop {
@@ -85,6 +91,10 @@ export interface Prop {
   kind: PropKind;
   /** Whether it stops a token standing on its tile. A pillar does; rubble does not. */
   blocks: boolean;
+  /** `image` only: a `campaign_images` id. Referenced, never copied. */
+  imageId?: string;
+  /** `image` only: feet tall. A tree is 20, a door 10, a mile-marker 3. */
+  height?: number;
 }
 
 /** A point light. Braziers, torches, the glow under a door. */
@@ -313,11 +323,22 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
   const props: Prop[] = [];
   for (const p of Array.isArray(src.props) ? src.props : []) {
     if (!p || !inBounds(base, Number(p.x), Number(p.y))) continue;
+    // An image prop with no image is a tile with nothing on it.
+    if (p.kind === 'image' && typeof p.imageId !== 'string') continue;
     props.push({
       x: Number(p.x),
       y: Number(p.y),
       kind: p.kind,
       blocks: Boolean(p.blocks),
+      ...(p.kind === 'image'
+        ? {
+            imageId: String(p.imageId).slice(0, 64),
+            height: Math.max(
+              1,
+              Math.min(100, Math.trunc(Number(p.height)) || 10)
+            ),
+          }
+        : {}),
     });
   }
 

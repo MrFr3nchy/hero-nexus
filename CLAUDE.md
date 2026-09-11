@@ -21,7 +21,7 @@ disagrees with the code, the code is wrong.
 | [docs/handoff/the-long-campaign/](docs/handoff/the-long-campaign/README.md) | What a year-long campaign needs. Mostly built; phases 5 and 9 open.                     |
 | [docs/handoff/the-last-breath/](docs/handoff/the-last-breath/README.md)     | Death saves, a seat the DM controls, and the table's hourglass.                         |
 | [docs/handoff/the-same-room/](docs/handoff/the-same-room/README.md)         | A session that arrives: one stream, announcements, a pushed check.                      |
-| [docs/handoff/the-sand-table/](docs/handoff/the-sand-table/README.md)       | A battle map, authored in 2D and rendered in 3D. Five phases built; phase 6 begun.      |
+| [docs/handoff/the-sand-table/](docs/handoff/the-sand-table/README.md)       | A battle map, authored in 2D and rendered in 3D, with paper standees. Six phases built. |
 | [docs/handoff/the-three-tables/](docs/handoff/the-three-tables/README.md)   | The desk, the table, the sand table: three states of a campaign. All four phases built. |
 
 **`src/db/schema.ts` and `src/db/migrations/*.sql` are hand-written and edited together,

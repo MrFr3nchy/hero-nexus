@@ -31,6 +31,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_AUTHENTICATED: 'You are not signed in.',
     SESSION_STALE: 'Your session is out of date. Sign in again.',
     NOT_FOUND: 'That board no longer exists.',
+    NO_SUCH_IMAGE: 'That picture is not in this campaign.',
     FORBIDDEN: 'Only the DM and co-DMs build the board.',
     NOT_YOUR_TOKEN: 'That is not yours to move.',
     CANNOT_STAND_THERE: 'Nothing can stand there.',
@@ -257,6 +258,7 @@ export async function updateTokenAction(
       altitude: z.number().int().min(-100).max(500).optional(),
       tint: z.string().max(20).optional(),
       visibility: z.enum(['dm', 'shared']).optional(),
+      imageId: z.string().min(1).max(64).nullable().optional(),
     })
     .safeParse(patch);
   if (!parsed.success) return { ok: false, error: 'Invalid change.' };

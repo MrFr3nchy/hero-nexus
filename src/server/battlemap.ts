@@ -45,6 +45,7 @@ import {
   initiativeEncounters,
   initiativeEntries,
 } from '@/db/schema';
+import { getCampaignImage, imageUrl } from './campaign-images';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion } from './live-hub';
 
@@ -62,6 +63,14 @@ export interface BattleTokenRow {
   visibility: 'dm' | 'shared';
   /** Whether the reader may move it. */
   mine: boolean;
+  /** The campaign image it stands up as, if the DM gave it one. */
+  imageId: string | null;
+  /**
+   * That image's URL, composed here so neither board learns the route. The
+   * route is role-checked on its own, so a player who guesses one gets the
+   * same answer the handout route gives.
+   */
+  imageUrl: string | null;
 }
 
 export interface BattleMapRow {
@@ -203,6 +212,8 @@ export async function getBattleMapState(
       tint: t.tint,
       visibility: t.visibility,
       mine: isStaff || (t.entryId !== null && myEntries.has(t.entryId)),
+      imageId: t.imageId,
+      imageUrl: t.imageId ? imageUrl(campaignId, t.imageId) : null,
     }));
 
   return {
@@ -755,16 +766,29 @@ export async function moveToken(
 
 export async function updateToken(
   tokenId: string,
-  patch: Partial<Pick<TokenInput, 'label' | 'altitude' | 'tint' | 'visibility'>>
+  patch: Partial<
+    Pick<TokenInput, 'label' | 'altitude' | 'tint' | 'visibility'>
+  > & { imageId?: string | null }
 ): Promise<void> {
   const token = await db.query.battleMapTokens.findFirst({
     where: eq(battleMapTokens.id, tokenId),
   });
   if (!token) throw new Error('NOT_FOUND');
   const { map } = await staffForMap(token.mapId);
+
+  // A picture from another campaign's library is not this table's to stand
+  // up: the id is checked against the campaign before it is kept.
+  if (patch.imageId) {
+    const image = await getCampaignImage(patch.imageId);
+    if (!image || image.campaignId !== map.campaignId) {
+      throw new Error('NO_SUCH_IMAGE');
+    }
+  }
+
   await db
     .update(battleMapTokens)
     .set({
+      ...(patch.imageId !== undefined ? { imageId: patch.imageId } : {}),
       ...(patch.label !== undefined
         ? { label: patch.label.trim().slice(0, 60) }
         : {}),
