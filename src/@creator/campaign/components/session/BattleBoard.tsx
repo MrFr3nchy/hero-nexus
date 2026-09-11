@@ -46,6 +46,7 @@ import {
   reachFor,
   wallIndex,
 } from '@/@creator/campaign/lib/battlemap';
+import { floorArt, shade } from '@/@shared/battlemap/art';
 import {
   blocksTile,
   edgeKey,
@@ -128,6 +129,29 @@ type Tool =
       facing: Facing;
     };
 
+/**
+ * The toolbar's modes. Each opens on one tool and shows only its own row.
+ * `hint` is the scrawl beside the strip: what a tap on the board does now.
+ */
+type Mode = 'select' | 'paint' | 'shape' | 'build' | 'things' | 'fog';
+
+function modeOf(tool: Tool): Mode {
+  switch (tool.kind) {
+    case 'select':
+      return 'select';
+    case 'paint':
+      return 'paint';
+    case 'raise':
+      return 'shape';
+    case 'scenery':
+      return 'things';
+    case 'reveal':
+      return 'fog';
+    default:
+      return 'build';
+  }
+}
+
 const FRESH_SCENERY = {
   kind: 'scenery',
   label: '',
@@ -137,6 +161,45 @@ const FRESH_SCENERY = {
   hpMax: null,
   facing: 'camera',
 } as const satisfies Tool;
+
+const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
+  {
+    mode: 'select',
+    label: 'Select',
+    tool: { kind: 'select' },
+    hint: 'tap a token, then tap where it goes',
+  },
+  {
+    mode: 'paint',
+    label: 'Floor',
+    tool: { kind: 'paint', material: 1 },
+    hint: 'drag to paint the floor',
+  },
+  {
+    mode: 'shape',
+    label: 'Height',
+    tool: { kind: 'raise', by: 5 },
+    hint: 'tap a tile to raise or lower it',
+  },
+  {
+    mode: 'build',
+    label: 'Build',
+    tool: { kind: 'wall', wall: 'solid' },
+    hint: 'tap an edge for a wall, a tile for the rest',
+  },
+  {
+    mode: 'things',
+    label: 'Things',
+    tool: FRESH_SCENERY,
+    hint: 'a door, a chest — something the party can act on',
+  },
+  {
+    mode: 'fog',
+    label: 'Fog',
+    tool: { kind: 'reveal' },
+    hint: 'drag to show the party what they can see',
+  },
+];
 
 const FACING_LABEL: Record<Facing, string> = {
   camera: 'Faces you',
@@ -373,8 +436,8 @@ export function BattleBoard({
   /**
    * The reveal brush. Tiles are gathered during the stroke and drawn as
    * pending, then sent **once on pointer-up** — one write per stroke rather
-   * than one per pointer event, which is the same trap the handoff names for
-   * token drags and was this tool's first shape.
+   * than one per pointer event — the same trap a token drag avoids, and this
+   * tool's first shape.
    */
   const [brush, setBrush] = useState<1 | 2 | 3>(1);
   const pendingReveal = useRef(new Set<number>());
@@ -822,41 +885,53 @@ export function BattleBoard({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    // Tiles.
+    // Tiles: the same drawn surfaces the 3D view wraps onto its boxes —
+    // flagstones, planks, grass — so the board is a floor and not a swatch
+    // chart. A little seeded variation per tile keeps a room from reading as
+    // wallpaper. Void is absent, not dark: the fog filter has already
+    // removed anything a player may not see, and drawing "unknown" as a
+    // shade would leak the shape of a room the server declined to describe.
+    const elevationAt = (x: number, y: number): number | null => {
+      if (!inBounds(terrain, x, y)) return null;
+      const i = y * terrain.w + x;
+      return terrain.material[i] === VOID ? null : terrain.elevation[i];
+    };
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     for (let y = 0; y < terrain.h; y++) {
       for (let x = 0; x < terrain.w; x++) {
         const i = y * terrain.w + x;
         const m = MATERIALS[terrain.material[i]] ?? MATERIALS[VOID];
         const px = x * size;
         const py = y * size;
-        if (terrain.material[i] === VOID) {
-          // Absent, not dark: the fog filter has already removed anything a
-          // player may not see, and drawing "unknown" as a shade would leak
-          // the shape of a room the server declined to describe.
-          continue;
-        }
-        ctx.fillStyle = dark ? m.swatchDark : m.swatch;
-        ctx.fillRect(px, py, size, size);
-
-        // Elevation as a shade, so a ledge reads without a number on it.
-        const e = terrain.elevation[i];
-        if (e !== 0) {
-          ctx.fillStyle = e > 0 ? 'rgba(255,255,255,' : 'rgba(0,0,0,';
-          ctx.fillStyle += `${Math.min(0.35, Math.abs(e) / 60)})`;
+        if (terrain.material[i] === VOID) continue;
+        const art = floorArt(m.key, dark);
+        if (art) ctx.drawImage(art, px, py, size, size);
+        else {
+          ctx.fillStyle = dark ? m.swatchDark : m.swatch;
           ctx.fillRect(px, py, size, size);
         }
-        if (isStaff && e !== 0 && size >= 18) {
-          ctx.fillStyle = p.inkMuted;
-          ctx.font = `${Math.max(8, size * 0.28)}px ui-sans-serif, system-ui`;
-          ctx.textAlign = 'right';
-          ctx.textBaseline = 'bottom';
-          ctx.fillText(`${e > 0 ? '+' : ''}${e}`, px + size - 2, py + size - 1);
+        const v = ((i * 2654435761) % 1000) / 1000;
+        ctx.fillStyle = v < 0.5 ? '#000000' : '#ffffff';
+        ctx.globalAlpha = Math.abs(v - 0.5) * 0.14;
+        ctx.fillRect(px, py, size, size);
+        ctx.globalAlpha = 1;
+
+        // Higher ground is lit, lower ground is in shadow — a wash by
+        // height, so a stair of ledges reads as a stair.
+        const e = terrain.elevation[i];
+        if (e !== 0) {
+          ctx.fillStyle = e > 0 ? '#ffffff' : '#000000';
+          ctx.globalAlpha = Math.min(0.2, Math.abs(e) / 100);
+          ctx.fillRect(px, py, size, size);
+          ctx.globalAlpha = 1;
         }
       }
     }
 
-    // Grid.
+    // Grid. Faint: the tiles' own edges already carry most of it.
     ctx.strokeStyle = p.line;
+    ctx.globalAlpha = dark ? 0.55 : 0.7;
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let x = 0; x <= terrain.w; x++) {
@@ -868,23 +943,125 @@ export function BattleBoard({
       ctx.lineTo(W, y * size + 0.5);
     }
     ctx.stroke();
+    ctx.globalAlpha = 1;
 
-    // Fog boundary for staff: revealed tiles get a faint gold wash so the DM
-    // can see what the party has been shown, and the stroke in progress a
-    // brighter one so they can see what they are about to show.
-    if (isStaff && board.revealed.length > 0) {
-      ctx.fillStyle = p.gold;
-      ctx.globalAlpha = 0.12;
-      for (const i of board.revealed) {
-        const x = i % terrain.w;
-        const y = Math.floor(i / terrain.w);
-        ctx.fillRect(x * size, y * size, size, size);
+    // Ledges: where a tile stands higher than its neighbour, the lower side
+    // gets a shadow along the shared edge and the higher a thin lit lip. A
+    // drop reads as a drop without a number on it — the number stays, small,
+    // for anybody who wants the feet.
+    for (let y = 0; y < terrain.h; y++) {
+      for (let x = 0; x < terrain.w; x++) {
+        const here = elevationAt(x, y);
+        if (here === null) continue;
+        const px = x * size;
+        const py = y * size;
+        const lip = Math.max(2, size * 0.1);
+        const drop = Math.max(3, size * 0.22);
+        const sides: [Side, number | null][] = [
+          ['n', elevationAt(x, y - 1)],
+          ['s', elevationAt(x, y + 1)],
+          ['w', elevationAt(x - 1, y)],
+          ['e', elevationAt(x + 1, y)],
+        ];
+        for (const [side, there] of sides) {
+          if (there === null || there >= here) continue;
+          // This tile is higher: shade the low tile's edge, light this one's.
+          const depth = Math.min(1, (here - there) / 20);
+          const x0 = side === 'e' ? px + size : px;
+          const y0 = side === 's' ? py + size : py;
+          const x1 =
+            side === 'w' ? px - drop : side === 'e' ? px + size + drop : x0;
+          const y1 =
+            side === 'n' ? py - drop : side === 's' ? py + size + drop : y0;
+          const shadow = ctx.createLinearGradient(x0, y0, x1, y1);
+          shadow.addColorStop(0, `rgba(0,0,0,${0.22 + depth * 0.3})`);
+          shadow.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = shadow;
+          switch (side) {
+            case 'n':
+              ctx.fillRect(px, py - drop, size, drop);
+              break;
+            case 's':
+              ctx.fillRect(px, py + size, size, drop);
+              break;
+            case 'w':
+              ctx.fillRect(px - drop, py, drop, size);
+              break;
+            case 'e':
+              ctx.fillRect(px + size, py, drop, size);
+              break;
+          }
+          ctx.fillStyle = 'rgba(255,255,255,0.35)';
+          switch (side) {
+            case 'n':
+              ctx.fillRect(px, py, size, lip);
+              break;
+            case 's':
+              ctx.fillRect(px, py + size - lip, size, lip);
+              break;
+            case 'w':
+              ctx.fillRect(px, py, lip, size);
+              break;
+            case 'e':
+              ctx.fillRect(px + size - lip, py, lip, size);
+              break;
+          }
+        }
+        if (here !== 0 && size >= 18) {
+          ctx.fillStyle = p.ink;
+          ctx.globalAlpha = 0.7;
+          ctx.font = `600 ${Math.max(8, size * 0.24)}px ui-sans-serif, system-ui`;
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(
+            `${here > 0 ? '+' : ''}${here}`,
+            px + size - 3,
+            py + size - 2
+          );
+          ctx.globalAlpha = 1;
+        }
       }
-      ctx.globalAlpha = 1;
+    }
+
+    // Fog, for staff: what the party has *not* been shown is hatched over,
+    // and the stroke in progress is lit in gold. The first cut washed the
+    // revealed tiles gold instead, and since most of a board is revealed
+    // most of the time, the DM's whole room went mustard. The hidden part
+    // is the smaller set and the one the DM is actually deciding about.
+    if (isStaff) {
+      const shown = new Set(board.revealed);
+      ctx.save();
+      ctx.beginPath();
+      let any = false;
+      for (let i = 0; i < terrain.w * terrain.h; i++) {
+        if (terrain.material[i] === VOID || shown.has(i)) continue;
+        ctx.rect(
+          (i % terrain.w) * size,
+          Math.floor(i / terrain.w) * size,
+          size,
+          size
+        );
+        any = true;
+      }
+      if (any) {
+        ctx.clip();
+        ctx.fillStyle = dark ? 'rgba(0,0,0,0.45)' : 'rgba(43,38,32,0.28)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = dark ? 'rgba(0,0,0,0.5)' : 'rgba(43,38,32,0.3)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        const step = Math.max(6, size * 0.3);
+        for (let d = -H; d < W; d += step) {
+          ctx.moveTo(d, 0);
+          ctx.lineTo(d + H, H);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
     }
     if (isStaff && pendingReveal.current.size > 0) {
       ctx.fillStyle = p.gold;
-      ctx.globalAlpha = 0.28;
+      ctx.globalAlpha = 0.32;
       for (const i of pendingReveal.current) {
         const x = i % terrain.w;
         const y = Math.floor(i / terrain.w);
@@ -893,33 +1070,55 @@ export function BattleBoard({
       ctx.globalAlpha = 1;
     }
 
-    // Lights: a warm falloff. Candlelight is the palette; lean into it.
+    // Lights: a warm pool on the floor and a brazier standing in it.
+    // Candlelight is the palette; lean into it.
     for (const l of terrain.lights) {
       const cx = (l.x + 0.5) * size;
       const cy = (l.y + 0.5) * size;
       const r = (l.radius / 5) * size;
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      g.addColorStop(0, 'rgba(217,176,97,0.35)');
+      g.addColorStop(
+        0,
+        dark ? 'rgba(255,196,110,0.5)' : 'rgba(217,160,70,0.4)'
+      );
+      g.addColorStop(
+        0.5,
+        dark ? 'rgba(255,180,90,0.18)' : 'rgba(217,160,70,0.14)'
+      );
       g.addColorStop(1, 'rgba(217,176,97,0)');
       ctx.fillStyle = g;
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-      ctx.fillStyle = p.gold;
+      const bowl = Math.max(3, size * 0.16);
+      ctx.fillStyle = dark ? '#2a2622' : '#3a3530';
       ctx.beginPath();
-      ctx.arc(cx, cy, Math.max(2, size * 0.1), 0, Math.PI * 2);
+      ctx.arc(cx, cy, bowl, 0, Math.PI * 2);
+      ctx.fill();
+      const flame = ctx.createRadialGradient(cx, cy, 0, cx, cy, bowl * 0.8);
+      flame.addColorStop(0, '#fff2c0');
+      flame.addColorStop(0.5, '#ffb050');
+      flame.addColorStop(1, 'rgba(230,100,30,0)');
+      ctx.fillStyle = flame;
+      ctx.beginPath();
+      ctx.arc(cx, cy, bowl * 0.8, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Reach, for the selected token: an inset outline per tile rather than a
-    // fill, so it reads apart from the revealed wash the DM also sees, which
-    // is a fill in the same gold. Two washes on one tile were one wash.
+    // Reach, for the selected token: a faint gold fill and an inset outline
+    // per tile — the lit squares a game shows when a piece is picked up.
+    // Nothing else on the board is a gold fill now that the fog is a hatch
+    // over the hidden part, so the two cannot be mistaken for each other.
     if (reach) {
-      ctx.strokeStyle = p.gold;
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([3, 3]);
       const inset = Math.max(3, size * 0.14);
       for (const i of reach.keys()) {
         const x = i % terrain.w;
         const y = Math.floor(i / terrain.w);
+        ctx.fillStyle = p.gold;
+        ctx.globalAlpha = 0.16;
+        ctx.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = p.gold;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
         ctx.strokeRect(
           x * size + inset,
           y * size + inset,
@@ -957,8 +1156,22 @@ export function BattleBoard({
         }
         continue;
       }
-      ctx.strokeStyle = p.inkMuted;
-      ctx.fillStyle = p.surface;
+      // Stone things in stone, wooden things in wood, a tree in leaf — the
+      // colours the 3D view builds them from, with a shadow underneath.
+      const stoneFill = dark ? '#5a5248' : '#a1968a';
+      const woodFill = dark ? MATERIALS[4].swatchDark : MATERIALS[4].swatch;
+      const leafFill = dark ? '#3f5a2e' : '#7ea35e';
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.arc(cx + size * 0.04, cy + size * 0.06, s * 1.05, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = dark ? '#1c1814' : '#3a3530';
+      ctx.fillStyle =
+        pr.kind === 'tree'
+          ? leafFill
+          : pr.kind === 'table' || pr.kind === 'chest' || pr.kind === 'barrel'
+            ? woodFill
+            : stoneFill;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       switch (pr.kind) {
@@ -992,9 +1205,14 @@ export function BattleBoard({
       ctx.stroke();
     }
 
-    // Walls on edges. A door reads as a gap with a swing; a window as a thin
-    // line; a rail as a dotted one.
+    // Walls on edges, drawn with a little depth: masonry as a dark band
+    // with a lit coping, a door as its plank leaf — swung open into the
+    // room, with the arc it swept — a window as stone with the arcane pane
+    // between, a rail as posts and a line.
     const walls = wallIndex(terrain);
+    const masonryInk = dark ? '#1c1814' : '#3a3530';
+    const masonryLit = dark ? '#8a7d6b' : '#a1968a';
+    const plank = dark ? MATERIALS[4].swatchDark : MATERIALS[4].swatch;
     for (const w of walls.values()) {
       const x0 = w.x * size;
       const y0 = w.y * size;
@@ -1018,66 +1236,193 @@ export function BattleBoard({
           by = y0 + size;
           break;
       }
-      ctx.lineCap = 'round';
+      // The edge's own direction, and the way into the tile it belongs to.
+      const dx = bx - ax;
+      const dy = by - ay;
+      const inX = w.side === 'w' ? 1 : w.side === 'e' ? -1 : 0;
+      const inY = w.side === 'n' ? 1 : w.side === 's' ? -1 : 0;
+      const thick = Math.max(3, size * 0.16);
+      ctx.lineCap = 'butt';
       ctx.setLineDash([]);
+      if (w.kind !== 'rail') {
+        // The shadow a standing wall throws, so it is not a line on paper.
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.lineWidth = thick * 1.6;
+        ctx.beginPath();
+        ctx.moveTo(ax + size * 0.04, ay + size * 0.06);
+        ctx.lineTo(bx + size * 0.04, by + size * 0.06);
+        ctx.stroke();
+      }
       switch (w.kind) {
         case 'solid':
-          ctx.strokeStyle = p.ink;
-          ctx.lineWidth = Math.max(3, size * 0.14);
+          ctx.strokeStyle = masonryInk;
+          ctx.lineWidth = thick;
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+          ctx.strokeStyle = masonryLit;
+          ctx.lineWidth = Math.max(1, thick * 0.3);
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
           break;
-        case 'door':
-          ctx.strokeStyle = w.open ? p.success : p.gold;
-          ctx.lineWidth = Math.max(3, size * 0.14);
-          if (w.open) ctx.setLineDash([size * 0.15, size * 0.15]);
+        case 'door': {
+          // Jambs at both ends, in stone.
+          ctx.strokeStyle = masonryInk;
+          ctx.lineWidth = thick;
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(ax + dx * 0.12, ay + dy * 0.12);
+          ctx.moveTo(bx - dx * 0.12, by - dy * 0.12);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+          const hx = ax + dx * 0.12;
+          const hy = ay + dy * 0.12;
+          const len = Math.hypot(dx, dy) * 0.76;
+          ctx.lineWidth = Math.max(3, size * 0.12);
+          ctx.strokeStyle = shade(plank, dark ? 0.15 : -0.25);
+          ctx.beginPath();
+          ctx.moveTo(hx, hy);
+          if (w.open) {
+            // Swung into its tile on the hinge, and the sweep it took.
+            ctx.lineTo(hx + inX * len, hy + inY * len);
+            ctx.stroke();
+            ctx.strokeStyle = p.success;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            const start = Math.atan2(dy, dx);
+            const end = Math.atan2(inY, inX);
+            const ccw = (end - start + Math.PI * 3) % (Math.PI * 2) > Math.PI;
+            ctx.arc(hx, hy, len, start, end, ccw);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          } else {
+            ctx.lineTo(bx - dx * 0.12, by - dy * 0.12);
+            ctx.stroke();
+            // The strapping.
+            ctx.strokeStyle = dark ? '#1c1815' : '#2a2622';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            for (const f of [0.35, 0.65]) {
+              const sx = hx + dx * 0.76 * f;
+              const sy = hy + dy * 0.76 * f;
+              ctx.moveTo(sx - inX * thick * 0.5, sy - inY * thick * 0.5);
+              ctx.lineTo(sx + inX * thick * 0.5, sy + inY * thick * 0.5);
+            }
+            ctx.stroke();
+          }
           break;
+        }
         case 'window':
+          ctx.strokeStyle = masonryInk;
+          ctx.lineWidth = thick;
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
           ctx.strokeStyle = p.arcane;
-          ctx.lineWidth = Math.max(2, size * 0.08);
+          ctx.lineWidth = Math.max(2, thick * 0.45);
+          ctx.beginPath();
+          ctx.moveTo(ax + dx * 0.15, ay + dy * 0.15);
+          ctx.lineTo(bx - dx * 0.15, by - dy * 0.15);
+          ctx.stroke();
           break;
         case 'rail':
           ctx.strokeStyle = p.inkMuted;
-          ctx.lineWidth = Math.max(2, size * 0.08);
-          ctx.setLineDash([size * 0.1, size * 0.1]);
+          ctx.lineWidth = Math.max(1.5, size * 0.06);
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+          ctx.fillStyle = p.inkMuted;
+          for (const f of [0.08, 0.5, 0.92]) {
+            ctx.beginPath();
+            ctx.arc(
+              ax + dx * f,
+              ay + dy * f,
+              Math.max(1.5, size * 0.06),
+              0,
+              Math.PI * 2
+            );
+            ctx.fill();
+          }
           break;
       }
-      ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
     }
     ctx.setLineDash([]);
+    ctx.lineCap = 'round';
 
-    // Tokens.
+    // Tokens: the same piece the 3D view stands up, seen from above. A soft
+    // ring of the side's colour on the floor, a pewter base with the side's
+    // colour as its rim, the face inside, and the hit points as an arc round
+    // the outside — not a counter painted in the side's colour edge to edge.
     for (const t of board.tokens) {
       const entry = t.entryId ? entriesById.get(t.entryId) : undefined;
       const label = entry?.label ?? t.label ?? '';
       const cx = (t.x + t.footprint / 2) * size;
       const cy = (t.y + t.footprint / 2) * size;
-      const r = Math.max(1, (size * t.footprint) / 2 - Math.max(3, size * 0.1));
-
-      // Base.
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle =
+      const r = Math.max(
+        1,
+        (size * t.footprint) / 2 - Math.max(4, size * 0.16)
+      );
+      const faint = t.visibility === 'dm';
+      const sideColour =
         entry?.side === 'foe'
           ? p.danger
           : entry?.side === 'party'
             ? p.gold
             : p.inkMuted;
-      ctx.globalAlpha = t.visibility === 'dm' ? 0.45 : 0.9;
+
+      // The halo on the floor.
+      const halo = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 1.5);
+      halo.addColorStop(0, sideColour);
+      halo.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = halo;
+      ctx.globalAlpha = faint ? 0.2 : 0.45;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 1.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
 
-      // HP ring, by the HeroCard rule. For a foe the server has nulled the
-      // numbers for a player, so there is no ring — as the tracker shows a
-      // word rather than a number.
+      // The base: pewter, with a shadow under its edge.
+      ctx.globalAlpha = faint ? 0.45 : 1;
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.arc(cx + size * 0.03, cy + size * 0.04, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = dark ? '#4c463e' : '#8a8173';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = sideColour;
+      ctx.lineWidth = Math.max(2, size * 0.07);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - ctx.lineWidth / 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // HP as an arc, by the HeroCard rule: the tone says how it is going,
+      // the arc's length says how much is left. For a foe the server has
+      // nulled the numbers for a player, so there is no arc — as the tracker
+      // shows a word rather than a number.
       const tone = hpTone(entry, p);
-      if (tone) {
-        ctx.strokeStyle = tone;
-        ctx.lineWidth = Math.max(2, size * 0.08);
+      if (tone && entry && entry.hpCurrent !== null && entry.hpMax) {
+        const ratio = Math.max(0, Math.min(1, entry.hpCurrent / entry.hpMax));
+        const ar = r + Math.max(2, size * 0.07);
+        ctx.lineWidth = Math.max(2, size * 0.06);
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
         ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.arc(cx, cy, ar, 0, Math.PI * 2);
         ctx.stroke();
+        if (ratio > 0) {
+          ctx.strokeStyle = tone;
+          ctx.beginPath();
+          ctx.arc(cx, cy, ar, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+          ctx.stroke();
+        }
       }
 
       // The one animated thing: whose turn it is.
@@ -1086,7 +1431,7 @@ export function BattleBoard({
         ctx.lineWidth = Math.max(2, size * 0.06);
         ctx.setLineDash([size * 0.12, size * 0.08]);
         ctx.beginPath();
-        ctx.arc(cx, cy, r + Math.max(3, size * 0.12), 0, Math.PI * 2);
+        ctx.arc(cx, cy, r + Math.max(5, size * 0.18), 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -1096,14 +1441,14 @@ export function BattleBoard({
         ctx.strokeStyle = p.ink;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(cx, cy, r + Math.max(5, size * 0.18), 0, Math.PI * 2);
+        ctx.arc(cx, cy, r + Math.max(8, size * 0.26), 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      // The face, clipped to the base, or initials when there is none.
+      // The face, clipped inside the rim, or initials when there is none.
       const face = faceFor(entry, t);
+      const inner = r - Math.max(2, size * 0.07);
       if (face) {
-        const inner = r - Math.max(2, size * 0.06);
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, inner, 0, Math.PI * 2);
@@ -1115,16 +1460,18 @@ export function BattleBoard({
         );
         const dw = face.naturalWidth * scale;
         const dh = face.naturalHeight * scale;
-        ctx.globalAlpha = t.visibility === 'dm' ? 0.5 : 1;
+        ctx.globalAlpha = faint ? 0.5 : 1;
         ctx.drawImage(face, cx - dw / 2, cy - dh / 2, dw, dh);
         ctx.globalAlpha = 1;
         ctx.restore();
       } else {
-        ctx.fillStyle = p.surface;
-        ctx.font = `600 ${Math.max(9, r * 0.8)}px ui-sans-serif, system-ui`;
+        ctx.fillStyle = '#ece3cf';
+        ctx.globalAlpha = faint ? 0.6 : 1;
+        ctx.font = `600 ${Math.max(9, inner * 0.85)}px ui-sans-serif, system-ui`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(initials(label), cx, cy + 1);
+        ctx.globalAlpha = 1;
       }
 
       // What a thing is: a lock on a locked one, a cross through a broken
@@ -1311,6 +1658,7 @@ export function BattleBoard({
 
   const sameTool = (a: Tool, b: Tool) =>
     JSON.stringify(a) === JSON.stringify(b);
+  const mode = modeOf(tool);
 
   return (
     <SectionCard
@@ -1406,105 +1754,134 @@ export function BattleBoard({
 
       {isStaff && !dimensional && (
         <div className="space-y-2">
+          {/* One row of modes, one row of the chosen mode's tools. Every
+              tool at once was twenty-five buttons across two rows, and a DM
+              painting a floor does not need the fog brush in view. */}
           <div className="flex flex-wrap items-center gap-1.5">
-            {toolButton('Select', { kind: 'select' }, tool.kind === 'select')}
-            <span className="mx-1 h-5 w-px bg-line" />
-            {MATERIALS.map((m, i) => (
-              <Button
-                key={m.key}
-                size="sm"
-                variant={
-                  tool.kind === 'paint' && tool.material === i
-                    ? 'solid'
-                    : 'flat'
-                }
-                color={
-                  tool.kind === 'paint' && tool.material === i
-                    ? 'primary'
-                    : 'default'
-                }
-                className="min-w-0 gap-1.5 px-2"
-                onPress={() => setTool({ kind: 'paint', material: i })}
-              >
-                <span
-                  aria-hidden="true"
-                  className="inline-block h-3 w-3 rounded-sm border border-line"
-                  style={{ background: dark ? m.swatchDark : m.swatch }}
-                />
-                {m.name}
-              </Button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {toolButton(
-              'Raise',
-              { kind: 'raise', by: 5 },
-              sameTool(tool, { kind: 'raise', by: 5 })
-            )}
-            {toolButton(
-              'Lower',
-              { kind: 'raise', by: -5 },
-              sameTool(tool, { kind: 'raise', by: -5 })
-            )}
-            <span className="mx-1 h-5 w-px bg-line" />
-            {WALLS.map(w =>
-              toolButton(
-                w.label,
-                { kind: 'wall', wall: w.kind },
-                tool.kind === 'wall' && tool.wall === w.kind
-              )
-            )}
-            {toolButton(
-              'Erase wall',
-              { kind: 'erase-wall' },
-              tool.kind === 'erase-wall'
-            )}
-            <span className="mx-1 h-5 w-px bg-line" />
-            <Select
-              aria-label="Prop"
-              size="sm"
-              className="w-32"
-              placeholder="Prop"
-              selectedKeys={tool.kind === 'prop' ? [tool.prop] : []}
-              onSelectionChange={keys => {
-                const key = String(Array.from(keys)[0] ?? '');
-                const spec = PROPS.find(p => p.kind === key);
-                if (spec)
-                  setTool({
-                    kind: 'prop',
-                    prop: spec.kind,
-                    blocks: spec.blocks,
-                  });
-              }}
-            >
-              {PROPS.map(p => (
-                <SelectItem key={p.kind} textValue={p.label}>
-                  {p.label}
-                </SelectItem>
+            <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+              {MODES.map(m => (
+                <button
+                  key={m.mode}
+                  type="button"
+                  onClick={() => setTool(m.tool)}
+                  className={`rounded px-2.5 py-1 text-xs transition-colors ${
+                    mode === m.mode
+                      ? 'bg-gold font-medium text-bg'
+                      : 'text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {m.label}
+                </button>
               ))}
-            </Select>
-            {toolButton(
-              'Picture',
-              tool.kind === 'picture'
-                ? tool
-                : {
-                    kind: 'picture',
-                    imageId: null,
-                    height: 10,
-                    blocks: true,
-                    facing: 'camera',
-                  },
-              tool.kind === 'picture'
-            )}
-            {toolButton('Light', { kind: 'light' }, tool.kind === 'light')}
-            {toolButton(
-              'Thing',
-              tool.kind === 'scenery' ? tool : FRESH_SCENERY,
-              tool.kind === 'scenery'
-            )}
-            <span className="mx-1 h-5 w-px bg-line" />
-            {toolButton('Reveal', { kind: 'reveal' }, tool.kind === 'reveal')}
-            {tool.kind === 'reveal' && (
+            </div>
+            <Marginalia dash className="ml-1">
+              {MODES.find(m => m.mode === mode)?.hint}
+            </Marginalia>
+          </div>
+
+          {mode === 'paint' && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {MATERIALS.map((m, i) => (
+                <Button
+                  key={m.key}
+                  size="sm"
+                  variant={
+                    tool.kind === 'paint' && tool.material === i
+                      ? 'solid'
+                      : 'flat'
+                  }
+                  color={
+                    tool.kind === 'paint' && tool.material === i
+                      ? 'primary'
+                      : 'default'
+                  }
+                  className="min-w-0 gap-1.5 px-2"
+                  onPress={() => setTool({ kind: 'paint', material: i })}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="inline-block h-3 w-3 rounded-sm border border-line"
+                    style={{ background: dark ? m.swatchDark : m.swatch }}
+                  />
+                  {m.name}
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {mode === 'shape' && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {toolButton(
+                'Raise 5 ft',
+                { kind: 'raise', by: 5 },
+                sameTool(tool, { kind: 'raise', by: 5 })
+              )}
+              {toolButton(
+                'Lower 5 ft',
+                { kind: 'raise', by: -5 },
+                sameTool(tool, { kind: 'raise', by: -5 })
+              )}
+            </div>
+          )}
+
+          {mode === 'build' && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {WALLS.map(w =>
+                toolButton(
+                  w.label,
+                  { kind: 'wall', wall: w.kind },
+                  tool.kind === 'wall' && tool.wall === w.kind
+                )
+              )}
+              {toolButton(
+                'Erase wall',
+                { kind: 'erase-wall' },
+                tool.kind === 'erase-wall'
+              )}
+              <span className="mx-1 h-5 w-px bg-line" />
+              <Select
+                aria-label="Prop"
+                size="sm"
+                className="w-32"
+                placeholder="Prop"
+                selectedKeys={tool.kind === 'prop' ? [tool.prop] : []}
+                onSelectionChange={keys => {
+                  const key = String(Array.from(keys)[0] ?? '');
+                  const spec = PROPS.find(p => p.kind === key);
+                  if (spec)
+                    setTool({
+                      kind: 'prop',
+                      prop: spec.kind,
+                      blocks: spec.blocks,
+                    });
+                }}
+              >
+                {PROPS.map(p => (
+                  <SelectItem key={p.kind} textValue={p.label}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </Select>
+              {toolButton(
+                'Picture',
+                tool.kind === 'picture'
+                  ? tool
+                  : {
+                      kind: 'picture',
+                      imageId: null,
+                      height: 10,
+                      blocks: true,
+                      facing: 'camera',
+                    },
+                tool.kind === 'picture'
+              )}
+              {toolButton('Brazier', { kind: 'light' }, tool.kind === 'light')}
+            </div>
+          )}
+
+          {mode === 'fog' && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {toolButton('Reveal', { kind: 'reveal' }, tool.kind === 'reveal')}
               <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
                 {([1, 2, 3] as const).map(b => (
                   <button
@@ -1522,20 +1899,20 @@ export function BattleBoard({
                   </button>
                 ))}
               </div>
-            )}
-            <Button
-              size="sm"
-              variant="light"
-              className="text-ink-subtle"
-              onPress={async () => {
-                const res = await resetFogAction(board.id);
-                if (!res.ok) onError(res.error);
-                await refresh();
-              }}
-            >
-              Fog it all
-            </Button>
-          </div>
+              <Button
+                size="sm"
+                variant="light"
+                className="text-ink-subtle"
+                onPress={async () => {
+                  const res = await resetFogAction(board.id);
+                  if (!res.ok) onError(res.error);
+                  await refresh();
+                }}
+              >
+                Fog it all
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

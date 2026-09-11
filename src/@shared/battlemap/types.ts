@@ -6,8 +6,7 @@
  * renderer extrudes that grid into geometry. The 3D is a pure function of this
  * document, which makes it a *view*: cheap, replaceable, and unable to corrupt
  * the data. The 2D board is not a fallback; it is the authoring surface, and
- * it is what renders on a phone. See `docs/handoff/the-sand-table/README.md`,
- * decision 1.
+ * it is what renders on a phone.
  *
  * Stored whole in `battle_maps.terrain` as JSON, the way `characters.sheet`
  * stores a `CharacterSheet` — a document read whole, written whole, never

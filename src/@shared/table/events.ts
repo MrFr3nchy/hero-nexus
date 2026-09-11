@@ -11,8 +11,7 @@
  * state it produced is still readable through `getLiveState`; seeing one twice
  * is not, because an announcement claims something just happened. That is why
  * these are numbered and replayed rather than re-derived, and why nothing here
- * is stored — see `docs/handoff/the-same-room/README.md`, model decision 5:
- * something becomes a row when a player who was offline still needs to find
+ * is stored: something becomes a row when a player who was offline still needs to find
  * it, and everything below can be missed.
  *
  * **The payload must be safe for the audience it is published to.** The

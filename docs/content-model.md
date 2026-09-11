@@ -150,7 +150,6 @@ not three.
 
 ## Checking the work
 
-[docs/handoff/verifying-without-a-browser.md](handoff/verifying-without-a-browser.md).
-The checks worth re-running after any change to this model are listed there; the two
+Against the running app, with real sessions, asserting on the payload. The two checks
 that catch the most are "every SRD row adapts and none collapses to an empty stat block"
 (rule 4) and "both `srd-2024_shield` rows resolve distinctly" (rule 2).

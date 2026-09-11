@@ -156,9 +156,7 @@ to. The instance owner has the database.
 
 ## Checking the work
 
-[docs/handoff/verifying-without-a-browser.md](handoff/verifying-without-a-browser.md),
-and the run that proved this feature is recorded in
-[docs/handoff/wandering-library/README.md](handoff/wandering-library/README.md). The
-checks worth re-running after any change here are the two that catch the most: a campaign
+Against the running app, with real sessions, asserting on the payload. The checks worth
+re-running after any change here are the two that catch the most: a campaign
 carrying a row in every excluded table adopts with none of them, and an adopted hero's
 species resolves to the adopter's own row rather than to `Unavailable`.

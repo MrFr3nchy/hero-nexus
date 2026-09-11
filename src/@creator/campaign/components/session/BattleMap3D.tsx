@@ -32,6 +32,17 @@ import {
   type Occupant,
 } from '@/@creator/campaign/lib/battlemap';
 import {
+  flameArt,
+  floorArt,
+  glowArt,
+  masonryArt,
+  outlineArt,
+  planksArt,
+  reachArt,
+  strataArt,
+} from '@/@shared/battlemap/art';
+import {
+  across,
   MATERIALS,
   VOID,
   type Facing,
@@ -316,6 +327,61 @@ function pictureTexture(
 
 /* --- building the scene ------------------------------------------------ */
 
+/** A drawn surface as a texture, wrapped so it can repeat. */
+function artTexture(art: HTMLCanvasElement, repeat = 1): THREE.CanvasTexture {
+  const tex = new THREE.CanvasTexture(art);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeat, repeat);
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/**
+ * Let go of everything a group holds — geometry, every material, and every
+ * texture a material carries. `material.dispose()` alone leaves the texture
+ * on the GPU, and a board rebuilt on every paint stroke would collect them.
+ */
+export function disposeGroup(group: THREE.Object3D) {
+  group.traverse(obj => {
+    const m = obj as THREE.Mesh;
+    m.geometry?.dispose();
+    const mats = Array.isArray(m.material)
+      ? m.material
+      : m.material
+        ? [m.material]
+        : [];
+    for (const mat of mats) {
+      const withMap = mat as THREE.Material & {
+        map?: THREE.Texture | null;
+        emissiveMap?: THREE.Texture | null;
+      };
+      withMap.map?.dispose();
+      withMap.emissiveMap?.dispose();
+      mat.dispose();
+    }
+  });
+}
+
+/** Ink pulled toward stone: masonry, pewter, iron. Never a black monolith. */
+function masonryColour(p: Palette, dark: boolean): THREE.Color {
+  const stone = new THREE.Color(
+    dark ? MATERIALS[1].swatchDark : MATERIALS[1].swatch
+  );
+  return p.ink.clone().lerp(stone, dark ? 0.35 : 0.55);
+}
+
+/** The board's lowest point: every tile is a column standing on it. */
+function floorOf(doc: TerrainDoc): number {
+  let low = 0;
+  for (let i = 0; i < doc.w * doc.h; i++) {
+    if (doc.material[i] === VOID) continue;
+    low = Math.min(low, doc.elevation[i] / FEET_PER_UNIT);
+  }
+  return low - SLAB;
+}
+
 /**
  * Exported for verification. The scene is built apart from any DOM except the
  * label sprites, so the geometry — where a wall lands, how tall a ledge is —
@@ -329,11 +395,18 @@ export function buildTerrain(
 ): THREE.Group {
   const group = new THREE.Group();
   const unit = new THREE.BoxGeometry(1, 1, 1);
+  const bottom = floorOf(doc);
+  const masonry = masonryColour(p, dark);
 
-  // Floor: one instanced mesh per material, scaled in Y to the tile's height.
-  // One draw call per material rather than per tile. Capacity is the tile
-  // count per material, fixed at construction — the Three.js trap the handoff
-  // names: you cannot push an instance onto an existing mesh.
+  // Floor: one instanced mesh per material, each tile a column from the
+  // board's lowest point to its own top, so a pit shows its neighbours'
+  // sides and a ledge shows its own. One draw call per material rather than
+  // per tile. Capacity is the tile count per material, fixed at construction
+  // — the standard Three.js trap: you cannot push an instance onto
+  // an existing mesh.
+  //
+  // The top face wears the material's own drawing and the sides wear earth
+  // in layers — a box has six material slots, and instancing keeps them.
   const byMaterial = new Map<number, number[]>();
   for (let i = 0; i < doc.w * doc.h; i++) {
     const m = doc.material[i];
@@ -342,118 +415,250 @@ export function buildTerrain(
     byMaterial.get(m)!.push(i);
   }
   const tmp = new THREE.Object3D();
+  const strata = new THREE.MeshStandardMaterial({
+    map: artTexture(strataArt(dark)),
+    roughness: 0.95,
+  });
+  const jitter = new THREE.Color();
   for (const [m, tiles] of byMaterial) {
     const spec = MATERIALS[m];
-    const mat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(dark ? spec.swatchDark : spec.swatch),
-      roughness: spec.key === 'water' ? 0.25 : 0.95,
+    const art = floorArt(spec.key, dark);
+    const top = new THREE.MeshStandardMaterial({
+      map: art ? artTexture(art) : null,
+      color: art ? '#ffffff' : dark ? spec.swatchDark : spec.swatch,
+      roughness: spec.key === 'water' ? 0.6 : 0.95,
       metalness: 0,
       // Water and lava glow faintly rather than reflect; it reads better on a
       // parchment ground than a mirror does.
       emissive:
         spec.key === 'lava'
-          ? new THREE.Color('#5a1e12')
+          ? new THREE.Color('#7a2a12')
           : spec.key === 'water'
-            ? new THREE.Color(dark ? '#0f1a26' : '#1a2a3a')
+            ? new THREE.Color(dark ? '#0f1a26' : '#16232e')
             : new THREE.Color('#000000'),
-      emissiveIntensity: 0.35,
+      emissiveIntensity: spec.key === 'lava' ? 0.7 : 0.3,
     });
-    const mesh = new THREE.InstancedMesh(unit, mat, tiles.length);
+    // +x, -x, +y, -y, +z, -z
+    const mesh = new THREE.InstancedMesh(
+      unit,
+      [strata, strata, top, strata, strata, strata],
+      tiles.length
+    );
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     tiles.forEach((i, k) => {
       const x = i % doc.w;
       const z = Math.floor(i / doc.w);
-      const top = doc.elevation[i] / FEET_PER_UNIT;
-      const height = top + SLAB;
-      tmp.position.set(x + 0.5, top - height / 2, z + 0.5);
-      tmp.scale.set(0.995, height, 0.995);
+      const tileTop = doc.elevation[i] / FEET_PER_UNIT;
+      const height = tileTop - bottom;
+      tmp.position.set(x + 0.5, bottom + height / 2, z + 0.5);
+      tmp.scale.set(0.998, height, 0.998);
       tmp.updateMatrix();
       mesh.setMatrixAt(k, tmp.matrix);
+      // No two flagstones the same shade: a little seeded variation per
+      // tile, multiplied into the drawing, so a floor is not wallpaper.
+      const v = 0.9 + (((i * 2654435761) % 1000) / 1000) * 0.2;
+      jitter.setScalar(v);
+      mesh.setColorAt(k, jitter);
     });
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     // The raycast gives back an instance id; this is how it becomes a tile.
     // Against the floor instances and nothing else — not invisible planes per
-    // elevation level, which the handoff warns you will fight forever.
+    // elevation level, which you will fight forever.
     mesh.userData.tiles = tiles;
     mesh.userData.floor = true;
     group.add(mesh);
   }
 
-  // Walls: one instanced mesh per kind, on edges. Half a tile from the tile
-  // centre in the direction of `side`, turned for north/south vs east/west.
-  const wallKinds = new Map<string, typeof doc.walls>();
-  for (const w of doc.walls) {
-    if (!wallKinds.has(w.kind)) wallKinds.set(w.kind, []);
-    wallKinds.get(w.kind)!.push(w);
-  }
-  // A wall is masonry, not a line. `--ink` as a two-unit slab on parchment is
-  // a black monolith — seen on the first light-mode render — so solid walls
-  // and props are ink pulled halfway toward stone: muted, and still darker
-  // than the floor in both palettes.
-  const stoneSwatch = new THREE.Color(
-    dark ? MATERIALS[1].swatchDark : MATERIALS[1].swatch
-  );
-  const masonry = p.ink.clone().lerp(stoneSwatch, dark ? 0.35 : 0.55);
-  for (const [kind, walls] of wallKinds) {
-    const colour =
-      kind === 'door'
-        ? p.gold
-        : kind === 'window'
-          ? p.arcane
-          : kind === 'rail'
-            ? p.inkMuted
-            : masonry;
-    const mat = new THREE.MeshStandardMaterial({
-      color: colour,
-      roughness: 0.8,
-      transparent: kind === 'window',
-      opacity: kind === 'window' ? 0.45 : 1,
-    });
-    const mesh = new THREE.InstancedMesh(unit, mat, walls.length);
-    mesh.castShadow = kind !== 'window';
-    mesh.receiveShadow = true;
-    walls.forEach((w, k) => {
-      const i = w.y * doc.w + w.x;
-      const here = doc.elevation[i] ?? 0;
-      let ax = w.x,
-        az = w.y;
-      if (w.side === 'n') az -= 1;
-      if (w.side === 's') az += 1;
-      if (w.side === 'w') ax -= 1;
-      if (w.side === 'e') ax += 1;
-      const there =
-        ax >= 0 && az >= 0 && ax < doc.w && az < doc.h
-          ? (doc.elevation[az * doc.w + ax] ?? 0)
-          : here;
-      const base = Math.max(here, there) / FEET_PER_UNIT;
-      // An open door is drawn as a stub, so the gap reads as a gap.
-      const h = (w.kind === 'door' && w.open ? 1 : w.height) / FEET_PER_UNIT;
-      const thickness = kind === 'rail' ? 0.06 : 0.12;
+  /* --- walls ---------------------------------------------------------- */
 
-      const cx = w.x + 0.5 + (w.side === 'e' ? 0.5 : w.side === 'w' ? -0.5 : 0);
-      const cz = w.y + 0.5 + (w.side === 's' ? 0.5 : w.side === 'n' ? -0.5 : 0);
-      tmp.position.set(cx, base + h / 2, cz);
-      if (w.side === 'n' || w.side === 's') {
-        tmp.scale.set(1, h, thickness);
-      } else {
-        tmp.scale.set(thickness, h, 1);
-      }
+  // Where an edge sits: its centre, the height of the higher of its two
+  // tiles, and whether it runs along x (north/south edges) or along z.
+  const edgeOf = (w: TerrainDoc['walls'][number]) => {
+    const i = w.y * doc.w + w.x;
+    const here = doc.elevation[i] ?? 0;
+    const [ax, az] = across(w.x, w.y, w.side);
+    const there =
+      ax >= 0 && az >= 0 && ax < doc.w && az < doc.h
+        ? (doc.elevation[az * doc.w + ax] ?? 0)
+        : here;
+    return {
+      cx: w.x + 0.5 + (w.side === 'e' ? 0.5 : w.side === 'w' ? -0.5 : 0),
+      cz: w.y + 0.5 + (w.side === 's' ? 0.5 : w.side === 'n' ? -0.5 : 0),
+      base: Math.max(here, there) / FEET_PER_UNIT,
+      alongX: w.side === 'n' || w.side === 's',
+    };
+  };
+
+  const stoneMat = new THREE.MeshStandardMaterial({
+    map: artTexture(masonryArt(dark)),
+    roughness: 0.85,
+  });
+  const copingMat = new THREE.MeshStandardMaterial({
+    color: masonry.clone().lerp(new THREE.Color('#000000'), 0.25),
+    roughness: 0.8,
+  });
+  const ironMat = new THREE.MeshStandardMaterial({
+    color: dark ? '#4a443e' : '#3a3530',
+    roughness: 0.55,
+    metalness: 0.5,
+  });
+  const leafMat = new THREE.MeshStandardMaterial({
+    map: artTexture(planksArt(dark, true)),
+    roughness: 0.8,
+  });
+  const paneMat = new THREE.MeshStandardMaterial({
+    color: p.arcane,
+    roughness: 0.1,
+    transparent: true,
+    opacity: 0.35,
+    depthWrite: false,
+  });
+
+  const WALL_T = 0.18;
+  const solids = doc.walls.filter(w => w.kind === 'solid');
+  if (solids.length) {
+    // A wall is masonry with a coping along the top: the cap is what makes
+    // an extruded box read as a wall somebody built rather than a slab.
+    const body = new THREE.InstancedMesh(unit, stoneMat, solids.length);
+    const cap = new THREE.InstancedMesh(unit, copingMat, solids.length);
+    body.castShadow = cap.castShadow = true;
+    body.receiveShadow = cap.receiveShadow = true;
+    solids.forEach((w, k) => {
+      const e = edgeOf(w);
+      const h = w.height / FEET_PER_UNIT;
+      tmp.position.set(e.cx, e.base + h / 2, e.cz);
+      tmp.scale.set(e.alongX ? 1 : WALL_T, h, e.alongX ? WALL_T : 1);
       tmp.updateMatrix();
-      mesh.setMatrixAt(k, tmp.matrix);
+      body.setMatrixAt(k, tmp.matrix);
+      tmp.position.set(e.cx, e.base + h + 0.03, e.cz);
+      tmp.scale.set(
+        e.alongX ? 1.04 : WALL_T + 0.1,
+        0.06,
+        e.alongX ? WALL_T + 0.1 : 1.04
+      );
+      tmp.updateMatrix();
+      cap.setMatrixAt(k, tmp.matrix);
     });
-    mesh.instanceMatrix.needsUpdate = true;
-    group.add(mesh);
+    body.instanceMatrix.needsUpdate = true;
+    cap.instanceMatrix.needsUpdate = true;
+    group.add(body, cap);
   }
 
-  // Props: a few plain solids. Drawn, never typed, and muted like the floor.
-  const propMat = new THREE.MeshStandardMaterial({
-    color: masonry,
+  for (const w of doc.walls) {
+    if (w.kind === 'solid') continue;
+    const e = edgeOf(w);
+    const h = w.height / FEET_PER_UNIT;
+    const piece = new THREE.Group();
+    piece.position.set(e.cx, e.base, e.cz);
+    // Built along local x; turned to lie along z for an east/west edge.
+    piece.rotation.y = e.alongX ? 0 : Math.PI / 2;
+
+    if (w.kind === 'door') {
+      // Two jambs and a lintel in stone, and a plank leaf between them. A
+      // closed door fills its frame; an open one is swung on its hinge, so
+      // the gap reads as a gap and the door as a door.
+      const jambW = 0.1;
+      for (const sx of [-0.5 + jambW / 2, 0.5 - jambW / 2]) {
+        const jamb = new THREE.Mesh(unit, stoneMat);
+        jamb.scale.set(jambW, h, WALL_T);
+        jamb.position.set(sx, h / 2, 0);
+        jamb.castShadow = jamb.receiveShadow = true;
+        piece.add(jamb);
+      }
+      const lintel = new THREE.Mesh(unit, copingMat);
+      lintel.scale.set(1.04, 0.14, WALL_T + 0.08);
+      lintel.position.set(0, h - 0.07, 0);
+      lintel.castShadow = true;
+      piece.add(lintel);
+      const leafW = 1 - 2 * jambW;
+      const hinge = new THREE.Group();
+      hinge.position.set(-0.5 + jambW, 0, 0);
+      const leaf = new THREE.Mesh(unit, leafMat);
+      leaf.scale.set(leafW, h - 0.14, 0.07);
+      leaf.position.set(leafW / 2, (h - 0.14) / 2, 0);
+      leaf.castShadow = true;
+      hinge.add(leaf);
+      if (w.open) hinge.rotation.y = -Math.PI * 0.45;
+      piece.add(hinge);
+    } else if (w.kind === 'window') {
+      // A sill, a lintel, jambs, and a pane of the arcane tint between.
+      const sillH = Math.min(0.5, h * 0.3);
+      const sill = new THREE.Mesh(unit, stoneMat);
+      sill.scale.set(1, sillH, WALL_T);
+      sill.position.set(0, sillH / 2, 0);
+      sill.castShadow = sill.receiveShadow = true;
+      piece.add(sill);
+      const lintel = new THREE.Mesh(unit, stoneMat);
+      lintel.scale.set(1, 0.16, WALL_T);
+      lintel.position.set(0, h - 0.08, 0);
+      lintel.castShadow = true;
+      piece.add(lintel);
+      for (const sx of [-0.46, 0.46]) {
+        const jamb = new THREE.Mesh(unit, stoneMat);
+        jamb.scale.set(0.08, h, WALL_T);
+        jamb.position.set(sx, h / 2, 0);
+        piece.add(jamb);
+      }
+      const pane = new THREE.Mesh(unit, paneMat);
+      pane.scale.set(0.84, h - sillH - 0.16, 0.03);
+      pane.position.set(0, sillH + (h - sillH - 0.16) / 2, 0);
+      piece.add(pane);
+    } else {
+      // A rail: two posts and two rails, in iron.
+      for (const sx of [-0.47, 0.47]) {
+        const post = new THREE.Mesh(unit, ironMat);
+        post.scale.set(0.06, h, 0.06);
+        post.position.set(sx, h / 2, 0);
+        post.castShadow = true;
+        piece.add(post);
+      }
+      for (const y of [h, h * 0.5]) {
+        const rail = new THREE.Mesh(unit, ironMat);
+        rail.scale.set(1, 0.05, 0.05);
+        rail.position.set(0, y, 0);
+        rail.castShadow = true;
+        piece.add(rail);
+      }
+    }
+    group.add(piece);
+  }
+
+  /* --- props ---------------------------------------------------------- */
+
+  const woodMat = new THREE.MeshStandardMaterial({
+    map: artTexture(planksArt(dark, false)),
+    roughness: 0.85,
+  });
+  const barrelMat = new THREE.MeshStandardMaterial({
+    map: artTexture(planksArt(dark, true)),
+    roughness: 0.85,
+  });
+  const leafColour = new THREE.Color(
+    dark ? MATERIALS[3].swatchDark : MATERIALS[3].swatch
+  );
+  const canopyMat = new THREE.MeshStandardMaterial({
+    color: leafColour.clone().lerp(new THREE.Color('#1f3a1a'), 0.35),
     roughness: 0.9,
   });
-  const cylinder = new THREE.CylinderGeometry(0.3, 0.3, 1, 12);
-  const cone = new THREE.ConeGeometry(0.4, 1, 8);
-  const sphere = new THREE.SphereGeometry(0.25, 8, 6);
+  const trunkMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(dark ? '#3a2a1a' : '#5a3f28'),
+    roughness: 0.95,
+  });
+  const gildMat = new THREE.MeshStandardMaterial({
+    color: p.gold,
+    roughness: 0.35,
+    metalness: 0.6,
+  });
+  const cylinder = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
+  const sphere = new THREE.SphereGeometry(0.5, 12, 10);
+  const shadowed = (m: THREE.Mesh) => {
+    m.castShadow = true;
+    m.receiveShadow = true;
+    return m;
+  };
+
   for (const pr of doc.props) {
     const i = pr.y * doc.w + pr.x;
     const top = (doc.elevation[i] ?? 0) / FEET_PER_UNIT;
@@ -472,62 +677,200 @@ export function buildTerrain(
       group.add(standing);
       continue;
     }
-    let mesh: THREE.Mesh;
-    let h = 0.6;
+    // Furniture, assembled from a few solids rather than one. Drawn, never
+    // typed, and each recognisable from the default camera: a barrel has
+    // hoops, a pillar a capital, a tree a trunk under its crown.
+    const piece = new THREE.Group();
+    piece.position.set(pr.x + 0.5, top, pr.y + 0.5);
+    const add = (
+      geo: THREE.BufferGeometry,
+      mat: THREE.Material,
+      sx: number,
+      sy: number,
+      sz: number,
+      y: number,
+      x = 0,
+      z = 0
+    ) => {
+      const m = shadowed(new THREE.Mesh(geo, mat));
+      m.scale.set(sx, sy, sz);
+      m.position.set(x, y, z);
+      piece.add(m);
+      return m;
+    };
     switch (pr.kind) {
       case 'barrel':
-        mesh = new THREE.Mesh(cylinder, propMat);
-        h = 0.7;
+        add(cylinder, barrelMat, 0.56, 0.72, 0.56, 0.36);
+        add(cylinder, ironMat, 0.52, 0.04, 0.52, 0.72);
         break;
       case 'pillar':
-        mesh = new THREE.Mesh(cylinder, propMat);
-        h = 2;
+        add(cylinder, stoneMat, 0.7, 0.12, 0.7, 0.06);
+        add(cylinder, stoneMat, 0.46, 2, 0.46, 1.06);
+        add(unit, copingMat, 0.76, 0.12, 0.76, 2.12);
         break;
       case 'tree':
-        mesh = new THREE.Mesh(cone, propMat);
-        h = 1.6;
+        add(cylinder, trunkMat, 0.16, 0.9, 0.16, 0.45);
+        add(sphere, canopyMat, 1.1, 0.95, 1.1, 1.15);
+        add(sphere, canopyMat, 0.8, 0.7, 0.8, 1.55, 0.2, -0.15);
+        add(sphere, canopyMat, 0.7, 0.65, 0.7, 1.45, -0.25, 0.2);
         break;
       case 'rubble':
-        mesh = new THREE.Mesh(sphere, propMat);
-        h = 0.5;
+        add(sphere, stoneMat, 0.4, 0.28, 0.36, 0.12, -0.18, 0.1);
+        add(sphere, stoneMat, 0.3, 0.22, 0.3, 0.1, 0.2, -0.15);
+        add(sphere, stoneMat, 0.22, 0.18, 0.24, 0.08, 0.1, 0.25);
         break;
       case 'statue':
-        mesh = new THREE.Mesh(unit, propMat);
-        h = 1.4;
-        mesh.scale.set(0.5, 1, 0.5);
+        add(unit, stoneMat, 0.7, 0.3, 0.7, 0.15);
+        add(unit, copingMat, 0.5, 0.08, 0.5, 0.34);
+        add(cylinder, stoneMat, 0.3, 1.0, 0.3, 0.88);
+        add(sphere, stoneMat, 0.28, 0.3, 0.28, 1.5);
         break;
-      default:
-        mesh = new THREE.Mesh(unit, propMat);
-        mesh.scale.set(0.8, 1, 0.6);
+      case 'altar':
+        add(unit, stoneMat, 0.9, 0.6, 0.6, 0.3);
+        add(unit, copingMat, 1.0, 0.1, 0.7, 0.65);
+        add(unit, gildMat, 0.12, 0.3, 0.12, 0.85);
+        break;
+      case 'chest':
+        add(unit, woodMat, 0.7, 0.4, 0.5, 0.2);
+        add(unit, woodMat, 0.72, 0.16, 0.52, 0.48);
+        add(unit, ironMat, 0.74, 0.04, 0.54, 0.4);
+        add(unit, gildMat, 0.1, 0.12, 0.05, 0.42, 0, 0.27);
+        break;
+      default: {
+        // A table: a top on four legs.
+        add(unit, woodMat, 0.9, 0.08, 0.7, 0.66);
+        for (const [x, z] of [
+          [-0.38, -0.28],
+          [0.38, -0.28],
+          [-0.38, 0.28],
+          [0.38, 0.28],
+        ]) {
+          add(unit, woodMat, 0.08, 0.62, 0.08, 0.31, x, z);
+        }
+      }
     }
-    mesh.scale.y = h;
-    mesh.position.set(pr.x + 0.5, top + h / 2, pr.y + 0.5);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
+    group.add(piece);
   }
 
-  // Braziers. The warmth is the whole point of the palette.
+  /* --- braziers ------------------------------------------------------- */
+
+  // The warmth is the whole point of the palette: an iron bowl on a post,
+  // coals, a still flame, a pool of light on the floor, and the point light
+  // that does the real work. Nothing flickers.
+  const flame = artTexture(flameArt());
+  const pool = artTexture(glowArt());
   for (const l of doc.lights) {
     const i = l.y * doc.w + l.x;
     const top = (doc.elevation[i] ?? 0) / FEET_PER_UNIT;
-    const light = new THREE.PointLight(
-      p.gold,
-      dark ? 6 : 3,
-      l.radius / FEET_PER_UNIT,
-      1.6
+    const piece = new THREE.Group();
+    piece.position.set(l.x + 0.5, top, l.y + 0.5);
+    const post = shadowed(new THREE.Mesh(cylinder, ironMat));
+    post.scale.set(0.08, 0.5, 0.08);
+    post.position.y = 0.25;
+    const bowl = shadowed(
+      new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.1, 0.16, 12), ironMat)
     );
-    light.position.set(l.x + 0.5, top + 0.8, l.y + 0.5);
-    group.add(light);
-    const ember = new THREE.Mesh(
-      new THREE.SphereGeometry(0.1, 8, 6),
-      new THREE.MeshBasicMaterial({ color: p.gold })
+    bowl.position.y = 0.56;
+    const coals = new THREE.Mesh(
+      new THREE.SphereGeometry(0.13, 8, 6),
+      new THREE.MeshBasicMaterial({ color: '#ff9a3c' })
     );
-    ember.position.copy(light.position);
-    group.add(ember);
+    coals.position.y = 0.6;
+    const fire = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: flame,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        transparent: true,
+      })
+    );
+    fire.center.set(0.5, 0);
+    fire.scale.set(0.34, 0.5, 1);
+    fire.position.y = 0.58;
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: pool,
+        color: p.gold,
+        transparent: true,
+        opacity: dark ? 0.4 : 0.28,
+        depthWrite: false,
+      })
+    );
+    glow.rotation.x = -Math.PI / 2;
+    const reach = l.radius / FEET_PER_UNIT;
+    glow.scale.set(reach * 1.2, reach * 1.2, 1);
+    glow.position.y = 0.012;
+    const light = new THREE.PointLight(p.gold, dark ? 9 : 4, reach * 1.4, 1.7);
+    light.position.y = 0.9;
+    piece.add(post, bowl, coals, fire, glow, light);
+    group.add(piece);
   }
 
   return group;
+}
+
+/**
+ * The table the board stands on: a wide, plain surface fading into the
+ * distance, so the room sits on something rather than floating in a void.
+ * The design language's own ground colour at the centre, darkening toward
+ * the edge — a desk in the parchment palette, a table in candlelight.
+ */
+export function buildTable(doc: TerrainDoc, dark: boolean): THREE.Mesh {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createRadialGradient(128, 128, 8, 128, 128, 96);
+  g.addColorStop(0, dark ? '#2a2219' : '#f1eadb');
+  g.addColorStop(1, dark ? '#0d0a07' : '#d6cab1');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const span = Math.max(doc.w, doc.h);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(span * 7, span * 7),
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 1 })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(doc.w / 2, floorOf(doc) - 0.02, doc.h / 2);
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+/** The colour the table fades to, which the fog and the backdrop share. */
+export function horizonColour(dark: boolean): THREE.Color {
+  return new THREE.Color(dark ? '#0d0a07' : '#d6cab1');
+}
+
+/* --- tokens ------------------------------------------------------------ */
+
+/** A name over a standee: parchment letters on a dark pill, one draw call. */
+function nameplate(text: string): THREE.Sprite {
+  const c = document.createElement('canvas');
+  c.width = 320;
+  c.height = 72;
+  const ctx = c.getContext('2d')!;
+  ctx.font = '600 32px ui-sans-serif, system-ui';
+  const w = Math.min(300, ctx.measureText(text).width + 36);
+  const x = (320 - w) / 2;
+  ctx.fillStyle = 'rgba(22,18,14,0.78)';
+  ctx.beginPath();
+  ctx.roundRect(x, 10, w, 52, 26);
+  ctx.fill();
+  ctx.fillStyle = '#f1e9d6';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 160, 37, 280);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true })
+  );
+  sprite.scale.set(1.2, 0.27, 1);
+  sprite.center.set(0.5, 0);
+  sprite.renderOrder = 10;
+  return sprite;
 }
 
 /** One token's drawing, positioned as a group so a move can lerp the group. */
@@ -540,8 +883,8 @@ export interface TokenPiece {
 interface TokenScene {
   /** By token id, so the next build can find the group that already exists. */
   pieces: Map<string, TokenPiece>;
-  /** The active-turn ring, so the loop can turn it. Null when nobody's turn. */
-  activeRing: THREE.Mesh | null;
+  /** The active-turn marker, so the loop can turn it. Null when nobody's turn. */
+  activeRing: THREE.Object3D | null;
 }
 
 export function buildTokens(
@@ -554,10 +897,20 @@ export function buildTokens(
     entry: EntryRow | undefined,
     token: BattleTokenRow
   ) => HTMLImageElement | null = () => null,
-  selectedId: string | null = null
+  selectedId: string | null = null,
+  dark = true
 ): TokenScene {
   const pieces = new Map<string, TokenPiece>();
-  let activeRing: THREE.Mesh | null = null;
+  let activeRing: THREE.Object3D | null = null;
+  const ring = artTexture(glowArt(0.55));
+  // Pewter in candlelight, a warmer grey on parchment — a dark disc on the
+  // light board read as a hole in the floor.
+  const pewter = new THREE.MeshStandardMaterial({
+    color: dark ? '#4c463e' : '#8a8173',
+    roughness: 0.45,
+    metalness: 0.35,
+  });
+  const shadowArt = artTexture(glowArt());
 
   for (const t of tokens) {
     const group = new THREE.Group();
@@ -566,75 +919,168 @@ export function buildTokens(
     const i = t.y * doc.w + t.x;
     const top =
       (doc.elevation[i] ?? 0) / FEET_PER_UNIT + t.altitude / FEET_PER_UNIT;
-    const r = 0.38 * t.footprint;
+    // A miniature's base: a third of a tile for a medium creature, growing
+    // with the footprint. Smaller than the tile on purpose — the base is the
+    // stand, not the piece.
+    const r = 0.3 * t.footprint;
     const at = new THREE.Vector3(
       t.x + t.footprint / 2,
       top,
       t.y + t.footprint / 2
     );
     group.position.copy(at);
-    // Everything below is placed relative to the group, at the tile's top.
-    const cx = 0;
-    const cz = 0;
-    const top0 = 0;
+    const faint = t.visibility === 'dm';
 
-    const baseColour =
+    const sideColour =
       entry?.side === 'foe'
         ? p.danger
         : entry?.side === 'party'
           ? p.gold
           : p.inkMuted;
-    const base = new THREE.Mesh(
-      new THREE.CylinderGeometry(r, r, 0.14, 24),
-      new THREE.MeshStandardMaterial({
-        color: baseColour,
-        roughness: 0.6,
-        transparent: t.visibility === 'dm',
-        opacity: t.visibility === 'dm' ? 0.45 : 1,
+
+    // Under everything, a soft ring of the side's colour on the floor: whose
+    // this is, readable from across the room, without painting the whole
+    // tile. Which side is state, so it keeps its colour (rule 6).
+    const halo = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: ring,
+        color: sideColour,
+        transparent: true,
+        opacity: faint ? 0.25 : 0.6,
+        depthWrite: false,
       })
     );
-    base.position.set(cx, top0 + 0.07, cz);
+    halo.rotation.x = -Math.PI / 2;
+    halo.scale.set(r * 3.6, r * 3.6, 1);
+    halo.position.y = 0.014;
+    group.add(halo);
+
+    // A sprite casts no shadow, so a soft dark pool under the base stands
+    // in for one: the difference between a piece on the floor and a piece
+    // hovering over it.
+    const contact = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: shadowArt,
+        color: '#000000',
+        transparent: true,
+        opacity: faint ? 0.15 : 0.35,
+        depthWrite: false,
+      })
+    );
+    contact.rotation.x = -Math.PI / 2;
+    contact.scale.set(r * 2.8, r * 2.8, 1);
+    contact.position.y = 0.016;
+    group.add(contact);
+
+    // Pewter, with the side's colour as a rim. The stand a paper miniature
+    // slots into, not a coloured counter.
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(r * 0.96, r, 0.1, 32),
+      faint
+        ? new THREE.MeshStandardMaterial({
+            color: pewter.color,
+            roughness: 0.45,
+            metalness: 0.4,
+            transparent: true,
+            opacity: 0.45,
+          })
+        : pewter
+    );
+    base.position.y = 0.05;
     base.castShadow = true;
     base.userData.tokenId = t.id;
     group.add(base);
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(r * 0.96, 0.028, 8, 48),
+      new THREE.MeshStandardMaterial({
+        color: sideColour,
+        emissive: sideColour,
+        emissiveIntensity: 0.5,
+        roughness: 0.4,
+        transparent: faint,
+        opacity: faint ? 0.5 : 1,
+      })
+    );
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = 0.1;
+    rim.userData.tokenId = t.id;
+    group.add(rim);
 
-    // HP ring, by the HeroCard rule. The server nulled a foe's numbers for a
-    // player, so a player sees no ring on a foe — as the tracker shows a word.
+    // HP as an arc round the base, by the HeroCard rule: the tone says how
+    // it is going, the arc's length says how much is left. The server nulled
+    // a foe's numbers for a player, so a player sees no arc on a foe — as the
+    // tracker shows a word.
     if (entry && entry.hpCurrent !== null && entry.hpMax) {
-      const ratio = entry.hpCurrent / entry.hpMax;
+      const ratio = Math.max(0, Math.min(1, entry.hpCurrent / entry.hpMax));
       const tone =
         ratio > 0.5 ? p.success : ratio > 0.25 ? p.warning : p.danger;
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(r + 0.04, 0.035, 8, 40),
-        new THREE.MeshBasicMaterial({ color: tone })
+      const track = new THREE.Mesh(
+        new THREE.TorusGeometry(r + 0.07, 0.022, 6, 48),
+        new THREE.MeshBasicMaterial({
+          color: '#000000',
+          transparent: true,
+          opacity: 0.35,
+        })
       );
-      ring.rotation.x = Math.PI / 2;
-      ring.position.set(cx, top0 + 0.15, cz);
-      group.add(ring);
+      track.rotation.x = Math.PI / 2;
+      track.position.y = 0.03;
+      group.add(track);
+      if (ratio > 0) {
+        const arc = new THREE.Mesh(
+          new THREE.TorusGeometry(
+            r + 0.07,
+            0.032,
+            8,
+            Math.max(3, Math.round(48 * ratio)),
+            Math.PI * 2 * ratio
+          ),
+          new THREE.MeshBasicMaterial({ color: tone })
+        );
+        arc.rotation.x = Math.PI / 2;
+        // Starts at the back and runs clockwise, so what is missing is
+        // missing from the front where the standee stands.
+        arc.rotation.z = Math.PI / 2 + Math.PI * (1 - ratio);
+        arc.position.y = 0.035;
+        group.add(arc);
+      }
     }
 
-    // Whose turn it is. Gold, and the one thing on the board that moves.
+    // Whose turn it is. Gold, and the one thing on the board that moves: a
+    // ring with four pips, turned by the loop, so the turning shows.
     if (entry && entry.id === currentEntryId) {
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(r + 0.16, 0.03, 8, 48),
+      const marker = new THREE.Group();
+      const band = new THREE.Mesh(
+        new THREE.TorusGeometry(r + 0.2, 0.024, 8, 56),
         new THREE.MeshBasicMaterial({ color: p.gold })
       );
-      ring.rotation.x = Math.PI / 2;
-      ring.position.set(cx, top0 + 0.16, cz);
-      group.add(ring);
-      activeRing = ring;
+      band.rotation.x = Math.PI / 2;
+      marker.add(band);
+      for (let k = 0; k < 4; k++) {
+        const pip = new THREE.Mesh(
+          new THREE.SphereGeometry(0.05, 8, 6),
+          new THREE.MeshBasicMaterial({ color: p.gold })
+        );
+        const a = (k / 4) * Math.PI * 2;
+        pip.position.set(Math.cos(a) * (r + 0.2), 0, Math.sin(a) * (r + 0.2));
+        marker.add(pip);
+      }
+      marker.position.y = 0.04;
+      group.add(marker);
+      activeRing = marker;
     }
 
     // The selected token — the target, the foe on the shelf. Ink, thin, and
     // outside the turn ring, so the two never read as one mark.
     if (t.id === selectedId) {
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(r + 0.28, 0.025, 8, 48),
+      const sel = new THREE.Mesh(
+        new THREE.TorusGeometry(r + 0.32, 0.022, 8, 56),
         new THREE.MeshBasicMaterial({ color: p.ink })
       );
-      ring.rotation.x = Math.PI / 2;
-      ring.position.set(cx, top0 + 0.17, cz);
-      group.add(ring);
+      sel.rotation.x = Math.PI / 2;
+      sel.position.y = 0.04;
+      group.add(sel);
     }
 
     // The standee. A medium creature's card is a tile and a quarter tall
@@ -652,7 +1098,7 @@ export function buildTokens(
     );
     const tall = 1.25 * t.footprint;
     const standing = stand(picture, tall, t.facing);
-    standing.position.set(cx, top0 + 0.14, cz);
+    standing.position.y = 0.1;
     /*
      * What state it is in, drawn: a thing only the DM can see is faint; an
      * open door standing still swings out of its frame; an open door facing
@@ -660,7 +1106,7 @@ export function buildTokens(
      * thing is nearly gone. Nothing here animates — it is where the thing
      * is, not where it is going.
      */
-    if (t.visibility === 'dm') dim(standing, 0.55);
+    if (faint) dim(standing, 0.55);
     if (t.state === 'open') {
       if (t.facing !== 'camera') standing.rotation.y += (Math.PI / 2) * 0.85;
       else dim(standing, 0.6);
@@ -668,6 +1114,14 @@ export function buildTokens(
     if (t.state === 'broken') dim(standing, 0.3);
     standing.userData.tokenId = t.id;
     group.add(standing);
+
+    // Who it is, over its head. A name is the first thing a table asks.
+    if (label.trim()) {
+      const plate = nameplate(label.trim());
+      plate.position.y = 0.1 + tall + 0.1;
+      if (faint) plate.material.opacity = 0.55;
+      group.add(plate);
+    }
 
     pieces.set(t.id, { group, at });
   }
@@ -704,9 +1158,10 @@ export interface BattleMap3DProps {
    * A token was tapped. The board publishes it the same way the 2D view
    * does, so the shelf's attacks and stat block follow a tap here too — any
    * token, not only one the reader may move, because aiming at a foe is the
-   * commonest reason to tap one.
+   * commonest reason to tap one. Null when a tap on bare floor lets the
+   * selection go.
    */
-  onSelect?: (tokenId: string) => void;
+  onSelect?: (tokenId: string | null) => void;
   /** The token the reader has selected, drawn with a ring of its own. */
   selectedId?: string | null;
   /**
@@ -743,8 +1198,17 @@ export default function BattleMap3D({
     onMove,
     speedOf,
     onSelect,
+    selectedId,
   });
-  latest.current = { terrain, tokens, entries, onMove, speedOf, onSelect };
+  latest.current = {
+    terrain,
+    tokens,
+    entries,
+    onMove,
+    speedOf,
+    onSelect,
+    selectedId,
+  };
 
   // Long-lived pieces, created once per mount.
   const world = useRef<{
@@ -753,10 +1217,11 @@ export default function BattleMap3D({
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     terrainGroup: THREE.Group | null;
+    table: THREE.Mesh | null;
     pieces: Map<string, TokenPiece>;
-    /** Tokens on their way somewhere: ~250ms ease-out, per the handoff. */
+    /** Tokens on their way somewhere: ~250ms ease-out. */
     moving: Map<string, { from: THREE.Vector3; to: THREE.Vector3; t: number }>;
-    activeRing: THREE.Mesh | null;
+    activeRing: THREE.Object3D | null;
     sun: THREE.DirectionalLight;
     frame: number;
     lerp: { from: THREE.Vector3; to: THREE.Vector3; t: number } | null;
@@ -768,8 +1233,14 @@ export default function BattleMap3D({
       reach: Map<number, number>;
       hover: { x: number; y: number } | null;
     } | null;
-    /** The lit tiles under a drag. */
+    /** The lit tiles: a drag's reach, or the selected token's. */
     ghost: THREE.Group | null;
+    /** The tile under the pointer, when a tap there would mean something. */
+    hoverMarker: THREE.Mesh;
+    /** Where the last pointer-down landed, so a tap can be told from a drag. */
+    press: { x: number; y: number; tokenId: string | null } | null;
+    /** Light the selected token's reach again, after a rebuild or a drop. */
+    relight?: () => void;
   } | null>(null);
 
   useEffect(() => {
@@ -787,67 +1258,96 @@ export default function BattleMap3D({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = dark ? 1.15 : 1.1;
+    renderer.toneMappingExposure = dark ? 1.3 : 1.1;
     el.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
     // By the flag rather than the CSS variable: on a theme toggle
     // `resolvedTheme` flips a beat before the class lands on <html>, and a
-    // palette read in that beat is the old one. The two grounds are the
-    // design language's own tokens, which do not move.
-    scene.background = new THREE.Color(dark ? '#16130f' : '#faf6ef');
-
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+    // palette read in that beat is the old one. The backdrop is the colour
+    // the table fades to, so the table's edge is never a visible line.
+    const horizon = horizonColour(dark);
+    scene.background = horizon;
     const cx = terrain.w / 2;
     const cz = terrain.h / 2;
     const span = Math.max(terrain.w, terrain.h);
-    camera.position.set(cx + span * 0.35, span * 0.9, cz + span * 0.9);
+    scene.fog = new THREE.Fog(horizon, span * 2.2, span * 6);
+
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, span * 12);
     /*
      * Where the camera starts is decided by the frame, not by the board's
-     * span: the same direction as above, at whatever distance puts the whole
-     * board in view for this canvas's aspect — a canvas filling a tall region
-     * is a different shape from one at 62% of its width, and a fixed distance
-     * cropped the board in one and left it small in the other. Done once, on
-     * the first layout; after that the orbit is the reader's.
+     * span: a fixed bearing — low enough to be cinematic, high enough that
+     * a ledge still reads — at whatever distance puts every corner of the
+     * board just inside this canvas's edges. The board's *box* is fitted,
+     * not its bounding sphere: the sphere left a long room small in the
+     * middle of the canvas, which is the "cramped" the first look was
+     * called. Done once, on the first layout; after that the orbit is the
+     * reader's.
      */
-    const bearing = new THREE.Vector3(0.35, 0.9, 0.9).normalize();
-    const radius = Math.hypot(terrain.w, terrain.h) / 2 + 0.5;
+    const bearing = new THREE.Vector3(0.3, 0.78, 1).normalize();
+    const centre = new THREE.Vector3(cx, 0, cz);
     let framed = false;
     const frame = () => {
-      const vfov = THREE.MathUtils.degToRad(camera.fov);
-      const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect);
-      const dist = radius / Math.sin(Math.min(vfov, hfov) / 2);
-      camera.position
-        .copy(bearing)
-        .multiplyScalar(dist)
-        .add(new THREE.Vector3(cx, 0, cz));
+      let tallest = 0;
+      for (let i = 0; i < terrain.w * terrain.h; i++) {
+        if (terrain.material[i] !== VOID)
+          tallest = Math.max(tallest, terrain.elevation[i] / FEET_PER_UNIT);
+      }
+      const corners: THREE.Vector3[] = [];
+      for (const x of [0, terrain.w])
+        for (const z of [0, terrain.h])
+          for (const y of [-SLAB, tallest + 1.6])
+            corners.push(new THREE.Vector3(x, y, z));
+      const fits = (dist: number) => {
+        camera.position.copy(bearing).multiplyScalar(dist).add(centre);
+        camera.lookAt(centre);
+        camera.updateMatrixWorld();
+        const v = new THREE.Vector3();
+        for (const c of corners) {
+          v.copy(c).project(camera);
+          if (Math.abs(v.x) > 0.96 || Math.abs(v.y) > 0.96) return false;
+        }
+        return true;
+      };
+      let lo = 2;
+      let hi = span * 6;
+      for (let k = 0; k < 24; k++) {
+        const mid = (lo + hi) / 2;
+        if (fits(mid)) hi = mid;
+        else lo = mid;
+      }
+      fits(hi);
       // A narrow canvas can want more distance than the orbit's ceiling
       // allows; the ceiling gives way rather than the framing.
-      controls.maxDistance = Math.max(controls.maxDistance, dist * 1.5);
+      controls.maxDistance = Math.max(controls.maxDistance, hi * 1.5);
     };
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(cx, 0, cz);
-    // Never under the floor, never quite flat: 15°–80° from vertical, as the
-    // handoff sets it. Straight down is reached by the hotkey, which lerps
-    // past the orbit's own floor.
+    controls.target.copy(centre);
+    // Never under the floor, never quite flat: 5°–80° from vertical.
+    // Straight down is reached by the hotkey, which lerps past the orbit's
+    // own floor.
     controls.minPolarAngle = THREE.MathUtils.degToRad(5);
     controls.maxPolarAngle = THREE.MathUtils.degToRad(80);
-    controls.minDistance = 3;
+    controls.minDistance = 2;
     controls.maxDistance = span * 3;
     controls.enableDamping = !reduce;
     controls.dampingFactor = 0.08;
     controls.update();
 
-    // Lighting: one warm key that casts the only shadow, one cool fill, and
-    // a faint sky so the undersides of ledges are not black.
-    // Steep, so a ten-foot wall throws a short shadow rather than one that
-    // swallows the room beside it — seen on the first render, when the east
-    // room read as unlit. Brighter in the dark palette than the number looks:
-    // the floor there is nearly black and needs more light to read at all.
-    const sun = new THREE.DirectionalLight(p.gold, dark ? 2.6 : 2.4);
-    sun.position.set(cx - span * 0.25, span * 1.8, cz - span * 0.15);
-    sun.target.position.set(cx, 0, cz);
+    // Lighting: one warm key that casts the only shadow, a cool rim from
+    // the far side so standees and walls have an edge, a sky fill so the
+    // undersides of ledges are not black. Steep, so a ten-foot wall throws
+    // a short shadow rather than one that swallows the room beside it.
+    // Brighter in the dark palette than the number looks: the floor there
+    // starts nearly black and needs the light to read at all.
+    // The sun stands on the camera's side of the board — south-east, where
+    // the opening view looks from — so the faces the reader sees first are
+    // the lit ones and shadows fall away behind things. The first cut had
+    // it north-west, and every wall the camera faced was its own shadow.
+    const sun = new THREE.DirectionalLight(p.gold, dark ? 3.2 : 2.2);
+    sun.position.set(cx + span * 0.35, span * 1.6, cz + span * 0.55);
+    sun.target.position.copy(centre);
     sun.castShadow = true;
     sun.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
     sun.shadow.camera.near = 0.5;
@@ -857,12 +1357,40 @@ export default function BattleMap3D({
     ortho.right = span;
     ortho.top = span;
     ortho.bottom = -span;
-    sun.shadow.bias = -0.0005;
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.02;
     scene.add(sun, sun.target);
-    scene.add(new THREE.HemisphereLight(p.surface, p.ink, dark ? 0.9 : 0.5));
-    scene.add(
-      new THREE.AmbientLight(new THREE.Color('#8aa4bd'), dark ? 0.55 : 0.3)
+    const rim = new THREE.DirectionalLight(
+      new THREE.Color('#9fb4cf'),
+      dark ? 1.6 : 0.6
     );
+    rim.position.set(cx - span * 0.7, span * 0.8, cz - span * 0.8);
+    rim.target.position.copy(centre);
+    scene.add(rim, rim.target);
+    scene.add(new THREE.HemisphereLight(p.surface, p.ink, dark ? 1.0 : 0.45));
+    scene.add(
+      new THREE.AmbientLight(new THREE.Color('#8aa4bd'), dark ? 0.7 : 0.25)
+    );
+
+    // The tile under the pointer, lit in gold when a tap there would move
+    // the selected token, in the danger tone when it cannot stand there.
+    const hoverMarker = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: (() => {
+          const t = new THREE.CanvasTexture(outlineArt());
+          t.colorSpace = THREE.SRGBColorSpace;
+          return t;
+        })(),
+        color: p.gold,
+        transparent: true,
+        depthWrite: false,
+      })
+    );
+    hoverMarker.rotation.x = -Math.PI / 2;
+    hoverMarker.visible = false;
+    hoverMarker.renderOrder = 5;
+    scene.add(hoverMarker);
 
     world.current = {
       renderer,
@@ -870,6 +1398,7 @@ export default function BattleMap3D({
       camera,
       controls,
       terrainGroup: null,
+      table: null,
       pieces: new Map(),
       moving: new Map(),
       activeRing: null,
@@ -878,6 +1407,8 @@ export default function BattleMap3D({
       lerp: null,
       drag: null,
       ghost: null,
+      hoverMarker,
+      press: null,
     };
 
     // Whatever sits above the canvas inside the region is measured rather
@@ -885,12 +1416,12 @@ export default function BattleMap3D({
     const region = fill ? el.closest('[data-board-region]') : null;
     const resize = () => {
       const w = el.clientWidth;
-      let h = Math.max(240, Math.round(w * 0.62));
+      let h = Math.max(320, Math.round(w * 0.66));
       if (region) {
         const above =
           el.getBoundingClientRect().top - region.getBoundingClientRect().top;
         // The status line and the scrawl under the canvas keep their room.
-        h = Math.max(240, region.clientHeight - above - 72);
+        h = Math.max(320, region.clientHeight - above - 72);
       }
       renderer.setSize(w, h, false);
       renderer.domElement.style.width = `${w}px`;
@@ -909,13 +1440,24 @@ export default function BattleMap3D({
     if (region) ro.observe(region);
 
     // "t" for the top-down view: the 2D board rendered in 3D, which is what
-    // people actually fight in. The lerp is the continuity that sells the
-    // feature; under reduced motion it is a cut.
+    // people actually fight in. "f" frames the whole board again from the
+    // opening angle. The lerp is the continuity that sells the feature;
+    // under reduced motion it is a cut.
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key !== 't' && ev.key !== 'T') return;
       const w = world.current;
       if (!w) return;
-      const to = new THREE.Vector3(cx, span * 1.4, cz + 0.001);
+      let to: THREE.Vector3;
+      if (ev.key === 't' || ev.key === 'T') {
+        to = new THREE.Vector3(cx, span * 1.3, cz + 0.001);
+      } else if (ev.key === 'f' || ev.key === 'F') {
+        const was = camera.position.clone();
+        frame();
+        to = camera.position.clone();
+        camera.position.copy(was);
+      } else {
+        return;
+      }
+      controls.target.copy(centre);
       if (reduce) {
         camera.position.copy(to);
         controls.update();
@@ -936,6 +1478,11 @@ export default function BattleMap3D({
      * carries it over the tile under the pointer; pointer-up puts it down —
      * and only then is anything sent. Orbit is suspended while something is
      * in hand, or every drag would also spin the room.
+     *
+     * A tap is the other way in, and the easier one on a phone: tap your
+     * token to select it — its reach lights — then tap a lit tile to walk
+     * there. The same two taps the 2D board takes. A pointer-up that has
+     * travelled is an orbit, not a tap, and does nothing to the board.
      */
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
@@ -967,21 +1514,47 @@ export default function BattleMap3D({
       pointerTo(ev);
       const bodies: THREE.Object3D[] = [];
       for (const piece of w.pieces.values())
-        bodies.push(...piece.group.children);
+        for (const child of piece.group.children)
+          if (child.userData.tokenId) bodies.push(child);
       const hit = ray.intersectObjects(bodies, false)[0];
       return (hit?.object.userData.tokenId as string | undefined) ?? null;
     };
 
-    const lightGhost = (reach: Map<number, number>) => {
+    const sideOf = (t: BattleTokenRow) =>
+      t.entryId
+        ? (latest.current.entries.find(e => e.id === t.entryId)?.side ?? null)
+        : null;
+    const asReach = (t: BattleTokenRow) => ({
+      id: t.id,
+      x: t.x,
+      y: t.y,
+      footprint: t.footprint,
+      side: sideOf(t),
+    });
+    // The same reach the 2D board draws — one helper, so the two views
+    // cannot disagree about where a token may go.
+    const reachOf = (token: BattleTokenRow) =>
+      reachFor(
+        latest.current.terrain,
+        asReach(token),
+        latest.current.tokens.map(asReach),
+        latest.current.speedOf?.(token) ?? 30
+      );
+
+    const lightGhost = (reach: Map<number, number>, opacity: number) => {
       const w = world.current;
       if (!w) return;
+      darkenGhost();
       const doc = latest.current.terrain;
       const g = new THREE.Group();
-      const geo = new THREE.PlaneGeometry(0.86, 0.86);
+      const geo = new THREE.PlaneGeometry(1, 1);
+      const tex = new THREE.CanvasTexture(reachArt());
+      tex.colorSpace = THREE.SRGBColorSpace;
       const mat = new THREE.MeshBasicMaterial({
+        map: tex,
         color: p.gold,
         transparent: true,
-        opacity: 0.35,
+        opacity,
         depthWrite: false,
       });
       for (const i of reach.keys()) {
@@ -999,47 +1572,58 @@ export default function BattleMap3D({
       w.ghost = g;
       scene.add(g);
     };
-    const darkenGhost = () => {
+    function darkenGhost() {
       const w = world.current;
       if (!w?.ghost) return;
       scene.remove(w.ghost);
-      w.ghost.traverse(o => {
-        const m = o as THREE.Mesh;
-        m.geometry?.dispose();
-      });
+      disposeGroup(w.ghost);
       w.ghost = null;
+    }
+    /** Light the selected token's reach, if it is the reader's to move. */
+    const relight = () => {
+      const w = world.current;
+      if (!w || w.drag) return;
+      darkenGhost();
+      const id = latest.current.selectedId;
+      const token = id ? latest.current.tokens.find(t => t.id === id) : null;
+      if (!token || !token.mine || !latest.current.onMove) return;
+      // Gold on pale stone needs more weight than gold on dark.
+      lightGhost(reachOf(token), dark ? 0.55 : 0.9);
+    };
+    world.current.relight = relight;
+
+    /** Ask the server to put a token on a tile, having put it there already. */
+    const settle = async (
+      tokenId: string,
+      piece: TokenPiece,
+      from: THREE.Vector3,
+      to: { x: number; y: number }
+    ) => {
+      const doc = latest.current.terrain;
+      const token = latest.current.tokens.find(t => t.id === tokenId);
+      if (!token) return;
+      const top = doc.elevation[to.y * doc.w + to.x] / FEET_PER_UNIT;
+      piece.at.set(to.x + token.footprint / 2, top, to.y + token.footprint / 2);
+      piece.group.position.copy(piece.at);
+      const ok = await latest.current.onMove?.(tokenId, to);
+      if (!ok) {
+        piece.at.copy(from);
+        piece.group.position.copy(from);
+      }
     };
 
     const onDown = (ev: PointerEvent) => {
       const w = world.current;
       if (!w || ev.button !== 0) return;
       const id = tokenUnder(ev);
+      w.press = { x: ev.clientX, y: ev.clientY, tokenId: id };
       if (!id) return;
       latest.current.onSelect?.(id);
       const token = latest.current.tokens.find(t => t.id === id);
       const piece = w.pieces.get(id);
       if (!token || !piece || !token.mine || !latest.current.onMove) return;
 
-      // The same reach the 2D board draws — one helper, so the two views
-      // cannot disagree about where a token may go.
-      const doc = latest.current.terrain;
-      const sideOf = (t: BattleTokenRow) =>
-        t.entryId
-          ? (latest.current.entries.find(e => e.id === t.entryId)?.side ?? null)
-          : null;
-      const asReach = (t: BattleTokenRow) => ({
-        id: t.id,
-        x: t.x,
-        y: t.y,
-        footprint: t.footprint,
-        side: sideOf(t),
-      });
-      const reach = reachFor(
-        doc,
-        asReach(token),
-        latest.current.tokens.map(asReach),
-        latest.current.speedOf?.(token) ?? 30
-      );
+      const reach = reachOf(token);
       w.drag = {
         tokenId: id,
         piece,
@@ -1049,33 +1633,101 @@ export default function BattleMap3D({
       };
       w.moving.delete(id);
       piece.group.position.y = piece.at.y + 0.35;
-      lightGhost(reach);
+      lightGhost(reach, dark ? 0.8 : 1);
+      w.hoverMarker.visible = false;
       controls.enabled = false;
       renderer.domElement.setPointerCapture(ev.pointerId);
       ev.preventDefault();
     };
     const onMovePointer = (ev: PointerEvent) => {
       const w = world.current;
-      if (!w?.drag) return;
-      const tile = floorTileUnder(ev);
-      w.drag.hover = tile;
+      if (!w) return;
       const doc = latest.current.terrain;
-      const token = latest.current.tokens.find(t => t.id === w.drag!.tokenId);
-      if (tile && token) {
-        const top = doc.elevation[tile.y * doc.w + tile.x] / FEET_PER_UNIT;
-        w.drag.piece.group.position.set(
-          tile.x + token.footprint / 2,
-          top + 0.35,
-          tile.y + token.footprint / 2
-        );
+      if (w.drag) {
+        const tile = floorTileUnder(ev);
+        w.drag.hover = tile;
+        const token = latest.current.tokens.find(t => t.id === w.drag!.tokenId);
+        if (tile && token) {
+          const top = doc.elevation[tile.y * doc.w + tile.x] / FEET_PER_UNIT;
+          w.drag.piece.group.position.set(
+            tile.x + token.footprint / 2,
+            top + 0.35,
+            tile.y + token.footprint / 2
+          );
+        }
+        return;
       }
+      // Nothing in hand: say what a tap here would do. A hand over a token,
+      // a lit square over a tile the selected token could walk to.
+      const over = tokenUnder(ev);
+      if (over) {
+        renderer.domElement.style.cursor = 'pointer';
+        w.hoverMarker.visible = false;
+        return;
+      }
+      const id = latest.current.selectedId;
+      const token = id ? latest.current.tokens.find(t => t.id === id) : null;
+      const tile = token && token.mine ? floorTileUnder(ev) : null;
+      if (!tile || !token) {
+        renderer.domElement.style.cursor = 'grab';
+        w.hoverMarker.visible = false;
+        return;
+      }
+      const others = latest.current.tokens.filter(t => t.id !== token.id);
+      const ok = canStand(
+        doc,
+        { x: tile.x, y: tile.y, footprint: token.footprint },
+        others
+      );
+      const mat = w.hoverMarker.material as THREE.MeshBasicMaterial;
+      mat.color.copy(ok ? p.gold : p.danger);
+      w.hoverMarker.scale.set(token.footprint, token.footprint, 1);
+      w.hoverMarker.position.set(
+        tile.x + token.footprint / 2,
+        doc.elevation[tile.y * doc.w + tile.x] / FEET_PER_UNIT + 0.03,
+        tile.y + token.footprint / 2
+      );
+      w.hoverMarker.visible = true;
+      renderer.domElement.style.cursor = ok ? 'pointer' : 'not-allowed';
     };
     const onUp = async (ev: PointerEvent) => {
       const w = world.current;
-      if (!w?.drag) return;
+      if (!w) return;
+      const press = w.press;
+      w.press = null;
+      const travelled =
+        press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 6;
+
+      if (!w.drag) {
+        // A tap on the floor, with a token of the reader's selected: walk
+        // there. A tap on nothing in particular lets the selection go, the
+        // way the 2D board does. An orbit is neither.
+        if (!press || travelled || press.tokenId) return;
+        const tile = floorTileUnder(ev);
+        const id = latest.current.selectedId;
+        const token = id ? latest.current.tokens.find(t => t.id === id) : null;
+        if (!tile || !token || !token.mine || !latest.current.onMove) {
+          if (id) latest.current.onSelect?.(null);
+          return;
+        }
+        if (tile.x === token.x && tile.y === token.y) return;
+        const piece = w.pieces.get(token.id);
+        const others = latest.current.tokens.filter(t => t.id !== token.id);
+        const me: Occupant = {
+          x: tile.x,
+          y: tile.y,
+          footprint: token.footprint,
+        };
+        if (!piece || !canStand(latest.current.terrain, me, others)) return;
+        w.hoverMarker.visible = false;
+        darkenGhost();
+        await settle(token.id, piece, piece.at.clone(), tile);
+        relight();
+        return;
+      }
+
       const d = w.drag;
       w.drag = null;
-      darkenGhost();
       controls.enabled = true;
       try {
         renderer.domElement.releasePointerCapture(ev.pointerId);
@@ -1085,7 +1737,10 @@ export default function BattleMap3D({
 
       const doc = latest.current.terrain;
       const token = latest.current.tokens.find(t => t.id === d.tokenId);
-      const snapBack = () => d.piece.group.position.copy(d.from);
+      const snapBack = () => {
+        d.piece.group.position.copy(d.from);
+        relight();
+      };
       if (!token || !d.hover) return snapBack();
       const to = d.hover;
       if (to.x === token.x && to.y === token.y) return snapBack();
@@ -1096,23 +1751,20 @@ export default function BattleMap3D({
 
       // Optimistic: set it down where it was dropped, then ask. A refusal
       // snaps it back; an acceptance is confirmed by the next state read.
-      const top = doc.elevation[to.y * doc.w + to.x] / FEET_PER_UNIT;
-      d.piece.at.set(
-        to.x + token.footprint / 2,
-        top,
-        to.y + token.footprint / 2
-      );
-      d.piece.group.position.copy(d.piece.at);
-      const ok = await latest.current.onMove?.(d.tokenId, to);
-      if (!ok) {
-        d.piece.at.copy(d.from);
-        snapBack();
-      }
+      darkenGhost();
+      await settle(d.tokenId, d.piece, d.from, to);
+      relight();
     };
+    const onLeave = () => {
+      const w = world.current;
+      if (w) w.hoverMarker.visible = false;
+    };
+    renderer.domElement.style.cursor = 'grab';
     renderer.domElement.addEventListener('pointerdown', onDown);
     renderer.domElement.addEventListener('pointermove', onMovePointer);
     renderer.domElement.addEventListener('pointerup', onUp);
     renderer.domElement.addEventListener('pointercancel', onUp);
+    renderer.domElement.addEventListener('pointerleave', onLeave);
 
     const clock = new THREE.Clock();
     const loop = () => {
@@ -1126,7 +1778,7 @@ export default function BattleMap3D({
         camera.position.lerpVectors(w.lerp.from, w.lerp.to, e);
         if (w.lerp.t >= 1) w.lerp = null;
       }
-      if (w.activeRing && !reduce) w.activeRing.rotation.z += dt * 0.6;
+      if (w.activeRing && !reduce) w.activeRing.rotation.y += dt * 0.7;
       // Movement is interpolated, not teleported — for every viewer, not only
       // the one who moved it. Eight lines, and it feels like a different
       // product. Under reduced motion `moving` is never filled.
@@ -1150,14 +1802,9 @@ export default function BattleMap3D({
       renderer.domElement.removeEventListener('pointermove', onMovePointer);
       renderer.domElement.removeEventListener('pointerup', onUp);
       renderer.domElement.removeEventListener('pointercancel', onUp);
+      renderer.domElement.removeEventListener('pointerleave', onLeave);
       controls.dispose();
-      scene.traverse(obj => {
-        const m = obj as THREE.Mesh;
-        if (m.geometry) m.geometry.dispose();
-        const mat = m.material as THREE.Material | THREE.Material[] | undefined;
-        if (Array.isArray(mat)) mat.forEach(x => x.dispose());
-        else mat?.dispose();
-      });
+      disposeGroup(scene);
       renderer.dispose();
       el.removeChild(renderer.domElement);
       world.current = null;
@@ -1167,29 +1814,25 @@ export default function BattleMap3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dark, reduce]);
 
-  // Terrain: rebuilt whole on change.
+  // Terrain: rebuilt whole on change, and the table under it with it, since
+  // the table sits at the board's lowest point.
   useEffect(() => {
     const w = world.current;
     if (!w) return;
     if (w.terrainGroup) {
       w.scene.remove(w.terrainGroup);
-      w.terrainGroup.traverse(obj => {
-        const m = obj as THREE.Mesh;
-        m.geometry?.dispose();
-        const mat = m.material as THREE.Material | undefined;
-        mat?.dispose();
-      });
+      disposeGroup(w.terrainGroup);
+    }
+    if (w.table) {
+      w.scene.remove(w.table);
+      disposeGroup(w.table);
     }
     const p = readPalette(dark);
-    w.terrainGroup = buildTerrain(
-      terrain,
-      p,
-      dark,
-      id => faces.get(imageUrlFor(id)) ?? null
-    );
-    w.scene.add(w.terrainGroup);
-    // `faces` is a dependency on purpose: a picture that lands after the
-    // first build is the reason to build again.
+    const pictureFor = (imageId: string) =>
+      faces.get(imageUrlFor(imageId)) ?? null;
+    w.terrainGroup = buildTerrain(terrain, p, dark, pictureFor);
+    w.table = buildTable(terrain, dark);
+    w.scene.add(w.terrainGroup, w.table);
   }, [terrain, dark, faces, imageUrlFor]);
 
   // Tokens: rebuilt on their own, because they are what moves during a fight.
@@ -1202,19 +1845,12 @@ export default function BattleMap3D({
     for (const [id, piece] of w.pieces) {
       previous.set(id, piece.group.position.clone());
       w.scene.remove(piece.group);
-      piece.group.traverse(obj => {
-        const m = obj as THREE.Mesh;
-        m.geometry?.dispose();
-        const mat = m.material as THREE.Material | undefined;
-        if (mat && 'map' in mat) (mat as THREE.SpriteMaterial).map?.dispose();
-        mat?.dispose();
-      });
+      disposeGroup(piece.group);
     }
     w.moving.clear();
     const p = readPalette(dark);
     const byId = new Map(entries.map(e => [e.id, e]));
-    // The token's own picture first — the DM chose it for this ogre — then
-    // the hero's portrait.
+    // A token's own picture first, then its character's portrait.
     const faceFor = (entry: EntryRow | undefined, token: BattleTokenRow) => {
       if (token.imageUrl) return faces.get(token.imageUrl) ?? null;
       if (!entry?.characterId) return null;
@@ -1228,7 +1864,8 @@ export default function BattleMap3D({
       currentEntryId,
       p,
       faceFor,
-      selectedId
+      selectedId,
+      dark
     );
     w.pieces = built.pieces;
     w.activeRing = built.activeRing;
@@ -1250,6 +1887,7 @@ export default function BattleMap3D({
       }
       w.scene.add(piece.group);
     }
+    w.relight?.();
   }, [
     terrain,
     tokens,
@@ -1266,7 +1904,7 @@ export default function BattleMap3D({
     <div
       ref={mount}
       className="w-full overflow-hidden rounded-md border border-line"
-      aria-label="The battlefield, in three dimensions. Drag to orbit, scroll to zoom, press T for straight down. Drag your own token to move it."
+      aria-label="The battlefield, in three dimensions. Drag to orbit, scroll to zoom, press T for straight down and F to see the whole board. Tap your token, then tap where it goes — or drag it there."
     />
   );
 }

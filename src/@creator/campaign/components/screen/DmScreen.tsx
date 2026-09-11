@@ -502,8 +502,7 @@ export function DmScreen({
    * What the folded shelf may wear a number for: an ask waiting on the
    * viewer, and whispers they have not looked at. Design language rule 2 bans
    * counts as furniture on a page; a folded strip is not a page, and the
-   * number is the reason to open it — named as broken on purpose in the
-   * three-tables handoff.
+   * number is the reason to open it — a rule broken on purpose.
    */
   const badges: Partial<Record<ScreenPanelKey, number>> = live.state
     ? {

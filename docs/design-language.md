@@ -77,7 +77,7 @@ element merely because one of them is on screen.
   quieter of the two on purpose: a slip arriving in the corner, nothing behind it
   moving. It exists because the alternative was worse — a timer the DM started reached
   only whoever happened to be looking at the panel it lives in, which is the complaint
-  `docs/handoff/the-same-room/README.md` was written to answer.
+  the table's announcements were built to answer.
 
 An announcement obeys every other rule without exception. Its title is load-bearing, so
 it is never the hand face (rule 5); its mark is a `Glyph`, never an emoji (rule 8); its

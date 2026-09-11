@@ -15,8 +15,6 @@
  *    says the same thing about the rows.
  * 3. **It is not canon.** A whisper never touches `campaign_reveals` and never
  *    widens to the party. It lives in the evening and nowhere else.
- *
- * See `docs/handoff/the-three-tables/README.md`, model decision 4.
  */
 import 'server-only';
 

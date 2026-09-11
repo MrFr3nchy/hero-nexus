@@ -28,8 +28,7 @@ const FALLBACK_MS = 3_000;
  * frame carries a version number and nothing else — so the answer still comes
  * back through `getLiveState`, which is role-filtered. That is the point:
  * there is exactly one place that decides what a player may see, and adding a
- * transport did not add a second. See
- * `docs/handoff/the-same-room/README.md`, model decision 3.
+ * transport did not add a second.
  *
  * The return shape is unchanged from the polling version, which is the promise
  * `src/db/README.md` made to consumers when it described this swap.

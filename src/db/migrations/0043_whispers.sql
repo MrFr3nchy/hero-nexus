@@ -6,10 +6,8 @@
 -- one person at the table to one or more others, that the rest are not shown.
 -- "I pocket the key." "Cover me." It lives in the evening and nowhere else.
 --
--- A row rather than an event for the reason the-long-campaign phase 9 gave
--- when it refused a notices table: a player who was not looking when it was
--- said still needs to find it. See docs/handoff/the-three-tables/README.md,
--- model decision 4.
+-- A row rather than an event: a player who was not looking when it was said
+-- still needs to find it.
 
 CREATE TABLE IF NOT EXISTS "campaign_whispers" (
   "id"            TEXT PRIMARY KEY NOT NULL,

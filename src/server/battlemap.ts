@@ -11,7 +11,7 @@
  * 1. **Fog of war is a filter here, or it is decoration.** `getBattleMapState`
  *    builds a player a new document containing only revealed tiles, walls
  *    bounding revealed tiles, and tokens standing on revealed tiles. Never the
- *    stored document with parts hidden. Decision 6 in the handoff.
+ *    stored document with parts hidden.
  * 2. **A position the browser produced is a claim, not a record.** Moves are
  *    validated against the rules in `lib/battlemap.ts` — bounds, void,
  *    occupancy — and refused rather than trusted.

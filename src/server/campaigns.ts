@@ -648,8 +648,7 @@ export async function setMemberCharacter(
     /*
      * Only an instance of *this* table may be seated.
      *
-     * A hero taken to a campaign is copied and the copy is what plays — see
-     * the third model decision in `docs/handoff/the-long-campaign/README.md`.
+     * A hero taken to a campaign is copied and the copy is what plays.
      * Before that split, membership pointed straight at the player's own row
      * and nothing stopped a second campaign pointing at the same one, so
      * levelling at one table levelled the hero at the other.

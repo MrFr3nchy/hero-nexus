@@ -114,8 +114,7 @@ export const characters = sqliteTable(
     /**
      * The table this character plays at, or null for a blueprint.
      *
-     * A hero taken to a campaign is *copied*, and the copy is what plays — see
-     * the third model decision in `docs/handoff/the-long-campaign/README.md`.
+     * A hero taken to a campaign is *copied*, and the copy is what plays.
      * The blueprint stays on the shelf: never levelled, never killed, and the
      * thing that goes on the Wandering Library's shelf.
      *
@@ -1817,7 +1816,7 @@ export const campaignCheckTargets = sqliteTable(
  * knows and can be widened to everybody — and not chat, which the-same-room
  * left out and said why. One line, from one person to one or more others,
  * that the rest of the table is not shown. It lives in the evening and
- * nowhere else. See `docs/handoff/the-three-tables/README.md`, decision 4.
+ * nowhere else.
  */
 export const campaignWhispers = sqliteTable(
   'campaign_whispers',
@@ -1879,8 +1878,7 @@ export const campaignWhisperTargets = sqliteTable(
  * Fog of war is `revealed` plus a **server-side** filter over it in
  * `battlemap.ts` — never the renderer hiding things. If the whole document
  * travels and the client hides the unrevealed parts, a player opens devtools
- * and reads the dungeon. See `docs/handoff/the-sand-table/README.md`,
- * decision 6.
+ * and reads the dungeon.
  */
 export const battleMaps = sqliteTable(
   'battle_maps',

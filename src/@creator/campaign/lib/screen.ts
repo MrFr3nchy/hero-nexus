@@ -284,8 +284,8 @@ export function defaultLayout(isStaff: boolean): ScreenLayout {
 /* --- the three tables ---------------------------------------------------- */
 
 /**
- * Which of the three tables a campaign is at. **Derived, never stored** — see
- * `docs/handoff/the-three-tables/README.md`. A sitting and an active fight
+ * Which of the three tables a campaign is at. **Derived, never stored.**
+ * A sitting and an active fight
  * already say which; a column would only drift from them.
  */
 export type TableKind = 'desk' | 'table' | 'battle';

@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS "battle_maps" (
   "terrain"      TEXT NOT NULL,
   -- JSON array of revealed tile indices. Empty = the party has seen nothing.
   -- The fog of war is a server-side filter over this; see lib/battlemap.ts
-  -- `fogged` and decision 6 in the handoff.
+  -- `fogged`.
   "revealed"     TEXT NOT NULL DEFAULT '[]',
   -- 'dm' | 'shared'. A dm board does not appear in a player's read at all.
   "visibility"   TEXT NOT NULL DEFAULT 'dm',
