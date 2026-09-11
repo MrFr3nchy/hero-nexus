@@ -26,6 +26,11 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+import {
+  canStand,
+  reachable,
+  type Occupant,
+} from '@/@creator/campaign/lib/battlemap';
 import { MATERIALS, VOID, type TerrainDoc } from '@/@shared/battlemap/types';
 import { useReducedMotion } from '@/@shared/components/motion';
 import type { BattleTokenRow } from '@/server/battlemap';
@@ -185,6 +190,11 @@ export function buildTerrain(
       mesh.setMatrixAt(k, tmp.matrix);
     });
     mesh.instanceMatrix.needsUpdate = true;
+    // The raycast gives back an instance id; this is how it becomes a tile.
+    // Against the floor instances and nothing else — not invisible planes per
+    // elevation level, which the handoff warns you will fight forever.
+    mesh.userData.tiles = tiles;
+    mesh.userData.floor = true;
     group.add(mesh);
   }
 
@@ -384,6 +394,7 @@ export function buildTokens(
     );
     base.position.set(cx, top0 + 0.07, cz);
     base.castShadow = true;
+    base.userData.tokenId = t.id;
     group.add(base);
 
     // HP ring, by the HeroCard rule. The server nulled a foe's numbers for a
@@ -420,6 +431,7 @@ export function buildTokens(
       faceFor(entry)
     );
     sprite.position.set(cx, top0 + 0.7, cz);
+    sprite.userData.tokenId = t.id;
     group.add(sprite);
 
     pieces.set(t.id, { group, at });
@@ -440,6 +452,12 @@ export interface BattleMap3DProps {
   /** The ones that have loaded, from the cache the 2D board shares. */
   faces: Map<string, HTMLImageElement>;
   dark: boolean;
+  /**
+   * Drop a token on a tile. Resolves true if the server kept it; false snaps
+   * it back. Sent **on drop, never during the drag** — a 60fps drag over the
+   * wire is sixty writes a second per player.
+   */
+  onMove?: (tokenId: string, to: { x: number; y: number }) => Promise<boolean>;
 }
 
 export default function BattleMap3D({
@@ -450,9 +468,14 @@ export default function BattleMap3D({
   portraits,
   faces,
   dark,
+  onMove,
 }: BattleMap3DProps) {
   const mount = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
+
+  // Read by the pointer handlers without re-binding them on every change.
+  const latest = useRef({ terrain, tokens, onMove });
+  latest.current = { terrain, tokens, onMove };
 
   // Long-lived pieces, created once per mount.
   const world = useRef<{
@@ -468,6 +491,16 @@ export default function BattleMap3D({
     sun: THREE.DirectionalLight;
     frame: number;
     lerp: { from: THREE.Vector3; to: THREE.Vector3; t: number } | null;
+    /** A token in hand. */
+    drag: {
+      tokenId: string;
+      piece: TokenPiece;
+      from: THREE.Vector3;
+      reach: Map<number, number>;
+      hover: { x: number; y: number } | null;
+    } | null;
+    /** The lit tiles under a drag. */
+    ghost: THREE.Group | null;
   } | null>(null);
 
   useEffect(() => {
@@ -547,6 +580,8 @@ export default function BattleMap3D({
       sun,
       frame: 0,
       lerp: null,
+      drag: null,
+      ghost: null,
     };
 
     const resize = () => {
@@ -580,6 +615,182 @@ export default function BattleMap3D({
     renderer.domElement.tabIndex = 0;
     renderer.domElement.addEventListener('keydown', onKey);
 
+    /*
+     * Picking up and putting down.
+     *
+     * A raycast against the floor instances gives an instance id, which the
+     * floor mesh turns into a tile. A raycast against token bases gives a
+     * token. Pointer-down on a token you may move lifts it and lights every
+     * tile it can reach, by the same rules the 2D board uses; pointer-move
+     * carries it over the tile under the pointer; pointer-up puts it down —
+     * and only then is anything sent. Orbit is suspended while something is
+     * in hand, or every drag would also spin the room.
+     */
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const pointerTo = (ev: PointerEvent) => {
+      const r = renderer.domElement.getBoundingClientRect();
+      ndc.set(
+        ((ev.clientX - r.left) / r.width) * 2 - 1,
+        -((ev.clientY - r.top) / r.height) * 2 + 1
+      );
+      ray.setFromCamera(ndc, camera);
+    };
+    const floorTileUnder = (
+      ev: PointerEvent
+    ): { x: number; y: number } | null => {
+      const w = world.current;
+      if (!w?.terrainGroup) return null;
+      pointerTo(ev);
+      const floors = w.terrainGroup.children.filter(c => c.userData.floor);
+      const hit = ray.intersectObjects(floors, false)[0];
+      if (!hit || hit.instanceId === undefined) return null;
+      const tiles = hit.object.userData.tiles as number[];
+      const i = tiles[hit.instanceId];
+      const doc = latest.current.terrain;
+      return { x: i % doc.w, y: Math.floor(i / doc.w) };
+    };
+    const tokenUnder = (ev: PointerEvent): string | null => {
+      const w = world.current;
+      if (!w) return null;
+      pointerTo(ev);
+      const bodies: THREE.Object3D[] = [];
+      for (const piece of w.pieces.values())
+        bodies.push(...piece.group.children);
+      const hit = ray.intersectObjects(bodies, false)[0];
+      return (hit?.object.userData.tokenId as string | undefined) ?? null;
+    };
+
+    const lightGhost = (reach: Map<number, number>) => {
+      const w = world.current;
+      if (!w) return;
+      const doc = latest.current.terrain;
+      const g = new THREE.Group();
+      const geo = new THREE.PlaneGeometry(0.86, 0.86);
+      const mat = new THREE.MeshBasicMaterial({
+        color: p.gold,
+        transparent: true,
+        opacity: 0.35,
+        depthWrite: false,
+      });
+      for (const i of reach.keys()) {
+        const x = i % doc.w;
+        const z = Math.floor(i / doc.w);
+        const m = new THREE.Mesh(geo, mat);
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(
+          x + 0.5,
+          doc.elevation[i] / FEET_PER_UNIT + 0.02,
+          z + 0.5
+        );
+        g.add(m);
+      }
+      w.ghost = g;
+      scene.add(g);
+    };
+    const darkenGhost = () => {
+      const w = world.current;
+      if (!w?.ghost) return;
+      scene.remove(w.ghost);
+      w.ghost.traverse(o => {
+        const m = o as THREE.Mesh;
+        m.geometry?.dispose();
+      });
+      w.ghost = null;
+    };
+
+    const onDown = (ev: PointerEvent) => {
+      const w = world.current;
+      if (!w || ev.button !== 0) return;
+      const id = tokenUnder(ev);
+      if (!id) return;
+      const token = latest.current.tokens.find(t => t.id === id);
+      const piece = w.pieces.get(id);
+      if (!token || !piece || !token.mine || !latest.current.onMove) return;
+
+      const doc = latest.current.terrain;
+      const blocked = new Set<number>();
+      for (const t of latest.current.tokens) {
+        if (t.id === id) continue;
+        for (let dy = 0; dy < t.footprint; dy++)
+          for (let dx = 0; dx < t.footprint; dx++)
+            blocked.add((t.y + dy) * doc.w + (t.x + dx));
+      }
+      const reach = reachable(doc, { x: token.x, y: token.y }, 30, blocked);
+      w.drag = {
+        tokenId: id,
+        piece,
+        from: piece.at.clone(),
+        reach,
+        hover: null,
+      };
+      w.moving.delete(id);
+      piece.group.position.y = piece.at.y + 0.35;
+      lightGhost(reach);
+      controls.enabled = false;
+      renderer.domElement.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
+    };
+    const onMovePointer = (ev: PointerEvent) => {
+      const w = world.current;
+      if (!w?.drag) return;
+      const tile = floorTileUnder(ev);
+      w.drag.hover = tile;
+      const doc = latest.current.terrain;
+      const token = latest.current.tokens.find(t => t.id === w.drag!.tokenId);
+      if (tile && token) {
+        const top = doc.elevation[tile.y * doc.w + tile.x] / FEET_PER_UNIT;
+        w.drag.piece.group.position.set(
+          tile.x + token.footprint / 2,
+          top + 0.35,
+          tile.y + token.footprint / 2
+        );
+      }
+    };
+    const onUp = async (ev: PointerEvent) => {
+      const w = world.current;
+      if (!w?.drag) return;
+      const d = w.drag;
+      w.drag = null;
+      darkenGhost();
+      controls.enabled = true;
+      try {
+        renderer.domElement.releasePointerCapture(ev.pointerId);
+      } catch {
+        // Already released.
+      }
+
+      const doc = latest.current.terrain;
+      const token = latest.current.tokens.find(t => t.id === d.tokenId);
+      const snapBack = () => d.piece.group.position.copy(d.from);
+      if (!token || !d.hover) return snapBack();
+      const to = d.hover;
+      if (to.x === token.x && to.y === token.y) return snapBack();
+
+      const me: Occupant = { x: to.x, y: to.y, footprint: token.footprint };
+      const others = latest.current.tokens.filter(t => t.id !== d.tokenId);
+      if (!canStand(doc, me, others)) return snapBack();
+
+      // Optimistic: set it down where it was dropped, then ask. A refusal
+      // snaps it back; an acceptance is confirmed by the next state read.
+      const top = doc.elevation[to.y * doc.w + to.x] / FEET_PER_UNIT;
+      d.piece.at.set(
+        to.x + token.footprint / 2,
+        top,
+        to.y + token.footprint / 2
+      );
+      d.piece.group.position.copy(d.piece.at);
+      const ok = await latest.current.onMove?.(d.tokenId, to);
+      if (!ok) {
+        d.piece.at.copy(d.from);
+        snapBack();
+      }
+    };
+    renderer.domElement.addEventListener('pointerdown', onDown);
+    renderer.domElement.addEventListener('pointermove', onMovePointer);
+    renderer.domElement.addEventListener('pointerup', onUp);
+    renderer.domElement.addEventListener('pointercancel', onUp);
+
     const clock = new THREE.Clock();
     const loop = () => {
       const w = world.current;
@@ -612,6 +823,10 @@ export default function BattleMap3D({
       if (w) cancelAnimationFrame(w.frame);
       ro.disconnect();
       renderer.domElement.removeEventListener('keydown', onKey);
+      renderer.domElement.removeEventListener('pointerdown', onDown);
+      renderer.domElement.removeEventListener('pointermove', onMovePointer);
+      renderer.domElement.removeEventListener('pointerup', onUp);
+      renderer.domElement.removeEventListener('pointercancel', onUp);
       controls.dispose();
       scene.traverse(obj => {
         const m = obj as THREE.Mesh;
@@ -683,7 +898,17 @@ export default function BattleMap3D({
     );
     w.pieces = built.pieces;
     w.activeRing = built.activeRing;
+    // A token in hand stays in hand: the rebuild swaps its drawing under the
+    // pointer rather than dropping it. Its group is placed where the old one
+    // was and the drag carries on with the new piece.
+    const held = w.drag;
     for (const [id, piece] of built.pieces) {
+      if (held && id === held.tokenId) {
+        piece.group.position.copy(held.piece.group.position);
+        held.piece = piece;
+        w.scene.add(piece.group);
+        continue;
+      }
       const was = previous.get(id);
       if (was && !reduce && was.distanceToSquared(piece.at) > 1e-6) {
         piece.group.position.copy(was);
@@ -706,7 +931,7 @@ export default function BattleMap3D({
     <div
       ref={mount}
       className="w-full overflow-hidden rounded-md border border-line"
-      aria-label="The battlefield, in three dimensions. Drag to orbit, scroll to zoom, press T for straight down."
+      aria-label="The battlefield, in three dimensions. Drag to orbit, scroll to zoom, press T for straight down. Drag your own token to move it."
     />
   );
 }

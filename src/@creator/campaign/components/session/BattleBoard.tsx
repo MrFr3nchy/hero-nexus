@@ -1049,6 +1049,12 @@ export function BattleBoard({
           portraits={state.portraits}
           faces={faces}
           dark={dark}
+          onMove={async (tokenId, to) => {
+            const res = await moveTokenAction(tokenId, to);
+            if (!res.ok) onError(res.error);
+            await refresh();
+            return res.ok;
+          }}
         />
       )}
 

@@ -22,8 +22,9 @@ map needs the stream, and the stream is on that branch.
 
 **Phase 1 is built and verified** — the model, the rules, the fog filter and the 2D
 board. **Phase 2 is built and seen** — the renderer, behind a `Stand it up` toggle, verified
-for geometry, bundle split, and in a browser in both palettes. **Two of phase 5's five items are
-built** — portraits on the board and interpolated movement. Phases 3 and 4 are open.
+for geometry, bundle split, and in a browser in both palettes. **Phase 3 is built and seen** —
+drag a token in the 3D view, ghost its reach, drop and send. **Two of phase 5's five
+items are built** — portraits on the board and interpolated movement. Phase 4 is open.
 What each run proved is at the foot of this file.
 
 Everything below was read out of `main` on 2026-09-10, before `feat/the-same-room`
@@ -800,12 +801,19 @@ from outside the browser put her in the east room in the 3D view with nothing pr
 - **Not watched:** reduced motion in the renderer. The code snaps and never fills
   `moving`; it has not been seen doing so.
 
+### Phase 3, in a browser
+
+- Dragging Kessa from `(2,2)` to `(3,4)` in the straight-down view moved her there and
+  the database agreed. The camera did not spin — orbit is suspended while something is
+  in hand.
+- Dragging her onto the pillar snapped her back and wrote nothing: `canStand` refused it
+  locally before any request.
+- A pointer-down that misses a token falls through to orbit, as it should.
+- Not caught on camera: the reach ghost mid-drag. It is the same `reachable` the 2D
+  board draws, as gold planes over the tiles, and it ran on both drags above.
+
 ## Open
 
-- **Phase 3 — interaction in 3D.** Raycast against the floor `InstancedMesh`, drag a
-  token, ghost its reach, drop and fire `moveTokenAction`. Deliberately not written
-  without a browser to verify pointer behaviour against. The 2D board's tap-to-move
-  already works and is the phone's interaction regardless.
 - **Phase 4 — fog tools.** The server side is done (`revealTiles`, `revealFromParty`,
   `resetFog`) and the 2D board has paint-to-reveal and "Look around". Unrevealed renders
   as absent in both views because `fogged` makes it void. What remains is a reveal
