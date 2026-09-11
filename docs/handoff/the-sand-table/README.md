@@ -17,6 +17,9 @@ the bundle. If the 3D work stalls, phase 1 still leaves the app better than it f
 
 ## Status
 
+**Phase 6 — paper standees — is on `feat/the-sand-table-6-standees`, the hero half
+built; see [phases.md](phases.md).**
+
 **Branch: `feat/the-sand-table`, cut from `feat/the-same-room`.** Not from `main`: the
 map needs the stream, and the stream is on that branch.
 
@@ -524,8 +527,10 @@ saves rolled from the map through `useDiceTray()` and let it throw across the wi
 Where the pizzazz actually comes from, cheapest first:
 
 1. **Portraits on the board.** `character_portraits` exists. A billboarded portrait on a
-   token base, cropped to a circle, is the single highest ratio of impact to effort in
-   this whole document. Players see _their character_ standing in the room.
+   token base is the single highest ratio of impact to effort in this whole document.
+   Players see _their character_ standing in the room. _Phase 5 cropped it to a circle
+   floating above the base; phase 6 stood it up as a paper standee on the base — see
+   [phases.md](phases.md)._
 2. **Movement is interpolated, not teleported.** ~250ms ease-out on position change,
    including for other viewers. Costs eight lines. Feels like a different product.
    **Snap instantly under `prefers-reduced-motion`** — review checklist item 10.
