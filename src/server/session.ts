@@ -32,6 +32,7 @@ import {
   users,
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
+import { portraitsFor } from './character-portraits';
 import { getBattleMapState, type BattleMapState } from './battlemap';
 import { listChecks, type CheckRow } from './checks';
 import { listMaps, type MapRow } from './maps';
@@ -168,6 +169,13 @@ export interface LiveState {
    * fight — the sand-table handoff's own recommendation.
    */
   battlemap: BattleMapState;
+  /**
+   * Portrait URLs by character id, for every seated character in the fight.
+   * The sand table's token art — `character_portraits` was always this. Each
+   * is role-checked by `portraitsFor`, so a viewer only gets the ones they may
+   * look at, which at their own table is all of them.
+   */
+  portraits: Record<string, string>;
   /** The viewer's own linked character, so the tracker can say "your turn". */
   viewerCharacterId: string | null;
 }
@@ -330,12 +338,19 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
 
   // Both are their own modules and already role-filtered there — these are
   // reads, not second places that decide what a player may see.
-  const [checks, party, maps, battlemap] = await Promise.all([
+  const [checks, party, maps, battlemap, portraitRows] = await Promise.all([
     listChecks(campaignId),
     listPartyPlayState(campaignId),
     listMaps(campaignId),
     getBattleMapState(campaignId, { userId, role }),
+    portraitsFor(
+      rawEntries
+        .map(e => e.characterId)
+        .filter((id): id is string => id !== null)
+    ),
   ]);
+  const portraits: Record<string, string> = {};
+  for (const [id, row] of portraitRows) portraits[id] = row.url;
   // `listMaps` already dropped anything this viewer may not see, and lighting
   // a map shares it — so a spotlight found here is one they are allowed.
   const spotlight = maps.find(m => m.spotlighted) ?? null;
@@ -382,6 +397,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     party,
     spotlight,
     battlemap,
+    portraits,
     viewerCharacterId: membership?.characterId ?? null,
   };
 }

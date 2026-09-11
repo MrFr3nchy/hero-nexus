@@ -83,21 +83,43 @@ function initials(label: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-/** A sprite carrying two letters. Drawn once per token into a small canvas. */
-function labelSprite(text: string, ink: string, paper: string): THREE.Sprite {
+/**
+ * A billboard above the base: the character's face, or two letters when
+ * there is none. Drawn once per token into a small canvas. This is the
+ * highest ratio of impact to effort in the whole feature — players see
+ * *their character* standing in the room.
+ */
+function labelSprite(
+  text: string,
+  ink: string,
+  paper: string,
+  face: HTMLImageElement | null
+): THREE.Sprite {
   const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 128;
+  c.width = 256;
+  c.height = 256;
   const ctx = c.getContext('2d')!;
   ctx.fillStyle = paper;
   ctx.beginPath();
-  ctx.arc(64, 64, 60, 0, Math.PI * 2);
+  ctx.arc(128, 128, 122, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = ink;
-  ctx.font = '600 56px ui-sans-serif, system-ui';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, 64, 68);
+  if (face && face.naturalWidth > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(128, 128, 116, 0, Math.PI * 2);
+    ctx.clip();
+    const scale = Math.max(232 / face.naturalWidth, 232 / face.naturalHeight);
+    const dw = face.naturalWidth * scale;
+    const dh = face.naturalHeight * scale;
+    ctx.drawImage(face, 128 - dw / 2, 128 - dh / 2, dw, dh);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = ink;
+    ctx.font = '600 112px ui-sans-serif, system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 128, 136);
+  }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const mat = new THREE.SpriteMaterial({ map: tex, depthTest: true });
@@ -293,8 +315,16 @@ export function buildTerrain(
   return group;
 }
 
-interface TokenScene {
+/** One token's drawing, positioned as a group so a move can lerp the group. */
+export interface TokenPiece {
   group: THREE.Group;
+  /** Where it should stand. The group lerps toward this. */
+  at: THREE.Vector3;
+}
+
+interface TokenScene {
+  /** By token id, so the next build can find the group that already exists. */
+  pieces: Map<string, TokenPiece>;
   /** The active-turn ring, so the loop can turn it. Null when nobody's turn. */
   activeRing: THREE.Mesh | null;
 }
@@ -304,20 +334,30 @@ export function buildTokens(
   tokens: BattleTokenRow[],
   entries: Map<string, EntryRow>,
   currentEntryId: string | null,
-  p: Palette
+  p: Palette,
+  faceFor: (entry: EntryRow | undefined) => HTMLImageElement | null = () => null
 ): TokenScene {
-  const group = new THREE.Group();
+  const pieces = new Map<string, TokenPiece>();
   let activeRing: THREE.Mesh | null = null;
 
   for (const t of tokens) {
+    const group = new THREE.Group();
     const entry = t.entryId ? entries.get(t.entryId) : undefined;
     const label = entry?.label ?? t.label ?? '';
     const i = t.y * doc.w + t.x;
     const top =
       (doc.elevation[i] ?? 0) / FEET_PER_UNIT + t.altitude / FEET_PER_UNIT;
     const r = 0.38 * t.footprint;
-    const cx = t.x + t.footprint / 2;
-    const cz = t.y + t.footprint / 2;
+    const at = new THREE.Vector3(
+      t.x + t.footprint / 2,
+      top,
+      t.y + t.footprint / 2
+    );
+    group.position.copy(at);
+    // Everything below is placed relative to the group, at the tile's top.
+    const cx = 0;
+    const cz = 0;
+    const top0 = 0;
 
     const baseColour =
       entry?.side === 'foe'
@@ -334,7 +374,7 @@ export function buildTokens(
         opacity: t.visibility === 'dm' ? 0.45 : 1,
       })
     );
-    base.position.set(cx, top + 0.07, cz);
+    base.position.set(cx, top0 + 0.07, cz);
     base.castShadow = true;
     group.add(base);
 
@@ -349,7 +389,7 @@ export function buildTokens(
         new THREE.MeshBasicMaterial({ color: tone })
       );
       ring.rotation.x = Math.PI / 2;
-      ring.position.set(cx, top + 0.15, cz);
+      ring.position.set(cx, top0 + 0.15, cz);
       group.add(ring);
     }
 
@@ -360,7 +400,7 @@ export function buildTokens(
         new THREE.MeshBasicMaterial({ color: p.gold })
       );
       ring.rotation.x = Math.PI / 2;
-      ring.position.set(cx, top + 0.16, cz);
+      ring.position.set(cx, top0 + 0.16, cz);
       group.add(ring);
       activeRing = ring;
     }
@@ -368,13 +408,16 @@ export function buildTokens(
     const sprite = labelSprite(
       initials(label),
       `#${p.ink.getHexString()}`,
-      `#${p.surface.getHexString()}`
+      `#${p.surface.getHexString()}`,
+      faceFor(entry)
     );
-    sprite.position.set(cx, top + 0.7, cz);
+    sprite.position.set(cx, top0 + 0.7, cz);
     group.add(sprite);
+
+    pieces.set(t.id, { group, at });
   }
 
-  return { group, activeRing };
+  return { pieces, activeRing };
 }
 
 /* --- the component ----------------------------------------------------- */
@@ -384,6 +427,10 @@ export interface BattleMap3DProps {
   tokens: BattleTokenRow[];
   entries: EntryRow[];
   currentEntryId: string | null;
+  /** Portrait URL by character id, off `LiveState`. */
+  portraits: Record<string, string>;
+  /** The ones that have loaded, from the cache the 2D board shares. */
+  faces: Map<string, HTMLImageElement>;
   dark: boolean;
 }
 
@@ -392,6 +439,8 @@ export default function BattleMap3D({
   tokens,
   entries,
   currentEntryId,
+  portraits,
+  faces,
   dark,
 }: BattleMap3DProps) {
   const mount = useRef<HTMLDivElement>(null);
@@ -404,7 +453,9 @@ export default function BattleMap3D({
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     terrainGroup: THREE.Group | null;
-    tokenGroup: THREE.Group | null;
+    pieces: Map<string, TokenPiece>;
+    /** Tokens on their way somewhere: ~250ms ease-out, per the handoff. */
+    moving: Map<string, { from: THREE.Vector3; to: THREE.Vector3; t: number }>;
     activeRing: THREE.Mesh | null;
     sun: THREE.DirectionalLight;
     frame: number;
@@ -478,7 +529,8 @@ export default function BattleMap3D({
       camera,
       controls,
       terrainGroup: null,
-      tokenGroup: null,
+      pieces: new Map(),
+      moving: new Map(),
       activeRing: null,
       sun,
       frame: 0,
@@ -529,6 +581,15 @@ export default function BattleMap3D({
         if (w.lerp.t >= 1) w.lerp = null;
       }
       if (w.activeRing && !reduce) w.activeRing.rotation.z += dt * 0.6;
+      // Movement is interpolated, not teleported — for every viewer, not only
+      // the one who moved it. Eight lines, and it feels like a different
+      // product. Under reduced motion `moving` is never filled.
+      for (const [id, m] of w.moving) {
+        m.t = Math.min(1, m.t + dt * 4);
+        const e = 1 - Math.pow(1 - m.t, 3);
+        w.pieces.get(id)?.group.position.lerpVectors(m.from, m.to, e);
+        if (m.t >= 1) w.moving.delete(id);
+      }
       controls.update();
       renderer.render(scene, camera);
     };
@@ -575,12 +636,16 @@ export default function BattleMap3D({
   }, [terrain, dark]);
 
   // Tokens: rebuilt on their own, because they are what moves during a fight.
+  // A token that already stood somewhere keeps its group's position as the
+  // start of a lerp to where it now belongs; a new one appears in place.
   useEffect(() => {
     const w = world.current;
     if (!w) return;
-    if (w.tokenGroup) {
-      w.scene.remove(w.tokenGroup);
-      w.tokenGroup.traverse(obj => {
+    const previous = new Map<string, THREE.Vector3>();
+    for (const [id, piece] of w.pieces) {
+      previous.set(id, piece.group.position.clone());
+      w.scene.remove(piece.group);
+      piece.group.traverse(obj => {
         const m = obj as THREE.Mesh;
         m.geometry?.dispose();
         const mat = m.material as THREE.Material | undefined;
@@ -588,13 +653,42 @@ export default function BattleMap3D({
         mat?.dispose();
       });
     }
+    w.moving.clear();
     const p = readPalette(dark);
     const byId = new Map(entries.map(e => [e.id, e]));
-    const built = buildTokens(terrain, tokens, byId, currentEntryId, p);
-    w.tokenGroup = built.group;
+    const faceFor = (entry: EntryRow | undefined) => {
+      if (!entry?.characterId) return null;
+      const url = portraits[entry.characterId];
+      return url ? (faces.get(url) ?? null) : null;
+    };
+    const built = buildTokens(
+      terrain,
+      tokens,
+      byId,
+      currentEntryId,
+      p,
+      faceFor
+    );
+    w.pieces = built.pieces;
     w.activeRing = built.activeRing;
-    w.scene.add(built.group);
-  }, [terrain, tokens, entries, currentEntryId, dark]);
+    for (const [id, piece] of built.pieces) {
+      const was = previous.get(id);
+      if (was && !reduce && was.distanceToSquared(piece.at) > 1e-6) {
+        piece.group.position.copy(was);
+        w.moving.set(id, { from: was, to: piece.at.clone(), t: 0 });
+      }
+      w.scene.add(piece.group);
+    }
+  }, [
+    terrain,
+    tokens,
+    entries,
+    currentEntryId,
+    dark,
+    portraits,
+    faces,
+    reduce,
+  ]);
 
   return (
     <div

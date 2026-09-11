@@ -70,6 +70,7 @@ import {
   updateTokenAction,
 } from '../../battlemap-actions';
 import { BattleMap3DLazy } from './BattleMap3DLazy';
+import { usePortraits } from '@/@shared/battlemap/portraits';
 
 /* --- tools ------------------------------------------------------------- */
 
@@ -251,6 +252,22 @@ export function BattleBoard({
     for (const e of state.entries) m.set(e.id, e);
     return m;
   }, [state.entries]);
+
+  // Faces on the board. `character_portraits` was always this feature's token
+  // art; the cache is shared with the 3D view so a face loads once.
+  const portraitUrls = useMemo(
+    () => Object.values(state.portraits ?? {}),
+    [state.portraits]
+  );
+  const faces = usePortraits(portraitUrls);
+  const faceFor = useCallback(
+    (entry: EntryRow | undefined): HTMLImageElement | null => {
+      if (!entry?.characterId) return null;
+      const url = state.portraits?.[entry.characterId];
+      return url ? (faces.get(url) ?? null) : null;
+    },
+    [state.portraits, faces]
+  );
 
   const currentEntryId = useMemo(() => {
     if (!state.encounter) return null;
@@ -775,12 +792,32 @@ export function BattleBoard({
         ctx.stroke();
       }
 
-      // Initials.
-      ctx.fillStyle = p.surface;
-      ctx.font = `600 ${Math.max(9, r * 0.8)}px ui-sans-serif, system-ui`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(initials(label), cx, cy + 1);
+      // The face, clipped to the base, or initials when there is none.
+      const face = faceFor(entry);
+      if (face) {
+        const inner = r - Math.max(2, size * 0.06);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, inner, 0, Math.PI * 2);
+        ctx.clip();
+        // Cover, not stretch: the shorter side fills the circle.
+        const scale = Math.max(
+          (inner * 2) / face.naturalWidth,
+          (inner * 2) / face.naturalHeight
+        );
+        const dw = face.naturalWidth * scale;
+        const dh = face.naturalHeight * scale;
+        ctx.globalAlpha = t.visibility === 'dm' ? 0.5 : 1;
+        ctx.drawImage(face, cx - dw / 2, cy - dh / 2, dw, dh);
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      } else {
+        ctx.fillStyle = p.surface;
+        ctx.font = `600 ${Math.max(9, r * 0.8)}px ui-sans-serif, system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(initials(label), cx, cy + 1);
+      }
     }
 
     // Hover.
@@ -830,6 +867,7 @@ export function BattleBoard({
     reach,
     hover,
     tool,
+    faceFor,
   ]);
 
   // Redraw on resize: the canvas is sized off its container.
@@ -1002,6 +1040,8 @@ export function BattleBoard({
           tokens={board.tokens}
           entries={state.entries}
           currentEntryId={currentEntryId}
+          portraits={state.portraits}
+          faces={faces}
           dark={dark}
         />
       )}
