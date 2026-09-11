@@ -10,7 +10,8 @@ the runs that proved each phase.
 
 **Every phase that touches the database edits `src/db/schema.ts` and a new
 `src/db/migrations/NNNN_*.sql` in the same change.** There is no drizzle-kit generate
-step. The sand table took `0041`; the next free number is `0042`.
+step. The sand table took `0041`; `0042` and `0043` went to the-three-tables; the
+next free number is `0044`, and phase 6's monster half wants it.
 
 ---
 
@@ -126,6 +127,56 @@ _No Three.js. No `three` in `package.json`. A usable 2D battle map on its own._
 - [x] **Range at a hover.** With a token selected, the pointer over another reads
       "25 ft to Aboleth 2" — the same Chebyshev rule the reach uses, so nobody counts
       squares out loud.
+
+## Phase 6 — Paper standees `[hero half built]`
+
+The renderer drew every combatant as a disc with a circle floating above it — a face
+when the character had one, two letters when not — and the terrain as extruded boxes.
+Coherent, and not a thing anybody would call epic. The way up is **not** models and
+textures, which the README put out of scope on purpose; it is **2.5D**: an image that
+stands upright on the board and turns to face the camera. A paper miniature in a
+slotted base — the thing a table already knows, and the thing this app's parchment
+already looks like.
+
+Three halves, cheapest and most visible first:
+
+- [x] **Heroes.** `standeeSprite` in `BattleMap3D.tsx`: the portrait (or the initials)
+      on a parchment card with a torn top edge and a gold border, a tile and a quarter
+      tall for a medium creature and growing with the footprint, **anchored at its
+      foot** so it stands on the base rather than hanging over it. The base keeps the
+      HP ring, the gold turn ring and the ink selection ring, so nothing about ornament
+      encoding state changes. A portrait with a transparent background reads as a
+      cut-out; one without reads as a card. A DM-only token's card is dimmed with its
+      base. The same `Sprite` the circle was — camera-facing, one draw call, cached
+      faces — so this is an evolution of the existing billboard, not a new technique.
+      The deckle is seeded, so a card tears the same way on every rebuild: a torn edge
+      that changed on every token move would be motion nobody asked for (rule 4).
+- [ ] **Monsters.** A token needs a picture to stand up, and the SRD ships no art.
+      `0044`: a nullable `image_id` on `battle_map_tokens`, a reference into
+      `campaign_images` (content-model rule 1 — reference, never copy), chosen through
+      the existing `ImagePicker` from the token's own controls. A transparent PNG gives
+      a cut-out; anything else a card. No background removal: the app makes no outbound
+      calls, and a cut-out is the DM's to make.
+- [ ] **Trees, statues, furniture.** An `image` prop kind in the `TerrainDoc` beside
+      pillar and chest — `{ kind: 'image', imageId, height }` — painted with the prop
+      tool, rendered as a standee. Billboarded by default; a fixed-orientation option
+      only if somebody asks for a signpost. Bumps the terrain document's version.
+
+**Traps.** Textures are per image and cached by URL through the face cache the two
+boards already share. Fog stays honest — it is a server-side filter on whether the
+footprint is revealed, so a tall standee cannot peek out of the dark. Nothing here
+animates and nothing is an emoji.
+
+**Verified (heroes)** — in Chrome, from the player's seat, on the probe board with
+two seeded portraits: Kessa as a cut-out figure on a parchment card, Rurik as a painted
+portrait card, both standing on their bases with the turn and HP rings underneath; the
+ogre and a scenery token as initials cards; a tap on a card selects (the sprite carries
+the token id, as the circle did) and draws the ink ring; a drag from the card moves the
+token, and a drop on a wall's edge snaps back. Both palettes — and the first cut took
+the dark palette's surface for the card and read as a black slab, which is why the
+parchment is fixed. Found on the way: on a theme toggle the scene read the old `--bg`,
+because `resolvedTheme` flips a beat before the class lands; the ground is now chosen
+by the flag.
 
 ---
 

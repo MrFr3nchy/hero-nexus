@@ -88,48 +88,91 @@ function initials(label: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
+/** A standee's card, in canvas pixels. Portrait, two by three. */
+const STANDEE_W = 256;
+const STANDEE_H = 384;
+
 /**
- * A billboard above the base: the character's face, or two letters when
- * there is none. Drawn once per token into a small canvas. This is the
- * highest ratio of impact to effort in the whole feature — players see
- * *their character* standing in the room.
+ * A paper standee: the character's face, or two letters when there is none,
+ * on a parchment card that stands upright on the token's base and turns to
+ * face the camera.
+ *
+ * The-sand-table's phase 6. It replaced a circle floating above the base —
+ * the same billboard, anchored at its foot and given the shape of the thing
+ * a table already knows: a paper miniature in a slotted base. A portrait
+ * with a transparent background reads as a cut-out; one without reads as a
+ * card, which is still a thing somebody printed and stood up. Drawn once per
+ * token into a small canvas. The parchment and the ink are fixed — paper is
+ * paper in candlelight, and a card that took the dark palette's surface read
+ * as a black slab — and only the border is the palette's gold.
+ *
+ * The deckle is a few pixels of torn edge along the top, drawn with a fixed
+ * seed so the same standee tears the same way every build — a card that
+ * changed its edge on every token move would be motion nobody asked for.
  */
-function labelSprite(
+function standeeSprite(
   text: string,
   ink: string,
   paper: string,
+  border: string,
   face: HTMLImageElement | null
 ): THREE.Sprite {
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 256;
+  c.width = STANDEE_W;
+  c.height = STANDEE_H;
   const ctx = c.getContext('2d')!;
+  const inset = 10;
+
+  // The card, with a torn top edge.
   ctx.fillStyle = paper;
   ctx.beginPath();
-  ctx.arc(128, 128, 122, 0, Math.PI * 2);
+  ctx.moveTo(inset, inset + 6);
+  let seed = 7;
+  for (let x = inset; x <= STANDEE_W - inset; x += 12) {
+    seed = (seed * 9301 + 49297) % 233280;
+    ctx.lineTo(x, inset + (seed / 233280) * 8);
+  }
+  ctx.lineTo(STANDEE_W - inset, STANDEE_H - inset);
+  ctx.lineTo(inset, STANDEE_H - inset);
+  ctx.closePath();
   ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = border;
+  ctx.stroke();
+
   if (face && face.naturalWidth > 0) {
+    // Cover the card, keeping the top of the picture: a portrait's face is
+    // in its upper half and a cut-out's feet belong at the base.
     ctx.save();
     ctx.beginPath();
-    ctx.arc(128, 128, 116, 0, Math.PI * 2);
+    ctx.rect(
+      inset + 4,
+      inset + 12,
+      STANDEE_W - 2 * (inset + 4),
+      STANDEE_H - 2 * inset - 16
+    );
     ctx.clip();
-    const scale = Math.max(232 / face.naturalWidth, 232 / face.naturalHeight);
+    const w = STANDEE_W - 2 * (inset + 4);
+    const h = STANDEE_H - 2 * inset - 16;
+    const scale = Math.max(w / face.naturalWidth, h / face.naturalHeight);
     const dw = face.naturalWidth * scale;
     const dh = face.naturalHeight * scale;
-    ctx.drawImage(face, 128 - dw / 2, 128 - dh / 2, dw, dh);
+    ctx.drawImage(face, inset + 4 + (w - dw) / 2, inset + 12, dw, dh);
     ctx.restore();
   } else {
     ctx.fillStyle = ink;
-    ctx.font = '600 112px ui-sans-serif, system-ui';
+    ctx.font = '600 120px ui-sans-serif, system-ui';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 128, 136);
+    ctx.fillText(text, STANDEE_W / 2, STANDEE_H / 2 + 8);
   }
+
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const mat = new THREE.SpriteMaterial({ map: tex, depthTest: true });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(0.7, 0.7, 1);
+  // Anchored at the foot, so it stands on the base rather than hanging over it.
+  sprite.center.set(0.5, 0);
   return sprite;
 }
 
@@ -438,13 +481,26 @@ export function buildTokens(
       group.add(ring);
     }
 
-    const sprite = labelSprite(
+    // The standee. A medium creature's card is a tile and a quarter tall
+    // and two thirds as wide; a large one's grows with its footprint. Dimmed
+    // with the base for a token only the DM can see.
+    // Paper is paper in candlelight: the card is parchment and the letters
+    // ink in both palettes, and only the border takes the palette's gold. A
+    // card that went black with the room read as a slab, not a miniature.
+    const sprite = standeeSprite(
       initials(label),
-      `#${p.ink.getHexString()}`,
-      `#${p.surface.getHexString()}`,
+      '#2b2620',
+      '#ece3cf',
+      `#${p.gold.getHexString()}`,
       faceFor(entry)
     );
-    sprite.position.set(cx, top0 + 0.7, cz);
+    const tall = 1.25 * t.footprint;
+    sprite.scale.set(tall * (STANDEE_W / STANDEE_H), tall, 1);
+    sprite.position.set(cx, top0 + 0.14, cz);
+    if (t.visibility === 'dm') {
+      sprite.material.transparent = true;
+      sprite.material.opacity = 0.55;
+    }
     sprite.userData.tokenId = t.id;
     group.add(sprite);
 
@@ -564,7 +620,11 @@ export default function BattleMap3D({
     el.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = p.bg;
+    // By the flag rather than the CSS variable: on a theme toggle
+    // `resolvedTheme` flips a beat before the class lands on <html>, and a
+    // palette read in that beat is the old one. The two grounds are the
+    // design language's own tokens, which do not move.
+    scene.background = new THREE.Color(dark ? '#16130f' : '#faf6ef');
 
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
     const cx = terrain.w / 2;
