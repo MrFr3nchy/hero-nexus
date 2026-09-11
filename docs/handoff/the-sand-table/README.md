@@ -20,7 +20,7 @@ the bundle. If the 3D work stalls, phase 1 still leaves the app better than it f
 **Branch: `feat/the-sand-table`, cut from `feat/the-same-room`.** Not from `main`: the
 map needs the stream, and the stream is on that branch.
 
-**Phase 1 is built and verified** — the model, the rules, the fog filter and the 2D
+[phases.md](phases.md) carries the item-by-item state. **Phase 1 is built and verified** — the model, the rules, the fog filter and the 2D
 board. **Phase 2 is built and seen** — the renderer, behind a `Stand it up` toggle, verified
 for geometry, bundle split, and in a browser in both palettes. **Phase 3 is built and seen** —
 drag a token in the 3D view, ghost its reach, drop and send. **Phase 4 is built and seen** — a

@@ -19,8 +19,10 @@ index that makes both it and the design language findable without being told.
 Sibling handoffs live beside this one: [wandering-library/](wandering-library/README.md)
 (built), [the-long-campaign/](the-long-campaign/README.md) (mostly built — what a sheet
 needs to be run, rather than built and read), [the-last-breath/](the-last-breath/README.md)
-(built — dying, the seat, the hourglass) and [the-same-room/](the-same-room/README.md)
-(planned — making a session arrive instead of waiting to be looked at).
+(built — dying, the seat, the hourglass), [the-same-room/](the-same-room/README.md)
+(built — a session that arrives instead of waiting to be looked at) and
+[the-sand-table/](the-sand-table/README.md) (built through phase 4 — a battle map
+authored in 2D and rendered in 3D).
 
 ---
 
