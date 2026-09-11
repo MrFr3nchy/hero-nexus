@@ -35,6 +35,7 @@ export const TABLE_EVENT_KINDS = [
   'map',
   'whisper',
   'gift',
+  'thing',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -172,6 +173,16 @@ export interface GiftEvent extends BaseEvent {
   what: string;
 }
 
+/** Somebody did something to a thing on the board. */
+export interface ThingEvent extends BaseEvent {
+  kind: 'thing';
+  /** Who did it — the character when seated, else the person. */
+  actorName: string;
+  /** The thing's own name: "the cellar door". */
+  name: string;
+  what: 'opened' | 'closed' | 'unlocked' | 'held' | 'broken';
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -184,7 +195,8 @@ export type TableEvent =
   | VitalsEvent
   | MapEvent
   | WhisperEvent
-  | GiftEvent;
+  | GiftEvent
+  | ThingEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -222,6 +234,7 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   map: 'map',
   whisper: 'whisper',
   gift: 'chest',
+  thing: 'key',
 };
 
 /**
@@ -380,6 +393,21 @@ export function describe(
         title: `${event.fromName} gives ${event.toName} ${event.what}`,
         tone: 'gold',
       };
+
+    case 'thing': {
+      const words: Record<ThingEvent['what'], string> = {
+        opened: `${event.actorName} opens ${event.name}`,
+        closed: `${event.actorName} closes ${event.name}`,
+        unlocked: `${event.actorName} picks the lock on ${event.name}`,
+        held: `${event.name} holds — ${event.actorName} could not pick it`,
+        broken: `${event.name} breaks`,
+      };
+      return {
+        glyph,
+        title: words[event.what],
+        tone: event.what === 'broken' ? 'danger' : 'gold',
+      };
+    }
 
     case 'vitals': {
       const words: Record<VitalsEvent['state'], string> = {

@@ -7,7 +7,12 @@ import { join } from 'node:path';
 import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { campaignMembers, characterPortraits, characters } from '@/db/schema';
+import {
+  campaignMembers,
+  campaigns,
+  characterPortraits,
+  characters,
+} from '@/db/schema';
 import { requireUserId } from './session-user';
 import { UPLOADS_DIR } from './uploads';
 
@@ -130,7 +135,17 @@ export async function canViewCharacter(characterId: string): Promise<boolean> {
     ),
     columns: { id: true },
   });
-  return Boolean(viewerSeat);
+  if (viewerSeat) return true;
+
+  // The GM has no member row — the trap every targets table in this schema
+  // records — and the DM is the one person at the table who must see every
+  // face on the board. Found when the DM's sand table drew the party as
+  // initials while the players' drew their portraits.
+  const table = await db.query.campaigns.findFirst({
+    where: eq(campaigns.id, seat.campaignId),
+    columns: { gmId: true },
+  });
+  return table?.gmId === userId;
 }
 
 async function requireOwner(characterId: string): Promise<string> {
@@ -153,7 +168,9 @@ export async function getPortrait(
   return {
     id: row.id,
     alt: row.alt,
-    url: row.remoteUrl || portraitUrl(characterId),
+    // Versioned by the row, so a replaced portrait is a new URL and the
+    // route's five-minute cache serves the new face rather than the old.
+    url: row.remoteUrl || `${portraitUrl(characterId)}?v=${row.id}`,
     remote: Boolean(row.remoteUrl),
   };
 }
@@ -212,18 +229,21 @@ export async function savePortraitUpload(
   const name = `${randomUUID()}.${ext}`;
   await writeFile(join(dir, name), Buffer.from(await file.arrayBuffer()));
 
-  await db.insert(characterPortraits).values({
-    characterId,
-    filePath: `characters/${characterId}/${name}`,
-    mime: file.type,
-    bytes: file.size,
-    alt: alt.trim().slice(0, 200),
-  });
+  const [row] = await db
+    .insert(characterPortraits)
+    .values({
+      characterId,
+      filePath: `characters/${characterId}/${name}`,
+      mime: file.type,
+      bytes: file.size,
+      alt: alt.trim().slice(0, 200),
+    })
+    .returning({ id: characterPortraits.id });
 
   return {
     id: characterId,
     alt: alt.trim().slice(0, 200),
-    url: portraitUrl(characterId),
+    url: `${portraitUrl(characterId)}?v=${row.id}`,
     remote: false,
   };
 }

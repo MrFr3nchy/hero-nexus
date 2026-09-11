@@ -11,7 +11,7 @@ the runs that proved each phase.
 **Every phase that touches the database edits `src/db/schema.ts` and a new
 `src/db/migrations/NNNN_*.sql` in the same change.** There is no drizzle-kit generate
 step. The sand table took `0041`; `0042` and `0043` went to the-three-tables; the
-next free number is `0044`, and phase 6's monster half wants it.
+next free number is `0046` — `0044` and `0045` are phases 6 and 7.
 
 ---
 
@@ -128,7 +128,7 @@ _No Three.js. No `three` in `package.json`. A usable 2D battle map on its own._
       "25 ft to Aboleth 2" — the same Chebyshev rule the reach uses, so nobody counts
       squares out loud.
 
-## Phase 6 — Paper standees `[hero half built]`
+## Phase 6 — Paper standees `[built]`
 
 The renderer drew every combatant as a disc with a circle floating above it — a face
 when the character had one, two letters when not — and the terrain as extruded boxes.
@@ -151,21 +151,53 @@ Three halves, cheapest and most visible first:
       faces — so this is an evolution of the existing billboard, not a new technique.
       The deckle is seeded, so a card tears the same way on every rebuild: a torn edge
       that changed on every token move would be motion nobody asked for (rule 4).
-- [ ] **Monsters.** A token needs a picture to stand up, and the SRD ships no art.
-      `0044`: a nullable `image_id` on `battle_map_tokens`, a reference into
-      `campaign_images` (content-model rule 1 — reference, never copy), chosen through
-      the existing `ImagePicker` from the token's own controls. A transparent PNG gives
-      a cut-out; anything else a card. No background removal: the app makes no outbound
-      calls, and a cut-out is the DM's to make.
-- [ ] **Trees, statues, furniture.** An `image` prop kind in the `TerrainDoc` beside
-      pillar and chest — `{ kind: 'image', imageId, height }` — painted with the prop
-      tool, rendered as a standee. Billboarded by default; a fixed-orientation option
-      only if somebody asks for a signpost. Bumps the terrain document's version.
+- [x] **Monsters.** `0044_token_images.sql`: a nullable `image_id` on
+      `battle_map_tokens`, a reference into `campaign_images` (content-model rule 1 —
+      reference, never copy), nulled when the image goes so the token stands as
+      initials rather than falling over. `updateToken` refuses an image from another
+      campaign (`NO_SUCH_IMAGE`). The token row carries `imageUrl`, composed on the
+      server so neither board learns the route. A _Give it a picture_ popover on the
+      selected token, staff only, through `ImagePicker` — which grew a `library`
+      strip of the campaign's pictures, because the same ogre stands up five times
+      and uploading it five times is five copies of one file.
+- [x] **Cut-outs stand as themselves.** `isCutout` samples a picture's four corners
+      once and remembers the answer. A cut-out is drawn whole, feet on the base, no
+      card, sized by its own proportions — a paper miniature is cut along its outline,
+      and a card behind an ogre with a raised club was a card, not an ogre. Paintings
+      and initials keep the parchment card.
+- [x] **Trees, statues, doors.** An `image` prop kind in the `TerrainDoc` —
+      `{ kind: 'image', imageId, height, blocks }` — additive and optional, so the
+      document's version did not need to move; `normalizeTerrain` drops an image prop
+      with no image and clamps the height to 1–100 ft. A _Picture_ tool beside the
+      prop select: choose from the library or upload, feet tall, whether it blocks the
+      tile, then tap a tile to stand it there and tap again to take it down. The 2D
+      board draws the picture fitted inside the tile; the 3D view stands it up as the
+      raw image, `height` feet tall, as wide as its proportions make it, billboarded.
+      Fog already drops props on unlit tiles, so a tree in the dark stays dark.
+- [x] **Found on the way: the DM could not see the party's faces.** `canViewCharacter`
+      looked for the viewer's member row, and the GM has none — the trap every targets
+      table in this schema records — so the DM's board drew initials where the players'
+      drew portraits. The GM of the seat's campaign may look now. And a replaced
+      portrait showed stale for five minutes behind the route's cache; the URL is
+      versioned by the portrait row.
 
 **Traps.** Textures are per image and cached by URL through the face cache the two
 boards already share. Fog stays honest — it is a server-side filter on whether the
 footprint is revealed, so a tall standee cannot peek out of the dark. Nothing here
 animates and nothing is an emoji.
+
+**Verified (monsters and props)** — six of the owner's pictures uploaded through the
+real route into the probe campaign's library (a 6 MB tree tripped a limit on large
+multipart posts through the middleware — "Response body object should not be disturbed
+or locked" — went in at 1400 px for the first look, and then in full once the
+middleware was told to leave the image routes alone, below). In
+Chrome as the DM: the library strip in the token popover; the ogre picture chosen for
+Ogre 1, which then stood as a cut-out on its red base with the HP ring, and wore the
+picture in its circle on the 2D board; the _Picture_ tool with the tree at 20 ft and
+the door at 10 ft tapped onto tiles, drawn fitted on the 2D board and standing in 3D;
+the party's faces on the DM's board for the first time. Headless as the player: the
+tree on a lit tile in the live state and the door on a dark one absent; the shared
+ogre's `imageUrl` present; an image id from nowhere refused.
 
 **Verified (heroes)** — in Chrome, from the player's seat, on the probe board with
 two seeded portraits: Kessa as a cut-out figure on a parchment card, Rurik as a painted
@@ -194,6 +226,87 @@ render in a browser — all three, because each catches what the others cannot:
 
 The last row is the argument for looking. Four real defects, none reachable by the
 other three layers, all found in the first ten minutes of having a screen.
+
+- [x] **Large uploads.** A multipart post above roughly 3 MB died inside Next's
+      middleware body handling before the route ran. The campaign image routes check
+      the campaign role themselves on every request, so the middleware matcher now
+      leaves `/api/campaigns/*/images` alone, and the upload route answers a
+      signed-out post with 401 rather than a crash. The 6 MB tree went through.
+- [x] **Size on the board.** `dealEncounterIn` reads each dealt creature's size off
+      the reference the entry remembers — one bestiary read per distinct creature —
+      and deals it with the footprint to match: Large is two tiles a side, Huge three,
+      Gargantuan capped at the token model's three. An ogre now stands on four tiles
+      and its cut-out, scaled by footprint, towers over the party without anybody
+      setting anything. A hand-typed combatant is medium.
+
+**Verified (the rest)** — the 6 MB tree uploaded through the real route (201); a
+signed-out GET of an image and a stranger's both 404; a signed-out POST 401. Two
+ogres redealt at footprint 2, at (6,6) and (8,6), both standing on 2×2 bases in
+3D and drawn at two tiles across on the 2D board, wearing the ogre picture.
+
+## Phase 7 — Things a table can do something to `[built]`
+
+A door that is open, closed or locked; a chest that can be picked; a window that
+can be smashed. **A thing is a scenery token, not a mark in the terrain**, because a
+player changes it — the terrain is the DM's to write, and "I open the door" is not an
+edit to the map. `0045_interactive_tokens.sql` puts `state`, `lock_dc`, `hp_current`,
+`hp_max` and `facing` on `battle_map_tokens`; a combatant carries none of them (its
+hit points are on the sheet and in the order).
+
+- [x] **What a thing is.** `state` is null for a boulder, else `open | closed | locked
+    | broken`. Open and broken things do not block their tile — `blocksTile` in
+      `@shared/battlemap/types.ts`, applied by the server when it checks a drop and by
+      both boards when they light a reach, so the two cannot disagree. `lockDc` and
+      the hit points are the DM's on the wire, the way a foe's numbers are: a player
+      sees that a thing is locked and that it is `breakable`, not what it takes.
+- [x] **Placing one.** The _Scenery_ tool became _Thing_, with a row: what it is,
+      what it stands up as (the library), its state, a lock DC when locked, hit points
+      (blank is unbreakable), which way it faces. The DM changes any of it later from
+      _What it is_ on the selected thing.
+- [x] **Doing something to it.** Anyone beside it — one tile from any tile of its
+      footprint, by their own seated token; staff from anywhere — opens or closes it
+      (`operateThing`). A locked thing refuses and says so. _Pick the lock_ rolls a
+      Dexterity (Sleight of Hand) check on the server off the picker's own sheet
+      against the DC, with advantage or disadvantage on offer; the roll lands in the
+      shared log as `Pick the lock — the cellar door`, the DC does not, and the
+      verdict says only whether it gave. No DC set means DC 10: a lock nobody can ever
+      pick is a wall. Breaking one is the DM's, the way `applyHp` on a foe is: the
+      player rolls at it through the attacks panel (a thing is a target like any
+      token) and the DM applies what landed with −/+ on the status line. At 0 it is
+      broken and no longer blocks; mended above 0 it is closed again — a repaired door
+      is a door.
+- [x] **Told to the table.** A `thing` event — opened, closed, unlocked, held (the
+      lock did not give), broken — to everyone, in the gold tone, danger for broken,
+      with the actor's character name.
+- [x] **Drawn.** 2D: a padlock on a locked thing, a dashed green ring on an open one,
+      a red cross through a broken one. 3D: a thing with a fixed facing that is open
+      swings out of its frame (rotated, not animated — it is where it is); one facing
+      the camera fades instead, having nothing to swing on; a broken one is nearly
+      gone. A thing selected on the board lights no reach — it has no walking speed,
+      and a thirty-foot glow around a door was a board full of noise.
+- [x] **Fixed facing** (the item phase 6 wrote down). `facing` on scenery tokens and
+      on image props: `camera`, or a compass side. A side stands the picture up as a
+      plane that does not turn while the room is orbited — a signpost, a door, a wall
+      panel. A tree keeps facing you.
+
+**Verified** — headless, with a locked cellar door (DC 12, 20 hp, facing north)
+placed by the DM: a player across the room told "It is locked" on open and "You are
+not close enough" on pick; the player's live state carrying `state: locked` and
+`breakable: true` with `lockDc` and the hit points null; Kessa stepped beside it,
+rolled `1d20+4` (her Sleight of Hand off the sheet) to 20, the lock gave and she opened
+it; a stranger refused; the player refused on damage; the DM broke it with 25, Kessa
+walked onto its tile, the DM mended it to 5 and it read `closed`; the DM opening it
+put `{"kind":"thing","what":"opened"}` on the player's stream. In Chrome as the DM:
+the padlock on the 2D token, the _What it is_ popover reading the door back and
+setting it locked, _Pick the lock_ from the status line giving, the door standing as a
+north-facing plane in 3D and swung out of its frame once open, the _Thing_ row.
+
+## Still to do
+
+- **A thing's picture per state.** One picture serves open and closed; a door drawn
+  ajar would want a second image. Nobody has asked.
+- **Traps.** A thing that does something when stepped on is the same row with one
+  more verb, and a different conversation about what the DM is told.
 
 ## Out of scope, deliberately
 

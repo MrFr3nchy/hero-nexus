@@ -1,7 +1,10 @@
 'use client';
 
 import { Button } from '@heroui/react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+import type { CampaignImageRow } from '@/server/campaign-images';
+import { listCampaignImagesAction } from '../image-actions';
 
 /**
  * Attach a picture to a campaign thing — an NPC's portrait, a sketch of an
@@ -16,16 +19,43 @@ export function ImagePicker({
   value,
   onChange,
   label = 'Picture',
+  library = false,
+  hint = true,
 }: {
   campaignId: string;
   /** The stored image id, or null for none. */
   value: string | null;
   onChange: (imageId: string | null) => void;
   label?: string;
+  /**
+   * Offer the campaign's existing pictures as well as an upload. The sand
+   * table stands the same ogre up five times, and uploading it five times
+   * is five copies of one file.
+   */
+  library?: boolean;
+  /**
+   * Leave out the sentence about formats and sizes. On a form it earns its
+   * line; in a toolbar beside five other controls it is the widest thing
+   * there and says nothing the upload button's error would not.
+   */
+  hint?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [shelf, setShelf] = useState<CampaignImageRow[]>([]);
+  // Re-read after an upload, so the new picture joins the shelf at once.
+  const [seq, setSeq] = useState(0);
+  useEffect(() => {
+    if (!library) return;
+    let live = true;
+    listCampaignImagesAction(campaignId).then(rows => {
+      if (live) setShelf(rows);
+    });
+    return () => {
+      live = false;
+    };
+  }, [campaignId, library, seq]);
 
   const upload = async (file: File) => {
     setError('');
@@ -48,6 +78,7 @@ export function ImagePicker({
         return;
       }
       onChange(data.id);
+      setSeq(n => n + 1);
     } catch {
       setError('Upload failed.');
     } finally {
@@ -100,6 +131,38 @@ export function ImagePicker({
         </div>
       </div>
 
+      {library && shelf.length > 0 && (
+        <ul
+          className="mt-2 flex max-w-full gap-1.5 overflow-x-auto py-1"
+          aria-label="The campaign's pictures"
+        >
+          {shelf.map(img => (
+            <li key={img.id} className="shrink-0">
+              <button
+                type="button"
+                onClick={() => onChange(img.id)}
+                title={img.alt || 'A picture'}
+                aria-label={img.alt || 'A picture'}
+                aria-pressed={img.id === value}
+                className={`block h-12 w-12 overflow-hidden rounded-md border ${
+                  img.id === value
+                    ? 'border-gold ring-1 ring-gold/40'
+                    : 'border-line hover:border-ink-subtle'
+                }`}
+              >
+                {/* Role-checked route, so not next/image. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.url}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
       <input
         ref={input}
         type="file"
@@ -111,10 +174,12 @@ export function ImagePicker({
         }}
       />
 
-      <p className="mt-1.5 text-xs text-ink-subtle">
-        PNG, JPEG, WebP or GIF, up to 8 MB. Stored with the campaign&rsquo;s
-        handouts, not in the sheet.
-      </p>
+      {hint && (
+        <p className="mt-1.5 text-xs text-ink-subtle">
+          PNG, JPEG, WebP or GIF, up to 8 MB. Stored with the campaign&rsquo;s
+          handouts, not in the sheet.
+        </p>
+      )}
       {error && <p className="mt-1 text-sm text-danger">{error}</p>}
     </div>
   );

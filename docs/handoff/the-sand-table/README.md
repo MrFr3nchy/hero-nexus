@@ -17,8 +17,11 @@ the bundle. If the 3D work stalls, phase 1 still leaves the app better than it f
 
 ## Status
 
-**Phase 6 — paper standees — is on `feat/the-sand-table-6-standees`, the hero half
-built; see [phases.md](phases.md).**
+**Phase 6 — paper standees — is built**: heroes stand as their portraits, a token
+can stand as any of the campaign's pictures, and a picture can stand on a tile.
+**Phase 7 — things a table can do something to — is built**: a door that is open,
+closed or locked, picked or broken, by the people beside it. See
+[phases.md](phases.md).
 
 **Branch: `feat/the-sand-table`, cut from `feat/the-same-room`.** Not from `main`: the
 map needs the stream, and the stream is on that branch.

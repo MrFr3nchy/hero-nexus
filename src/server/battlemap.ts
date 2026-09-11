@@ -31,22 +31,42 @@ import {
   type Occupant,
 } from '@/@creator/campaign/lib/battlemap';
 import {
+  blocksTile,
   emptyTerrain,
+  FACINGS,
   inBounds,
+  ITEM_STATES,
   normalizeTerrain,
   VOID,
+  type Facing,
+  type ItemState,
   type TerrainDoc,
 } from '@/@shared/battlemap/types';
+import { skillBonus } from '@/@creator/character/lib/derive';
+import type { CharacterSheet } from '@/@creator/character/schema';
+import { rollDie } from '@/@shared/lib/dice';
+import { randomUUID } from 'node:crypto';
+import {
+  parseContentData,
+  refKey,
+  type ContentRef,
+  type CreatureData,
+} from '@/@shared/content';
 import { db } from '@/db';
 import {
   battleMapTokens,
   battleMaps,
   campaignMembers,
+  campaignRolls,
+  characters,
   initiativeEncounters,
   initiativeEntries,
+  users,
 } from '@/db/schema';
+import { getCampaignImage, imageUrl } from './campaign-images';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
-import { bumpVersion } from './live-hub';
+import { bumpVersion, publish } from './live-hub';
+import { resolveContentRefs } from './content';
 
 export interface BattleTokenRow {
   id: string;
@@ -62,6 +82,29 @@ export interface BattleTokenRow {
   visibility: 'dm' | 'shared';
   /** Whether the reader may move it. */
   mine: boolean;
+  /**
+   * What it is, when it is a thing rather than a somebody: open, closed,
+   * locked or broken. Null for a boulder, and for every combatant. Open and
+   * broken things do not block their tile.
+   */
+  state: ItemState | null;
+  /** What picking the lock is rolled against. Staff only; null on the wire otherwise. */
+  lockDc: number | null;
+  /** Hit points, for a thing that can be broken. Staff only; null for players. */
+  hpCurrent: number | null;
+  hpMax: number | null;
+  /** Whether it can be broken at all — true when it has hit points. Everybody. */
+  breakable: boolean;
+  /** Which way a picture faces: the camera, or a compass side, standing still. */
+  facing: Facing;
+  /** The campaign image it stands up as, if the DM gave it one. */
+  imageId: string | null;
+  /**
+   * That image's URL, composed here so neither board learns the route. The
+   * route is role-checked on its own, so a player who guesses one gets the
+   * same answer the handout route gives.
+   */
+  imageUrl: string | null;
 }
 
 export interface BattleMapRow {
@@ -203,6 +246,17 @@ export async function getBattleMapState(
       tint: t.tint,
       visibility: t.visibility,
       mine: isStaff || (t.entryId !== null && myEntries.has(t.entryId)),
+      state: t.state,
+      // The DC and the numbers are the DM's, the way a foe's are: a player
+      // sees that a thing is locked and that it can be broken, not what it
+      // takes.
+      lockDc: isStaff ? t.lockDc : null,
+      hpCurrent: isStaff ? t.hpCurrent : null,
+      hpMax: isStaff ? t.hpMax : null,
+      breakable: t.hpMax !== null,
+      facing: t.facing,
+      imageId: t.imageId,
+      imageUrl: t.imageId ? imageUrl(campaignId, t.imageId) : null,
     }));
 
   return {
@@ -217,6 +271,21 @@ export async function getBattleMapState(
     updatedAt: map.updatedAt,
   };
 }
+
+/**
+ * Tiles a side, by creature size. Tiny through Medium share a tile; Large is
+ * two, Huge three, and Gargantuan is capped at the board's three — the
+ * token model's ceiling, and a 20-foot dragon on a 40-foot board is a
+ * different problem.
+ */
+const FOOTPRINT_BY_SIZE: Record<string, number> = {
+  tiny: 1,
+  small: 1,
+  medium: 1,
+  large: 2,
+  huge: 3,
+  gargantuan: 3,
+};
 
 /** Every board this campaign has authored. Staff only — it is the DM's shelf. */
 export async function listBattleMaps(campaignId: string): Promise<
@@ -539,10 +608,13 @@ async function occupantsExcept(
       x: battleMapTokens.x,
       y: battleMapTokens.y,
       footprint: battleMapTokens.footprint,
+      state: battleMapTokens.state,
     })
     .from(battleMapTokens)
     .where(eq(battleMapTokens.mapId, mapId));
-  return rows.filter(r => r.id !== exceptId);
+  // An open door and a smashed chest are walked through; the same rule the
+  // boards apply when they light a token's reach.
+  return rows.filter(r => r.id !== exceptId && blocksTile(r.state));
 }
 
 export interface TokenInput {
@@ -554,6 +626,35 @@ export interface TokenInput {
   altitude?: number;
   tint?: string;
   visibility?: 'dm' | 'shared';
+  /** Scenery only: what it stands up as, what it is, what it takes. */
+  imageId?: string | null;
+  state?: ItemState | null;
+  lockDc?: number | null;
+  /** Null or absent is indestructible. */
+  hpMax?: number | null;
+  facing?: Facing;
+}
+
+/** Clamp what a thing may be told about itself. */
+function itemFields(input: {
+  state?: ItemState | null;
+  lockDc?: number | null;
+  hpMax?: number | null;
+  facing?: Facing;
+}) {
+  const state =
+    input.state && ITEM_STATES.includes(input.state) ? input.state : null;
+  const lockDc =
+    input.lockDc === null || input.lockDc === undefined
+      ? null
+      : Math.max(1, Math.min(40, Math.trunc(input.lockDc)));
+  const hpMax =
+    input.hpMax === null || input.hpMax === undefined
+      ? null
+      : Math.max(1, Math.min(9999, Math.trunc(input.hpMax)));
+  const facing =
+    input.facing && FACINGS.includes(input.facing) ? input.facing : undefined;
+  return { state, lockDc, hpMax, facing };
 }
 
 /**
@@ -587,6 +688,16 @@ export async function placeToken(
     throw new Error('CANNOT_STAND_THERE');
   }
 
+  if (input.imageId) {
+    const image = await getCampaignImage(input.imageId);
+    if (!image || image.campaignId !== map.campaignId) {
+      throw new Error('NO_SUCH_IMAGE');
+    }
+  }
+  // A combatant is a somebody: it is not open, locked or breakable here. Its
+  // hit points are on the sheet and in the order.
+  const item = input.entryId ? itemFields({}) : itemFields(input);
+
   // The partial unique index refuses a second token for one combatant. Named
   // here rather than surfacing as a constraint error, so the DM is told what
   // happened instead of that something did.
@@ -613,6 +724,12 @@ export async function placeToken(
       footprint,
       tint: (input.tint ?? '').slice(0, 20),
       visibility: input.visibility ?? 'shared',
+      imageId: input.entryId ? null : (input.imageId ?? null),
+      state: item.state,
+      lockDc: item.lockDc,
+      hpMax: item.hpMax,
+      hpCurrent: item.hpMax,
+      facing: item.facing ?? 'camera',
     })
     .returning({ id: battleMapTokens.id });
 
@@ -643,9 +760,39 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
   const doc = normalizeTerrain(map.terrain);
 
   const entries = await db
-    .select({ id: initiativeEntries.id, side: initiativeEntries.side })
+    .select({
+      id: initiativeEntries.id,
+      side: initiativeEntries.side,
+      creatureRef: initiativeEntries.creatureRef,
+    })
     .from(initiativeEntries)
     .where(eq(initiativeEntries.encounterId, map.encounterId));
+
+  /*
+   * How many tiles a side each stands on, read off the creature it was
+   * dealt from: an ogre is Large and takes four. Resolved once per distinct
+   * creature rather than per copy — six goblins are one bestiary read — and
+   * a hand-typed combatant, with no reference to read, is medium.
+   */
+  const refs = new Map<string, ContentRef>();
+  for (const e of entries) {
+    const ref = e.creatureRef as ContentRef | null;
+    if (ref) refs.set(refKey(ref), ref);
+  }
+  const footprints = new Map<string, number>();
+  if (refs.size > 0) {
+    const resolved = await resolveContentRefs([...refs.values()]);
+    for (const [key, entry] of resolved) {
+      if (entry.type !== 'creature') continue;
+      const d = parseContentData('creature', entry.data) as CreatureData;
+      footprints.set(key, FOOTPRINT_BY_SIZE[d.size] ?? 1);
+    }
+  }
+  const footprintOf = (e: (typeof entries)[number]) => {
+    const ref = e.creatureRef as ContentRef | null;
+    return ref ? (footprints.get(refKey(ref)) ?? 1) : 1;
+  };
+
   const existing = await db
     .select({ entryId: battleMapTokens.entryId })
     .from(battleMapTokens)
@@ -658,6 +805,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
   let dealt = 0;
   for (const e of entries) {
     if (already.has(e.id)) continue;
+    const footprint = footprintOf(e);
     const others = await occupantsExcept(mapId, null);
     let spot: { x: number; y: number } | null = null;
     const order: number[] = [];
@@ -667,7 +815,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
       const x = i % doc.w;
       const y = Math.floor(i / doc.w);
       if (doc.material[i] === VOID) continue;
-      if (canStand(doc, { x, y, footprint: 1 }, others)) {
+      if (canStand(doc, { x, y, footprint }, others)) {
         spot = { x, y };
         break;
       }
@@ -678,6 +826,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
       entryId: e.id,
       x: spot.x,
       y: spot.y,
+      footprint,
       visibility: e.side === 'foe' ? 'dm' : 'shared',
     });
     dealt += 1;
@@ -755,16 +904,52 @@ export async function moveToken(
 
 export async function updateToken(
   tokenId: string,
-  patch: Partial<Pick<TokenInput, 'label' | 'altitude' | 'tint' | 'visibility'>>
+  patch: Partial<
+    Pick<
+      TokenInput,
+      | 'label'
+      | 'altitude'
+      | 'tint'
+      | 'visibility'
+      | 'imageId'
+      | 'state'
+      | 'lockDc'
+      | 'hpMax'
+      | 'facing'
+    >
+  >
 ): Promise<void> {
   const token = await db.query.battleMapTokens.findFirst({
     where: eq(battleMapTokens.id, tokenId),
   });
   if (!token) throw new Error('NOT_FOUND');
   const { map } = await staffForMap(token.mapId);
+
+  // A picture from another campaign's library is not this table's to stand
+  // up: the id is checked against the campaign before it is kept.
+  if (patch.imageId) {
+    const image = await getCampaignImage(patch.imageId);
+    if (!image || image.campaignId !== map.campaignId) {
+      throw new Error('NO_SUCH_IMAGE');
+    }
+  }
+
+  const item = itemFields(patch);
+  // A new maximum resets the current: the DM re-describing a door as "40
+  // hit points" is describing a whole door.
+  const hp =
+    patch.hpMax !== undefined
+      ? { hpMax: item.hpMax, hpCurrent: item.hpMax }
+      : {};
+
   await db
     .update(battleMapTokens)
     .set({
+      ...(patch.imageId !== undefined ? { imageId: patch.imageId } : {}),
+      ...(patch.state !== undefined ? { state: item.state } : {}),
+      ...(patch.lockDc !== undefined ? { lockDc: item.lockDc } : {}),
+      ...hp,
+      ...(item.facing ? { facing: item.facing } : {}),
       ...(patch.label !== undefined
         ? { label: patch.label.trim().slice(0, 60) }
         : {}),
@@ -779,6 +964,250 @@ export async function updateToken(
     })
     .where(eq(battleMapTokens.id, tokenId));
   bumpVersion(map.campaignId);
+}
+
+/* --- doing something to a thing ------------------------------------------ */
+
+/**
+ * Whether the reader's own character is beside a thing on the board — one
+ * tile away from any tile of its footprint. Staff reach everything; a player
+ * has to be there, which is what "I open the door" means at a table.
+ */
+async function withinReach(
+  map: typeof battleMaps.$inferSelect,
+  thing: typeof battleMapTokens.$inferSelect,
+  userId: string,
+  role: CampaignRole
+): Promise<boolean> {
+  if (isStaffRole(role)) return true;
+  const seat = await db.query.campaignMembers.findFirst({
+    columns: { characterId: true },
+    where: and(
+      eq(campaignMembers.campaignId, map.campaignId),
+      eq(campaignMembers.userId, userId)
+    ),
+  });
+  if (!seat?.characterId || !map.encounterId) return false;
+  const mine = await db
+    .select({
+      x: battleMapTokens.x,
+      y: battleMapTokens.y,
+      footprint: battleMapTokens.footprint,
+    })
+    .from(battleMapTokens)
+    .innerJoin(
+      initiativeEntries,
+      eq(initiativeEntries.id, battleMapTokens.entryId)
+    )
+    .where(
+      and(
+        eq(battleMapTokens.mapId, map.id),
+        eq(initiativeEntries.encounterId, map.encounterId),
+        eq(initiativeEntries.characterId, seat.characterId)
+      )
+    );
+  const gap = (a: number, aSize: number, b: number, bSize: number) =>
+    Math.max(0, Math.max(a, b) - Math.min(a + aSize, b + bSize) + 1);
+  return mine.some(
+    m =>
+      gap(m.x, m.footprint, thing.x, thing.footprint) <= 1 &&
+      gap(m.y, m.footprint, thing.y, thing.footprint) <= 1
+  );
+}
+
+async function thingAndMap(tokenId: string) {
+  const thing = await db.query.battleMapTokens.findFirst({
+    where: eq(battleMapTokens.id, tokenId),
+  });
+  if (!thing) throw new Error('NOT_FOUND');
+  const map = await db.query.battleMaps.findFirst({
+    where: eq(battleMaps.id, thing.mapId),
+  });
+  if (!map) throw new Error('NOT_FOUND');
+  const { userId, role } = await requireCampaignRole(map.campaignId, [
+    'gm',
+    'co-gm',
+    'player',
+  ]);
+  // A combatant is not a thing to open.
+  if (thing.entryId) throw new Error('NOT_A_THING');
+  return { thing, map, userId, role };
+}
+
+async function nameOf(userId: string, campaignId: string): Promise<string> {
+  const seat = await db.query.campaignMembers.findFirst({
+    columns: { characterId: true },
+    where: and(
+      eq(campaignMembers.campaignId, campaignId),
+      eq(campaignMembers.userId, userId)
+    ),
+  });
+  if (seat?.characterId) {
+    const c = await db.query.characters.findFirst({
+      columns: { name: true },
+      where: eq(characters.id, seat.characterId),
+    });
+    if (c?.name) return c.name;
+  }
+  const u = await db.query.users.findFirst({
+    columns: { name: true },
+    where: eq(users.id, userId),
+  });
+  return u?.name?.trim() || 'The DM';
+}
+
+/**
+ * Open or close a thing. Anyone beside it; a locked thing refuses, and says
+ * so — the lock is picked or the thing is broken, not argued with.
+ */
+export async function operateThing(
+  tokenId: string,
+  verb: 'open' | 'close'
+): Promise<void> {
+  const { thing, map, userId, role } = await thingAndMap(tokenId);
+  if (thing.state === null) throw new Error('NOTHING_TO_DO');
+  if (thing.state === 'broken') throw new Error('BROKEN');
+  if (thing.state === 'locked') throw new Error('LOCKED');
+  if (!(await withinReach(map, thing, userId, role))) {
+    throw new Error('OUT_OF_REACH');
+  }
+  const next: ItemState = verb === 'open' ? 'open' : 'closed';
+  if (next === thing.state) return;
+  await db
+    .update(battleMapTokens)
+    .set({ state: next, updatedAt: new Date().toISOString() })
+    .where(eq(battleMapTokens.id, tokenId));
+  bumpVersion(map.campaignId);
+  publish(map.campaignId, {
+    kind: 'thing',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    by: userId,
+    actorName: await nameOf(userId, map.campaignId),
+    name: thing.label || 'Something',
+    what: next === 'open' ? 'opened' : 'closed',
+  });
+}
+
+/**
+ * Pick the lock. Rolled on the server as a Dexterity (Sleight of Hand) check
+ * off the reader's own sheet against the DC the DM set, the way every other
+ * roll here is — a number the browser produced is a claim, not a record.
+ * The roll lands in the shared log either way; the DC does not, and the
+ * verdict says only whether the lock gave.
+ */
+export async function pickLock(
+  tokenId: string,
+  mode: 'straight' | 'advantage' | 'disadvantage' = 'straight'
+): Promise<{ total: number; opened: boolean }> {
+  const { thing, map, userId, role } = await thingAndMap(tokenId);
+  if (thing.state !== 'locked') throw new Error('NOT_LOCKED');
+  if (!(await withinReach(map, thing, userId, role))) {
+    throw new Error('OUT_OF_REACH');
+  }
+
+  const seat = await db.query.campaignMembers.findFirst({
+    columns: { characterId: true },
+    where: and(
+      eq(campaignMembers.campaignId, map.campaignId),
+      eq(campaignMembers.userId, userId)
+    ),
+  });
+  const character = seat?.characterId
+    ? await db.query.characters.findFirst({
+        where: eq(characters.id, seat.characterId),
+      })
+    : null;
+  const bonus = character
+    ? skillBonus(character.sheet as CharacterSheet, 'sleightOfHand')
+    : 0;
+
+  const dice = mode === 'straight' ? [rollDie(20)] : [rollDie(20), rollDie(20)];
+  const face =
+    mode === 'advantage'
+      ? Math.max(...dice)
+      : mode === 'disadvantage'
+        ? Math.min(...dice)
+        : dice[0];
+  const total = face + bonus;
+  // No DC set is a lock that always gives: the DM said "locked" and not how
+  // hard, and a lock nobody can ever pick is a wall.
+  const opened = total >= (thing.lockDc ?? 10);
+  const name = thing.label || 'the lock';
+
+  await db.insert(campaignRolls).values({
+    campaignId: map.campaignId,
+    actorUserId: userId,
+    characterId: character?.id ?? null,
+    actorName: character?.name ?? (await nameOf(userId, map.campaignId)),
+    label: `Pick the lock — ${name}`.slice(0, 80),
+    notation: `${dice.length}d20${bonus >= 0 ? '+' : ''}${bonus}`,
+    dice,
+    dropped: dice.length === 2 ? [dice[0] === face ? 1 : 0] : [],
+    modifier: bonus,
+    total,
+    visibility: 'table',
+  });
+  if (opened) {
+    await db
+      .update(battleMapTokens)
+      .set({ state: 'closed', updatedAt: new Date().toISOString() })
+      .where(eq(battleMapTokens.id, tokenId));
+  }
+  bumpVersion(map.campaignId);
+  publish(map.campaignId, {
+    kind: 'thing',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    by: userId,
+    actorName: character?.name ?? (await nameOf(userId, map.campaignId)),
+    name: thing.label || 'Something',
+    what: opened ? 'unlocked' : 'held',
+  });
+  return { total, opened };
+}
+
+/**
+ * Damage or mend a thing with hit points. Staff only, the way `applyHp` is
+ * for a foe: the player rolls at it through the attacks panel and the DM
+ * applies what landed. Broken at 0, and a broken thing no longer blocks.
+ */
+export async function damageThing(
+  tokenId: string,
+  delta: number
+): Promise<void> {
+  const { thing, map, userId, role } = await thingAndMap(tokenId);
+  if (!isStaffRole(role)) throw new Error('FORBIDDEN');
+  if (thing.hpMax === null) throw new Error('INDESTRUCTIBLE');
+  const before = thing.hpCurrent ?? thing.hpMax;
+  const after = Math.max(0, Math.min(thing.hpMax, before + Math.trunc(delta)));
+  const broken = after === 0;
+  await db
+    .update(battleMapTokens)
+    .set({
+      hpCurrent: after,
+      // Mended above zero, a broken thing is closed again, not open: a
+      // repaired door is a door.
+      state: broken
+        ? 'broken'
+        : thing.state === 'broken'
+          ? 'closed'
+          : thing.state,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(battleMapTokens.id, tokenId));
+  bumpVersion(map.campaignId);
+  if (broken && before > 0) {
+    publish(map.campaignId, {
+      kind: 'thing',
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      by: userId,
+      actorName: await nameOf(userId, map.campaignId),
+      name: thing.label || 'Something',
+      what: 'broken',
+    });
+  }
 }
 
 export async function removeToken(tokenId: string): Promise<void> {

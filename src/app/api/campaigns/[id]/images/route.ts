@@ -48,6 +48,11 @@ export async function POST(
     );
   } catch (err) {
     const code = err instanceof Error ? err.message : '';
+    // Reached without a session now that the middleware leaves this route
+    // alone: the role check inside says so, and it is a 401, not a crash.
+    if (code === 'NOT_AUTHENTICATED' || code === 'SESSION_STALE') {
+      return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
+    }
     if (code === 'FORBIDDEN' || code === 'NOT_FOUND') {
       return NextResponse.json({ error: 'Not allowed.' }, { status: 403 });
     }

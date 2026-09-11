@@ -31,7 +31,12 @@ import {
   reachFor,
   type Occupant,
 } from '@/@creator/campaign/lib/battlemap';
-import { MATERIALS, VOID, type TerrainDoc } from '@/@shared/battlemap/types';
+import {
+  MATERIALS,
+  VOID,
+  type Facing,
+  type TerrainDoc,
+} from '@/@shared/battlemap/types';
 import { useReducedMotion } from '@/@shared/components/motion';
 import type { BattleTokenRow } from '@/server/battlemap';
 import type { EntryRow } from '@/server/session';
@@ -110,18 +115,71 @@ const STANDEE_H = 384;
  * seed so the same standee tears the same way every build — a card that
  * changed its edge on every token move would be motion nobody asked for.
  */
-function standeeSprite(
+/**
+ * Whether a picture has a transparent ground — a cut-out — or is a painted
+ * rectangle. Read once per image off its four corners and remembered, so a
+ * board of eight standees samples eight times, not eight times a rebuild.
+ * A tainted canvas (a remote that refused CORS) reads as a card, which is
+ * the safer of the two guesses.
+ */
+const cutouts = new WeakMap<HTMLImageElement, boolean>();
+function isCutout(img: HTMLImageElement): boolean {
+  const known = cutouts.get(img);
+  if (known !== undefined) return known;
+  let out = false;
+  try {
+    const c = document.createElement('canvas');
+    c.width = 8;
+    c.height = 8;
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(img, 0, 0, 8, 8);
+    const d = ctx.getImageData(0, 0, 8, 8).data;
+    const corners = [0, 7, 56, 63].map(i => d[i * 4 + 3]);
+    out = corners.filter(a => a < 16).length >= 3;
+  } catch {
+    out = false;
+  }
+  cutouts.set(img, out);
+  return out;
+}
+
+/** A picture ready to stand: its texture and its width per unit of height. */
+interface Picture {
+  tex: THREE.Texture;
+  aspect: number;
+}
+
+function standeeTexture(
   text: string,
   ink: string,
   paper: string,
   border: string,
   face: HTMLImageElement | null
-): THREE.Sprite {
+): Picture {
   const c = document.createElement('canvas');
   c.width = STANDEE_W;
   c.height = STANDEE_H;
   const ctx = c.getContext('2d')!;
   const inset = 10;
+
+  // A cut-out stands as itself — a paper miniature is cut along its outline,
+  // and a card behind an ogre with a raised club is a card, not an ogre. Its
+  // sprite takes the picture's own proportions; the card is for paintings
+  // and for initials.
+  if (face && face.naturalWidth > 0 && isCutout(face)) {
+    const aspect = Math.min(2, face.naturalWidth / face.naturalHeight);
+    c.width = Math.round(STANDEE_H * aspect);
+    const scale = Math.min(
+      c.width / face.naturalWidth,
+      STANDEE_H / face.naturalHeight
+    );
+    const dw = face.naturalWidth * scale;
+    const dh = face.naturalHeight * scale;
+    ctx.drawImage(face, (c.width - dw) / 2, STANDEE_H - dh, dw, dh);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return { tex, aspect };
+  }
 
   // The card, with a torn top edge.
   ctx.fillStyle = paper;
@@ -141,19 +199,14 @@ function standeeSprite(
   ctx.stroke();
 
   if (face && face.naturalWidth > 0) {
-    // Cover the card, keeping the top of the picture: a portrait's face is
-    // in its upper half and a cut-out's feet belong at the base.
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(
-      inset + 4,
-      inset + 12,
-      STANDEE_W - 2 * (inset + 4),
-      STANDEE_H - 2 * inset - 16
-    );
-    ctx.clip();
     const w = STANDEE_W - 2 * (inset + 4);
     const h = STANDEE_H - 2 * inset - 16;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(inset + 4, inset + 12, w, h);
+    ctx.clip();
+    // A painting covers the card, keeping its top: a portrait's face is in
+    // its upper half.
     const scale = Math.max(w / face.naturalWidth, h / face.naturalHeight);
     const dw = face.naturalWidth * scale;
     const dh = face.naturalHeight * scale;
@@ -169,11 +222,96 @@ function standeeSprite(
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: true });
-  const sprite = new THREE.Sprite(mat);
-  // Anchored at the foot, so it stands on the base rather than hanging over it.
-  sprite.center.set(0.5, 0);
-  return sprite;
+  return { tex, aspect: STANDEE_W / STANDEE_H };
+}
+
+/**
+ * Stand a picture up, `tall` units high, anchored at its foot.
+ *
+ * Facing the camera it is a sprite, which turns on its own; facing a side it
+ * is a plane, which does not — a signpost or a door stands still while the
+ * room is orbited. Both carry `userData.tokenId` for the raycast when the
+ * caller sets it, and both take a `dim` the same way.
+ */
+function stand(
+  picture: Picture,
+  tall: number,
+  facing: Facing
+): THREE.Sprite | THREE.Mesh {
+  const wide = tall * picture.aspect;
+  if (facing === 'camera') {
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: picture.tex, depthTest: true })
+    );
+    // Anchored at the foot, so it stands on the base rather than hanging
+    // over it.
+    sprite.center.set(0.5, 0);
+    sprite.scale.set(wide, tall, 1);
+    return sprite;
+  }
+  const geo = new THREE.PlaneGeometry(wide, tall);
+  geo.translate(0, tall / 2, 0);
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshBasicMaterial({
+      map: picture.tex,
+      transparent: true,
+      alphaTest: 0.05,
+      side: THREE.DoubleSide,
+    })
+  );
+  // A plane faces +z by default, which is south on this board (y grows
+  // downward on the grid, and the grid's y is the scene's z).
+  mesh.rotation.y =
+    facing === 'n'
+      ? Math.PI
+      : facing === 'e'
+        ? Math.PI / 2
+        : facing === 'w'
+          ? -Math.PI / 2
+          : 0;
+  return mesh;
+}
+
+/** Fade a standing picture, for a DM-only thing, an open door, a broken one. */
+function dim(obj: THREE.Sprite | THREE.Mesh, opacity: number) {
+  const mat = obj.material as THREE.Material;
+  mat.transparent = true;
+  mat.opacity = opacity;
+}
+
+/**
+ * A picture standing on a tile: a tree, a statue, a door. The image itself,
+ * no card — a cut-out tree with a parchment rectangle behind it would be a
+ * tree in a frame. `feet` tall, as wide as the picture's own proportions
+ * make it, anchored at its foot. Until the picture loads it is a plain
+ * parchment card the same height, so the tile is not empty for a beat.
+ */
+function pictureTexture(
+  img: HTMLImageElement | null,
+  paper: string,
+  border: string
+): Picture {
+  let tex: THREE.Texture;
+  let aspect = 2 / 3;
+  if (img && img.naturalWidth > 0) {
+    tex = new THREE.Texture(img);
+    tex.needsUpdate = true;
+    aspect = img.naturalWidth / img.naturalHeight;
+  } else {
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 96;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = paper;
+    ctx.fillRect(2, 2, 60, 92);
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(2, 2, 60, 92);
+    tex = new THREE.CanvasTexture(c);
+  }
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return { tex, aspect };
 }
 
 /* --- building the scene ------------------------------------------------ */
@@ -186,7 +324,8 @@ function standeeSprite(
 export function buildTerrain(
   doc: TerrainDoc,
   p: Palette,
-  dark: boolean
+  dark: boolean,
+  pictureFor: (imageId: string) => HTMLImageElement | null = () => null
 ): THREE.Group {
   const group = new THREE.Group();
   const unit = new THREE.BoxGeometry(1, 1, 1);
@@ -318,6 +457,21 @@ export function buildTerrain(
   for (const pr of doc.props) {
     const i = pr.y * doc.w + pr.x;
     const top = (doc.elevation[i] ?? 0) / FEET_PER_UNIT;
+    if (pr.kind === 'image') {
+      const picture = pictureTexture(
+        pr.imageId ? pictureFor(pr.imageId) : null,
+        '#ece3cf',
+        `#${p.gold.getHexString()}`
+      );
+      const standing = stand(
+        picture,
+        (pr.height ?? 10) / FEET_PER_UNIT,
+        pr.facing ?? 'camera'
+      );
+      standing.position.set(pr.x + 0.5, top + 0.01, pr.y + 0.5);
+      group.add(standing);
+      continue;
+    }
     let mesh: THREE.Mesh;
     let h = 0.6;
     switch (pr.kind) {
@@ -396,8 +550,10 @@ export function buildTokens(
   entries: Map<string, EntryRow>,
   currentEntryId: string | null,
   p: Palette,
-  faceFor: (entry: EntryRow | undefined) => HTMLImageElement | null = () =>
-    null,
+  faceFor: (
+    entry: EntryRow | undefined,
+    token: BattleTokenRow
+  ) => HTMLImageElement | null = () => null,
   selectedId: string | null = null
 ): TokenScene {
   const pieces = new Map<string, TokenPiece>();
@@ -487,22 +643,31 @@ export function buildTokens(
     // Paper is paper in candlelight: the card is parchment and the letters
     // ink in both palettes, and only the border takes the palette's gold. A
     // card that went black with the room read as a slab, not a miniature.
-    const sprite = standeeSprite(
+    const picture = standeeTexture(
       initials(label),
       '#2b2620',
       '#ece3cf',
       `#${p.gold.getHexString()}`,
-      faceFor(entry)
+      faceFor(entry, t)
     );
     const tall = 1.25 * t.footprint;
-    sprite.scale.set(tall * (STANDEE_W / STANDEE_H), tall, 1);
-    sprite.position.set(cx, top0 + 0.14, cz);
-    if (t.visibility === 'dm') {
-      sprite.material.transparent = true;
-      sprite.material.opacity = 0.55;
+    const standing = stand(picture, tall, t.facing);
+    standing.position.set(cx, top0 + 0.14, cz);
+    /*
+     * What state it is in, drawn: a thing only the DM can see is faint; an
+     * open door standing still swings out of its frame; an open door facing
+     * the camera has nothing to swing on, so it fades instead; a broken
+     * thing is nearly gone. Nothing here animates — it is where the thing
+     * is, not where it is going.
+     */
+    if (t.visibility === 'dm') dim(standing, 0.55);
+    if (t.state === 'open') {
+      if (t.facing !== 'camera') standing.rotation.y += (Math.PI / 2) * 0.85;
+      else dim(standing, 0.6);
     }
-    sprite.userData.tokenId = t.id;
-    group.add(sprite);
+    if (t.state === 'broken') dim(standing, 0.3);
+    standing.userData.tokenId = t.id;
+    group.add(standing);
 
     pieces.set(t.id, { group, at });
   }
@@ -519,8 +684,13 @@ export interface BattleMap3DProps {
   currentEntryId: string | null;
   /** Portrait URL by character id, off `LiveState`. */
   portraits: Record<string, string>;
-  /** The ones that have loaded, from the cache the 2D board shares. */
+  /**
+   * The pictures that have loaded, by URL, from the cache the 2D board
+   * shares — portraits, token images and prop images alike.
+   */
   faces: Map<string, HTMLImageElement>;
+  /** Composes a campaign image's URL, so this view never learns the route. */
+  imageUrlFor: (imageId: string) => string;
   dark: boolean;
   /**
    * Drop a token on a tile. Resolves true if the server kept it; false snaps
@@ -554,6 +724,7 @@ export default function BattleMap3D({
   currentEntryId,
   portraits,
   faces,
+  imageUrlFor,
   dark,
   onMove,
   speedOf,
@@ -1010,9 +1181,16 @@ export default function BattleMap3D({
       });
     }
     const p = readPalette(dark);
-    w.terrainGroup = buildTerrain(terrain, p, dark);
+    w.terrainGroup = buildTerrain(
+      terrain,
+      p,
+      dark,
+      id => faces.get(imageUrlFor(id)) ?? null
+    );
     w.scene.add(w.terrainGroup);
-  }, [terrain, dark]);
+    // `faces` is a dependency on purpose: a picture that lands after the
+    // first build is the reason to build again.
+  }, [terrain, dark, faces, imageUrlFor]);
 
   // Tokens: rebuilt on their own, because they are what moves during a fight.
   // A token that already stood somewhere keeps its group's position as the
@@ -1035,7 +1213,10 @@ export default function BattleMap3D({
     w.moving.clear();
     const p = readPalette(dark);
     const byId = new Map(entries.map(e => [e.id, e]));
-    const faceFor = (entry: EntryRow | undefined) => {
+    // The token's own picture first — the DM chose it for this ogre — then
+    // the hero's portrait.
+    const faceFor = (entry: EntryRow | undefined, token: BattleTokenRow) => {
+      if (token.imageUrl) return faces.get(token.imageUrl) ?? null;
       if (!entry?.characterId) return null;
       const url = portraits[entry.characterId];
       return url ? (faces.get(url) ?? null) : null;
