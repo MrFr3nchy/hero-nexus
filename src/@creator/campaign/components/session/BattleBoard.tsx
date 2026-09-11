@@ -69,6 +69,7 @@ import {
   setBattleMapVisibilityAction,
   updateTokenAction,
 } from '../../battlemap-actions';
+import { BattleMap3DLazy } from './BattleMap3DLazy';
 
 /* --- tools ------------------------------------------------------------- */
 
@@ -222,6 +223,28 @@ export function BattleBoard({
   const [busy, setBusy] = useState(false);
   const [newW, setNewW] = useState('20');
   const [newH, setNewH] = useState('15');
+  /**
+   * The 3D view is a *view*: the 2D board stays the authoring surface and the
+   * thing a phone renders. Off by default so a laptop with a dead GPU is not
+   * handed a renderer it did not ask for, and remembered per device.
+   */
+  const [dimensional, setDimensional] = useState(false);
+  useEffect(() => {
+    try {
+      setDimensional(localStorage.getItem('hero-nexus.sand-table.3d') === '1');
+    } catch {
+      // No storage: the board it is.
+    }
+  }, []);
+  const toggleDimensional = () => {
+    const next = !dimensional;
+    setDimensional(next);
+    try {
+      localStorage.setItem('hero-nexus.sand-table.3d', next ? '1' : '0');
+    } catch {
+      // Held for this page only.
+    }
+  };
 
   const entriesById = useMemo(() => {
     const m = new Map<string, EntryRow>();
@@ -913,57 +936,77 @@ export function BattleBoard({
           : 'Tap your token, then tap where it goes.'
       }
       actions={
-        isStaff && (
-          <>
-            <Tooltip content="Reveal what the party's tokens can see, forty feet around each.">
+        <>
+          <Button
+            size="sm"
+            variant={dimensional ? 'solid' : 'flat'}
+            color={dimensional ? 'primary' : 'default'}
+            onPress={toggleDimensional}
+          >
+            {dimensional ? 'Back to the board' : 'Stand it up'}
+          </Button>
+          {isStaff && (
+            <>
+              <Tooltip content="Reveal what the party's tokens can see, forty feet around each.">
+                <Button
+                  size="sm"
+                  variant="flat"
+                  isDisabled={busy}
+                  onPress={async () => {
+                    const res = await revealFromPartyAction(board.id);
+                    if (!res.ok) onError(res.error);
+                    await refresh();
+                  }}
+                >
+                  Look around
+                </Button>
+              </Tooltip>
               <Button
                 size="sm"
                 variant="flat"
-                isDisabled={busy}
+                isDisabled={busy || !board.encounterId}
                 onPress={async () => {
-                  const res = await revealFromPartyAction(board.id);
+                  const res = await dealEncounterInAction(board.id);
                   if (!res.ok) onError(res.error);
                   await refresh();
                 }}
               >
-                Look around
+                Deal them in
               </Button>
-            </Tooltip>
-            <Button
-              size="sm"
-              variant="flat"
-              isDisabled={busy || !board.encounterId}
-              onPress={async () => {
-                const res = await dealEncounterInAction(board.id);
-                if (!res.ok) onError(res.error);
-                await refresh();
-              }}
-            >
-              Deal them in
-            </Button>
-            <Button
-              size="sm"
-              variant={board.visibility === 'shared' ? 'flat' : 'solid'}
-              color={board.visibility === 'shared' ? 'default' : 'primary'}
-              onPress={async () => {
-                const res = await setBattleMapVisibilityAction(
-                  board.id,
-                  board.visibility === 'shared' ? 'dm' : 'shared'
-                );
-                if (!res.ok) onError(res.error);
-                await refresh();
-              }}
-            >
-              {board.visibility === 'shared'
-                ? 'Take it back'
-                : 'Show the party'}
-            </Button>
-          </>
-        )
+              <Button
+                size="sm"
+                variant={board.visibility === 'shared' ? 'flat' : 'solid'}
+                color={board.visibility === 'shared' ? 'default' : 'primary'}
+                onPress={async () => {
+                  const res = await setBattleMapVisibilityAction(
+                    board.id,
+                    board.visibility === 'shared' ? 'dm' : 'shared'
+                  );
+                  if (!res.ok) onError(res.error);
+                  await refresh();
+                }}
+              >
+                {board.visibility === 'shared'
+                  ? 'Take it back'
+                  : 'Show the party'}
+              </Button>
+            </>
+          )}
+        </>
       }
       bodyClassName="space-y-3"
     >
-      {isStaff && (
+      {dimensional && (
+        <BattleMap3DLazy
+          terrain={terrain}
+          tokens={board.tokens}
+          entries={state.entries}
+          currentEntryId={currentEntryId}
+          dark={dark}
+        />
+      )}
+
+      {isStaff && !dimensional && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-1.5">
             {toolButton('Select', { kind: 'select' }, tool.kind === 'select')}
@@ -1066,7 +1109,10 @@ export function BattleBoard({
         </div>
       )}
 
-      <div ref={wrapRef} className="w-full overflow-x-auto">
+      <div
+        ref={wrapRef}
+        className={dimensional ? 'hidden' : 'w-full overflow-x-auto'}
+      >
         <canvas
           ref={canvasRef}
           className="block cursor-crosshair touch-none rounded-md border border-line bg-bg"

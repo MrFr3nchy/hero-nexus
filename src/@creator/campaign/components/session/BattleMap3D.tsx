@@ -1,0 +1,606 @@
+'use client';
+
+/**
+ * The sand table, in three dimensions.
+ *
+ * A view, not an editor. The scene is a pure function of the `TerrainDoc` the
+ * 2D board authors — it is rebuilt whole whenever the document changes, never
+ * patched, because terrain changes in prep and not mid-fight and incremental
+ * mesh updates are a class of bug this does not need. Tokens are rebuilt on
+ * their own when they move, which is the one thing that changes during play.
+ *
+ * **Never imported directly.** `BattleMap3DLazy` loads it with `ssr: false`:
+ * Three.js is ~600 KB and there is no WebGL in Node. If this ever lands in
+ * the campaign page's initial bundle, every DM opening the quests tab pays
+ * for it.
+ *
+ * Design language: the board is the artifact (rule 1). Its one animated
+ * flourish is the active-turn ring (rule 4) and nothing else on the route
+ * moves — no floating props, no bobbing water, no drifting fog. Colours are
+ * read off the CSS custom properties at build so light and dark both work,
+ * and the palette is parchment and candlelight: the terrain is muted, the
+ * tokens are the only saturated things, and a warm point light sits on each
+ * brazier.
+ */
+import { useEffect, useRef } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+import { MATERIALS, VOID, type TerrainDoc } from '@/@shared/battlemap/types';
+import { useReducedMotion } from '@/@shared/components/motion';
+import type { BattleTokenRow } from '@/server/battlemap';
+import type { EntryRow } from '@/server/session';
+
+/** Feet per world unit. One tile is one unit is five feet. */
+const FEET_PER_UNIT = 5;
+
+/** The slab under every tile, so a floor at elevation 0 still has a side. */
+const SLAB = 0.3;
+
+/**
+ * Quality tiers — one knob, because the things it scales have to move together.
+ * The idea is `cartograph`'s; the numbers are this feature's.
+ */
+const QUALITY = {
+  shadowMap: 2048,
+  antialias: true,
+  pixelRatioCap: 2,
+} as const;
+
+export interface Palette {
+  bg: THREE.Color;
+  ink: THREE.Color;
+  gold: THREE.Color;
+  danger: THREE.Color;
+  success: THREE.Color;
+  warning: THREE.Color;
+  arcane: THREE.Color;
+  inkMuted: THREE.Color;
+  surface: THREE.Color;
+}
+
+function readPalette(dark: boolean): Palette {
+  const css = getComputedStyle(document.documentElement);
+  const v = (name: string, fallback: string) =>
+    new THREE.Color(css.getPropertyValue(name).trim() || fallback);
+  return {
+    bg: v('--bg', dark ? '#16130f' : '#faf6ef'),
+    ink: v('--ink', dark ? '#ede7da' : '#2b2620'),
+    gold: v('--gold', dark ? '#d9b061' : '#b4894a'),
+    danger: v('--danger', dark ? '#d9756c' : '#a23b34'),
+    success: v('--success', dark ? '#6bbf8a' : '#3f7d55'),
+    warning: v('--warning', dark ? '#d6a253' : '#b07d33'),
+    arcane: v('--arcane', dark ? '#a988cf' : '#6b4d8a'),
+    inkMuted: v('--ink-muted', dark ? '#a89f8d' : '#6b6459'),
+    surface: v('--surface', dark ? '#1e1a14' : '#ffffff'),
+  };
+}
+
+function initials(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+/** A sprite carrying two letters. Drawn once per token into a small canvas. */
+function labelSprite(text: string, ink: string, paper: string): THREE.Sprite {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = paper;
+  ctx.beginPath();
+  ctx.arc(64, 64, 60, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = ink;
+  ctx.font = '600 56px ui-sans-serif, system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 64, 68);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(0.7, 0.7, 1);
+  return sprite;
+}
+
+/* --- building the scene ------------------------------------------------ */
+
+/**
+ * Exported for verification. The scene is built apart from any DOM except the
+ * label sprites, so the geometry — where a wall lands, how tall a ledge is —
+ * can be asserted headlessly the way the rules in `lib/battlemap.ts` are.
+ */
+export function buildTerrain(
+  doc: TerrainDoc,
+  p: Palette,
+  dark: boolean
+): THREE.Group {
+  const group = new THREE.Group();
+  const unit = new THREE.BoxGeometry(1, 1, 1);
+
+  // Floor: one instanced mesh per material, scaled in Y to the tile's height.
+  // One draw call per material rather than per tile. Capacity is the tile
+  // count per material, fixed at construction — the Three.js trap the handoff
+  // names: you cannot push an instance onto an existing mesh.
+  const byMaterial = new Map<number, number[]>();
+  for (let i = 0; i < doc.w * doc.h; i++) {
+    const m = doc.material[i];
+    if (m === VOID) continue;
+    if (!byMaterial.has(m)) byMaterial.set(m, []);
+    byMaterial.get(m)!.push(i);
+  }
+  const tmp = new THREE.Object3D();
+  for (const [m, tiles] of byMaterial) {
+    const spec = MATERIALS[m];
+    const mat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(dark ? spec.swatchDark : spec.swatch),
+      roughness: spec.key === 'water' ? 0.25 : 0.95,
+      metalness: 0,
+      // Water and lava glow faintly rather than reflect; it reads better on a
+      // parchment ground than a mirror does.
+      emissive:
+        spec.key === 'lava'
+          ? new THREE.Color('#5a1e12')
+          : spec.key === 'water'
+            ? new THREE.Color(dark ? '#0f1a26' : '#1a2a3a')
+            : new THREE.Color('#000000'),
+      emissiveIntensity: 0.35,
+    });
+    const mesh = new THREE.InstancedMesh(unit, mat, tiles.length);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    tiles.forEach((i, k) => {
+      const x = i % doc.w;
+      const z = Math.floor(i / doc.w);
+      const top = doc.elevation[i] / FEET_PER_UNIT;
+      const height = top + SLAB;
+      tmp.position.set(x + 0.5, top - height / 2, z + 0.5);
+      tmp.scale.set(0.995, height, 0.995);
+      tmp.updateMatrix();
+      mesh.setMatrixAt(k, tmp.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
+  }
+
+  // Walls: one instanced mesh per kind, on edges. Half a tile from the tile
+  // centre in the direction of `side`, turned for north/south vs east/west.
+  const wallKinds = new Map<string, typeof doc.walls>();
+  for (const w of doc.walls) {
+    if (!wallKinds.has(w.kind)) wallKinds.set(w.kind, []);
+    wallKinds.get(w.kind)!.push(w);
+  }
+  for (const [kind, walls] of wallKinds) {
+    const colour =
+      kind === 'door'
+        ? p.gold
+        : kind === 'window'
+          ? p.arcane
+          : kind === 'rail'
+            ? p.inkMuted
+            : p.ink;
+    const mat = new THREE.MeshStandardMaterial({
+      color: colour,
+      roughness: 0.8,
+      transparent: kind === 'window',
+      opacity: kind === 'window' ? 0.45 : 1,
+    });
+    const mesh = new THREE.InstancedMesh(unit, mat, walls.length);
+    mesh.castShadow = kind !== 'window';
+    mesh.receiveShadow = true;
+    walls.forEach((w, k) => {
+      const i = w.y * doc.w + w.x;
+      const here = doc.elevation[i] ?? 0;
+      let ax = w.x,
+        az = w.y;
+      if (w.side === 'n') az -= 1;
+      if (w.side === 's') az += 1;
+      if (w.side === 'w') ax -= 1;
+      if (w.side === 'e') ax += 1;
+      const there =
+        ax >= 0 && az >= 0 && ax < doc.w && az < doc.h
+          ? (doc.elevation[az * doc.w + ax] ?? 0)
+          : here;
+      const base = Math.max(here, there) / FEET_PER_UNIT;
+      // An open door is drawn as a stub, so the gap reads as a gap.
+      const h = (w.kind === 'door' && w.open ? 1 : w.height) / FEET_PER_UNIT;
+      const thickness = kind === 'rail' ? 0.06 : 0.12;
+
+      const cx = w.x + 0.5 + (w.side === 'e' ? 0.5 : w.side === 'w' ? -0.5 : 0);
+      const cz = w.y + 0.5 + (w.side === 's' ? 0.5 : w.side === 'n' ? -0.5 : 0);
+      tmp.position.set(cx, base + h / 2, cz);
+      if (w.side === 'n' || w.side === 's') {
+        tmp.scale.set(1, h, thickness);
+      } else {
+        tmp.scale.set(thickness, h, 1);
+      }
+      tmp.updateMatrix();
+      mesh.setMatrixAt(k, tmp.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
+  }
+
+  // Props: a few plain solids. Drawn, never typed, and muted like the floor.
+  const propMat = new THREE.MeshStandardMaterial({
+    color: p.inkMuted,
+    roughness: 0.9,
+  });
+  const cylinder = new THREE.CylinderGeometry(0.3, 0.3, 1, 12);
+  const cone = new THREE.ConeGeometry(0.4, 1, 8);
+  const sphere = new THREE.SphereGeometry(0.25, 8, 6);
+  for (const pr of doc.props) {
+    const i = pr.y * doc.w + pr.x;
+    const top = (doc.elevation[i] ?? 0) / FEET_PER_UNIT;
+    let mesh: THREE.Mesh;
+    let h = 0.6;
+    switch (pr.kind) {
+      case 'barrel':
+        mesh = new THREE.Mesh(cylinder, propMat);
+        h = 0.7;
+        break;
+      case 'pillar':
+        mesh = new THREE.Mesh(cylinder, propMat);
+        h = 2;
+        break;
+      case 'tree':
+        mesh = new THREE.Mesh(cone, propMat);
+        h = 1.6;
+        break;
+      case 'rubble':
+        mesh = new THREE.Mesh(sphere, propMat);
+        h = 0.5;
+        break;
+      case 'statue':
+        mesh = new THREE.Mesh(unit, propMat);
+        h = 1.4;
+        mesh.scale.set(0.5, 1, 0.5);
+        break;
+      default:
+        mesh = new THREE.Mesh(unit, propMat);
+        mesh.scale.set(0.8, 1, 0.6);
+    }
+    mesh.scale.y = h;
+    mesh.position.set(pr.x + 0.5, top + h / 2, pr.y + 0.5);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
+  // Braziers. The warmth is the whole point of the palette.
+  for (const l of doc.lights) {
+    const i = l.y * doc.w + l.x;
+    const top = (doc.elevation[i] ?? 0) / FEET_PER_UNIT;
+    const light = new THREE.PointLight(
+      p.gold,
+      dark ? 6 : 3,
+      l.radius / FEET_PER_UNIT,
+      1.6
+    );
+    light.position.set(l.x + 0.5, top + 0.8, l.y + 0.5);
+    group.add(light);
+    const ember = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1, 8, 6),
+      new THREE.MeshBasicMaterial({ color: p.gold })
+    );
+    ember.position.copy(light.position);
+    group.add(ember);
+  }
+
+  return group;
+}
+
+interface TokenScene {
+  group: THREE.Group;
+  /** The active-turn ring, so the loop can turn it. Null when nobody's turn. */
+  activeRing: THREE.Mesh | null;
+}
+
+export function buildTokens(
+  doc: TerrainDoc,
+  tokens: BattleTokenRow[],
+  entries: Map<string, EntryRow>,
+  currentEntryId: string | null,
+  p: Palette
+): TokenScene {
+  const group = new THREE.Group();
+  let activeRing: THREE.Mesh | null = null;
+
+  for (const t of tokens) {
+    const entry = t.entryId ? entries.get(t.entryId) : undefined;
+    const label = entry?.label ?? t.label ?? '';
+    const i = t.y * doc.w + t.x;
+    const top =
+      (doc.elevation[i] ?? 0) / FEET_PER_UNIT + t.altitude / FEET_PER_UNIT;
+    const r = 0.38 * t.footprint;
+    const cx = t.x + t.footprint / 2;
+    const cz = t.y + t.footprint / 2;
+
+    const baseColour =
+      entry?.side === 'foe'
+        ? p.danger
+        : entry?.side === 'party'
+          ? p.gold
+          : p.inkMuted;
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(r, r, 0.14, 24),
+      new THREE.MeshStandardMaterial({
+        color: baseColour,
+        roughness: 0.6,
+        transparent: t.visibility === 'dm',
+        opacity: t.visibility === 'dm' ? 0.45 : 1,
+      })
+    );
+    base.position.set(cx, top + 0.07, cz);
+    base.castShadow = true;
+    group.add(base);
+
+    // HP ring, by the HeroCard rule. The server nulled a foe's numbers for a
+    // player, so a player sees no ring on a foe — as the tracker shows a word.
+    if (entry && entry.hpCurrent !== null && entry.hpMax) {
+      const ratio = entry.hpCurrent / entry.hpMax;
+      const tone =
+        ratio > 0.5 ? p.success : ratio > 0.25 ? p.warning : p.danger;
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(r + 0.04, 0.035, 8, 40),
+        new THREE.MeshBasicMaterial({ color: tone })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(cx, top + 0.15, cz);
+      group.add(ring);
+    }
+
+    // Whose turn it is. Gold, and the one thing on the board that moves.
+    if (entry && entry.id === currentEntryId) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(r + 0.16, 0.03, 8, 48),
+        new THREE.MeshBasicMaterial({ color: p.gold })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(cx, top + 0.16, cz);
+      group.add(ring);
+      activeRing = ring;
+    }
+
+    const sprite = labelSprite(
+      initials(label),
+      `#${p.ink.getHexString()}`,
+      `#${p.surface.getHexString()}`
+    );
+    sprite.position.set(cx, top + 0.7, cz);
+    group.add(sprite);
+  }
+
+  return { group, activeRing };
+}
+
+/* --- the component ----------------------------------------------------- */
+
+export interface BattleMap3DProps {
+  terrain: TerrainDoc;
+  tokens: BattleTokenRow[];
+  entries: EntryRow[];
+  currentEntryId: string | null;
+  dark: boolean;
+}
+
+export default function BattleMap3D({
+  terrain,
+  tokens,
+  entries,
+  currentEntryId,
+  dark,
+}: BattleMap3DProps) {
+  const mount = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion();
+
+  // Long-lived pieces, created once per mount.
+  const world = useRef<{
+    renderer: THREE.WebGLRenderer;
+    scene: THREE.Scene;
+    camera: THREE.PerspectiveCamera;
+    controls: OrbitControls;
+    terrainGroup: THREE.Group | null;
+    tokenGroup: THREE.Group | null;
+    activeRing: THREE.Mesh | null;
+    sun: THREE.DirectionalLight;
+    frame: number;
+    lerp: { from: THREE.Vector3; to: THREE.Vector3; t: number } | null;
+  } | null>(null);
+
+  useEffect(() => {
+    const el = mount.current;
+    if (!el) return;
+
+    const p = readPalette(dark);
+    const renderer = new THREE.WebGLRenderer({
+      antialias: QUALITY.antialias,
+      alpha: false,
+    });
+    renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatioCap)
+    );
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = dark ? 0.9 : 1.1;
+    el.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = p.bg;
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+    const cx = terrain.w / 2;
+    const cz = terrain.h / 2;
+    const span = Math.max(terrain.w, terrain.h);
+    camera.position.set(cx + span * 0.35, span * 0.9, cz + span * 0.9);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(cx, 0, cz);
+    // Never under the floor, never quite flat: 15°–80° from vertical, as the
+    // handoff sets it. Straight down is reached by the hotkey, which lerps
+    // past the orbit's own floor.
+    controls.minPolarAngle = THREE.MathUtils.degToRad(5);
+    controls.maxPolarAngle = THREE.MathUtils.degToRad(80);
+    controls.minDistance = 3;
+    controls.maxDistance = span * 3;
+    controls.enableDamping = !reduce;
+    controls.dampingFactor = 0.08;
+    controls.update();
+
+    // Lighting: one warm key that casts the only shadow, one cool fill, and
+    // a faint sky so the undersides of ledges are not black.
+    const sun = new THREE.DirectionalLight(p.gold, dark ? 1.6 : 2.4);
+    sun.position.set(cx - span * 0.5, span * 1.2, cz - span * 0.3);
+    sun.target.position.set(cx, 0, cz);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = span * 4;
+    const ortho = sun.shadow.camera as THREE.OrthographicCamera;
+    ortho.left = -span;
+    ortho.right = span;
+    ortho.top = span;
+    ortho.bottom = -span;
+    sun.shadow.bias = -0.0005;
+    scene.add(sun, sun.target);
+    scene.add(new THREE.HemisphereLight(p.surface, p.ink, dark ? 0.35 : 0.5));
+    scene.add(
+      new THREE.AmbientLight(new THREE.Color('#8aa4bd'), dark ? 0.25 : 0.3)
+    );
+
+    world.current = {
+      renderer,
+      scene,
+      camera,
+      controls,
+      terrainGroup: null,
+      tokenGroup: null,
+      activeRing: null,
+      sun,
+      frame: 0,
+      lerp: null,
+    };
+
+    const resize = () => {
+      const w = el.clientWidth;
+      const h = Math.max(240, Math.round(w * 0.62));
+      renderer.setSize(w, h, false);
+      renderer.domElement.style.width = `${w}px`;
+      renderer.domElement.style.height = `${h}px`;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(el);
+
+    // "t" for the top-down view: the 2D board rendered in 3D, which is what
+    // people actually fight in. The lerp is the continuity that sells the
+    // feature; under reduced motion it is a cut.
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== 't' && ev.key !== 'T') return;
+      const w = world.current;
+      if (!w) return;
+      const to = new THREE.Vector3(cx, span * 1.4, cz + 0.001);
+      if (reduce) {
+        camera.position.copy(to);
+        controls.update();
+        return;
+      }
+      w.lerp = { from: camera.position.clone(), to, t: 0 };
+    };
+    renderer.domElement.tabIndex = 0;
+    renderer.domElement.addEventListener('keydown', onKey);
+
+    const clock = new THREE.Clock();
+    const loop = () => {
+      const w = world.current;
+      if (!w) return;
+      w.frame = requestAnimationFrame(loop);
+      const dt = clock.getDelta();
+      if (w.lerp) {
+        w.lerp.t = Math.min(1, w.lerp.t + dt * 1.8);
+        const e = 1 - Math.pow(1 - w.lerp.t, 3);
+        camera.position.lerpVectors(w.lerp.from, w.lerp.to, e);
+        if (w.lerp.t >= 1) w.lerp = null;
+      }
+      if (w.activeRing && !reduce) w.activeRing.rotation.z += dt * 0.6;
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    loop();
+
+    return () => {
+      const w = world.current;
+      if (w) cancelAnimationFrame(w.frame);
+      ro.disconnect();
+      renderer.domElement.removeEventListener('keydown', onKey);
+      controls.dispose();
+      scene.traverse(obj => {
+        const m = obj as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+        const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+        if (Array.isArray(mat)) mat.forEach(x => x.dispose());
+        else mat?.dispose();
+      });
+      renderer.dispose();
+      el.removeChild(renderer.domElement);
+      world.current = null;
+    };
+    // The scene is set up once per mount and per theme. Terrain and tokens are
+    // rebuilt by the effects below rather than by tearing all of this down.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dark, reduce]);
+
+  // Terrain: rebuilt whole on change.
+  useEffect(() => {
+    const w = world.current;
+    if (!w) return;
+    if (w.terrainGroup) {
+      w.scene.remove(w.terrainGroup);
+      w.terrainGroup.traverse(obj => {
+        const m = obj as THREE.Mesh;
+        m.geometry?.dispose();
+        const mat = m.material as THREE.Material | undefined;
+        mat?.dispose();
+      });
+    }
+    const p = readPalette(dark);
+    w.terrainGroup = buildTerrain(terrain, p, dark);
+    w.scene.add(w.terrainGroup);
+  }, [terrain, dark]);
+
+  // Tokens: rebuilt on their own, because they are what moves during a fight.
+  useEffect(() => {
+    const w = world.current;
+    if (!w) return;
+    if (w.tokenGroup) {
+      w.scene.remove(w.tokenGroup);
+      w.tokenGroup.traverse(obj => {
+        const m = obj as THREE.Mesh;
+        m.geometry?.dispose();
+        const mat = m.material as THREE.Material | undefined;
+        if (mat && 'map' in mat) (mat as THREE.SpriteMaterial).map?.dispose();
+        mat?.dispose();
+      });
+    }
+    const p = readPalette(dark);
+    const byId = new Map(entries.map(e => [e.id, e]));
+    const built = buildTokens(terrain, tokens, byId, currentEntryId, p);
+    w.tokenGroup = built.group;
+    w.activeRing = built.activeRing;
+    w.scene.add(built.group);
+  }, [terrain, tokens, entries, currentEntryId, dark]);
+
+  return (
+    <div
+      ref={mount}
+      className="w-full overflow-hidden rounded-md border border-line"
+      aria-label="The battlefield, in three dimensions. Drag to orbit, scroll to zoom, press T for straight down."
+    />
+  );
+}

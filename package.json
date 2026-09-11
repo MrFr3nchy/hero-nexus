@@ -25,6 +25,7 @@
     "@hookform/resolvers": "^5.1.1",
     "@iconify/react": "^6.0.0",
     "@node-rs/argon2": "^2.0.2",
+    "@types/three": "^0.185.4",
     "autoprefixer": "^10.4.21",
     "better-sqlite3": "^12.2.0",
     "drizzle-orm": "^0.45.2",
@@ -35,6 +36,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-hook-form": "^7.62.0",
+    "three": "^0.186.0",
     "zod": "^4.0.15"
   },
   "devDependencies": {
