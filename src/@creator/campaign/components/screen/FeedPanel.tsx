@@ -35,6 +35,7 @@ const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
   map: 'Maps',
   whisper: 'Whispers',
   gift: 'Gifts',
+  thing: 'Doors and chests',
 };
 
 /**

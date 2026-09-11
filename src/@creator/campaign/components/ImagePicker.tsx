@@ -20,6 +20,7 @@ export function ImagePicker({
   onChange,
   label = 'Picture',
   library = false,
+  hint = true,
 }: {
   campaignId: string;
   /** The stored image id, or null for none. */
@@ -32,6 +33,12 @@ export function ImagePicker({
    * is five copies of one file.
    */
   library?: boolean;
+  /**
+   * Leave out the sentence about formats and sizes. On a form it earns its
+   * line; in a toolbar beside five other controls it is the widest thing
+   * there and says nothing the upload button's error would not.
+   */
+  hint?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -167,10 +174,12 @@ export function ImagePicker({
         }}
       />
 
-      <p className="mt-1.5 text-xs text-ink-subtle">
-        PNG, JPEG, WebP or GIF, up to 8 MB. Stored with the campaign&rsquo;s
-        handouts, not in the sheet.
-      </p>
+      {hint && (
+        <p className="mt-1.5 text-xs text-ink-subtle">
+          PNG, JPEG, WebP or GIF, up to 8 MB. Stored with the campaign&rsquo;s
+          handouts, not in the sheet.
+        </p>
+      )}
       {error && <p className="mt-1 text-sm text-danger">{error}</p>}
     </div>
   );

@@ -47,12 +47,16 @@ import {
   wallIndex,
 } from '@/@creator/campaign/lib/battlemap';
 import {
+  blocksTile,
   edgeKey,
+  FACINGS,
   inBounds,
   MATERIALS,
   MAX_SIDE,
   MIN_SIDE,
   VOID,
+  type Facing,
+  type ItemState,
   type PropKind,
   type Side,
   type TerrainDoc,
@@ -68,8 +72,10 @@ import {
 import type { EntryRow, LiveState } from '@/server/session';
 import {
   createBattleMapAction,
+  damageThingAction,
   dealEncounterInAction,
   moveTokenAction,
+  pickLockAction,
   placeTokenAction,
   removeTokenAction,
   resetFogAction,
@@ -79,6 +85,7 @@ import {
   setBattleMapActiveAction,
   setBattleMapVisibilityAction,
   updateTokenAction,
+  operateThingAction,
 } from '../../battlemap-actions';
 import { BattleMap3DLazy } from './BattleMap3DLazy';
 import { useDiceTray } from '@/@shared/components/dice';
@@ -103,10 +110,48 @@ type Tool =
       imageId: string | null;
       height: number;
       blocks: boolean;
+      facing: Facing;
     }
   | { kind: 'light' }
   | { kind: 'reveal' }
-  | { kind: 'scenery' };
+  /**
+   * A thing: a scenery token, which is a row rather than terrain because a
+   * player changes it. What the next tap puts down.
+   */
+  | {
+      kind: 'scenery';
+      label: string;
+      imageId: string | null;
+      state: ItemState | null;
+      lockDc: number | null;
+      hpMax: number | null;
+      facing: Facing;
+    };
+
+const FRESH_SCENERY = {
+  kind: 'scenery',
+  label: '',
+  imageId: null,
+  state: null,
+  lockDc: null,
+  hpMax: null,
+  facing: 'camera',
+} as const satisfies Tool;
+
+const FACING_LABEL: Record<Facing, string> = {
+  camera: 'Faces you',
+  n: 'Faces north',
+  e: 'Faces east',
+  s: 'Faces south',
+  w: 'Faces west',
+};
+
+const STATE_LABEL: Record<ItemState, string> = {
+  open: 'Open',
+  closed: 'Closed',
+  locked: 'Locked',
+  broken: 'Broken',
+};
 
 const PROPS: { kind: PropKind; blocks: boolean; label: string }[] = [
   { kind: 'table', blocks: true, label: 'Table' },
@@ -251,12 +296,33 @@ export function BattleBoard({
   }, [board]);
 
   const [tool, setTool] = useState<Tool>({ kind: 'select' });
+  // Doing something to a thing: the picker's mode and last word, and the DM's
+  // amount for breaking one.
+  const [lockMode, setLockMode] = useState<
+    'straight' | 'advantage' | 'disadvantage'
+  >('straight');
+  const [lockWord, setLockWord] = useState('');
+  const [hurtAmount, setHurtAmount] = useState('5');
+  const describe = async (tokenId: string, patch: Record<string, unknown>) => {
+    const res = await updateTokenAction(tokenId, patch);
+    if (!res.ok) onError(res.error);
+    await refresh();
+  };
+  const hurt = async (tokenId: string, sign: 1 | -1) => {
+    const n = Math.abs(Math.trunc(Number(hurtAmount)) || 0);
+    if (!n) return;
+    const res = await damageThingAction(tokenId, sign * n);
+    if (!res.ok) onError(res.error);
+    await refresh();
+  };
   const [selected, setSelectedLocal] = useState<string | null>(null);
   // Published, so the shelf beside the board knows the target and the foe.
   const setSelected = useCallback(
     (id: string | null) => {
       setSelectedLocal(id);
       setSelectedToken(campaignId, id);
+      // The last lock's verdict belongs to the last lock.
+      setLockWord('');
     },
     [campaignId]
   );
@@ -433,6 +499,9 @@ export function BattleBoard({
 
   const reach = useMemo(() => {
     if (!terrain || !selectedToken || !board) return null;
+    // A thing has no walking speed: the DM drags it wherever it goes, and a
+    // lit thirty-foot reach around a door is a board full of noise.
+    if (!selectedToken.entryId) return null;
     const asReach = (t: (typeof board.tokens)[number]) => ({
       id: t.id,
       x: t.x,
@@ -443,7 +512,9 @@ export function BattleBoard({
     return reachFor(
       terrain,
       asReach(selectedToken),
-      board.tokens.map(asReach),
+      // An open door and a smashed chest are walked through — the server
+      // applies the same rule when it checks the drop.
+      board.tokens.filter(t => blocksTile(t.state)).map(asReach),
       speedOf(selectedToken)
     );
   }, [terrain, selectedToken, board, sideOf, speedOf]);
@@ -547,6 +618,7 @@ export function BattleBoard({
             blocks: tool.blocks,
             imageId: tool.imageId,
             height: tool.height,
+            ...(tool.facing !== 'camera' ? { facing: tool.facing } : {}),
           });
           break;
         }
@@ -617,8 +689,13 @@ export function BattleBoard({
       const res = await placeTokenAction(board.id, {
         x: at.x,
         y: at.y,
-        label: 'Something',
+        label: tool.label.trim() || 'Something',
         visibility: 'shared',
+        imageId: tool.imageId,
+        state: tool.state,
+        lockDc: tool.state === 'locked' ? tool.lockDc : null,
+        hpMax: tool.hpMax,
+        facing: tool.facing,
       });
       if (!res.ok) onError(res.error);
       await refresh();
@@ -653,7 +730,9 @@ export function BattleBoard({
 
     // An empty tile with a token selected: move it there, if it may be.
     if (selectedToken && selectedToken.mine) {
-      const others = board.tokens.filter(t => t.id !== selectedToken.id);
+      const others = board.tokens.filter(
+        t => t.id !== selectedToken.id && blocksTile(t.state)
+      );
       if (
         !canStand(
           terrain,
@@ -1047,6 +1126,38 @@ export function BattleBoard({
         ctx.textBaseline = 'middle';
         ctx.fillText(initials(label), cx, cy + 1);
       }
+
+      // What a thing is: a lock on a locked one, a cross through a broken
+      // one, and an open one drawn lighter — it no longer blocks its tile.
+      if (t.state === 'locked') {
+        const k = Math.max(4, size * 0.16);
+        const lx = cx + r - k;
+        const ly = cy - r;
+        ctx.fillStyle = p.ink;
+        ctx.strokeStyle = p.ink;
+        ctx.lineWidth = Math.max(1.5, k * 0.25);
+        ctx.beginPath();
+        ctx.arc(lx + k / 2, ly + k * 0.45, k * 0.3, Math.PI, 0);
+        ctx.stroke();
+        ctx.fillRect(lx, ly + k * 0.45, k, k * 0.75);
+      } else if (t.state === 'broken') {
+        ctx.strokeStyle = p.danger;
+        ctx.lineWidth = Math.max(2, size * 0.06);
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.7, cy - r * 0.7);
+        ctx.lineTo(cx + r * 0.7, cy + r * 0.7);
+        ctx.moveTo(cx + r * 0.7, cy - r * 0.7);
+        ctx.lineTo(cx - r * 0.7, cy + r * 0.7);
+        ctx.stroke();
+      } else if (t.state === 'open') {
+        ctx.strokeStyle = p.success;
+        ctx.lineWidth = Math.max(1.5, size * 0.05);
+        ctx.setLineDash([size * 0.1, size * 0.1]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     }
 
     // Hover.
@@ -1376,13 +1487,19 @@ export function BattleBoard({
               'Picture',
               tool.kind === 'picture'
                 ? tool
-                : { kind: 'picture', imageId: null, height: 10, blocks: true },
+                : {
+                    kind: 'picture',
+                    imageId: null,
+                    height: 10,
+                    blocks: true,
+                    facing: 'camera',
+                  },
               tool.kind === 'picture'
             )}
             {toolButton('Light', { kind: 'light' }, tool.kind === 'light')}
             {toolButton(
-              'Scenery',
-              { kind: 'scenery' },
+              'Thing',
+              tool.kind === 'scenery' ? tool : FRESH_SCENERY,
               tool.kind === 'scenery'
             )}
             <span className="mx-1 h-5 w-px bg-line" />
@@ -1430,6 +1547,7 @@ export function BattleBoard({
             onChange={imageId => setTool({ ...tool, imageId })}
             label="A picture to stand on a tile"
             library
+            hint={false}
           />
           <Input
             size="sm"
@@ -1453,11 +1571,130 @@ export function BattleBoard({
           >
             <span className="text-sm text-ink-muted">Blocks the tile</span>
           </Checkbox>
+          <Select
+            aria-label="Which way it faces"
+            size="sm"
+            className="w-36"
+            selectedKeys={[tool.facing]}
+            onSelectionChange={keys => {
+              const key = String(Array.from(keys)[0] ?? 'camera');
+              setTool({ ...tool, facing: key as Facing });
+            }}
+          >
+            {FACINGS.map(f => (
+              <SelectItem key={f} textValue={FACING_LABEL[f]}>
+                {FACING_LABEL[f]}
+              </SelectItem>
+            ))}
+          </Select>
           <Marginalia dash>
             {tool.imageId
               ? 'tap a tile to stand it there; tap again to take it down'
               : 'choose a picture first'}
           </Marginalia>
+        </div>
+      )}
+
+      {/* A thing: what the next tap puts down. A door with a lock and forty
+          hit points, a window, a chest — a row a player can do something
+          to, not a mark in the DM's terrain. */}
+      {isStaff && tool.kind === 'scenery' && (
+        <div className="mb-2 flex flex-wrap items-end gap-3 rounded-md border border-line bg-surface-2 px-3 py-2">
+          <Input
+            size="sm"
+            label="What it is"
+            placeholder="The cellar door"
+            className="w-44"
+            value={tool.label}
+            onValueChange={label => setTool({ ...tool, label })}
+          />
+          <ImagePicker
+            campaignId={campaignId}
+            value={tool.imageId}
+            onChange={imageId => setTool({ ...tool, imageId })}
+            label="Stands up as"
+            library
+            hint={false}
+          />
+          <Select
+            aria-label="Its state"
+            size="sm"
+            label="State"
+            className="w-40"
+            selectedKeys={[tool.state ?? 'none']}
+            onSelectionChange={keys => {
+              const key = String(Array.from(keys)[0] ?? 'none');
+              setTool({
+                ...tool,
+                state: key === 'none' ? null : (key as ItemState),
+              });
+            }}
+          >
+            <SelectItem key="none" textValue="Nothing to open">
+              Just a thing
+            </SelectItem>
+            <SelectItem key="closed" textValue="Closed">
+              Closed
+            </SelectItem>
+            <SelectItem key="open" textValue="Open">
+              Open
+            </SelectItem>
+            <SelectItem key="locked" textValue="Locked">
+              Locked
+            </SelectItem>
+          </Select>
+          {tool.state === 'locked' && (
+            <Input
+              size="sm"
+              type="number"
+              label="Lock DC"
+              className="w-24"
+              min={1}
+              max={40}
+              value={tool.lockDc === null ? '' : String(tool.lockDc)}
+              onValueChange={v =>
+                setTool({
+                  ...tool,
+                  lockDc:
+                    v.trim() === '' ? null : Math.trunc(Number(v)) || null,
+                })
+              }
+            />
+          )}
+          <Input
+            size="sm"
+            type="number"
+            label="Hit points"
+            placeholder="unbreakable"
+            className="w-36"
+            min={1}
+            max={9999}
+            value={tool.hpMax === null ? '' : String(tool.hpMax)}
+            onValueChange={v =>
+              setTool({
+                ...tool,
+                hpMax: v.trim() === '' ? null : Math.trunc(Number(v)) || null,
+              })
+            }
+          />
+          <Select
+            aria-label="Which way it faces"
+            size="sm"
+            label="Faces"
+            className="w-36"
+            selectedKeys={[tool.facing]}
+            onSelectionChange={keys => {
+              const key = String(Array.from(keys)[0] ?? 'camera');
+              setTool({ ...tool, facing: key as Facing });
+            }}
+          >
+            {FACINGS.map(f => (
+              <SelectItem key={f} textValue={FACING_LABEL[f]}>
+                {FACING_LABEL[f]}
+              </SelectItem>
+            ))}
+          </Select>
+          <Marginalia dash>tap a tile to put it down</Marginalia>
         </div>
       )}
 
@@ -1509,11 +1746,143 @@ export function BattleBoard({
             </span>
           ) : selectedToken.mine ? (
             <span>
-              Tap a lit tile to move there. {speedOf(selectedToken)} ft.
+              {selectedToken.entryId
+                ? `Tap a lit tile to move there. ${speedOf(selectedToken)} ft.`
+                : 'Tap a tile to move it.'}
             </span>
           ) : (
             <span>Not yours to move.</span>
           )}
+          {/* What a thing is, and what can be done to it. Anyone beside it
+              opens or closes it; a locked one is picked, rolled on the
+              server off the picker's own sheet; the DM sets what it is. */}
+          {selectedToken.entryId === null && selectedToken.state && (
+            <span
+              className={`rounded-sm border px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] ${
+                selectedToken.state === 'locked'
+                  ? 'border-ink/40 text-ink'
+                  : selectedToken.state === 'broken'
+                    ? 'border-danger/40 text-danger'
+                    : selectedToken.state === 'open'
+                      ? 'border-success/40 text-success'
+                      : 'border-line text-ink-muted'
+              }`}
+            >
+              {STATE_LABEL[selectedToken.state]}
+            </span>
+          )}
+          {selectedToken.entryId === null &&
+            (selectedToken.state === 'open' ||
+              selectedToken.state === 'closed') && (
+              <Button
+                size="sm"
+                variant="flat"
+                className="h-7 min-w-0 px-2.5 text-xs"
+                onPress={async () => {
+                  const res = await operateThingAction(
+                    selectedToken.id,
+                    selectedToken.state === 'open' ? 'close' : 'open'
+                  );
+                  if (!res.ok) onError(res.error);
+                  await refresh();
+                }}
+              >
+                {selectedToken.state === 'open' ? 'Close it' : 'Open it'}
+              </Button>
+            )}
+          {selectedToken.entryId === null &&
+            selectedToken.state === 'locked' && (
+              <span className="inline-flex items-center gap-1">
+                <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+                  {(['disadvantage', 'straight', 'advantage'] as const).map(
+                    m => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setLockMode(m)}
+                        className={`rounded px-2 py-0.5 text-[0.7rem] transition-colors ${
+                          lockMode === m
+                            ? 'bg-gold font-medium text-bg'
+                            : 'text-ink-muted hover:text-ink'
+                        }`}
+                      >
+                        {m === 'straight'
+                          ? 'straight'
+                          : m === 'advantage'
+                            ? 'adv'
+                            : 'dis'}
+                      </button>
+                    )
+                  )}
+                </div>
+                <Tooltip content="Dexterity (Sleight of Hand), rolled on the server off your own sheet, against a DC the DM set and you are not told.">
+                  <Button
+                    size="sm"
+                    color="primary"
+                    className="h-7 min-w-0 px-2.5 text-xs"
+                    onPress={async () => {
+                      const res = await pickLockAction(
+                        selectedToken.id,
+                        lockMode
+                      );
+                      if (!res.ok) {
+                        onError(res.error);
+                        return;
+                      }
+                      setLockWord(
+                        res.data.opened
+                          ? `${res.data.total} — the lock gives`
+                          : `${res.data.total} — it holds`
+                      );
+                      await refresh();
+                    }}
+                  >
+                    Pick the lock
+                  </Button>
+                </Tooltip>
+                {lockWord && (
+                  <span className="text-xs text-ink-muted">{lockWord}</span>
+                )}
+              </span>
+            )}
+          {selectedToken.entryId === null &&
+            isStaff &&
+            selectedToken.hpMax !== null && (
+              <span className="inline-flex items-center gap-1 text-xs">
+                <span className="tabular-nums text-ink-muted">
+                  {selectedToken.hpCurrent ?? selectedToken.hpMax} /{' '}
+                  {selectedToken.hpMax} hp
+                </span>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  className="h-7 min-w-0 px-2 text-danger"
+                  aria-label="Damage it"
+                  onPress={() => hurt(selectedToken.id, -1)}
+                >
+                  −
+                </Button>
+                <Input
+                  size="sm"
+                  type="number"
+                  aria-label="How much"
+                  className="w-16"
+                  classNames={{ inputWrapper: 'h-7 min-h-7' }}
+                  min={0}
+                  value={hurtAmount}
+                  onValueChange={setHurtAmount}
+                />
+                <Button
+                  size="sm"
+                  variant="flat"
+                  className="h-7 min-w-0 px-2 text-success"
+                  aria-label="Mend it"
+                  onPress={() => hurt(selectedToken.id, 1)}
+                >
+                  +
+                </Button>
+              </span>
+            )}
           {selectedToken.mine && selectedToken.entryId && (
             <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
               {(['disadvantage', 'flat', 'advantage'] as const).map(m => (
@@ -1538,9 +1907,110 @@ export function BattleBoard({
               {/* What it stands up as. A hero has a portrait; an ogre has
                   whatever the DM uploaded, and it is the same ogre picture
                   for all five of them. */}
+              {selectedToken.entryId === null && (
+                <Popover placement="top-end">
+                  <PopoverTrigger>
+                    <Button size="sm" variant="flat" className="ml-auto">
+                      What it is
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72 border border-line bg-surface p-3">
+                    <div className="flex w-full flex-col gap-2">
+                      <Select
+                        aria-label="Its state"
+                        size="sm"
+                        label="State"
+                        selectedKeys={[selectedToken.state ?? 'none']}
+                        onSelectionChange={keys => {
+                          const key = String(Array.from(keys)[0] ?? 'none');
+                          void describe(selectedToken.id, {
+                            state: key === 'none' ? null : (key as ItemState),
+                          });
+                        }}
+                      >
+                        <SelectItem key="none" textValue="Nothing to open">
+                          Just a thing
+                        </SelectItem>
+                        <SelectItem key="closed" textValue="Closed">
+                          Closed
+                        </SelectItem>
+                        <SelectItem key="open" textValue="Open">
+                          Open
+                        </SelectItem>
+                        <SelectItem key="locked" textValue="Locked">
+                          Locked
+                        </SelectItem>
+                        <SelectItem key="broken" textValue="Broken">
+                          Broken
+                        </SelectItem>
+                      </Select>
+                      <Input
+                        size="sm"
+                        type="number"
+                        label="Lock DC"
+                        placeholder="10"
+                        min={1}
+                        max={40}
+                        defaultValue={
+                          selectedToken.lockDc === null
+                            ? ''
+                            : String(selectedToken.lockDc)
+                        }
+                        onBlur={e => {
+                          const v = e.currentTarget.value.trim();
+                          void describe(selectedToken.id, {
+                            lockDc: v === '' ? null : Math.trunc(Number(v)),
+                          });
+                        }}
+                      />
+                      <Input
+                        size="sm"
+                        type="number"
+                        label="Hit points"
+                        placeholder="unbreakable"
+                        min={1}
+                        max={9999}
+                        defaultValue={
+                          selectedToken.hpMax === null
+                            ? ''
+                            : String(selectedToken.hpMax)
+                        }
+                        onBlur={e => {
+                          const v = e.currentTarget.value.trim();
+                          const next = v === '' ? null : Math.trunc(Number(v));
+                          if (next === selectedToken.hpMax) return;
+                          void describe(selectedToken.id, { hpMax: next });
+                        }}
+                      />
+                      <Select
+                        aria-label="Which way it faces"
+                        size="sm"
+                        label="Faces"
+                        selectedKeys={[selectedToken.facing]}
+                        onSelectionChange={keys => {
+                          const key = String(Array.from(keys)[0] ?? 'camera');
+                          void describe(selectedToken.id, {
+                            facing: key as Facing,
+                          });
+                        }}
+                      >
+                        {FACINGS.map(f => (
+                          <SelectItem key={f} textValue={FACING_LABEL[f]}>
+                            {FACING_LABEL[f]}
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
               <Popover placement="top-end">
                 <PopoverTrigger>
-                  <Button size="sm" variant="flat" className="ml-auto">
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    className={selectedToken.entryId ? 'ml-auto' : ''}
+                  >
                     {selectedToken.imageId ? 'Picture' : 'Give it a picture'}
                   </Button>
                 </PopoverTrigger>

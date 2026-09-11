@@ -2,13 +2,20 @@
 
 import { z } from 'zod';
 
-import { MAX_SIDE, MIN_SIDE } from '@/@shared/battlemap/types';
+import {
+  FACINGS,
+  ITEM_STATES,
+  MAX_SIDE,
+  MIN_SIDE,
+} from '@/@shared/battlemap/types';
 import {
   createBattleMap,
+  damageThing,
   dealEncounterIn,
   deleteBattleMap,
   listBattleMaps,
   moveToken,
+  pickLock,
   placeToken,
   removeToken,
   renameBattleMap,
@@ -19,6 +26,7 @@ import {
   setBattleMapActive,
   setBattleMapVisibility,
   updateToken,
+  operateThing,
 } from '@/server/battlemap';
 
 type Result<T = undefined> =
@@ -38,6 +46,13 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_IN_THIS_FIGHT: 'That combatant is not in the fight this board is for.',
     ALREADY_ON_THE_BOARD: 'They are already on the board.',
     NO_FIGHT: 'Put the board on the table during a fight, then deal them in.',
+    NOT_A_THING: 'That is somebody, not something.',
+    NOTHING_TO_DO: 'There is nothing to open or close there.',
+    LOCKED: 'It is locked.',
+    BROKEN: 'It is broken.',
+    NOT_LOCKED: 'It is not locked.',
+    OUT_OF_REACH: 'You are not close enough. Move beside it first.',
+    INDESTRUCTIBLE: 'That cannot be broken.',
   };
   if (!messages[code]) console.error('[action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
@@ -207,6 +222,11 @@ export async function placeTokenAction(
       altitude: z.number().int().min(-100).max(500).optional(),
       tint: z.string().max(20).optional(),
       visibility: z.enum(['dm', 'shared']).optional(),
+      imageId: z.string().min(1).max(64).nullable().optional(),
+      state: z.enum(ITEM_STATES).nullable().optional(),
+      lockDc: z.number().int().min(1).max(40).nullable().optional(),
+      hpMax: z.number().int().min(1).max(9999).nullable().optional(),
+      facing: z.enum(FACINGS).optional(),
     })
     .safeParse(input);
   if (!parsed.success) {
@@ -259,6 +279,10 @@ export async function updateTokenAction(
       tint: z.string().max(20).optional(),
       visibility: z.enum(['dm', 'shared']).optional(),
       imageId: z.string().min(1).max(64).nullable().optional(),
+      state: z.enum(ITEM_STATES).nullable().optional(),
+      lockDc: z.number().int().min(1).max(40).nullable().optional(),
+      hpMax: z.number().int().min(1).max(9999).nullable().optional(),
+      facing: z.enum(FACINGS).optional(),
     })
     .safeParse(patch);
   if (!parsed.success) return { ok: false, error: 'Invalid change.' };
@@ -276,5 +300,51 @@ export async function removeTokenAction(tokenId: string): Promise<Result> {
     return { ok: true };
   } catch (err) {
     return fail(err, 'Could not take that off.');
+  }
+}
+
+/* --- doing something to a thing ------------------------------------------ */
+
+export async function operateThingAction(
+  tokenId: string,
+  verb: 'open' | 'close'
+): Promise<Result> {
+  try {
+    await operateThing(tokenId, verb === 'close' ? 'close' : 'open');
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'That did not budge.');
+  }
+}
+
+export async function pickLockAction(
+  tokenId: string,
+  mode: unknown
+): Promise<Result<{ total: number; opened: boolean }>> {
+  const parsed = z
+    .enum(['straight', 'advantage', 'disadvantage'])
+    .safeParse(mode ?? 'straight');
+  try {
+    const data = await pickLock(
+      tokenId,
+      parsed.success ? parsed.data : 'straight'
+    );
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'The lock did not budge.');
+  }
+}
+
+export async function damageThingAction(
+  tokenId: string,
+  delta: number
+): Promise<Result> {
+  const parsed = z.number().int().min(-9999).max(9999).safeParse(delta);
+  if (!parsed.success) return { ok: false, error: 'Invalid amount.' };
+  try {
+    await damageThing(tokenId, parsed.data);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'That did not land.');
   }
 }

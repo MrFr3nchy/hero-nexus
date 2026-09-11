@@ -13,7 +13,7 @@ stat block only in the light of decision 6 (the entry remembers a reference, nev
 copy).
 
 **Every phase that touches the database edits `src/db/schema.ts` and a new
-`src/db/migrations/NNNN_*.sql` in the same change.** The next free number is `0045`.
+`src/db/migrations/NNNN_*.sql` in the same change.** The next free number is `0046`.
 
 ---
 

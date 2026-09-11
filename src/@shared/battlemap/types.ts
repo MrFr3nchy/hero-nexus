@@ -95,7 +95,31 @@ export interface Prop {
   imageId?: string;
   /** `image` only: feet tall. A tree is 20, a door 10, a mile-marker 3. */
   height?: number;
+  /**
+   * `image` only: which way it faces. Absent, it turns to face the camera —
+   * right for a tree; a signpost or a wall panel names a side and stands
+   * still.
+   */
+  facing?: Facing;
 }
+
+/** Camera-facing, or fixed to a compass side. */
+export type Facing = 'camera' | 'n' | 'e' | 's' | 'w';
+export const FACINGS: readonly Facing[] = ['camera', 'n', 'e', 's', 'w'];
+
+/** Whether a thing in this state still takes up its tile. */
+export function blocksTile(state: ItemState | null | undefined): boolean {
+  return state !== 'open' && state !== 'broken';
+}
+
+/** What a thing on the board can be. Open and broken things do not block. */
+export type ItemState = 'open' | 'closed' | 'locked' | 'broken';
+export const ITEM_STATES: readonly ItemState[] = [
+  'open',
+  'closed',
+  'locked',
+  'broken',
+];
 
 /** A point light. Braziers, torches, the glow under a door. */
 export interface Light {
@@ -337,6 +361,10 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
               1,
               Math.min(100, Math.trunc(Number(p.height)) || 10)
             ),
+            ...((FACINGS as readonly unknown[]).includes(p.facing) &&
+            p.facing !== 'camera'
+              ? { facing: p.facing as Facing }
+              : {}),
           }
         : {}),
     });

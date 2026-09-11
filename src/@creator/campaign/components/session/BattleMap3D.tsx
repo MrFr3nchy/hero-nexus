@@ -31,7 +31,12 @@ import {
   reachFor,
   type Occupant,
 } from '@/@creator/campaign/lib/battlemap';
-import { MATERIALS, VOID, type TerrainDoc } from '@/@shared/battlemap/types';
+import {
+  MATERIALS,
+  VOID,
+  type Facing,
+  type TerrainDoc,
+} from '@/@shared/battlemap/types';
 import { useReducedMotion } from '@/@shared/components/motion';
 import type { BattleTokenRow } from '@/server/battlemap';
 import type { EntryRow } from '@/server/session';
@@ -138,13 +143,19 @@ function isCutout(img: HTMLImageElement): boolean {
   return out;
 }
 
-function standeeSprite(
+/** A picture ready to stand: its texture and its width per unit of height. */
+interface Picture {
+  tex: THREE.Texture;
+  aspect: number;
+}
+
+function standeeTexture(
   text: string,
   ink: string,
   paper: string,
   border: string,
   face: HTMLImageElement | null
-): THREE.Sprite {
+): Picture {
   const c = document.createElement('canvas');
   c.width = STANDEE_W;
   c.height = STANDEE_H;
@@ -167,12 +178,7 @@ function standeeSprite(
     ctx.drawImage(face, (c.width - dw) / 2, STANDEE_H - dh, dw, dh);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
-    const sprite = new THREE.Sprite(
-      new THREE.SpriteMaterial({ map: tex, depthTest: true })
-    );
-    sprite.center.set(0.5, 0);
-    sprite.userData.aspect = aspect;
-    return sprite;
+    return { tex, aspect };
   }
 
   // The card, with a torn top edge.
@@ -216,12 +222,62 @@ function standeeSprite(
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: true });
-  const sprite = new THREE.Sprite(mat);
-  // Anchored at the foot, so it stands on the base rather than hanging over it.
-  sprite.center.set(0.5, 0);
-  sprite.userData.aspect = STANDEE_W / STANDEE_H;
-  return sprite;
+  return { tex, aspect: STANDEE_W / STANDEE_H };
+}
+
+/**
+ * Stand a picture up, `tall` units high, anchored at its foot.
+ *
+ * Facing the camera it is a sprite, which turns on its own; facing a side it
+ * is a plane, which does not — a signpost or a door stands still while the
+ * room is orbited. Both carry `userData.tokenId` for the raycast when the
+ * caller sets it, and both take a `dim` the same way.
+ */
+function stand(
+  picture: Picture,
+  tall: number,
+  facing: Facing
+): THREE.Sprite | THREE.Mesh {
+  const wide = tall * picture.aspect;
+  if (facing === 'camera') {
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: picture.tex, depthTest: true })
+    );
+    // Anchored at the foot, so it stands on the base rather than hanging
+    // over it.
+    sprite.center.set(0.5, 0);
+    sprite.scale.set(wide, tall, 1);
+    return sprite;
+  }
+  const geo = new THREE.PlaneGeometry(wide, tall);
+  geo.translate(0, tall / 2, 0);
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshBasicMaterial({
+      map: picture.tex,
+      transparent: true,
+      alphaTest: 0.05,
+      side: THREE.DoubleSide,
+    })
+  );
+  // A plane faces +z by default, which is south on this board (y grows
+  // downward on the grid, and the grid's y is the scene's z).
+  mesh.rotation.y =
+    facing === 'n'
+      ? Math.PI
+      : facing === 'e'
+        ? Math.PI / 2
+        : facing === 'w'
+          ? -Math.PI / 2
+          : 0;
+  return mesh;
+}
+
+/** Fade a standing picture, for a DM-only thing, an open door, a broken one. */
+function dim(obj: THREE.Sprite | THREE.Mesh, opacity: number) {
+  const mat = obj.material as THREE.Material;
+  mat.transparent = true;
+  mat.opacity = opacity;
 }
 
 /**
@@ -231,12 +287,11 @@ function standeeSprite(
  * make it, anchored at its foot. Until the picture loads it is a plain
  * parchment card the same height, so the tile is not empty for a beat.
  */
-function pictureSprite(
+function pictureTexture(
   img: HTMLImageElement | null,
-  feet: number,
   paper: string,
   border: string
-): THREE.Sprite {
+): Picture {
   let tex: THREE.Texture;
   let aspect = 2 / 3;
   if (img && img.naturalWidth > 0) {
@@ -256,12 +311,7 @@ function pictureSprite(
     tex = new THREE.CanvasTexture(c);
   }
   tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: true });
-  const sprite = new THREE.Sprite(mat);
-  sprite.center.set(0.5, 0);
-  const tall = feet / FEET_PER_UNIT;
-  sprite.scale.set(tall * aspect, tall, 1);
-  return sprite;
+  return { tex, aspect };
 }
 
 /* --- building the scene ------------------------------------------------ */
@@ -408,14 +458,18 @@ export function buildTerrain(
     const i = pr.y * doc.w + pr.x;
     const top = (doc.elevation[i] ?? 0) / FEET_PER_UNIT;
     if (pr.kind === 'image') {
-      const sprite = pictureSprite(
+      const picture = pictureTexture(
         pr.imageId ? pictureFor(pr.imageId) : null,
-        pr.height ?? 10,
         '#ece3cf',
         `#${p.gold.getHexString()}`
       );
-      sprite.position.set(pr.x + 0.5, top + 0.01, pr.y + 0.5);
-      group.add(sprite);
+      const standing = stand(
+        picture,
+        (pr.height ?? 10) / FEET_PER_UNIT,
+        pr.facing ?? 'camera'
+      );
+      standing.position.set(pr.x + 0.5, top + 0.01, pr.y + 0.5);
+      group.add(standing);
       continue;
     }
     let mesh: THREE.Mesh;
@@ -589,7 +643,7 @@ export function buildTokens(
     // Paper is paper in candlelight: the card is parchment and the letters
     // ink in both palettes, and only the border takes the palette's gold. A
     // card that went black with the room read as a slab, not a miniature.
-    const sprite = standeeSprite(
+    const picture = standeeTexture(
       initials(label),
       '#2b2620',
       '#ece3cf',
@@ -597,14 +651,23 @@ export function buildTokens(
       faceFor(entry, t)
     );
     const tall = 1.25 * t.footprint;
-    sprite.scale.set(tall * (sprite.userData.aspect as number), tall, 1);
-    sprite.position.set(cx, top0 + 0.14, cz);
-    if (t.visibility === 'dm') {
-      sprite.material.transparent = true;
-      sprite.material.opacity = 0.55;
+    const standing = stand(picture, tall, t.facing);
+    standing.position.set(cx, top0 + 0.14, cz);
+    /*
+     * What state it is in, drawn: a thing only the DM can see is faint; an
+     * open door standing still swings out of its frame; an open door facing
+     * the camera has nothing to swing on, so it fades instead; a broken
+     * thing is nearly gone. Nothing here animates — it is where the thing
+     * is, not where it is going.
+     */
+    if (t.visibility === 'dm') dim(standing, 0.55);
+    if (t.state === 'open') {
+      if (t.facing !== 'camera') standing.rotation.y += (Math.PI / 2) * 0.85;
+      else dim(standing, 0.6);
     }
-    sprite.userData.tokenId = t.id;
-    group.add(sprite);
+    if (t.state === 'broken') dim(standing, 0.3);
+    standing.userData.tokenId = t.id;
+    group.add(standing);
 
     pieces.set(t.id, { group, at });
   }

@@ -1961,6 +1961,19 @@ export const battleMapTokens = sqliteTable(
     imageId: text('image_id').references(() => campaignImages.id, {
       onDelete: 'set null',
     }),
+    /**
+     * A thing a table can do something to (0045). Null for a thing with no
+     * state; open and broken things do not block their tile. `lockDc` is
+     * staff-only on the wire; `hpMax` null is indestructible.
+     */
+    state: text('state', { enum: ['open', 'closed', 'locked', 'broken'] }),
+    lockDc: integer('lock_dc'),
+    hpCurrent: integer('hp_current'),
+    hpMax: integer('hp_max'),
+    /** `camera`, or a compass side for a picture that stands still. */
+    facing: text('facing', { enum: ['camera', 'n', 'e', 's', 'w'] })
+      .notNull()
+      .default('camera'),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
