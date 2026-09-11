@@ -33,8 +33,7 @@ function Badge({ count }: { count: number | undefined }) {
  * main region and the shelf is a column of the panels the viewer chose,
  * each collapsible, the whole shelf collapsible to a strip of glyphs.
  *
- * **Function over form, and named as such** in
- * `docs/handoff/the-three-tables/README.md`: the shelf renders its panels
+ * **Function over form.** The shelf renders its panels
  * headless through the same `.screen-box-body` flattening the boxes use, at
  * `text-sm`, with no card chrome. Density is the feature. On a phone the
  * shelf drops below the board rather than beside it.

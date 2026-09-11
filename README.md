@@ -84,7 +84,6 @@ the form.
 | [CLAUDE.md](CLAUDE.md)                             | The index every agent loads first, and the commands that must pass. |
 | [docs/design-language.md](docs/design-language.md) | How every page must look and be laid out.                           |
 | [docs/content-model.md](docs/content-model.md)     | How game content is shaped, stored, referenced, and put in play.    |
-| [docs/handoff/](docs/handoff/README.md)            | State of the typed-homebrew work and how it was verified.           |
 | [src/db/README.md](src/db/README.md)               | Schema and migrations — hand-written, edited together.              |
 | [docs/ops/](docs/ops/deploy.md)                    | Deploy, restore, and the security decisions behind them.            |
 

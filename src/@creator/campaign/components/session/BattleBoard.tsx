@@ -436,8 +436,8 @@ export function BattleBoard({
   /**
    * The reveal brush. Tiles are gathered during the stroke and drawn as
    * pending, then sent **once on pointer-up** — one write per stroke rather
-   * than one per pointer event, which is the same trap the handoff names for
-   * token drags and was this tool's first shape.
+   * than one per pointer event — the same trap a token drag avoids, and this
+   * tool's first shape.
    */
   const [brush, setBrush] = useState<1 | 2 | 3>(1);
   const pendingReveal = useRef(new Set<number>());

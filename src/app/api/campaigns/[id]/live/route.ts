@@ -1,8 +1,7 @@
 /**
  * The table's live stream.
  *
- * Server-Sent Events rather than a WebSocket, and the reasons are in
- * `docs/handoff/the-same-room/README.md` (model decision 1): the traffic is
+ * Server-Sent Events rather than a WebSocket, because the traffic is
  * one-directional — everything a browser sends is already a server action that
  * goes through `requireCampaignRole` — and a duplex socket under the App
  * Router would mean replacing `next start` with a custom server, which changes

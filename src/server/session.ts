@@ -182,7 +182,7 @@ export interface LiveState {
    * The battlefield on the table, fogged for a player. Null when none is
    * active or a player may not see it. Read here rather than behind a poller
    * of its own, so there is one filter for everything a player sees of a
-   * fight — the sand-table handoff's own recommendation.
+   * fight.
    */
   battlemap: BattleMapState;
   /**
@@ -205,8 +205,7 @@ export interface LiveState {
 /**
  * Which table a campaign is at, from the two facts that decide it.
  *
- * Derived, never stored — `docs/handoff/the-three-tables/README.md`,
- * decision 1. No role check: the answer is not a secret, and the callers
+ * Derived, never stored. No role check: the answer is not a secret, and the callers
  * (`getLiveState`, the campaign page, the sitting bar) have each already
  * established the reader belongs here.
  */

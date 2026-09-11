@@ -402,7 +402,7 @@ export function buildTerrain(
   // board's lowest point to its own top, so a pit shows its neighbours'
   // sides and a ledge shows its own. One draw call per material rather than
   // per tile. Capacity is the tile count per material, fixed at construction
-  // — the Three.js trap the handoff names: you cannot push an instance onto
+  // — the standard Three.js trap: you cannot push an instance onto
   // an existing mesh.
   //
   // The top face wears the material's own drawing and the sides wear earth
@@ -465,7 +465,7 @@ export function buildTerrain(
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     // The raycast gives back an instance id; this is how it becomes a tile.
     // Against the floor instances and nothing else — not invisible planes per
-    // elevation level, which the handoff warns you will fight forever.
+    // elevation level, which you will fight forever.
     mesh.userData.tiles = tiles;
     mesh.userData.floor = true;
     group.add(mesh);
@@ -1219,7 +1219,7 @@ export default function BattleMap3D({
     terrainGroup: THREE.Group | null;
     table: THREE.Mesh | null;
     pieces: Map<string, TokenPiece>;
-    /** Tokens on their way somewhere: ~250ms ease-out, per the handoff. */
+    /** Tokens on their way somewhere: ~250ms ease-out. */
     moving: Map<string, { from: THREE.Vector3; to: THREE.Vector3; t: number }>;
     activeRing: THREE.Object3D | null;
     sun: THREE.DirectionalLight;

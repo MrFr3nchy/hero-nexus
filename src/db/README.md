@@ -68,5 +68,3 @@ rows may bump six times without thinking about it.
 `useCampaignLive` still re-reads on a timer as a **floor** — 30s while the
 stream is up, 3s when it is down. That is not a leftover: it is what stops one
 forgotten `bumpVersion` from freezing a table mid-fight. Do not remove it.
-
-The full model is `docs/handoff/the-same-room/README.md`.

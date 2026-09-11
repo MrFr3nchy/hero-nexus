@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic';
  * A sibling route rather than a mode on `/characters/[id]`, because that page
  * is a server-rendered read with no client state on purpose — making it
  * editable would drag the whole sheet into the browser on the one page whose
- * job is reading. See `docs/handoff/the-long-campaign/README.md`.
+ * job is reading.
  */
 export default async function CharacterPlayPage({
   params,

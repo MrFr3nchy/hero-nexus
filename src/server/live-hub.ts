@@ -23,8 +23,6 @@
  *   produced is still readable; seeing one twice is not, because an
  *   announcement claims something just happened. Events carry content, so
  *   every one of them carries an audience decided here on the server.
- *
- * See `docs/handoff/the-same-room/README.md`, model decisions 1–4.
  */
 import 'server-only';
 

@@ -158,8 +158,8 @@ export function SideNavigation() {
    * Folded to its icon strip on the screen route. The screen is the one page
    * a table operates for four hours, and a 15rem column of shelves it is not
    * reading is a fifth of a laptop given to the compendium. The hand control
-   * still works there; this only sets where it starts. Named in
-   * docs/handoff/the-three-tables/README.md as a convention broken on purpose.
+   * still works there; this only sets where it starts. A convention broken
+   * on purpose.
    */
   const onScreen = /^\/campaigns\/[^/]+\/screen/.test(pathname);
   const [collapsedByHand, setCollapsedByHand] = useState<boolean | null>(null);

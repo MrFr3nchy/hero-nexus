@@ -12,7 +12,7 @@
  * advantage on death saves, which is why `mode` exists at all. The rest —
  * natural 20, natural 1, damage at 0, massive damage — is from the rulebook;
  * the SRD subset here carries classes, spells, items and monsters, not the
- * combat chapter. See `docs/handoff/the-last-breath/README.md`.
+ * combat chapter.
  */
 
 /** The successes and failures a character has collected, plus stability. */

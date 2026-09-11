@@ -17,9 +17,8 @@
 --
 -- Files live under UPLOADS_DIR/library/<publication_id>/, so the whole of a
 -- listing's storage is one directory to remove when it is deleted. Adopting a
--- picture copies the bytes again, into a campaign the adopter runs — see
--- docs/handoff/wandering-library/README.md for why there is deliberately no
--- user-level image store.
+-- picture copies the bytes again, into a campaign the adopter runs. There is
+-- deliberately no user-level image store.
 --
 -- Hand-written to match src/db/schema.ts. Applied by src/db/migrate.ts.
 

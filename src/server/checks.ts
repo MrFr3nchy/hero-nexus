@@ -16,8 +16,6 @@
  *    version of the same information.
  * 4. **One roll, one log.** An answer is an ordinary `campaign_rolls` row.
  *    There is not a second dice log for checks.
- *
- * See `docs/handoff/the-same-room/README.md`, model decision 8.
  */
 import 'server-only';
 

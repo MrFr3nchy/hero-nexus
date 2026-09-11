@@ -595,9 +595,8 @@ export async function createCharacter(
  *
  * Taking a character to a campaign mints a new `characters` row and *that* is
  * what plays: it levels, collects loot, takes conditions and can die, while
- * the blueprint it came from stays on the shelf untouched. See the third model
- * decision in `docs/handoff/the-long-campaign/README.md` for why this is a
- * fork rather than a link.
+ * the blueprint it came from stays on the shelf untouched. A fork rather than
+ * a link.
  *
  * Two things are deliberately **not** copied:
  *
