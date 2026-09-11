@@ -21,8 +21,11 @@ the bundle. If the 3D work stalls, phase 1 still leaves the app better than it f
 map needs the stream, and the stream is on that branch.
 
 **Phase 1 is built and verified** — the model, the rules, the fog filter and the 2D
-board, with no `three` in `package.json`. Phases 2–5 are open. What the phase-1 run
-proved is at the foot of this file.
+board. **Phase 2 is built** — the renderer, behind a `Stand it up` toggle, verified for
+geometry and bundle split but **not yet seen rendering**; the browser connection dropped
+before the pixel check and the record below says so. **Two of phase 5's five items are
+built** — portraits on the board and interpolated movement. Phases 3 and 4 are open.
+What each run proved is at the foot of this file.
 
 Everything below was read out of `main` on 2026-09-10, before `feat/the-same-room`
 landed. Specific line references are deliberately avoided in favour of symbol names,
@@ -747,3 +750,53 @@ revealed-wash, and two washes on one tile were one wash. Reach is an inset outli
   board, which the token has via its entry but the reach computation does not read yet.
 - **No tab of its own on `/campaigns/[id]`.** The board lives on the Session tab and as
   a screen panel. A tab may be wanted once it is the thing a fight is run from.
+
+---
+
+## What has been verified — phase 2 and the sauce
+
+### The bundle
+
+`three` lands in two chunks of its own (~564 KB) and in **neither** the layout chunk nor
+the campaign page chunk, which reference it only by chunk id — a lazy import. Checked by
+grepping the built chunks for `WebGLRenderer`, not by eye.
+
+### The scene, apart from the DOM
+
+22 assertions against `buildTerrain` and `buildTokens` directly, with a stub `document`
+wide enough for the label canvas:
+
+- One `InstancedMesh` per material — 14 stone, 1 water — with the void tile absent.
+- A 10-foot ledge is 2 units tall plus the slab, top at 2; a flat tile is only the slab.
+- The solid wall on the east edge of `(1,1)` sits at `x=2, z=1.5`, 2 units tall, thin in
+  x and a tile long in z. The open door on the north edge of `(2,2)` is a 1-foot stub
+  **standing on the higher of its two tiles**.
+- The pillar is on its tile at 2 units; the brazier's light is gold and reaches 4 units.
+- Kessa's ring is `danger` at 4/38; the foe whose HP the server nulled has no ring; the
+  active-turn ring is gold and handed to the loop. A `dm` token is translucent.
+- After the group refactor: one piece per token by id, children local to the group,
+  Kessa's face drawn into her sprite and the portraitless foe's not.
+
+### Not verified, and said plainly
+
+- **The WebGL render.** Nobody has looked at it. The next reader with a browser should:
+  press `Stand it up`, orbit, press `T`, move a token from the 2D board and watch it
+  travel in the 3D view, and confirm both palettes read. Two things most likely to be
+  wrong on first sight: the camera's starting distance for a large board, and the
+  point-light intensity in light mode.
+- **Reduced motion in the renderer.** The code snaps and never fills `moving`; it has
+  not been watched doing so.
+
+## Open
+
+- **Phase 3 — interaction in 3D.** Raycast against the floor `InstancedMesh`, drag a
+  token, ghost its reach, drop and fire `moveTokenAction`. Deliberately not written
+  without a browser to verify pointer behaviour against. The 2D board's tap-to-move
+  already works and is the phone's interaction regardless.
+- **Phase 4 — fog tools.** The server side is done (`revealTiles`, `revealFromParty`,
+  `resetFog`) and the 2D board has paint-to-reveal and "Look around". Unrevealed renders
+  as absent in both views because `fogged` makes it void. What remains is a reveal
+  brush with a radius, and the boundary treatment in 3D if one is wanted.
+- **Phase 5, the rest.** HP on the base ring: done. Elevation reads: the ledge shade in
+  2D and the extrusion in 3D — check the default camera angle makes it visible.
+  Candlelight: built, untuned.
