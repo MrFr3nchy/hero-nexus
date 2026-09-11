@@ -23,8 +23,9 @@ map needs the stream, and the stream is on that branch.
 **Phase 1 is built and verified** — the model, the rules, the fog filter and the 2D
 board. **Phase 2 is built and seen** — the renderer, behind a `Stand it up` toggle, verified
 for geometry, bundle split, and in a browser in both palettes. **Phase 3 is built and seen** —
-drag a token in the 3D view, ghost its reach, drop and send. **Two of phase 5's five
-items are built** — portraits on the board and interpolated movement. Phase 4 is open.
+drag a token in the 3D view, ghost its reach, drop and send. **Phase 4 is built and seen** — a
+reveal brush that writes once per stroke. **Two of phase 5's five items are built** —
+portraits on the board and interpolated movement.
 What each run proved is at the foot of this file.
 
 Everything below was read out of `main` on 2026-09-10, before `feat/the-same-room`
@@ -812,12 +813,18 @@ from outside the browser put her in the east room in the 3D view with nothing pr
 - Not caught on camera: the reach ghost mid-drag. It is the same `reachable` the 2D
   board draws, as gold planes over the tiles, and it ran on both drags above.
 
+### Phase 4, in a browser
+
+- The reveal tool's first shape fired one server write per pointer event — the drag trap
+  the handoff names for tokens, wearing a different hat. It is a brush now, 1×1 / 3×3 /
+  5×5, gathering tiles during the stroke and drawing them as pending, sent **once on
+  pointer-up**. A 3×3 sweep from `(0,1)` to `(3,2)` reached the server as one write of
+  17 tiles, clipped at the board edge, and the DM's read said 17.
+- Unrevealed renders as absent in both views, because `fogged` makes it void before
+  either renderer sees it. There is no boundary treatment to add: nothing there is drawn.
+
 ## Open
 
-- **Phase 4 — fog tools.** The server side is done (`revealTiles`, `revealFromParty`,
-  `resetFog`) and the 2D board has paint-to-reveal and "Look around". Unrevealed renders
-  as absent in both views because `fogged` makes it void. What remains is a reveal
-  brush with a radius, and the boundary treatment in 3D if one is wanted.
 - **Phase 5, the rest.** HP on the base ring: done. Elevation reads: the ledge shade in
   2D and the extrusion in 3D — check the default camera angle makes it visible.
   Candlelight: built, untuned.

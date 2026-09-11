@@ -221,6 +221,45 @@ export function BattleBoard({
     side: Side | null;
   } | null>(null);
   const [painting, setPainting] = useState(false);
+  /**
+   * The reveal brush. Tiles are gathered during the stroke and drawn as
+   * pending, then sent **once on pointer-up** — one write per stroke rather
+   * than one per pointer event, which is the same trap the handoff names for
+   * token drags and was this tool's first shape.
+   */
+  const [brush, setBrush] = useState<1 | 2 | 3>(1);
+  const pendingReveal = useRef(new Set<number>());
+  const [pendingCount, setPendingCount] = useState(0);
+  const brushAt = useCallback(
+    (x: number, y: number) => {
+      if (!terrain) return;
+      const r = brush - 1;
+      let added = 0;
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const tx = x + dx;
+          const ty = y + dy;
+          if (!inBounds(terrain, tx, ty)) continue;
+          const i = ty * terrain.w + tx;
+          if (!pendingReveal.current.has(i)) {
+            pendingReveal.current.add(i);
+            added += 1;
+          }
+        }
+      }
+      if (added) setPendingCount(pendingReveal.current.size);
+    },
+    [terrain, brush]
+  );
+  const flushReveal = useCallback(async () => {
+    if (!board || pendingReveal.current.size === 0) return;
+    const indices = [...pendingReveal.current];
+    pendingReveal.current.clear();
+    setPendingCount(0);
+    const res = await revealTilesAction(board.id, indices);
+    if (!res.ok) onError(res.error);
+    await refresh();
+  }, [board, onError, refresh]);
   const [busy, setBusy] = useState(false);
   const [newW, setNewW] = useState('20');
   const [newH, setNewH] = useState('15');
@@ -435,10 +474,7 @@ export function BattleBoard({
     if (isStaff && tool.kind !== 'select' && tool.kind !== 'scenery') {
       if (tool.kind === 'reveal') {
         setPainting(true);
-        const res = await revealTilesAction(board.id, [
-          at.y * terrain.w + at.x,
-        ]);
-        if (!res.ok) onError(res.error);
+        brushAt(at.x, at.y);
         return;
       }
       setPainting(true);
@@ -511,8 +547,8 @@ export function BattleBoard({
     const at = tileAt(ev);
     setHover(at);
     if (!painting || !at || !isStaff) return;
-    if (tool.kind === 'reveal' && board && terrain) {
-      revealTilesAction(board.id, [at.y * terrain.w + at.x]).catch(() => {});
+    if (tool.kind === 'reveal') {
+      brushAt(at.x, at.y);
       return;
     }
     if (tool.kind === 'paint' || tool.kind === 'raise') {
@@ -521,7 +557,7 @@ export function BattleBoard({
   };
 
   const onPointerUp = () => {
-    if (painting && tool.kind === 'reveal') refresh();
+    if (painting && tool.kind === 'reveal') flushReveal();
     setPainting(false);
   };
 
@@ -600,11 +636,22 @@ export function BattleBoard({
     ctx.stroke();
 
     // Fog boundary for staff: revealed tiles get a faint gold wash so the DM
-    // can see what the party has been shown.
+    // can see what the party has been shown, and the stroke in progress a
+    // brighter one so they can see what they are about to show.
     if (isStaff && board.revealed.length > 0) {
       ctx.fillStyle = p.gold;
       ctx.globalAlpha = 0.12;
       for (const i of board.revealed) {
+        const x = i % terrain.w;
+        const y = Math.floor(i / terrain.w);
+        ctx.fillRect(x * size, y * size, size, size);
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (isStaff && pendingReveal.current.size > 0) {
+      ctx.fillStyle = p.gold;
+      ctx.globalAlpha = 0.28;
+      for (const i of pendingReveal.current) {
         const x = i % terrain.w;
         const y = Math.floor(i / terrain.w);
         ctx.fillRect(x * size, y * size, size, size);
@@ -853,11 +900,12 @@ export function BattleBoard({
         }
         ctx.stroke();
       } else {
+        const r = tool.kind === 'reveal' ? brush - 1 : 0;
         ctx.strokeRect(
-          hover.x * size + 1,
-          hover.y * size + 1,
-          size - 2,
-          size - 2
+          (hover.x - r) * size + 1,
+          (hover.y - r) * size + 1,
+          size * (2 * r + 1) - 2,
+          size * (2 * r + 1) - 2
         );
       }
     }
@@ -874,6 +922,8 @@ export function BattleBoard({
     tool,
     faceFor,
     dimensional,
+    pendingCount,
+    brush,
   ]);
 
   // Redraw on resize: the canvas is sized off its container.
@@ -1145,6 +1195,25 @@ export function BattleBoard({
             )}
             <span className="mx-1 h-5 w-px bg-line" />
             {toolButton('Reveal', { kind: 'reveal' }, tool.kind === 'reveal')}
+            {tool.kind === 'reveal' && (
+              <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+                {([1, 2, 3] as const).map(b => (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => setBrush(b)}
+                    aria-label={`Brush ${b * 2 - 1} tiles across`}
+                    className={`rounded px-2 py-0.5 text-xs transition-colors ${
+                      brush === b
+                        ? 'bg-gold font-medium text-bg'
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    {b * 2 - 1}×{b * 2 - 1}
+                  </button>
+                ))}
+              </div>
+            )}
             <Button
               size="sm"
               variant="light"
