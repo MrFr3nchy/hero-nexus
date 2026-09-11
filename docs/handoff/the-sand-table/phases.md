@@ -187,9 +187,10 @@ footprint is revealed, so a tall standee cannot peek out of the dark. Nothing he
 animates and nothing is an emoji.
 
 **Verified (monsters and props)** — six of the owner's pictures uploaded through the
-real route into the probe campaign's library (a 6 MB tree tripped a pre-existing limit
-on large multipart posts through the middleware — "Response body object should not be
-disturbed or locked" — and went in at 1400 px; recorded under _Still to do_). In
+real route into the probe campaign's library (a 6 MB tree tripped a limit on large
+multipart posts through the middleware — "Response body object should not be disturbed
+or locked" — went in at 1400 px for the first look, and then in full once the
+middleware was told to leave the image routes alone, below). In
 Chrome as the DM: the library strip in the token popover; the ogre picture chosen for
 Ogre 1, which then stood as a cut-out on its red base with the HP ring, and wore the
 picture in its circle on the 2D board; the _Picture_ tool with the tree at 20 ft and
@@ -226,16 +227,25 @@ render in a browser — all three, because each catches what the others cannot:
 The last row is the argument for looking. Four real defects, none reachable by the
 other three layers, all found in the first ten minutes of having a screen.
 
+- [x] **Large uploads.** A multipart post above roughly 3 MB died inside Next's
+      middleware body handling before the route ran. The campaign image routes check
+      the campaign role themselves on every request, so the middleware matcher now
+      leaves `/api/campaigns/*/images` alone, and the upload route answers a
+      signed-out post with 401 rather than a crash. The 6 MB tree went through.
+- [x] **Size on the board.** `dealEncounterIn` reads each dealt creature's size off
+      the reference the entry remembers — one bestiary read per distinct creature —
+      and deals it with the footprint to match: Large is two tiles a side, Huge three,
+      Gargantuan capped at the token model's three. An ogre now stands on four tiles
+      and its cut-out, scaled by footprint, towers over the party without anybody
+      setting anything. A hand-typed combatant is medium.
+
+**Verified (the rest)** — the 6 MB tree uploaded through the real route (201); a
+signed-out GET of an image and a stranger's both 404; a signed-out POST 401. Two
+ogres redealt at footprint 2, at (6,6) and (8,6), both standing on 2×2 bases in
+3D and drawn at two tiles across on the 2D board, wearing the ogre picture.
+
 ## Still to do
 
-- **Large uploads.** A multipart post above roughly 3 MB fails inside Next's
-  middleware body handling before the route runs. The image route's own limit is
-  8 MB, so the sentence in `ImagePicker` promises more than the wire delivers. Either
-  the middleware matcher should skip `/api/campaigns/*/images` or the limit should say
-  what is true.
-- **Size on the board.** An ogre is Large and stands on one tile: `addCreaturesToEncounter`
-  does not read the creature's size into the token's footprint. A cut-out scaled by
-  footprint would then be the right height without anyone setting it.
 - **A fixed-orientation picture.** Everything billboards. A signpost or a wall panel
   wants to stand still; nobody has asked.
 

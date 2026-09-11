@@ -37,6 +37,12 @@ import {
   VOID,
   type TerrainDoc,
 } from '@/@shared/battlemap/types';
+import {
+  parseContentData,
+  refKey,
+  type ContentRef,
+  type CreatureData,
+} from '@/@shared/content';
 import { db } from '@/db';
 import {
   battleMapTokens,
@@ -46,6 +52,7 @@ import {
   initiativeEntries,
 } from '@/db/schema';
 import { getCampaignImage, imageUrl } from './campaign-images';
+import { resolveContentRefs } from './content';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion } from './live-hub';
 
@@ -228,6 +235,21 @@ export async function getBattleMapState(
     updatedAt: map.updatedAt,
   };
 }
+
+/**
+ * Tiles a side, by creature size. Tiny through Medium share a tile; Large is
+ * two, Huge three, and Gargantuan is capped at the board's three — the
+ * token model's ceiling, and a 20-foot dragon on a 40-foot board is a
+ * different problem.
+ */
+const FOOTPRINT_BY_SIZE: Record<string, number> = {
+  tiny: 1,
+  small: 1,
+  medium: 1,
+  large: 2,
+  huge: 3,
+  gargantuan: 3,
+};
 
 /** Every board this campaign has authored. Staff only — it is the DM's shelf. */
 export async function listBattleMaps(campaignId: string): Promise<
@@ -654,9 +676,39 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
   const doc = normalizeTerrain(map.terrain);
 
   const entries = await db
-    .select({ id: initiativeEntries.id, side: initiativeEntries.side })
+    .select({
+      id: initiativeEntries.id,
+      side: initiativeEntries.side,
+      creatureRef: initiativeEntries.creatureRef,
+    })
     .from(initiativeEntries)
     .where(eq(initiativeEntries.encounterId, map.encounterId));
+
+  /*
+   * How many tiles a side each stands on, read off the creature it was
+   * dealt from: an ogre is Large and takes four. Resolved once per distinct
+   * creature rather than per copy — six goblins are one bestiary read — and
+   * a hand-typed combatant, with no reference to read, is medium.
+   */
+  const refs = new Map<string, ContentRef>();
+  for (const e of entries) {
+    const ref = e.creatureRef as ContentRef | null;
+    if (ref) refs.set(refKey(ref), ref);
+  }
+  const footprints = new Map<string, number>();
+  if (refs.size > 0) {
+    const resolved = await resolveContentRefs([...refs.values()]);
+    for (const [key, entry] of resolved) {
+      if (entry.type !== 'creature') continue;
+      const d = parseContentData('creature', entry.data) as CreatureData;
+      footprints.set(key, FOOTPRINT_BY_SIZE[d.size] ?? 1);
+    }
+  }
+  const footprintOf = (e: (typeof entries)[number]) => {
+    const ref = e.creatureRef as ContentRef | null;
+    return ref ? (footprints.get(refKey(ref)) ?? 1) : 1;
+  };
+
   const existing = await db
     .select({ entryId: battleMapTokens.entryId })
     .from(battleMapTokens)
@@ -669,6 +721,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
   let dealt = 0;
   for (const e of entries) {
     if (already.has(e.id)) continue;
+    const footprint = footprintOf(e);
     const others = await occupantsExcept(mapId, null);
     let spot: { x: number; y: number } | null = null;
     const order: number[] = [];
@@ -678,7 +731,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
       const x = i % doc.w;
       const y = Math.floor(i / doc.w);
       if (doc.material[i] === VOID) continue;
-      if (canStand(doc, { x, y, footprint: 1 }, others)) {
+      if (canStand(doc, { x, y, footprint }, others)) {
         spot = { x, y };
         break;
       }
@@ -689,6 +742,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
       entryId: e.id,
       x: spot.x,
       y: spot.y,
+      footprint,
       visibility: e.side === 'foe' ? 'dm' : 'shared',
     });
     dealt += 1;
