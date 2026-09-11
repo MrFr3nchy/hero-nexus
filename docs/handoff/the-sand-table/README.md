@@ -24,8 +24,8 @@ map needs the stream, and the stream is on that branch.
 board. **Phase 2 is built and seen** — the renderer, behind a `Stand it up` toggle, verified
 for geometry, bundle split, and in a browser in both palettes. **Phase 3 is built and seen** —
 drag a token in the 3D view, ghost its reach, drop and send. **Phase 4 is built and seen** — a
-reveal brush that writes once per stroke. **Two of phase 5's five items are built** —
-portraits on the board and interpolated movement.
+reveal brush that writes once per stroke. **Phase 5 is built** — portraits, interpolated
+movement, the turn ring, HP rings, elevation, candlelight, and rolling from the board.
 What each run proved is at the foot of this file.
 
 Everything below was read out of `main` on 2026-09-10, before `feat/the-same-room`
@@ -823,8 +823,16 @@ from outside the browser put her in the east room in the 3D view with nothing pr
 - Unrevealed renders as absent in both views, because `fogged` makes it void before
   either renderer sees it. There is no boundary treatment to add: nothing there is drawn.
 
-## Open
+### The rest of phase 5, and the three phase-1 decisions
 
-- **Phase 5, the rest.** HP on the base ring: done. Elevation reads: the ledge shade in
-  2D and the extrusion in 3D — check the default camera angle makes it visible.
-  Candlelight: built, untuned.
+- Allies can be passed through and not ended on, per 2024; foes neither. Verified in a
+  1-wide corridor. One `reachFor` serves both boards.
+- Reach is priced from the sheet's speed for a seated character. Movement is still not
+  fenced server-side, and that is recorded as a decision: a DM saying "you can't get
+  there this turn" is how the rule is applied at a table.
+- A Board tab of its own: the board with the order under it.
+- Rolling from the board goes through `rollAction` and the dice tray — seen tumbling
+  over the board, and in the log as Kessa. Range reads at a hover.
+
+Nothing planned is open. What remains is tuning on a real room, which is a different
+kind of work from building.

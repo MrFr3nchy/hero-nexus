@@ -36,6 +36,7 @@ import { PartySecrets } from './PartySecrets';
 import { QuestPanel } from './QuestPanel';
 import { RevealTimeline } from './RevealTimeline';
 import { SessionPanel } from './session/SessionPanel';
+import { BoardTab } from './session/BoardTab';
 
 const ROLE_LABEL = { gm: 'DM', 'co-gm': 'Co-DM', player: 'Player' } as const;
 const ROLE_TONE = { gm: 'gold', 'co-gm': 'arcane', player: 'neutral' } as const;
@@ -229,6 +230,16 @@ export function CampaignDetail({
           <Tab key="table" title={<TabTitle glyph="die" label="Session" />}>
             <div className="pt-4">
               <SessionPanel campaignId={campaign.id} />
+            </div>
+          </Tab>
+
+          {/* The sand table gets a tab of its own, because a fight is run from
+              it and a fight is a whole evening's attention: the tracker beside
+              the board, and nothing else to scroll past. The Session tab keeps
+              a copy, for a table that wants everything in one column. */}
+          <Tab key="board" title={<TabTitle glyph="map" label="Board" />}>
+            <div className="pt-4">
+              <BoardTab campaignId={campaign.id} />
             </div>
           </Tab>
 

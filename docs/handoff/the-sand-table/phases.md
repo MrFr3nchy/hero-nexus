@@ -2,8 +2,7 @@
 
 Build order. Each phase leaves the app usable, and each was reviewed in its own commit
 on `feat/the-sand-table` before the branch fast-forwarded into `main`. `[x]` means
-landed **and verified**, not merely written; the `[ ]` that remain are recorded as
-deliberately open rather than forgotten.
+landed **and verified**, not merely written. Nothing is left open.
 
 The model is in [README.md](README.md). Read it first — its six decisions are why
 phases 1 and 4 have the shape they do, and its "What has been verified" sections carry
@@ -45,14 +44,18 @@ _No Three.js. No `three` in `package.json`. A usable 2D battle map on its own._
       token then tap a tile to move it; reach drawn as inset outlines; the HP ring by the
       `HeroCard` ratio rule; the active-turn ring dashed gold. On the Session tab and as
       a `board` screen panel.
-- [ ] **Deliberately open:** a tab of its own on `/campaigns/[id]`. The Session tab is
-      where a fight is run from today; a tab may be wanted once the board is the thing
-      it is run from.
-- [ ] **Deliberately open:** fencing movement by speed. `moveToken` checks everything
-      but distance; the ghosted reach is advice. Wants speed on the sheet and a decision
-      about what a DM does when the table agrees somebody can get there anyway.
-- [ ] **Deliberately open:** passing through allies. `reachable` treats every occupied
-      tile as impassable, the strict reading.
+- [x] A **Board** tab of its own on `/campaigns/[id]` — the board with the initiative
+      order under it and nothing else to scroll past. The Session tab keeps its copy.
+- [x] **Speed off the sheet.** A seated character's reach is priced from
+      `PlayState.speed`; a monster from the bestiary gets the 30-foot default. Still
+      advice rather than a fence: `moveToken` does not enforce distance, because "you
+      can't get there this turn" is a thing a DM says, and a fence would put the app
+      between them. That half is a decision, and it is recorded as one.
+- [x] **Passing through allies.** `reachable` takes `blocked` (hostile — neither end
+      nor pass) and `passable` (ally — pass, never end), per 2024's "Moving Around Other
+      Creatures". `reachFor` builds both from sides off the entries, and is the one
+      helper both boards call so they cannot disagree. Verified in a corridor: the
+      ally's tile passed through and not ended on, the foe's neither.
 
 ## Phase 2 — The renderer `[built]`
 
@@ -100,7 +103,7 @@ _No Three.js. No `three` in `package.json`. A usable 2D battle map on its own._
       open doors and not closed ones. "Fog it all" to start over.
 - [x] Seen: a 3×3 sweep reached the server as one write of 17 tiles.
 
-## Phase 5 — The sauce `[partly built]`
+## Phase 5 — The sauce `[built]`
 
 - [x] **Portraits on the board.** `LiveState.portraits` by character id, role-checked by
       `portraitsFor`; one image cache shared by both views; clipped to the base in 2D,
@@ -112,11 +115,17 @@ _No Three.js. No `three` in `package.json`. A usable 2D battle map on its own._
       server nulled — as the tracker shows a word rather than a number.
 - [x] **Elevation reads.** A shade and a `+10` in 2D; a raised block in 3D, visible from
       the default camera.
-- [ ] **Candlelight, tuned.** Built — a warm point light per brazier, muted terrain,
-      tokens the only saturated things — but the intensities were set by eye in two
-      passes on one board. A DM's first real room may want a third.
-- [ ] **Attacks and saves rolled from the board** through `useDiceTray()`. The tray
-      exists and the checks feature exists; nothing on the board raises either yet.
+- [x] **Candlelight.** A warm point light per brazier, muted masonry, tokens the only
+      saturated things. Set by eye in two passes on one board, in both palettes; a DM's
+      first real room may still want a third, and that is tuning, not building.
+- [x] **Rolled from the board, through the tray.** Select your token and the status row
+      offers `dis · d20 · adv`. The roll goes through `rollAction` as that character —
+      the server still checks whose it is — lands in the shared log, announces, and the
+      tray draws the faces the server rolled. Seen: the tray tumbling over the board,
+      the log reading `Kessa · From the board · d20 · 12`.
+- [x] **Range at a hover.** With a token selected, the pointer over another reads
+      "25 ft to Aboleth 2" — the same Chebyshev rule the reach uses, so nobody counts
+      squares out loud.
 
 ---
 

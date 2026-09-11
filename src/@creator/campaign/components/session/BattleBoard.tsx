@@ -32,7 +32,8 @@ import {
 
 import {
   canStand,
-  reachable,
+  distanceFeet,
+  reachFor,
   wallIndex,
 } from '@/@creator/campaign/lib/battlemap';
 import {
@@ -70,6 +71,9 @@ import {
   updateTokenAction,
 } from '../../battlemap-actions';
 import { BattleMap3DLazy } from './BattleMap3DLazy';
+import { useDiceTray } from '@/@shared/components/dice';
+import { withAdvantage } from '@/@shared/lib/dice';
+import { rollAction } from '../../actions';
 import { usePortraits } from '@/@shared/battlemap/portraits';
 
 /* --- tools ------------------------------------------------------------- */
@@ -193,6 +197,12 @@ export function BattleBoard({
 
   const board = state.battlemap;
 
+  const entriesById = useMemo(() => {
+    const m = new Map<string, EntryRow>();
+    for (const e of state.entries) m.set(e.id, e);
+    return m;
+  }, [state.entries]);
+
   /*
    * A local copy of the terrain while the DM is painting. Edits land here
    * first; a debounced save writes the whole document; and the next live read
@@ -215,6 +225,44 @@ export function BattleBoard({
 
   const [tool, setTool] = useState<Tool>({ kind: 'select' });
   const [selected, setSelected] = useState<string | null>(null);
+  const tray = useDiceTray();
+
+  /**
+   * Roll from the board, as the selected combatant.
+   *
+   * The dice tray is the app's loudest verb and it is already built, so the
+   * board does not grow a second one: the roll goes through `rollAction` like
+   * every other, lands in the shared log, announces to the table, and the
+   * tray draws the faces the server rolled. `characterId` travels only for a
+   * seated character, and the server still checks whose it is.
+   */
+  const rollFrom = useCallback(
+    async (
+      token: { entryId: string | null },
+      mode: 'flat' | 'advantage' | 'disadvantage'
+    ) => {
+      const entry = token.entryId ? entriesById.get(token.entryId) : undefined;
+      const name = entry?.label ?? 'Somebody';
+      // The actor is the character; the label says where it came from. Using
+      // the name for both read as "Kessa · Kessa" in the log.
+      const label = 'From the board';
+      const res = await rollAction(campaignId, {
+        notation: mode === 'flat' ? 'd20' : withAdvantage('d20', mode),
+        label,
+        characterId: entry?.characterId ?? null,
+        visibility: 'table',
+      });
+      if (!res.ok) {
+        onError(res.error ?? 'The dice did not land.');
+        return;
+      }
+      await tray.showNotationRoll(res.data, {
+        title: name,
+        hint: res.data.notation,
+      });
+    },
+    [campaignId, entriesById, onError, tray]
+  );
   const [hover, setHover] = useState<{
     x: number;
     y: number;
@@ -286,12 +334,6 @@ export function BattleBoard({
     }
   };
 
-  const entriesById = useMemo(() => {
-    const m = new Map<string, EntryRow>();
-    for (const e of state.entries) m.set(e.id, e);
-    return m;
-  }, [state.entries]);
-
   // Faces on the board. `character_portraits` was always this feature's token
   // art; the cache is shared with the 3D view so a face loads once.
   const portraitUrls = useMemo(
@@ -315,24 +357,46 @@ export function BattleBoard({
 
   const selectedToken = board?.tokens.find(t => t.id === selected) ?? null;
 
+  /**
+   * Speed off the sheet, for a seated character; the default for a monster
+   * dealt in from the bestiary, whose stat block the tracker does not carry.
+   * Advice, not a fence: `moveToken` does not enforce distance, because a DM
+   * saying "you can't get there this turn" is how that rule is applied at a
+   * table, and a fence would put the app between them.
+   */
+  const speedOf = useCallback(
+    (t: { entryId: string | null }): number => {
+      const entry = t.entryId ? entriesById.get(t.entryId) : undefined;
+      const sheet = entry?.characterId
+        ? state.party.find(p => p.characterId === entry.characterId)
+        : undefined;
+      return sheet?.speed ?? DEFAULT_SPEED_FEET;
+    },
+    [entriesById, state.party]
+  );
+
+  const sideOf = useCallback(
+    (t: { entryId: string | null }): string | null =>
+      t.entryId ? (entriesById.get(t.entryId)?.side ?? null) : null,
+    [entriesById]
+  );
+
   const reach = useMemo(() => {
-    if (!terrain || !selectedToken) return null;
-    const blocked = new Set<number>();
-    for (const t of board?.tokens ?? []) {
-      if (t.id === selectedToken.id) continue;
-      for (let dy = 0; dy < t.footprint; dy++) {
-        for (let dx = 0; dx < t.footprint; dx++) {
-          blocked.add((t.y + dy) * terrain.w + (t.x + dx));
-        }
-      }
-    }
-    return reachable(
+    if (!terrain || !selectedToken || !board) return null;
+    const asReach = (t: (typeof board.tokens)[number]) => ({
+      id: t.id,
+      x: t.x,
+      y: t.y,
+      footprint: t.footprint,
+      side: sideOf(t),
+    });
+    return reachFor(
       terrain,
-      { x: selectedToken.x, y: selectedToken.y },
-      DEFAULT_SPEED_FEET,
-      blocked
+      asReach(selectedToken),
+      board.tokens.map(asReach),
+      speedOf(selectedToken)
     );
-  }, [terrain, selectedToken, board?.tokens]);
+  }, [terrain, selectedToken, board, sideOf, speedOf]);
 
   /* --- saving ---------------------------------------------------------- */
 
@@ -542,6 +606,19 @@ export function BattleBoard({
 
     setSelected(null);
   };
+
+  const hoverToken = useMemo(() => {
+    if (!hover || !board) return null;
+    return (
+      board.tokens.find(
+        t =>
+          hover.x >= t.x &&
+          hover.x < t.x + t.footprint &&
+          hover.y >= t.y &&
+          hover.y < t.y + t.footprint
+      ) ?? null
+    );
+  }, [hover, board]);
 
   const onPointerMove = (ev: ReactPointerEvent<HTMLCanvasElement>) => {
     const at = tileAt(ev);
@@ -1099,6 +1176,7 @@ export function BattleBoard({
           portraits={state.portraits}
           faces={faces}
           dark={dark}
+          speedOf={speedOf}
           onMove={async (tokenId, to) => {
             const res = await moveTokenAction(tokenId, to);
             if (!res.ok) onError(res.error);
@@ -1260,10 +1338,39 @@ export function BattleBoard({
               selectedToken.label ||
               'Something'}
           </span>
-          {selectedToken.mine ? (
-            <span>Tap a lit tile to move there.</span>
+          {hoverToken && hoverToken.id !== selectedToken.id ? (
+            // Range, by the same Chebyshev rule the reach uses. The question a
+            // table asks most, answered without counting squares out loud.
+            <span className="tabular-nums">
+              {distanceFeet(selectedToken, hoverToken)} ft to{' '}
+              {(hoverToken.entryId &&
+                entriesById.get(hoverToken.entryId)?.label) ||
+                hoverToken.label ||
+                'that'}
+            </span>
+          ) : selectedToken.mine ? (
+            <span>
+              Tap a lit tile to move there. {speedOf(selectedToken)} ft.
+            </span>
           ) : (
             <span>Not yours to move.</span>
+          )}
+          {selectedToken.mine && selectedToken.entryId && (
+            <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+              {(['disadvantage', 'flat', 'advantage'] as const).map(m => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => rollFrom(selectedToken, m)}
+                  className="rounded px-2 py-0.5 font-mono text-xs text-ink-muted transition-colors hover:bg-gold hover:text-bg"
+                  title={
+                    m === 'flat' ? 'Roll a d20 as them' : `Roll a d20 with ${m}`
+                  }
+                >
+                  {m === 'flat' ? 'd20' : m === 'advantage' ? 'adv' : 'dis'}
+                </button>
+              ))}
+            </div>
           )}
           {isStaff && (
             <>

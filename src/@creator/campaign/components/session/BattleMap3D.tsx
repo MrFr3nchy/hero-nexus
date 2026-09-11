@@ -28,7 +28,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import {
   canStand,
-  reachable,
+  reachFor,
   type Occupant,
 } from '@/@creator/campaign/lib/battlemap';
 import { MATERIALS, VOID, type TerrainDoc } from '@/@shared/battlemap/types';
@@ -458,6 +458,8 @@ export interface BattleMap3DProps {
    * wire is sixty writes a second per player.
    */
   onMove?: (tokenId: string, to: { x: number; y: number }) => Promise<boolean>;
+  /** Feet of movement for a token, off the sheet or the default. */
+  speedOf?: (token: BattleTokenRow) => number;
 }
 
 export default function BattleMap3D({
@@ -469,13 +471,14 @@ export default function BattleMap3D({
   faces,
   dark,
   onMove,
+  speedOf,
 }: BattleMap3DProps) {
   const mount = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
 
   // Read by the pointer handlers without re-binding them on every change.
-  const latest = useRef({ terrain, tokens, onMove });
-  latest.current = { terrain, tokens, onMove };
+  const latest = useRef({ terrain, tokens, entries, onMove, speedOf });
+  latest.current = { terrain, tokens, entries, onMove, speedOf };
 
   // Long-lived pieces, created once per mount.
   const world = useRef<{
@@ -708,15 +711,26 @@ export default function BattleMap3D({
       const piece = w.pieces.get(id);
       if (!token || !piece || !token.mine || !latest.current.onMove) return;
 
+      // The same reach the 2D board draws — one helper, so the two views
+      // cannot disagree about where a token may go.
       const doc = latest.current.terrain;
-      const blocked = new Set<number>();
-      for (const t of latest.current.tokens) {
-        if (t.id === id) continue;
-        for (let dy = 0; dy < t.footprint; dy++)
-          for (let dx = 0; dx < t.footprint; dx++)
-            blocked.add((t.y + dy) * doc.w + (t.x + dx));
-      }
-      const reach = reachable(doc, { x: token.x, y: token.y }, 30, blocked);
+      const sideOf = (t: BattleTokenRow) =>
+        t.entryId
+          ? (latest.current.entries.find(e => e.id === t.entryId)?.side ?? null)
+          : null;
+      const asReach = (t: BattleTokenRow) => ({
+        id: t.id,
+        x: t.x,
+        y: t.y,
+        footprint: t.footprint,
+        side: sideOf(t),
+      });
+      const reach = reachFor(
+        doc,
+        asReach(token),
+        latest.current.tokens.map(asReach),
+        latest.current.speedOf?.(token) ?? 30
+      );
       w.drag = {
         tokenId: id,
         piece,

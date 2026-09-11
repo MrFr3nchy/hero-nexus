@@ -178,17 +178,19 @@ export function stepCost(
  * each. Dijkstra over the eight neighbours; the board is small enough that
  * nothing cleverer is worth its bugs.
  *
- * `blocked` are tiles other creatures stand on. You may not end a move there,
- * and — 2024 — you may not move *through* a hostile creature's space either.
- * This function treats every occupied tile as impassable, which is the strict
- * reading; allies can be passed through in the rules, and a later phase can
- * relax it once sides are wired to the board.
+ * Two kinds of occupied tile, because 2024 treats them differently:
+ * - `blocked` — a hostile creature's space. You may neither end there nor
+ *   move through it.
+ * - `passable` — an ally's space. You may move **through** it and may not
+ *   **end** on it. (2024 PHB, "Moving Around Other Creatures".) Passing
+ *   through costs the tile's normal price; the rules do not double it.
  */
 export function reachable(
   doc: TerrainDoc,
   from: Tile,
   budgetFeet: number,
-  blocked: ReadonlySet<number> = new Set()
+  blocked: ReadonlySet<number> = new Set(),
+  passable: ReadonlySet<number> = new Set()
 ): Map<number, number> {
   const walls = wallIndex(doc);
   const start = from.y * doc.w + from.x;
@@ -220,6 +222,8 @@ export function reachable(
   }
 
   best.delete(start);
+  // An ally's square was a way through, never a place to stop.
+  for (const i of passable) best.delete(i);
   return best;
 }
 
@@ -464,4 +468,42 @@ export function fogged(
     props: doc.props.filter(p => shown(p.x, p.y)),
     lights: doc.lights.filter(l => shown(l.x, l.y)),
   };
+}
+
+/* --- what the boards share ---------------------------------------------- */
+
+/** The least a board needs to know about a token to price its movement. */
+export interface ReachToken {
+  id: string;
+  x: number;
+  y: number;
+  footprint: number;
+  /** `party` | `foe` | `other`, off the entry; null for scenery. */
+  side: string | null;
+}
+
+/**
+ * Reach for one token among others, the way both the 2D board and the 3D
+ * table compute it — here, so the two cannot drift. Same side is passable;
+ * anything else is blocked. Scenery (`side: null`) blocks everybody, because
+ * you cannot walk through a barrel.
+ */
+export function reachFor(
+  doc: TerrainDoc,
+  me: ReachToken,
+  others: readonly ReachToken[],
+  speedFeet: number
+): Map<number, number> {
+  const blocked = new Set<number>();
+  const passable = new Set<number>();
+  for (const t of others) {
+    if (t.id === me.id) continue;
+    const ally = me.side !== null && t.side !== null && t.side === me.side;
+    for (let dy = 0; dy < t.footprint; dy++) {
+      for (let dx = 0; dx < t.footprint; dx++) {
+        (ally ? passable : blocked).add((t.y + dy) * doc.w + (t.x + dx));
+      }
+    }
+  }
+  return reachable(doc, { x: me.x, y: me.y }, speedFeet, blocked, passable);
 }
