@@ -13,6 +13,8 @@ import {
 } from '@/@shared/content';
 import {
   critToneOf,
+  d20Faces,
+  parseNotation,
   rollDie,
   rollNotation,
   type NotationRoll,
@@ -54,6 +56,7 @@ import { listChecks, type CheckRow } from './checks';
 import { listMaps, type MapRow } from './maps';
 import { applyPlayPatch, listPartyPlayState, type PlayState } from './play';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
+import { claimedFaces } from './dice-claims';
 import { resolveContentRefs } from './content';
 import { listWhispers, type WhisperRow } from './whispers';
 
@@ -109,6 +112,8 @@ export interface RollRow {
   modifier: number;
   total: number;
   visibility: 'table' | 'dm';
+  /** The faces were read off real dice; the sum is still the server's. */
+  physical: boolean;
   createdAt: string;
 }
 
@@ -386,6 +391,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
       modifier: r.modifier,
       total: r.total,
       visibility: r.visibility,
+      physical: r.physical,
       createdAt: r.createdAt,
     }));
 
@@ -1023,6 +1029,12 @@ export interface RollInput {
   label?: string;
   characterId?: string | null;
   visibility?: 'table' | 'dm';
+  /**
+   * Faces read off real dice, one per die the notation asks for. The
+   * server checks them against the notation and does the sum; the table's
+   * `physicalDice` rule says whether a player may send them at all.
+   */
+  faces?: number[];
 }
 
 /**
@@ -1043,8 +1055,11 @@ export async function rollForCampaign(
   ]);
   const isStaff = role === 'gm' || role === 'co-gm';
 
-  const result = rollNotation(input.notation);
-  if (!result) throw new Error('BAD_NOTATION');
+  if (!parseNotation(input.notation)) throw new Error('BAD_NOTATION');
+  const faces = await claimedFaces(campaignId, isStaff, input.faces);
+  const result = rollNotation(input.notation, faces);
+  if (!result) throw new Error('BAD_FACES');
+  const physical = faces !== undefined;
 
   let actorName = '';
   let characterId = input.characterId ?? null;
@@ -1080,6 +1095,7 @@ export async function rollForCampaign(
     modifier: result.modifier,
     total: result.total,
     visibility: isStaff ? (input.visibility ?? 'table') : 'table',
+    physical,
   });
 
   bumpVersion(campaignId);
@@ -1103,6 +1119,7 @@ export async function rollForCampaign(
       total: result.total,
       tone: critToneOf(result.notation, result.dice, result.dropped) ?? 'plain',
       secret,
+      physical,
     },
     secret ? 'staff' : 'everyone'
   );

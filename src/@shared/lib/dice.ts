@@ -330,50 +330,6 @@ export function d20Result(
   };
 }
 
-/** @deprecated kept for the two callers still tallying by hand; see rollNotation. */
-function legacyRollNotationBody(
-  input: string,
-  parsed: Notation
-): NotationRoll | null {
-  const dice: number[] = [];
-  const dropped: number[] = [];
-  let total = parsed.modifier;
-
-  for (const term of parsed.terms) {
-    const base = dice.length;
-    const faces = Array.from({ length: term.count }, () => rollDie(term.sides));
-    dice.push(...faces);
-
-    const keep = term.keepHighest ?? term.keepLowest;
-    let counted = faces.map((_, i) => i);
-    if (keep !== undefined) {
-      const order = faces
-        .map((value, index) => ({ value, index }))
-        .sort((a, b) =>
-          term.keepHighest !== undefined
-            ? b.value - a.value || a.index - b.index
-            : a.value - b.value || a.index - b.index
-        );
-      counted = order.slice(0, keep).map(d => d.index);
-      const kept = new Set(counted);
-      faces.forEach((_, i) => {
-        if (!kept.has(i)) dropped.push(base + i);
-      });
-    }
-
-    const sum = counted.reduce((acc, i) => acc + faces[i], 0);
-    total += term.negative ? -sum : sum;
-  }
-
-  return {
-    notation: input.trim(),
-    dice,
-    dropped,
-    modifier: parsed.modifier,
-    total,
-  };
-}
-
 /** Rewrite `1d20+5` as its advantage / disadvantage form. */
 export function withAdvantage(
   input: string,

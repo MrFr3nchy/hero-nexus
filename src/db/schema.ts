@@ -575,6 +575,13 @@ export const campaignRolls = sqliteTable(
     visibility: text('visibility', { enum: ['table', 'dm'] })
       .notNull()
       .default('table'),
+    /**
+     * The faces were read off real dice on the table (0048). The modifier
+     * and the total are still the server's; only the die was the player's.
+     */
+    physical: integer('physical', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('campaign_rolls_campaign_idx').on(t.campaignId, t.createdAt)]
