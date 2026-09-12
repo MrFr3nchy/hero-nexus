@@ -1355,6 +1355,14 @@ export const encounterPlanLines = sqliteTable(
     name: text('name').notNull().default(''),
     count: integer('count').notNull().default(1),
     sortOrder: integer('sort_order').notNull().default(0),
+    /**
+     * Where each copy stands when the plan is dealt onto a board (0047): an
+     * array of `{ mapId, x, y }`, at most `count` long. A spot on a board
+     * that is gone is skipped at deal time.
+     */
+    spots: text('spots', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('encounter_plan_lines_plan_idx').on(t.planId)]

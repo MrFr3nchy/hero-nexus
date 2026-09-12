@@ -17,6 +17,12 @@ import {
   encounterPlanLines,
   encounterPlans,
 } from '@/db/schema';
+import {
+  bindBoardToFight,
+  listBattleMaps,
+  placeToken,
+  setBattleMapActive,
+} from './battlemap';
 import { requireCampaignRole } from './campaigns';
 import { resolveContentRefs } from './content';
 import {
@@ -25,6 +31,13 @@ import {
   MAX_CREATURE_COPIES,
 } from './session';
 
+import {
+  sanitizeSpots,
+  type PlanSpot,
+} from '@/@creator/campaign/lib/plan-spots';
+
+export type { PlanSpot };
+
 export interface PlanLineRow {
   id: string;
   ref: ContentRef;
@@ -32,6 +45,8 @@ export interface PlanLineRow {
   name: string;
   count: number;
   sortOrder: number;
+  /** Where each copy stands when dealt onto a board. Fewer than `count` is fine. */
+  spots: PlanSpot[];
   /**
    * Resolved at read time, never stored. Null when the content is gone: a
    * homebrew monster its author deleted, or one removed from the library.
@@ -178,6 +193,7 @@ export async function listPlans(campaignId: string): Promise<PlanRow[]> {
         name: entry?.name || line.name,
         count: line.count,
         sortOrder: line.sortOrder,
+        spots: sanitizeSpots(line.spots, line.count),
         challengeRating: d ? d.challenge_rating : null,
         experiencePoints: d ? d.experience_points : null,
         armorClass: d ? d.armor_class : null,
@@ -333,6 +349,33 @@ export async function setPlanLineCount(
     .where(eq(encounterPlanLines.id, lineId));
 }
 
+/**
+ * Where a line's copies stand. Staff only; at most `count` spots kept, and
+ * a spot on a board this campaign does not own is dropped rather than stored.
+ */
+export async function setPlanLineSpots(
+  lineId: string,
+  spots: unknown
+): Promise<void> {
+  const line = await db.query.encounterPlanLines.findFirst({
+    where: eq(encounterPlanLines.id, lineId),
+  });
+  if (!line) throw new Error('NOT_FOUND');
+  const plan = await staffForPlan(line.planId);
+  const boards = new Set(
+    (await listBattleMaps(plan.campaignId)).map(b => b.id)
+  );
+  // Unknown boards go first, so a stray spot does not use up one of the
+  // `count` places a real one should have had.
+  const clean = sanitizeSpots(spots, Number.MAX_SAFE_INTEGER)
+    .filter(s => boards.has(s.mapId))
+    .slice(0, line.count);
+  await db
+    .update(encounterPlanLines)
+    .set({ spots: clean })
+    .where(eq(encounterPlanLines.id, lineId));
+}
+
 export async function removePlanLine(lineId: string): Promise<void> {
   await staffForLine(lineId);
   await db.delete(encounterPlanLines).where(eq(encounterPlanLines.id, lineId));
@@ -351,9 +394,14 @@ export async function removePlanLine(lineId: string): Promise<void> {
  * should still walk in when the homebrew troll has gone missing. The count of
  * what was skipped comes back so the UI can say so.
  */
-export async function runPlan(
-  planId: string
-): Promise<{ encounterId: string; skipped: number }> {
+export async function runPlan(planId: string): Promise<{
+  encounterId: string;
+  skipped: number;
+  /** Copies stood on the board at their planned spots. */
+  placed: number;
+  /** Planned spots that did not take — the board is gone, or the tile is full. */
+  unplaced: number;
+}> {
   const plan = await staffForPlan(planId);
 
   const lines = await db
@@ -364,14 +412,62 @@ export async function runPlan(
 
   const encounterId = await createEncounter(plan.campaignId, plan.name);
 
-  let skipped = 0;
-  for (const line of lines) {
+  /*
+   * A prepared fight deals onto a prepared board. The board is whichever one
+   * the plan's spots name first — a plan places on one board — and it goes
+   * on the table bound to the new fight before anybody is stood on it, the
+   * way "Call for initiative → put the board up" would. Spots naming any
+   * other board are left for "Deal them in".
+   */
+  const boardId =
+    lines.flatMap(l => sanitizeSpots(l.spots, l.count)).find(Boolean)?.mapId ??
+    null;
+  if (boardId) {
     try {
-      await addCreaturesToEncounter(encounterId, toRef(line), line.count);
+      // `createEncounter` made the new fight the active one, so putting the
+      // board on the table binds it there; the explicit bind is for a board
+      // that was already up and still remembers last week.
+      await setBattleMapActive(boardId, true);
+      await bindBoardToFight(boardId, encounterId);
     } catch {
-      skipped += 1;
+      // The board is gone. The fight still happens, just not on it.
     }
   }
 
-  return { encounterId, skipped };
+  let skipped = 0;
+  let placed = 0;
+  let unplaced = 0;
+  for (const line of lines) {
+    let ids: string[];
+    try {
+      ids = await addCreaturesToEncounter(encounterId, toRef(line), line.count);
+    } catch {
+      skipped += 1;
+      continue;
+    }
+    if (!boardId) continue;
+    const spots = sanitizeSpots(line.spots, line.count);
+    for (let i = 0; i < spots.length && i < ids.length; i++) {
+      const spot = spots[i];
+      if (spot.mapId !== boardId) {
+        unplaced += 1;
+        continue;
+      }
+      try {
+        await placeToken(boardId, {
+          entryId: ids[i],
+          x: spot.x,
+          y: spot.y,
+          visibility: 'dm',
+        });
+        placed += 1;
+      } catch {
+        // Somebody is standing there now, or the room was repainted under
+        // it. One copy left to the deal is not a failed fight.
+        unplaced += 1;
+      }
+    }
+  }
+
+  return { encounterId, skipped, placed, unplaced };
 }

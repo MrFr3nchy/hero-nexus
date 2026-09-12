@@ -1,5 +1,13 @@
 # 02 — Painting the board, placing the fight, arranging the shelf
 
+**Status: built** (`feat/improvements-02-board-and-shelf`, on top of 01). Two
+departures from the plan: the rectangle tool's height variant raises or lowers
+the box by 5 ft, the way the Height row does, rather than setting an absolute
+height; and "place on a board" from a plan is a popover with a small map of the
+chosen board beside each line (`PlanSpots`), not a mode on the big board — the
+planner and the board live on different tabs. `distanceFeet` took the diagonal
+rule as a third argument, as asked.
+
 Covers from `improvements.txt`: _brush sizes_, _the Shelf_, _placing
 combatants_, _a ruler_, _bulk conditions_ (the selection half), _the sand table
 on a phone in landscape_.

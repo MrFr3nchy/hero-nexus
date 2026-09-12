@@ -335,7 +335,24 @@ export const TABLE_META: Record<
 export interface BattleLayout {
   shelf: ScreenPanelKey[];
   shelfOpen: boolean;
+  /**
+   * Panels folded to their title bar. Remembered with the layout: a fold
+   * was component state, and a DM who folded the whispers away lost the
+   * fold on every reload, which is how a shelf starts to feel cluttered.
+   */
+  folded: ScreenPanelKey[];
+  /**
+   * One shelf on the right, or one each side of the board on a wide screen
+   * so the board keeps its square rather than a letterbox. With `both`, the
+   * odd panels take the left.
+   */
+  shelfSide: 'right' | 'both';
 }
+
+export const SHELF_SIDES: readonly BattleLayout['shelfSide'][] = [
+  'right',
+  'both',
+];
 
 /** Everything one person has arranged at one campaign. */
 export interface ScreenLayouts {
@@ -377,17 +394,19 @@ export function defaultDeskLayout(isStaff: boolean): ScreenLayout {
 /**
  * What sits beside the board before anybody has arranged it.
  *
- * A DM gets the order and the foe in hand; a player gets their own numbers and
- * their weapons. Both get the dice and the asking, because a fight is mostly
- * rolling, and the evening, because the corner is easy to miss with a board
- * in front.
+ * Three panels, not six. A DM gets the order, the foe in hand and the dice;
+ * a player their own numbers, their weapons and the dice. Six was a shelf
+ * you scrolled before the first round, and the strip's badges — an ask
+ * waiting, a whisper unread — are what pull people into the rest.
  */
 export function defaultBattleLayout(isStaff: boolean): BattleLayout {
   return {
     shelf: isStaff
-      ? ['initiative', 'statblock', 'dice', 'checks', 'whispers', 'feed']
-      : ['mine', 'attacks', 'dice', 'checks', 'whispers', 'feed'],
+      ? ['initiative', 'statblock', 'dice']
+      : ['mine', 'attacks', 'dice'],
     shelfOpen: true,
+    folded: [],
+    shelfSide: 'right',
   };
 }
 
@@ -430,13 +449,27 @@ export function normalizeLayouts(
     seen.add(key);
     shelf.push(key);
   }
+  const kept = shelf.length > 0 ? shelf : base.battle.shelf;
+  // A fold only means something for a panel that is on the shelf.
+  const folded: ScreenPanelKey[] = [];
+  for (const item of Array.isArray(battleRaw.folded) ? battleRaw.folded : []) {
+    const key = String(item);
+    if (!isScreenPanelKey(key) || !kept.includes(key)) continue;
+    if (!folded.includes(key)) folded.push(key);
+  }
 
   return {
     desk: src.desk ? normalizeLayout(src.desk, isStaff) : base.desk,
     table: src.table ? normalizeLayout(src.table, isStaff) : base.table,
     battle: {
-      shelf: shelf.length > 0 ? shelf : base.battle.shelf,
+      shelf: kept,
       shelfOpen: battleRaw.shelfOpen ?? true,
+      folded,
+      shelfSide: (SHELF_SIDES as readonly unknown[]).includes(
+        battleRaw.shelfSide
+      )
+        ? (battleRaw.shelfSide as BattleLayout['shelfSide'])
+        : 'right',
     },
     pin: isTableKind(src.pin) ? src.pin : null,
   };

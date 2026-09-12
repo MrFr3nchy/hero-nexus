@@ -34,6 +34,7 @@ import {
   rollInitiativeAction,
   updateEntryAction,
 } from '../../actions';
+import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
 import { ConditionChips, ConditionPicker } from './ConditionPicker';
 import { FightRules } from './FightRules';
 
@@ -219,12 +220,20 @@ function EntryLine({
   isStaff,
   isYours,
   act,
+  placeable,
+  placing,
+  onPlace,
 }: {
   entry: EntryRow;
   current: boolean;
   isStaff: boolean;
   isYours: boolean;
   act: Act;
+  /** A board is up and this combatant is not on it yet. */
+  placeable: boolean;
+  /** The board is waiting for a tap for this one. */
+  placing: boolean;
+  onPlace: () => void;
 }) {
   const showNumbers = isStaff || entry.side === 'party';
   const hp = entry.hpCurrent;
@@ -309,6 +318,25 @@ function EntryLine({
 
       {isStaff && (
         <div className="flex flex-wrap items-center gap-1">
+          {placeable && (
+            <Tooltip
+              content={
+                placing
+                  ? 'Tap the board where they stand. Esc lets go.'
+                  : 'Put them on the board: press, then tap a tile.'
+              }
+            >
+              <Button
+                size="sm"
+                variant={placing ? 'solid' : 'flat'}
+                color={placing ? 'primary' : 'default'}
+                className="min-w-0 px-2"
+                onPress={onPlace}
+              >
+                {placing ? 'Tap the board' : 'Place'}
+              </Button>
+            </Tooltip>
+          )}
           <HpControl entry={entry} act={act} />
           <ConditionPicker
             stored={entry.conditionKeys}
@@ -366,6 +394,7 @@ export function InitiativeTracker({
   onError: (message: string) => void;
 }) {
   const enc = state.encounter;
+  const placement = usePlacement(campaignId);
   const [label, setLabel] = useState('');
   const [initiative, setInitiative] = useState(0);
   const [hp, setHp] = useState(0);
@@ -408,6 +437,15 @@ export function InitiativeTracker({
     setHp(0);
     setAc(0);
   };
+
+  // Who is already on the board, so "Place" is offered only for the rest.
+  const onBoard = state.battlemap
+    ? new Set(
+        state.battlemap.tokens
+          .map(t => t.entryId)
+          .filter((id): id is string => id !== null)
+      )
+    : null;
 
   const standing = state.entries.filter(
     e => e.side === 'party' && (e.hpCurrent == null || e.hpCurrent > 0)
@@ -461,6 +499,21 @@ export function InitiativeTracker({
               e.characterId != null && e.characterId === state.viewerCharacterId
             }
             act={act}
+            placeable={
+              isStaff &&
+              !!onBoard &&
+              !onBoard.has(e.id) &&
+              state.battlemap?.encounterId === enc.id
+            }
+            placing={placement?.entryId === e.id}
+            onPlace={() =>
+              setPlacement(
+                campaignId,
+                placement?.entryId === e.id
+                  ? null
+                  : { entryId: e.id, label: e.label }
+              )
+            }
           />
         ))}
         {state.entries.length === 0 && (

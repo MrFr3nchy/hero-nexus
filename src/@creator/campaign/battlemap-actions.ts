@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   FACINGS,
   ITEM_STATES,
+  MATERIALS,
   MAX_SIDE,
   MIN_SIDE,
 } from '@/@shared/battlemap/types';
@@ -13,6 +14,7 @@ import {
   damageThing,
   dealEncounterIn,
   deleteBattleMap,
+  getBoardTerrain,
   listBattleMaps,
   moveToken,
   pickLock,
@@ -87,6 +89,17 @@ const tile = z.object({
     .max(MAX_SIDE - 1),
 });
 
+/** A board's whole terrain, for placing a plan on it. Staff only. */
+export async function getBoardTerrainAction(
+  mapId: string
+): Promise<Awaited<ReturnType<typeof getBoardTerrain>> | null> {
+  try {
+    return await getBoardTerrain(mapId);
+  } catch {
+    return null;
+  }
+}
+
 export async function listBattleMapsAction(campaignId: string) {
   try {
     return await listBattleMaps(campaignId);
@@ -97,13 +110,20 @@ export async function listBattleMapsAction(campaignId: string) {
 
 export async function createBattleMapAction(
   campaignId: string,
-  input: { name?: string; w: number; h: number }
+  input: { name?: string; w: number; h: number; material?: number }
 ): Promise<Result<{ id: string }>> {
   const parsed = z
     .object({
       name: z.string().trim().max(120).optional(),
       w: z.number().int().min(MIN_SIDE).max(MAX_SIDE),
       h: z.number().int().min(MIN_SIDE).max(MAX_SIDE),
+      /** Index into `MATERIALS`: what every tile starts as. */
+      material: z
+        .number()
+        .int()
+        .min(0)
+        .max(MATERIALS.length - 1)
+        .optional(),
     })
     .safeParse(input);
   if (!parsed.success) {

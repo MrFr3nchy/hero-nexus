@@ -38,16 +38,37 @@ export interface Occupant {
 
 /* --- distance ---------------------------------------------------------- */
 
+/** How a diagonal step is priced. The table rule in `table-rules.ts`. */
+export type DiagonalRule = '5-5-5' | '5-10-5';
+
 /**
  * Distance in feet between two tiles.
  *
- * **2024: diagonals cost 5 feet, the same as orthogonal.** The 2014 optional
- * 5-10-5 rule is gone, which makes distance Chebyshev — `max(|dx|, |dy|)` —
- * rather than the zig-zag people remember. This is simpler than it looks and
- * it is correct; do not "fix" it back to alternating diagonals.
+ * **2024: diagonals cost 5 feet, the same as orthogonal.** That makes
+ * distance Chebyshev — `max(|dx|, |dy|)` — rather than the zig-zag people
+ * remember. The 2014 DMG's optional 5-10-5, where every second diagonal costs
+ * 10, is the one alternative, and a table that turns it on gets it here
+ * rather than from a second function: `min(dx, dy)` diagonals, every other
+ * one doubled, plus the straight remainder.
  */
-export function distanceFeet(a: Tile, b: Tile): number {
-  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) * TILE_FEET;
+export function distanceFeet(
+  a: Tile,
+  b: Tile,
+  rule: DiagonalRule = '5-5-5'
+): number {
+  const dx = Math.abs(a.x - b.x);
+  const dy = Math.abs(a.y - b.y);
+  if (rule === '5-10-5') {
+    const diagonals = Math.min(dx, dy);
+    const straight = Math.max(dx, dy) - diagonals;
+    return (diagonals + Math.floor(diagonals / 2) + straight) * TILE_FEET;
+  }
+  return Math.max(dx, dy) * TILE_FEET;
+}
+
+/** Tiles between two, in squares: the count a ruler shows beside the feet. */
+export function distanceSquares(a: Tile, b: Tile): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
 
 /* --- walls ------------------------------------------------------------- */
@@ -239,6 +260,82 @@ export function footprintTiles(doc: TerrainDoc, o: Occupant): number[] {
       const y = o.y + dy;
       if (!inBounds(doc, x, y)) return [];
       out.push(y * doc.w + x);
+    }
+  }
+  return out;
+}
+
+/* --- painting ---------------------------------------------------------- */
+
+/** Every in-bounds tile index in the box two corners span, either order. */
+export function rectTiles(doc: TerrainDoc, a: Tile, b: Tile): number[] {
+  const x0 = Math.max(0, Math.min(a.x, b.x));
+  const x1 = Math.min(doc.w - 1, Math.max(a.x, b.x));
+  const y0 = Math.max(0, Math.min(a.y, b.y));
+  const y1 = Math.min(doc.h - 1, Math.max(a.y, b.y));
+  const out: number[] = [];
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) out.push(y * doc.w + x);
+  }
+  return out;
+}
+
+/**
+ * The tiles under a square brush centred on one, in bounds.
+ *
+ * `size` is 1, 2 or 3 for 1×1, 3×3, 5×5 — the reveal brush's scale, now
+ * shared with the floor and the height tools so a room is not painted a
+ * tile at a time.
+ */
+export function brushTiles(
+  doc: TerrainDoc,
+  at: Tile,
+  size: 1 | 2 | 3
+): number[] {
+  const r = size - 1;
+  const out: number[] = [];
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const x = at.x + dx;
+      const y = at.y + dy;
+      if (inBounds(doc, x, y)) out.push(y * doc.w + x);
+    }
+  }
+  return out;
+}
+
+/**
+ * Flood fill: every tile connected to `at` by the same material, as a list
+ * of indices to repaint.
+ *
+ * Four-connected, and bounded by anything that stops a creature walking —
+ * a wall, a closed door, a window — so a room fills to its walls and not
+ * through them. A rail is vaulted, so it is not a boundary; an open door is
+ * walked through, so a fill runs into the next room the way the party
+ * would. The material to compare against is the one under `at`; the
+ * caller decides what to paint over it and skips the call when it is the
+ * same.
+ */
+export function floodFill(doc: TerrainDoc, at: Tile): number[] {
+  if (!inBounds(doc, at.x, at.y)) return [];
+  const walls = wallIndex(doc);
+  const from = doc.material[at.y * doc.w + at.x] ?? VOID;
+  const seen = new Set<number>();
+  const out: number[] = [];
+  const queue: Tile[] = [{ x: at.x, y: at.y }];
+  seen.add(at.y * doc.w + at.x);
+  while (queue.length) {
+    const t = queue.shift()!;
+    out.push(t.y * doc.w + t.x);
+    for (const side of ['n', 'e', 's', 'w'] as const) {
+      const [nx, ny] = across(t.x, t.y, side);
+      if (!inBounds(doc, nx, ny)) continue;
+      const ni = ny * doc.w + nx;
+      if (seen.has(ni)) continue;
+      if ((doc.material[ni] ?? VOID) !== from) continue;
+      if (blocksMovement(walls.get(edgeKey(t.x, t.y, side)))) continue;
+      seen.add(ni);
+      queue.push({ x: nx, y: ny });
     }
   }
   return out;

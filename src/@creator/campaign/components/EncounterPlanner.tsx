@@ -24,6 +24,7 @@ import {
 import type { CombatantChoice } from '@/server/content';
 import type { PlanRow } from '@/server/encounter-plans';
 import { listCombatantChoicesAction } from '../content-actions';
+import { PlanSpots } from './PlanSpots';
 import {
   addPlanLineAction,
   createPlanAction,
@@ -52,7 +53,7 @@ function Plan({
   choices: CombatantChoice[] | null;
   refresh: () => Promise<void>;
   onError: (message: string) => void;
-  onRan: (skipped: number) => void;
+  onRan: (skipped: number, placed: number, unplaced: number) => void;
 }) {
   const [picked, setPicked] = useState<string | null>(null);
   const [count, setCount] = useState(1);
@@ -93,7 +94,7 @@ function Plan({
                 onError(res.error);
                 return;
               }
-              onRan(res.data.skipped);
+              onRan(res.data.skipped, res.data.placed, res.data.unplaced);
             }}
           >
             Call for initiative
@@ -170,6 +171,14 @@ function Plan({
                   }
                 />
                 <span className="flex-1 text-sm text-ink">{line.name}</span>
+                <PlanSpots
+                  campaignId={campaignId}
+                  lineId={line.id}
+                  name={line.name}
+                  count={line.count}
+                  spots={line.spots}
+                  onChange={refresh}
+                />
                 {line.experiencePoints === null ? (
                   <span className="text-xs text-warning">
                     no longer in play
@@ -380,13 +389,21 @@ export function EncounterPlanner({ campaignId }: { campaignId: string }) {
               choices={choices}
               refresh={refresh}
               onError={setError}
-              onRan={skipped =>
+              onRan={(skipped, placed, unplaced) => {
+                const where =
+                  placed > 0
+                    ? `${placed} standing where you put them on the board${
+                        unplaced > 0 ? `, ${unplaced} left for the deal` : ''
+                      }`
+                    : null;
                 setNotice(
                   skipped > 0
-                    ? `They are up on the Session tab — ${skipped} of them could not be found and were left out.`
-                    : 'They are up on the Session tab, with initiative rolled.'
-                )
-              }
+                    ? `They are up on the Session tab — ${skipped} of them could not be found and were left out.${where ? ` ${where[0].toUpperCase()}${where.slice(1)}.` : ''}`
+                    : where
+                      ? `They are up on the Session tab, with initiative rolled — ${where}.`
+                      : 'They are up on the Session tab, with initiative rolled.'
+                );
+              }}
             />
           ))}
         </div>
