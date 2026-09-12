@@ -35,6 +35,7 @@ import {
   updateEntryAction,
 } from '../../actions';
 import { ConditionChips, ConditionPicker } from './ConditionPicker';
+import { FightRules } from './FightRules';
 
 type Act = (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
 
@@ -420,6 +421,7 @@ export function InitiativeTracker({
       actions={
         isStaff && (
           <div className="flex flex-wrap gap-1">
+            <FightRules encounter={enc} state={state} act={act} />
             <Button
               size="sm"
               variant="flat"

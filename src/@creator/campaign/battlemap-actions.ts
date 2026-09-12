@@ -29,11 +29,21 @@ import {
   operateThing,
 } from '@/server/battlemap';
 
+import { RuleRefusal } from '@/server/table-rules';
+
 type Result<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
-  | { ok: false; error: string };
+  | Refusal;
 
-function fail(err: unknown, fallback: string): { ok: false; error: string } {
+/**
+ * `overridable` is set only when the rules refused and the caller is staff:
+ * the control shows "Do it anyway", and pressing it re-sends the same call
+ * with `{ ruling: true }`. Decided on the server (`RuleRefusal`), so a player
+ * never sees the button and the server ignores `ruling` from one anyway.
+ */
+type Refusal = { ok: false; error: string; overridable?: boolean };
+
+function fail(err: unknown, fallback: string): Refusal {
   const code = err instanceof Error ? err.message : '';
   const messages: Record<string, string> = {
     NOT_AUTHENTICATED: 'You are not signed in.',
@@ -55,7 +65,13 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     INDESTRUCTIBLE: 'That cannot be broken.',
   };
   if (!messages[code]) console.error('[action]', fallback, err);
-  return { ok: false, error: messages[code] ?? fallback };
+  return {
+    ok: false,
+    error: messages[code] ?? fallback,
+    ...(err instanceof RuleRefusal && err.overridable
+      ? { overridable: true }
+      : {}),
+  };
 }
 
 const tile = z.object({
@@ -227,6 +243,7 @@ export async function placeTokenAction(
       lockDc: z.number().int().min(1).max(40).nullable().optional(),
       hpMax: z.number().int().min(1).max(9999).nullable().optional(),
       facing: z.enum(FACINGS).optional(),
+      ruling: z.boolean().optional(),
     })
     .safeParse(input);
   if (!parsed.success) {
@@ -256,12 +273,13 @@ export async function dealEncounterInAction(
 
 export async function moveTokenAction(
   tokenId: string,
-  to: unknown
+  to: unknown,
+  opts: { ruling?: boolean } = {}
 ): Promise<Result> {
   const parsed = tile.safeParse(to);
   if (!parsed.success) return { ok: false, error: 'Not a tile.' };
   try {
-    await moveToken(tokenId, parsed.data);
+    await moveToken(tokenId, parsed.data, { ruling: opts.ruling === true });
     return { ok: true };
   } catch (err) {
     return fail(err, 'Could not move that.');

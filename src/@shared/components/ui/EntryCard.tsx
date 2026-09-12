@@ -122,7 +122,7 @@ export function Pill({
   tone = 'default',
 }: {
   children: ReactNode;
-  tone?: 'default' | 'arcane' | 'gold' | 'warning' | 'success';
+  tone?: 'default' | 'arcane' | 'gold' | 'warning' | 'success' | 'danger';
 }) {
   const skin = {
     default: 'border-line text-ink-subtle',
@@ -130,6 +130,7 @@ export function Pill({
     gold: 'border-gold/50 text-gold-strong',
     warning: 'border-warning/40 text-warning',
     success: 'border-success/40 text-success',
+    danger: 'border-danger/40 text-danger',
   }[tone];
 
   return (

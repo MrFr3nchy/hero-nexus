@@ -29,6 +29,7 @@ export const SCREEN_PANEL_KEYS = [
   'quests',
   'handouts',
   'conditions',
+  'rules',
   'timers',
   'ledger',
   'canon',
@@ -178,6 +179,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     label: 'Conditions',
     glyph: 'question',
     description: 'The fifteen conditions, in one line each.',
+    players: true,
+  },
+  rules: {
+    key: 'rules',
+    label: 'Rules at hand',
+    glyph: 'gavel',
+    description:
+      'What this table plays by, its house rules, and the book to search.',
     players: true,
   },
   timers: {

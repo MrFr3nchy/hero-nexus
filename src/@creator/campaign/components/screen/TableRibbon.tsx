@@ -8,6 +8,7 @@ import type { LiveState } from '@/server/session';
 import { TABLE_META, type TableKind } from '../../lib/screen';
 import { createEncounterAction, endEncounterAction } from '../../actions';
 import { closeSittingAction, openSittingAction } from '../../chronicle-actions';
+import { setTableModeAction } from '../../rules-actions';
 
 /**
  * Which table the campaign is at, and the two verbs that change it.
@@ -21,6 +22,12 @@ import { closeSittingAction, openSittingAction } from '../../chronicle-actions';
  * The pin is the viewer's own: a player who wants the board up between fights
  * pins the sand table and the screen holds it until they unpin. It is a
  * preference, stored with their layouts, and it says nothing to anybody else.
+ *
+ * The gavel is the table's Advise / Enforce switch, staff only, one tap and
+ * no confirm: flipping it announces itself to everyone, which is the
+ * confirmation. It reads the rules in force, so while a fight overrides the
+ * mode the pill says what the fight says and hands the tap to the initiative
+ * box, where that override lives.
  */
 export function TableRibbon({
   campaignId,
@@ -46,6 +53,11 @@ export function TableRibbon({
   const { confirm, dialog } = useConfirm();
   const actual = state.table;
   const meta = TABLE_META[current];
+  // While a fight overrides the mode, the campaign's switch changes nothing
+  // at the table; the pill says what is in force and points at the fight.
+  const fightHoldsMode =
+    Boolean(state.encounter?.isActive) &&
+    state.encounter?.ruleOverrides.mode !== undefined;
 
   const act = async (p: Promise<{ ok: boolean; error?: string }>) => {
     setBusy(true);
@@ -99,6 +111,40 @@ export function TableRibbon({
                 {TABLE_META[k].label.toLowerCase()}
               </button>
             ))}
+
+        {isStaff && (
+          <Tooltip
+            content={
+              fightHoldsMode
+                ? `${state.encounter?.name ?? 'This fight'} sets its own. Change it on the initiative box.`
+                : state.rules.mode === 'enforce'
+                  ? 'Enforcing: the app refuses what the rules refuse. Tap to advise instead.'
+                  : 'Advising: the app says what the rules say and refuses nothing. Tap to enforce.'
+            }
+          >
+            <button
+              type="button"
+              disabled={busy || fightHoldsMode}
+              onClick={() =>
+                act(
+                  setTableModeAction(
+                    campaignId,
+                    state.rules.mode === 'enforce' ? 'advise' : 'enforce'
+                  )
+                )
+              }
+              aria-pressed={state.rules.mode === 'enforce'}
+              className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[0.65rem] uppercase tracking-[0.12em] transition-colors disabled:opacity-60 ${
+                state.rules.mode === 'enforce'
+                  ? 'border-danger/50 text-danger hover:bg-danger/10'
+                  : 'border-line text-ink-subtle hover:border-gold/50 hover:text-ink'
+              }`}
+            >
+              <Glyph name="gavel" size={11} />
+              {state.rules.mode === 'enforce' ? 'Enforcing' : 'Advising'}
+            </button>
+          </Tooltip>
+        )}
 
         {isStaff && (
           <span className="ml-1 inline-flex gap-1.5 border-l border-line pl-2">

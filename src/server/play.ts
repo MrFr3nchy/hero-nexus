@@ -40,8 +40,10 @@ import {
   characters,
   initiativeEntries,
 } from '@/db/schema';
-import { requireCampaignRole } from './campaigns';
+import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
+import { effectiveRules, fence } from './table-rules';
+import { DEFAULT_TABLE_RULES } from '@/@creator/campaign/lib/table-rules';
 import { requireUserId } from './session-user';
 
 /**
@@ -198,13 +200,28 @@ function clamp(value: number, min: number, max: number): number {
 async function authorize(
   characterId: string,
   campaignId: string | null
-): Promise<{ character: typeof characters.$inferSelect; canEdit: boolean }> {
+): Promise<{
+  character: typeof characters.$inferSelect;
+  canEdit: boolean;
+  /** Staff of the named campaign, so a rules refusal knows who may overrule it. */
+  isStaff: boolean;
+}> {
   const userId = await requireUserId();
   const character = await db.query.characters.findFirst({
     where: eq(characters.id, characterId),
   });
   if (!character) throw new Error('NOT_FOUND');
-  if (character.ownerId === userId) return { character, canEdit: true };
+  if (character.ownerId === userId) {
+    // The owner may be the DM playing at their own table. Staff status is
+    // what lets them rule past a refusal on their own sheet; a player at
+    // somebody else's table, or a character at no table, gets no ruling.
+    const role = campaignId ? await roleAt(campaignId) : null;
+    return {
+      character,
+      canEdit: true,
+      isStaff: role === 'gm' || role === 'co-gm',
+    };
+  }
 
   if (!campaignId) throw new Error('FORBIDDEN');
 
@@ -221,7 +238,22 @@ async function authorize(
     'co-gm',
     'player',
   ]);
-  return { character, canEdit: role === 'gm' || role === 'co-gm' };
+  const isStaff = role === 'gm' || role === 'co-gm';
+  return { character, canEdit: isStaff, isStaff };
+}
+
+/** The caller's role at a campaign, or null when they are not a member. */
+async function roleAt(campaignId: string): Promise<CampaignRole | null> {
+  try {
+    const { role } = await requireCampaignRole(campaignId, [
+      'gm',
+      'co-gm',
+      'player',
+    ]);
+    return role;
+  } catch {
+    return null;
+  }
 }
 
 function toPlayState(
@@ -573,6 +605,12 @@ export interface PlayLoadout {
   spells: LoadoutSpell[];
   attunedCount: number;
   maxAttuned: number;
+  /**
+   * Whether the attunement cap is a fence or advice at this table. The
+   * table's Advise / Enforce switch, read once here so the control can say
+   * in advance what the server will do. A character at no table is advised.
+   */
+  attunementEnforced: boolean;
   currency: Coins;
   /**
    * The other characters seated at this table, for the *Give* control. Empty
@@ -587,6 +625,8 @@ export interface LoadoutPatch {
   equip?: { itemId: string; equipped: boolean };
   attune?: { itemId: string; attuned: boolean };
   prepare?: { key: string; prepared: boolean };
+  /** Staff overruling a refusal. Ignored from anybody else. */
+  ruling?: boolean;
 }
 
 /** Every other character seated at a table, by the unique member index. */
@@ -625,14 +665,16 @@ export async function getPlayLoadout(
     ...sheet.inventory.map(i => i.ref).filter(r => r !== null),
     ...sheet.spellcasting.spells.map(s => s.ref),
   ];
-  const [resolved, others] = await Promise.all([
+  const [resolved, others, rules] = await Promise.all([
     resolveContentRefs(refs),
     campaignId ? othersAt(campaignId, characterId) : Promise.resolve([]),
+    campaignId ? effectiveRules(campaignId) : Promise.resolve(null),
   ]);
 
   return {
     canEdit,
     maxAttuned: MAX_ATTUNED,
+    attunementEnforced: rules?.mode === 'enforce',
     attunedCount: sheet.inventory.filter(i => i.attuned).length,
     currency: { ...sheet.currency },
     others,
@@ -674,16 +716,21 @@ export async function getPlayLoadout(
  * Toggle one thing in the loadout.
  *
  * Writes straight through, like every other play control — there is no save
- * button at a table. The attunement cap is enforced here rather than trusted
+ * button at a table. The attunement cap is checked here rather than trusted
  * to the control, because the control is the thing an over-attuned sheet gets
- * past.
+ * past — and it is checked through the table's fence, so a table that is
+ * advising is told about the fourth item and allowed it, and a table that is
+ * enforcing refuses unless the DM rules otherwise.
  */
 export async function applyLoadoutPatch(
   characterId: string,
   campaignId: string | null,
   patch: LoadoutPatch
 ): Promise<PlayLoadout> {
-  const { character, canEdit } = await authorize(characterId, campaignId);
+  const { character, canEdit, isStaff } = await authorize(
+    characterId,
+    campaignId
+  );
   if (!canEdit) throw new Error('FORBIDDEN');
 
   const sheet = character.sheet as CharacterSheet;
@@ -701,7 +748,14 @@ export async function applyLoadoutPatch(
       const already = inventory.filter(
         i => i.attuned && i.id !== itemId
       ).length;
-      if (already >= MAX_ATTUNED) throw new Error('ATTUNEMENT_FULL');
+      if (already >= MAX_ATTUNED) {
+        // No table, no rules to enforce: a character on nobody's sheet but
+        // their own is advised, the same as a table on the default.
+        const rules = campaignId
+          ? await effectiveRules(campaignId)
+          : DEFAULT_TABLE_RULES;
+        fence('ATTUNEMENT_FULL', rules, { isStaff, ruling: patch.ruling });
+      }
     }
     inventory = inventory.map(i => (i.id === itemId ? { ...i, attuned } : i));
   }

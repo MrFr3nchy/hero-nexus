@@ -245,36 +245,74 @@ export function footprintTiles(doc: TerrainDoc, o: Occupant): number[] {
 }
 
 /**
- * Whether a footprint can stand at a position.
+ * Why a footprint cannot stand at a position, or null when it can.
+ *
+ * Two kinds of no. `bounds`, `void` and `occupied` are the model: off the
+ * board, on no board, or on top of somebody — nothing a DM says makes two
+ * things fit in one tile. `terrain` is the rules: lava, or a pillar. That
+ * is what the table's Advise / Enforce switch governs (`table-rules.ts`),
+ * so it is told apart here rather than folded into one boolean. A large
+ * creature does not get to put one corner in a wall either way.
+ */
+export type StandingIssue = 'bounds' | 'void' | 'occupied' | 'terrain';
+
+export function standingIssue(
+  doc: TerrainDoc,
+  o: Occupant,
+  others: readonly Occupant[]
+): StandingIssue | null {
+  const tiles = footprintTiles(doc, o);
+  if (tiles.length === 0) return 'bounds';
+
+  const taken = new Set<number>();
+  for (const other of others) {
+    for (const t of footprintTiles(doc, other)) taken.add(t);
+  }
+  const blocked = new Set<number>();
+  for (const p of doc.props) {
+    if (p.blocks) blocked.add(p.y * doc.w + p.x);
+  }
+
+  let terrain = false;
+  for (const t of tiles) {
+    if (taken.has(t)) return 'occupied';
+    const m = doc.material[t] ?? VOID;
+    if (m === VOID) return 'void';
+    const mat = materialAt(doc, t % doc.w, Math.floor(t / doc.w));
+    if (mat.impassable || blocked.has(t)) terrain = true;
+  }
+  return terrain ? 'terrain' : null;
+}
+
+/**
+ * Whether a footprint can stand at a position, by the book.
  *
  * Every tile it covers must be in bounds, not void, not impassable, and not
- * under a blocking prop or another occupant. A large creature does not get to
- * put one corner in a wall.
+ * under a blocking prop or another occupant. `standingIssue` says which.
  */
 export function canStand(
   doc: TerrainDoc,
   o: Occupant,
   others: readonly Occupant[]
 ): boolean {
-  const tiles = footprintTiles(doc, o);
-  if (tiles.length === 0) return false;
+  return standingIssue(doc, o, others) === null;
+}
 
-  const taken = new Set<number>();
-  for (const other of others) {
-    for (const t of footprintTiles(doc, other)) taken.add(t);
-  }
-  for (const p of doc.props) {
-    if (p.blocks) taken.add(p.y * doc.w + p.x);
-  }
-
-  for (const t of tiles) {
-    if (taken.has(t)) return false;
-    const m = doc.material[t] ?? VOID;
-    if (m === VOID) return false;
-    const mat = materialAt(doc, t % doc.w, Math.floor(t / doc.w));
-    if (mat.impassable) return false;
-  }
-  return true;
+/**
+ * Whether the server would let a footprint be put there, under the table's
+ * mode. The model's refusals always hold; the rules' hold only when the
+ * table enforces. A board uses `canStand` to colour the tile and this to
+ * decide whether to send the move — so advising, lava reads red and is
+ * still walked into, which is what advising means.
+ */
+export function canStandUnder(
+  doc: TerrainDoc,
+  o: Occupant,
+  others: readonly Occupant[],
+  mode: 'advise' | 'enforce'
+): boolean {
+  const issue = standingIssue(doc, o, others);
+  return issue === null || (issue === 'terrain' && mode === 'advise');
 }
 
 /* --- line of sight ----------------------------------------------------- */

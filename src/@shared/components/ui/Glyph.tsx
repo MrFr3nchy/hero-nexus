@@ -66,7 +66,8 @@ export type GlyphName =
   | 'chevron-down'
   | 'x'
   | 'pencil'
-  | 'whisper';
+  | 'whisper'
+  | 'gavel';
 
 /** Every glyph's artwork, drawn inside a 24×24 box. */
 const PATHS: Record<GlyphName, React.ReactNode> = {
@@ -324,6 +325,16 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
     <>
       <path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H10l-4 3.5v-3.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5Z" />
       <path d="M8.5 11h7" />
+    </>
+  ),
+  // A ruling: the DM's gavel. The head is a tilted block, the handle a
+  // single stroke down to a short base; one block and one line still read
+  // at 12px on the ribbon pill, where a hammer with a claw would not.
+  gavel: (
+    <>
+      <path d="M12.2 3.4 18.6 9.8l-2.8 2.8L9.4 6.2Z" />
+      <path d="M12.6 9.4 4.6 17.4" />
+      <path d="M3 21h9" />
     </>
   ),
 };

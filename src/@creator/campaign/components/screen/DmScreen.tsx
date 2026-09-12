@@ -42,6 +42,7 @@ import { RollPanel } from '../session/RollPanel';
 import { SpotlightPanel } from '../session/SpotlightPanel';
 import { SittingCard } from '../session/SittingCard';
 import { ConditionsCard } from './ConditionsCard';
+import { RulesPanel } from './RulesPanel';
 import { AttacksPanel } from './AttacksPanel';
 import { FeedPanel } from './FeedPanel';
 import { StatBlockPanel } from './StatBlockPanel';
@@ -109,6 +110,7 @@ function CallForInitiative({
 /** Everything the panels share, gathered once rather than per panel. */
 interface ScreenContext {
   campaignId: string;
+  campaign: CampaignRow;
   viewerId: string;
   viewerRole: CampaignRole;
   isStaff: boolean;
@@ -321,6 +323,15 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
     case 'conditions':
       return <ConditionsCard />;
 
+    case 'rules':
+      return live.state ? (
+        <RulesPanel
+          campaign={ctx.campaign}
+          state={live.state}
+          isStaff={ctx.isStaff}
+        />
+      ) : null;
+
     case 'ledger':
       return <LedgerPanel campaignId={ctx.campaignId} onError={ctx.onError} />;
 
@@ -487,6 +498,7 @@ export function DmScreen({
 
   const ctx: ScreenContext = {
     campaignId: campaign.id,
+    campaign,
     viewerId,
     viewerRole: campaign.role,
     isStaff,

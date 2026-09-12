@@ -124,6 +124,13 @@ const COMPENDIUM: NavGroup[] = [
         create: '/creator/homebrew?type=creature',
         creates: 'creature',
       },
+      {
+        name: 'House rules',
+        href: '/house-rules',
+        icon: 'ph:gavel-bold',
+        create: '/creator/homebrew?type=rule',
+        creates: 'rule',
+      },
     ],
   },
 ];

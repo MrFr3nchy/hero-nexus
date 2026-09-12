@@ -19,7 +19,9 @@ import { AtTable } from '@/@shared/table';
 import type { CampaignPulse } from '@/server/campaign-pulse';
 import type { CampaignRow } from '@/server/campaigns';
 import { getCampaignPulseAction } from '../chronicle-actions';
+import { describeRules } from '../lib/rules';
 import type { TableKind } from '../lib/screen';
+import { describeTableRules } from '../lib/table-rules';
 import { CampaignSearch } from './CampaignSearch';
 import { CanonPanel } from './CanonPanel';
 import { AwardsPanel } from './AwardsPanel';
@@ -116,6 +118,12 @@ export function CampaignDetail({
   table: TableKind;
 }) {
   const isStaff = campaign.role === 'gm' || campaign.role === 'co-gm';
+  const ruleLines = [
+    ...describeTableRules(campaign.settings.table, { omit: ['mode'] }),
+    ...describeRules(campaign.settings.rules, {
+      allowHomebrew: campaign.settings.allowHomebrew,
+    }),
+  ];
   const [pulse, setPulse] = useState<CampaignPulse | null>(null);
   // Bumped when the notebook reveals something, so the timeline beside it
   // re-reads without the DM having to leave the tab and come back.
@@ -183,11 +191,36 @@ export function CampaignDetail({
           <PartySecrets campaignId={campaign.id} />
           <LedgerPanel campaignId={campaign.id} />
 
-          {campaign.settings.customRules && (
-            <SectionCard title="House rules">
-              <p className="whitespace-pre-wrap text-sm text-ink-muted">
-                {campaign.settings.customRules}
-              </p>
+          {/* The same lines "Rules at hand" shows at the table, so the
+              campaign page and the screen cannot disagree about the rules. */}
+          {(ruleLines.length > 0 ||
+            campaign.settings.customRules ||
+            campaign.settings.table.mode === 'enforce') && (
+            <SectionCard
+              title="This table plays by"
+              description={
+                campaign.settings.table.mode === 'enforce'
+                  ? 'The app enforces these. The DM can overrule any refusal.'
+                  : 'The app advises on these and refuses nothing.'
+              }
+            >
+              <div className="space-y-3">
+                {ruleLines.length > 0 && (
+                  <ul className="space-y-1 text-sm text-ink-muted">
+                    {ruleLines.map(line => (
+                      <li key={line} className="flex gap-2">
+                        <span className="text-gold">※</span>
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {campaign.settings.customRules && (
+                  <p className="whitespace-pre-wrap text-sm text-ink-muted">
+                    {campaign.settings.customRules}
+                  </p>
+                )}
+              </div>
             </SectionCard>
           )}
           {campaign.settings.sessionNotes && (

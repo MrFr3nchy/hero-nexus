@@ -23,6 +23,13 @@ import {
   type CampaignRules,
   type RuleViolation,
 } from '@/@creator/campaign/lib/rules';
+import {
+  applyTableRulesPatch,
+  DEFAULT_TABLE_RULES,
+  mergeTableRules,
+  type TableRules,
+  type TableRulesPatch,
+} from '@/@creator/campaign/lib/table-rules';
 
 export interface CampaignSettings {
   rpgSystem: string;
@@ -36,6 +43,12 @@ export interface CampaignSettings {
   bannerImageId: string | null;
   /** Structured table rules the builder and server both enforce. */
   rules: CampaignRules;
+  /**
+   * What the app does about the rules at the table: advise or enforce, and
+   * which optional rules are on. Read through `effectiveRules`, which lays a
+   * running fight's overrides over it — never straight off the row.
+   */
+  table: TableRules;
 }
 
 export const DEFAULT_CAMPAIGN_SETTINGS: CampaignSettings = {
@@ -48,12 +61,13 @@ export const DEFAULT_CAMPAIGN_SETTINGS: CampaignSettings = {
   customRules: '',
   bannerImageId: null,
   rules: DEFAULT_CAMPAIGN_RULES,
+  table: DEFAULT_TABLE_RULES,
 };
 
 /**
  * Fold a stored settings blob over the defaults. The merge is shallow except
- * for `rules`, which is deep-merged so a row written before a rule key existed
- * still picks up that key's default.
+ * for `rules` and `table`, which are deep-merged so a row written before a
+ * rule key existed still picks up that key's default.
  */
 export function mergeCampaignSettings(raw: unknown): CampaignSettings {
   const obj = (raw ?? {}) as Partial<CampaignSettings>;
@@ -61,6 +75,7 @@ export function mergeCampaignSettings(raw: unknown): CampaignSettings {
     ...DEFAULT_CAMPAIGN_SETTINGS,
     ...obj,
     rules: mergeRules(obj.rules),
+    table: mergeTableRules(obj.table),
   };
 }
 
@@ -113,8 +128,9 @@ export interface CampaignInviteRow {
 export interface CampaignInput {
   name: string;
   description?: string;
-  settings?: Partial<Omit<CampaignSettings, 'rules'>> & {
+  settings?: Partial<Omit<CampaignSettings, 'rules' | 'table'>> & {
     rules?: Partial<CampaignRules>;
+    table?: TableRulesPatch;
   };
 }
 
@@ -334,6 +350,7 @@ export async function updateCampaign(
         ...current,
         ...patch,
         rules: { ...current.rules, ...(patch.rules ?? {}) },
+        table: applyTableRulesPatch(current.table, patch.table),
       } satisfies CampaignSettings,
       updatedAt: new Date().toISOString(),
     })

@@ -41,7 +41,7 @@ import {
 } from 'react';
 
 import {
-  canStand,
+  canStandUnder,
   distanceFeet,
   reachFor,
   wallIndex,
@@ -95,6 +95,7 @@ import { rollAction } from '../../actions';
 import { usePortraits } from '@/@shared/battlemap/portraits';
 import { setSelectedToken } from '@/@shared/battlemap/selection';
 import { ImagePicker } from '../ImagePicker';
+import { Refused, type RefusedState } from '../Refused';
 
 /* --- tools ------------------------------------------------------------- */
 
@@ -366,6 +367,36 @@ export function BattleBoard({
   >('straight');
   const [lockWord, setLockWord] = useState('');
   const [hurtAmount, setHurtAmount] = useState('5');
+  /*
+   * A refusal the rules made — lava, a pillar — shown on the board rather
+   * than in the header, with the DM's way past it when the server said
+   * there is one. The model's refusals (off the board, on somebody) are
+   * never overridable and go to `onError` like before.
+   */
+  const [refused, setRefused] = useState<RefusedState | null>(null);
+  const move = async (
+    tokenId: string,
+    to: { x: number; y: number },
+    ruling = false
+  ): Promise<boolean> => {
+    const res = await moveTokenAction(tokenId, to, { ruling });
+    if (!res.ok) {
+      if (res.overridable) {
+        setRefused({
+          message: res.error,
+          ruling: async () => {
+            await move(tokenId, to, true);
+            await refresh();
+          },
+        });
+      } else {
+        onError(res.error);
+      }
+    } else {
+      setRefused(null);
+    }
+    return res.ok;
+  };
   const describe = async (tokenId: string, patch: Record<string, unknown>) => {
     const res = await updateTokenAction(tokenId, patch);
     if (!res.ok) onError(res.error);
@@ -749,18 +780,36 @@ export function BattleBoard({
     }
 
     if (isStaff && tool.kind === 'scenery') {
-      const res = await placeTokenAction(board.id, {
-        x: at.x,
-        y: at.y,
-        label: tool.label.trim() || 'Something',
-        visibility: 'shared',
-        imageId: tool.imageId,
-        state: tool.state,
-        lockDc: tool.state === 'locked' ? tool.lockDc : null,
-        hpMax: tool.hpMax,
-        facing: tool.facing,
-      });
-      if (!res.ok) onError(res.error);
+      const place = async (ruling = false) => {
+        const res = await placeTokenAction(board.id, {
+          x: at.x,
+          y: at.y,
+          label: tool.label.trim() || 'Something',
+          visibility: 'shared',
+          imageId: tool.imageId,
+          state: tool.state,
+          lockDc: tool.state === 'locked' ? tool.lockDc : null,
+          hpMax: tool.hpMax,
+          facing: tool.facing,
+          ruling,
+        });
+        if (!res.ok) {
+          if (res.overridable) {
+            setRefused({
+              message: res.error,
+              ruling: async () => {
+                await place(true);
+                await refresh();
+              },
+            });
+          } else {
+            onError(res.error);
+          }
+        } else {
+          setRefused(null);
+        }
+      };
+      await place();
       await refresh();
       return;
     }
@@ -792,23 +841,27 @@ export function BattleBoard({
     }
 
     // An empty tile with a token selected: move it there, if it may be.
+    // Under advise the tile may be lava and the move still goes: the board
+    // has said so in red, and saying is all advising does. Staff are never
+    // stopped here at all — the server refuses them with a way past it, and
+    // a refusal swallowed in the browser has no "Do it anyway".
     if (selectedToken && selectedToken.mine) {
       const others = board.tokens.filter(
         t => t.id !== selectedToken.id && blocksTile(t.state)
       );
       if (
-        !canStand(
+        !canStandUnder(
           terrain,
           { x: at.x, y: at.y, footprint: selectedToken.footprint },
-          others
+          others,
+          isStaff ? 'advise' : state.rules.mode
         )
       ) {
         return;
       }
       setBusy(true);
-      const res = await moveTokenAction(selectedToken.id, { x: at.x, y: at.y });
+      await move(selectedToken.id, { x: at.x, y: at.y });
       setBusy(false);
-      if (!res.ok) onError(res.error);
       await refresh();
       return;
     }
@@ -1743,13 +1796,17 @@ export function BattleBoard({
           speedOf={speedOf}
           onSelect={setSelected}
           selectedId={selected}
+          mode={isStaff ? 'advise' : state.rules.mode}
           onMove={async (tokenId, to) => {
-            const res = await moveTokenAction(tokenId, to);
-            if (!res.ok) onError(res.error);
+            const ok = await move(tokenId, to);
             await refresh();
-            return res.ok;
+            return ok;
           }}
         />
+      )}
+
+      {refused && (
+        <Refused refusal={refused} onDismiss={() => setRefused(null)} />
       )}
 
       {isStaff && !dimensional && (

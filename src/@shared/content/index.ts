@@ -21,6 +21,7 @@ export {
   type CreatureData,
   type FeatData,
   type ItemData,
+  type RuleData,
   type SpeciesData,
   type SpellData,
   type SubclassData,

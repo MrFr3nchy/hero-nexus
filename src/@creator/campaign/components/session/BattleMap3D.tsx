@@ -28,6 +28,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import {
   canStand,
+  canStandUnder,
   reachFor,
   type Occupant,
 } from '@/@creator/campaign/lib/battlemap';
@@ -1165,6 +1166,11 @@ export interface BattleMap3DProps {
   /** The token the reader has selected, drawn with a ring of its own. */
   selectedId?: string | null;
   /**
+   * The table's Advise / Enforce mode, off `LiveState.rules`. Decides whether
+   * a drop on lava is sent (advising) or refused before it goes (enforcing).
+   */
+  mode?: 'advise' | 'enforce';
+  /**
    * Fill whatever height is left in the nearest `[data-board-region]` rather
    * than sizing off the width. Set by the screen, where the board is the main
    * region and a canvas at 62% of its width floated in the top half of it.
@@ -1185,6 +1191,7 @@ export default function BattleMap3D({
   speedOf,
   onSelect,
   selectedId = null,
+  mode = 'advise',
   fill = false,
 }: BattleMap3DProps) {
   const mount = useRef<HTMLDivElement>(null);
@@ -1199,6 +1206,7 @@ export default function BattleMap3D({
     speedOf,
     onSelect,
     selectedId,
+    mode,
   });
   latest.current = {
     terrain,
@@ -1208,6 +1216,7 @@ export default function BattleMap3D({
     speedOf,
     onSelect,
     selectedId,
+    mode,
   };
 
   // Long-lived pieces, created once per mount.
@@ -1674,11 +1683,10 @@ export default function BattleMap3D({
         return;
       }
       const others = latest.current.tokens.filter(t => t.id !== token.id);
-      const ok = canStand(
-        doc,
-        { x: tile.x, y: tile.y, footprint: token.footprint },
-        others
-      );
+      const me = { x: tile.x, y: tile.y, footprint: token.footprint };
+      // Red is what the rules say; the cursor is what the table will do.
+      const ok = canStand(doc, me, others);
+      const allowed = canStandUnder(doc, me, others, latest.current.mode);
       const mat = w.hoverMarker.material as THREE.MeshBasicMaterial;
       mat.color.copy(ok ? p.gold : p.danger);
       w.hoverMarker.scale.set(token.footprint, token.footprint, 1);
@@ -1688,7 +1696,7 @@ export default function BattleMap3D({
         tile.y + token.footprint / 2
       );
       w.hoverMarker.visible = true;
-      renderer.domElement.style.cursor = ok ? 'pointer' : 'not-allowed';
+      renderer.domElement.style.cursor = allowed ? 'pointer' : 'not-allowed';
     };
     const onUp = async (ev: PointerEvent) => {
       const w = world.current;
@@ -1718,7 +1726,17 @@ export default function BattleMap3D({
           y: tile.y,
           footprint: token.footprint,
         };
-        if (!piece || !canStand(latest.current.terrain, me, others)) return;
+        if (
+          !piece ||
+          !canStandUnder(
+            latest.current.terrain,
+            me,
+            others,
+            latest.current.mode
+          )
+        ) {
+          return;
+        }
         w.hoverMarker.visible = false;
         darkenGhost();
         await settle(token.id, piece, piece.at.clone(), tile);
@@ -1747,7 +1765,9 @@ export default function BattleMap3D({
 
       const me: Occupant = { x: to.x, y: to.y, footprint: token.footprint };
       const others = latest.current.tokens.filter(t => t.id !== d.tokenId);
-      if (!canStand(doc, me, others)) return snapBack();
+      if (!canStandUnder(doc, me, others, latest.current.mode)) {
+        return snapBack();
+      }
 
       // Optimistic: set it down where it was dropped, then ask. A refusal
       // snaps it back; an acceptance is confirmed by the next state read.

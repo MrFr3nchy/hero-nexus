@@ -31,7 +31,11 @@ import {
   initiativeEntries,
   users,
 } from '@/db/schema';
-import { requireCampaignRole, type CampaignRole } from './campaigns';
+import {
+  mergeCampaignSettings,
+  requireCampaignRole,
+  type CampaignRole,
+} from './campaigns';
 import { portraitsFor } from './character-portraits';
 import {
   activeBoardId,
@@ -40,6 +44,12 @@ import {
   type BattleMapState,
 } from './battlemap';
 import type { TableKind } from '@/@creator/campaign/lib/screen';
+import {
+  applyTableRulesPatch,
+  sanitizeTableRulesPatch,
+  type TableRules,
+  type TableRulesPatch,
+} from '@/@creator/campaign/lib/table-rules';
 import { listChecks, type CheckRow } from './checks';
 import { listMaps, type MapRow } from './maps';
 import { applyPlayPatch, listPartyPlayState, type PlayState } from './play';
@@ -64,6 +74,8 @@ export interface EncounterRow {
   isActive: boolean;
   round: number;
   turnIndex: number;
+  /** What this fight does differently from the campaign. `{}` is nothing. */
+  ruleOverrides: TableRulesPatch;
 }
 
 export type EntrySide = 'party' | 'foe' | 'other';
@@ -200,6 +212,12 @@ export interface LiveState {
   whispers: WhisperRow[];
   /** The viewer's own linked character, so the tracker can say "your turn". */
   viewerCharacterId: string | null;
+  /**
+   * The rules in force: the campaign's table rules with the running fight's
+   * overrides on top. Role-neutral — nothing in it is secret — and read here
+   * so the shelf panels share one object rather than each fetching settings.
+   */
+  rules: TableRules;
 }
 
 /**
@@ -435,6 +453,17 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
       ? 'battle'
       : 'table';
 
+  // The same fold `effectiveRules` does, off the row this read already
+  // holds rather than two more queries for it.
+  const campaignRow = await db.query.campaigns.findFirst({
+    columns: { settings: true },
+    where: eq(campaigns.id, campaignId),
+  });
+  const tableRules = mergeCampaignSettings(campaignRow?.settings).table;
+  const rules = encounter?.isActive
+    ? applyTableRulesPatch(tableRules, encounter.ruleOverrides)
+    : tableRules;
+
   return {
     role,
     table,
@@ -454,6 +483,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
           isActive: encounter.isActive,
           round: encounter.round,
           turnIndex: encounter.turnIndex,
+          ruleOverrides: sanitizeTableRulesPatch(encounter.ruleOverrides),
         }
       : null,
     entries,
@@ -467,6 +497,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     portraits,
     whispers,
     viewerCharacterId: membership?.characterId ?? null,
+    rules,
   };
 }
 
