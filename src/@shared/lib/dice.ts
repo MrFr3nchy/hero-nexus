@@ -202,13 +202,139 @@ export function parseNotation(input: string): Notation | null {
   return { terms, modifier };
 }
 
-/** Roll a parsed notation. Rolling happens wherever this is called — the
- *  shared table log calls it on the server so the dice are not the client's
- *  to choose. */
-export function rollNotation(input: string): NotationRoll | null {
+/**
+ * Sum a parsed notation over faces already decided — the server's own dice,
+ * or the faces a player read off real ones. Rolling and tallying are two
+ * steps so the second can be checked apart from the first, and so a claim
+ * about a die never arrives as a claim about a total.
+ *
+ * `faces` must be one per die across the terms, in term order, each within
+ * its die — see {@link facesFit}. Returns null when it does not fit.
+ */
+export function tallyNotation(
+  input: string,
+  parsed: Notation,
+  faces: number[]
+): NotationRoll | null {
+  if (!facesFit(parsed, faces)) return null;
+
+  const dice: number[] = [];
+  const dropped: number[] = [];
+  let total = parsed.modifier;
+  let next = 0;
+
+  for (const term of parsed.terms) {
+    const base = dice.length;
+    const own = faces.slice(next, next + term.count);
+    next += term.count;
+    dice.push(...own);
+
+    const keep = term.keepHighest ?? term.keepLowest;
+    let counted = own.map((_, i) => i);
+    if (keep !== undefined) {
+      const order = own
+        .map((value, index) => ({ value, index }))
+        .sort((a, b) =>
+          term.keepHighest !== undefined
+            ? b.value - a.value || a.index - b.index
+            : a.value - b.value || a.index - b.index
+        );
+      counted = order.slice(0, keep).map(d => d.index);
+      const kept = new Set(counted);
+      own.forEach((_, i) => {
+        if (!kept.has(i)) dropped.push(base + i);
+      });
+    }
+
+    const sum = counted.reduce((acc, i) => acc + own[i], 0);
+    total += term.negative ? -sum : sum;
+  }
+
+  return {
+    notation: input.trim(),
+    dice,
+    dropped,
+    modifier: parsed.modifier,
+    total,
+  };
+}
+
+/**
+ * Whether a list of faces is exactly what a notation asks for: one per die,
+ * in term order, each an integer from 1 to that die's sides. `2d20kh1` wants
+ * two faces — advantage is two dice, whoever rolled them.
+ */
+export function facesFit(parsed: Notation, faces: number[]): boolean {
+  const wanted = parsed.terms.reduce((n, t) => n + t.count, 0);
+  if (faces.length !== wanted) return false;
+  let i = 0;
+  for (const term of parsed.terms) {
+    for (let k = 0; k < term.count; k++, i++) {
+      const f = faces[i];
+      if (!Number.isInteger(f) || f < 1 || f > term.sides) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Roll a parsed notation. Rolling happens wherever this is called — the
+ * shared table log calls it on the server so the dice are not the client's
+ * to choose. With `faces` given, nothing is rolled: the faces are tallied as
+ * they stand, and null comes back if they do not fit the notation.
+ */
+export function rollNotation(
+  input: string,
+  faces?: number[]
+): NotationRoll | null {
   const parsed = parseNotation(input);
   if (!parsed) return null;
+  if (faces) return tallyNotation(input, parsed, faces);
+  const rolled: number[] = [];
+  for (const term of parsed.terms) {
+    for (let i = 0; i < term.count; i++) rolled.push(rollDie(term.sides));
+  }
+  return tallyNotation(input, parsed, rolled);
+}
 
+/**
+ * A d20 test's dice: one face straight, two with advantage or
+ * disadvantage. Given faces, they are checked rather than rolled — the
+ * right count, each 1–20 — and null says they do not fit.
+ */
+export function d20Faces(
+  mode: 'straight' | 'advantage' | 'disadvantage',
+  faces?: number[]
+): number[] | null {
+  const count = mode === 'straight' ? 1 : 2;
+  if (!faces) return Array.from({ length: count }, () => rollDie(20));
+  if (faces.length !== count) return null;
+  if (!faces.every(f => Number.isInteger(f) && f >= 1 && f <= 20)) return null;
+  return faces;
+}
+
+/** The face a d20 test counts, and which die it was. */
+export function d20Result(
+  mode: 'straight' | 'advantage' | 'disadvantage',
+  dice: number[]
+): { face: number; dropped: number[] } {
+  const face =
+    mode === 'advantage'
+      ? Math.max(...dice)
+      : mode === 'disadvantage'
+        ? Math.min(...dice)
+        : dice[0];
+  return {
+    face,
+    dropped: dice.length === 2 ? [dice[0] === face ? 1 : 0] : [],
+  };
+}
+
+/** @deprecated kept for the two callers still tallying by hand; see rollNotation. */
+function legacyRollNotationBody(
+  input: string,
+  parsed: Notation
+): NotationRoll | null {
   const dice: number[] = [];
   const dropped: number[] = [];
   let total = parsed.modifier;
