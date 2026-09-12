@@ -41,9 +41,13 @@ import {
 } from 'react';
 
 import {
+  brushTiles,
   canStandUnder,
   distanceFeet,
+  distanceSquares,
+  floodFill,
   reachFor,
+  rectTiles,
   wallIndex,
 } from '@/@creator/campaign/lib/battlemap';
 import { floorArt, shade } from '@/@shared/battlemap/art';
@@ -93,7 +97,12 @@ import { useDiceTray } from '@/@shared/components/dice';
 import { withAdvantage } from '@/@shared/lib/dice';
 import { rollAction } from '../../actions';
 import { usePortraits } from '@/@shared/battlemap/portraits';
-import { setSelectedToken } from '@/@shared/battlemap/selection';
+import {
+  setSelectedTokens,
+  toggleSelectedToken,
+  useSelectedTokens,
+} from '@/@shared/battlemap/selection';
+import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
 import { ImagePicker } from '../ImagePicker';
 import { Refused, type RefusedState } from '../Refused';
 
@@ -117,6 +126,16 @@ type Tool =
   | { kind: 'light' }
   | { kind: 'reveal' }
   /**
+   * Two corners, one write. `apply` says which of the three brushed layers
+   * the box lands on; `value` is the material index, the feet to raise or
+   * lower by, or nothing for a reveal.
+   */
+  | { kind: 'rect'; apply: 'material' | 'elevation' | 'reveal'; value: number }
+  /** Tap a tile: every connected tile of the same floor takes this one. */
+  | { kind: 'fill'; material: number }
+  /** Two taps, feet between them. Anybody's, not only staff's. */
+  | { kind: 'ruler' }
+  /**
    * A thing: a scenery token, which is a row rather than terrain because a
    * player changes it. What the next tap puts down.
    */
@@ -134,16 +153,25 @@ type Tool =
  * The toolbar's modes. Each opens on one tool and shows only its own row.
  * `hint` is the scrawl beside the strip: what a tap on the board does now.
  */
-type Mode = 'select' | 'paint' | 'shape' | 'build' | 'things' | 'fog';
+type Mode = 'select' | 'ruler' | 'paint' | 'shape' | 'build' | 'things' | 'fog';
 
 function modeOf(tool: Tool): Mode {
   switch (tool.kind) {
     case 'select':
       return 'select';
+    case 'ruler':
+      return 'ruler';
     case 'paint':
+    case 'fill':
       return 'paint';
     case 'raise':
       return 'shape';
+    case 'rect':
+      return tool.apply === 'material'
+        ? 'paint'
+        : tool.apply === 'elevation'
+          ? 'shape'
+          : 'fog';
     case 'scenery':
       return 'things';
     case 'reveal':
@@ -168,7 +196,13 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
     mode: 'select',
     label: 'Select',
     tool: { kind: 'select' },
-    hint: 'tap a token, then tap where it goes',
+    hint: 'tap a token, then tap where it goes · shift-tap for more',
+  },
+  {
+    mode: 'ruler',
+    label: 'Ruler',
+    tool: { kind: 'ruler' },
+    hint: 'tap two tiles for the feet between them',
   },
   {
     mode: 'paint',
@@ -180,7 +214,7 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
     mode: 'shape',
     label: 'Height',
     tool: { kind: 'raise', by: 5 },
-    hint: 'tap a tile to raise or lower it',
+    hint: 'drag to raise or lower the ground',
   },
   {
     mode: 'build',
@@ -240,6 +274,35 @@ const DEFAULT_SPEED_FEET = 30;
 
 /** Debounce on terrain writes. Painting is a stream; the save is a document. */
 const SAVE_MS = 500;
+
+/** 1×1 / 3×3 / 5×5. One picker, shared by the floor, the height and the fog. */
+function BrushPicker({
+  brush,
+  onChange,
+}: {
+  brush: 1 | 2 | 3;
+  onChange: (b: 1 | 2 | 3) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+      {([1, 2, 3] as const).map(b => (
+        <button
+          key={b}
+          type="button"
+          onClick={() => onChange(b)}
+          aria-label={`Brush ${b * 2 - 1} tiles across`}
+          className={`rounded px-2 py-0.5 text-xs transition-colors ${
+            brush === b
+              ? 'bg-gold font-medium text-bg'
+              : 'text-ink-muted hover:text-ink'
+          }`}
+        >
+          {b * 2 - 1}×{b * 2 - 1}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /* --- drawing helpers --------------------------------------------------- */
 
@@ -409,17 +472,57 @@ export function BattleBoard({
     if (!res.ok) onError(res.error);
     await refresh();
   };
-  const [selected, setSelectedLocal] = useState<string | null>(null);
-  // Published, so the shelf beside the board knows the target and the foe.
+  /*
+   * The selection lives in the store the shelf reads, not here: the attacks
+   * panel aims at the last token picked and the stat block shows it, and a
+   * shift-tap adds a second so a group can be walked together. `selected`
+   * is that last one — what "the selected token" has always meant.
+   */
+  const selectedIds = useSelectedTokens(campaignId);
+  const selected = selectedIds.length
+    ? selectedIds[selectedIds.length - 1]
+    : null;
   const setSelected = useCallback(
     (id: string | null) => {
-      setSelectedLocal(id);
-      setSelectedToken(campaignId, id);
+      setSelectedTokens(campaignId, id ? [id] : []);
       // The last lock's verdict belongs to the last lock.
       setLockWord('');
     },
     [campaignId]
   );
+  /*
+   * A combatant the initiative panel asked to have placed: the next tap on
+   * a tile is where they stand. Staff only, and Escape lets go of it.
+   */
+  const placing = usePlacement(campaignId);
+  useEffect(() => {
+    if (!placing) return;
+    // Whatever the DM was painting, the next tap is a placement.
+    setTool({ kind: 'select' });
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') setPlacement(campaignId, null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [placing, campaignId]);
+  /*
+   * The ruler: an origin, a far end that follows the pointer until it is
+   * pinned by a second tap, and a third tap that clears it. Feet by the
+   * table's diagonal rule, squares beside them for the people who count.
+   */
+  const [ruler, setRuler] = useState<{
+    from: { x: number; y: number };
+    to: { x: number; y: number } | null;
+    pinned: boolean;
+  } | null>(null);
+  useEffect(() => {
+    if (tool.kind !== 'ruler') setRuler(null);
+  }, [tool.kind]);
+  /** The rectangle tool's box while it is being dragged. */
+  const [marquee, setMarquee] = useState<{
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+  } | null>(null);
   const tray = useDiceTray();
 
   /**
@@ -465,34 +568,33 @@ export function BattleBoard({
   } | null>(null);
   const [painting, setPainting] = useState(false);
   /**
-   * The reveal brush. Tiles are gathered during the stroke and drawn as
-   * pending, then sent **once on pointer-up** — one write per stroke rather
-   * than one per pointer event — the same trap a token drag avoids, and this
-   * tool's first shape.
+   * The brush, shared by the floor, the height and the fog: 1×1, 3×3, 5×5.
+   * It began as the reveal brush alone, and filling a room square by square
+   * with the floor tool was the complaint that made it everybody's.
+   *
+   * For the fog, tiles are gathered during the stroke and drawn as pending,
+   * then sent **once on pointer-up** — one write per stroke rather than one
+   * per pointer event — the same trap a token drag avoids.
    */
   const [brush, setBrush] = useState<1 | 2 | 3>(1);
   const pendingReveal = useRef(new Set<number>());
   const [pendingCount, setPendingCount] = useState(0);
+  const revealTilesPending = useCallback((indices: number[]) => {
+    let added = 0;
+    for (const i of indices) {
+      if (!pendingReveal.current.has(i)) {
+        pendingReveal.current.add(i);
+        added += 1;
+      }
+    }
+    if (added) setPendingCount(pendingReveal.current.size);
+  }, []);
   const brushAt = useCallback(
     (x: number, y: number) => {
       if (!terrain) return;
-      const r = brush - 1;
-      let added = 0;
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          const tx = x + dx;
-          const ty = y + dy;
-          if (!inBounds(terrain, tx, ty)) continue;
-          const i = ty * terrain.w + tx;
-          if (!pendingReveal.current.has(i)) {
-            pendingReveal.current.add(i);
-            added += 1;
-          }
-        }
-      }
-      if (added) setPendingCount(pendingReveal.current.size);
+      revealTilesPending(brushTiles(terrain, { x, y }, brush));
     },
-    [terrain, brush]
+    [terrain, brush, revealTilesPending]
   );
   const flushReveal = useCallback(async () => {
     if (!board || pendingReveal.current.size === 0) return;
@@ -506,6 +608,8 @@ export function BattleBoard({
   const [busy, setBusy] = useState(false);
   const [newW, setNewW] = useState('20');
   const [newH, setNewH] = useState('15');
+  /** What every tile of a new board starts as. Void, unless the DM says. */
+  const [newFloor, setNewFloor] = useState(String(VOID));
   /**
    * The 3D view is a *view*: the 2D board stays the authoring surface and the
    * thing a phone renders. Off by default so a laptop with a dead GPU is not
@@ -655,16 +759,31 @@ export function BattleBoard({
       };
 
       switch (tool.kind) {
-        case 'paint':
-          if (next.material[i] === tool.material) return;
-          next.material[i] = tool.material;
+        case 'paint': {
+          let changed = false;
+          for (const t of brushTiles(terrain, { x, y }, brush)) {
+            if (next.material[t] === tool.material) continue;
+            next.material[t] = tool.material;
+            changed = true;
+          }
+          if (!changed) return;
           break;
+        }
         case 'raise':
-          next.elevation[i] = Math.max(
-            -50,
-            Math.min(200, next.elevation[i] + tool.by)
-          );
+          for (const t of brushTiles(terrain, { x, y }, brush)) {
+            next.elevation[t] = Math.max(
+              -50,
+              Math.min(200, next.elevation[t] + tool.by)
+            );
+          }
           break;
+        case 'fill': {
+          if (next.material[i] === tool.material) return;
+          for (const t of floodFill(terrain, { x, y })) {
+            next.material[t] = tool.material;
+          }
+          break;
+        }
         case 'wall': {
           if (!side) return;
           const key = edgeKey(x, y, side);
@@ -727,7 +846,36 @@ export function BattleBoard({
       }
       scheduleSave(next);
     },
-    [terrain, isStaff, tool, scheduleSave]
+    [terrain, isStaff, tool, brush, scheduleSave]
+  );
+
+  /** The rectangle tool's one write, on pointer-up. */
+  const applyRect = useCallback(
+    (from: { x: number; y: number }, to: { x: number; y: number }) => {
+      if (!terrain || !isStaff || tool.kind !== 'rect') return;
+      const tiles = rectTiles(terrain, from, to);
+      if (tool.apply === 'reveal') {
+        revealTilesPending(tiles);
+        flushReveal();
+        return;
+      }
+      const next: TerrainDoc = {
+        ...terrain,
+        elevation: [...terrain.elevation],
+        material: [...terrain.material],
+      };
+      for (const t of tiles) {
+        if (tool.apply === 'material') next.material[t] = tool.value;
+        else {
+          next.elevation[t] = Math.max(
+            -50,
+            Math.min(200, next.elevation[t] + tool.value)
+          );
+        }
+      }
+      scheduleSave(next);
+    },
+    [terrain, isStaff, tool, revealTilesPending, flushReveal, scheduleSave]
   );
 
   const toggleDoor = useCallback(
@@ -766,9 +914,36 @@ export function BattleBoard({
     const at = tileAt(ev);
     if (!at || !board || !terrain) return;
 
+    // The ruler is anybody's. First tap sets the origin, the second pins
+    // the far end, the third clears it.
+    if (tool.kind === 'ruler') {
+      if (!ruler) setRuler({ from: at, to: null, pinned: false });
+      else if (!ruler.pinned) setRuler({ ...ruler, to: at, pinned: true });
+      else setRuler(null);
+      return;
+    }
+
+    // Somebody the initiative panel asked to have placed: this is where.
+    if (isStaff && placing && tool.kind === 'select') {
+      const res = await placeTokenAction(board.id, {
+        entryId: placing.entryId,
+        x: at.x,
+        y: at.y,
+        visibility: 'dm',
+      });
+      if (!res.ok) onError(res.error);
+      else setPlacement(campaignId, null);
+      await refresh();
+      return;
+    }
+
     // Staff with a building tool: paint. Everything else is selection and
     // movement, which players and staff share.
     if (isStaff && tool.kind !== 'select' && tool.kind !== 'scenery') {
+      if (tool.kind === 'rect') {
+        setMarquee({ from: at, to: at });
+        return;
+      }
       if (tool.kind === 'reveal') {
         setPainting(true);
         brushAt(at.x, at.y);
@@ -836,7 +1011,13 @@ export function BattleBoard({
     );
 
     if (hit) {
-      setSelected(hit.id === selected ? null : hit.id);
+      // Shift adds to the selection, so a group can be picked up together;
+      // a plain tap on the selected token lets it go.
+      if (ev.shiftKey) toggleSelectedToken(campaignId, hit.id);
+      else
+        setSelected(
+          hit.id === selected && selectedIds.length === 1 ? null : hit.id
+        );
       return;
     }
 
@@ -860,7 +1041,17 @@ export function BattleBoard({
         return;
       }
       setBusy(true);
+      // A group moves by the same step the picked token takes; each move is
+      // its own claim, and the server refuses each on its own.
+      const dx = at.x - selectedToken.x;
+      const dy = at.y - selectedToken.y;
+      const group = board.tokens.filter(
+        t => selectedIds.includes(t.id) && t.id !== selectedToken.id && t.mine
+      );
       await move(selectedToken.id, { x: at.x, y: at.y });
+      for (const t of group) {
+        await move(t.id, { x: t.x + dx, y: t.y + dy });
+      }
       setBusy(false);
       await refresh();
       return;
@@ -885,6 +1076,8 @@ export function BattleBoard({
   const onPointerMove = (ev: ReactPointerEvent<HTMLCanvasElement>) => {
     const at = tileAt(ev);
     setHover(at);
+    if (at && ruler && !ruler.pinned) setRuler({ ...ruler, to: at });
+    if (at && marquee) setMarquee({ ...marquee, to: at });
     if (!painting || !at || !isStaff) return;
     if (tool.kind === 'reveal') {
       brushAt(at.x, at.y);
@@ -897,6 +1090,10 @@ export function BattleBoard({
 
   const onPointerUp = () => {
     if (painting && tool.kind === 'reveal') flushReveal();
+    if (marquee) {
+      applyRect(marquee.from, marquee.to);
+      setMarquee(null);
+    }
     setPainting(false);
   };
 
@@ -925,7 +1122,11 @@ export function BattleBoard({
       const room = fitHeight - above - 48;
       size = Math.max(2, Math.min(size, Math.floor(room / terrain.h)));
     }
-    if (size < 2) return;
+    // Below this a token's rim is wider than its face and `arc` throws on
+    // the negative radius, taking the page down — a phone held sideways
+    // with a region measured before it had a height found it. Draw nothing
+    // and wait for the next measurement rather than draw a crash.
+    if (size < 6) return;
     const W = size * terrain.w;
     const H = size * terrain.h;
     const dpr = window.devicePixelRatio || 1;
@@ -1489,9 +1690,10 @@ export function BattleBoard({
         ctx.setLineDash([]);
       }
 
-      // Selection.
-      if (t.id === selected) {
-        ctx.strokeStyle = p.ink;
+      // Selection. Every token in the group wears the ring; the last one
+      // picked — the target — wears it in ink, the rest in gold.
+      if (selectedIds.includes(t.id)) {
+        ctx.strokeStyle = t.id === selected ? p.ink : p.gold;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(cx, cy, r + Math.max(8, size * 0.26), 0, Math.PI * 2);
@@ -1587,8 +1789,12 @@ export function BattleBoard({
             break;
         }
         ctx.stroke();
-      } else {
-        const r = tool.kind === 'reveal' ? brush - 1 : 0;
+      } else if (tool.kind !== 'rect' && tool.kind !== 'ruler') {
+        const brushed =
+          tool.kind === 'reveal' ||
+          tool.kind === 'paint' ||
+          tool.kind === 'raise';
+        const r = brushed ? brush - 1 : 0;
         ctx.strokeRect(
           (hover.x - r) * size + 1,
           (hover.y - r) * size + 1,
@@ -1596,6 +1802,67 @@ export function BattleBoard({
           size * (2 * r + 1) - 2
         );
       }
+    }
+
+    // The rectangle being dragged: a dashed box over the tiles it will take.
+    if (marquee) {
+      const x0 = Math.min(marquee.from.x, marquee.to.x) * size;
+      const y0 = Math.min(marquee.from.y, marquee.to.y) * size;
+      const x1 = (Math.max(marquee.from.x, marquee.to.x) + 1) * size;
+      const y1 = (Math.max(marquee.from.y, marquee.to.y) + 1) * size;
+      ctx.fillStyle = p.gold;
+      ctx.globalAlpha = 0.18;
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = p.gold;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
+      ctx.setLineDash([]);
+    }
+
+    // The ruler: a line between two tile centres and the feet beside it.
+    if (ruler && ruler.to) {
+      const ax = (ruler.from.x + 0.5) * size;
+      const ay = (ruler.from.y + 0.5) * size;
+      const bx = (ruler.to.x + 0.5) * size;
+      const by = (ruler.to.y + 0.5) * size;
+      ctx.strokeStyle = p.ink;
+      ctx.lineWidth = 2;
+      ctx.setLineDash(ruler.pinned ? [] : [6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (const [x, y] of [
+        [ax, ay],
+        [bx, by],
+      ]) {
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(3, size * 0.1), 0, Math.PI * 2);
+        ctx.fillStyle = p.ink;
+        ctx.fill();
+      }
+      const feet = distanceFeet(ruler.from, ruler.to, state.rules.diagonals);
+      const squares = distanceSquares(ruler.from, ruler.to);
+      const label = `${feet} ft · ${squares} sq`;
+      ctx.font = `600 ${Math.max(11, size * 0.4)}px Inter, system-ui, sans-serif`;
+      const tw = ctx.measureText(label).width + 10;
+      const th = Math.max(16, size * 0.55);
+      const lx = Math.min(W - tw - 2, Math.max(2, (ax + bx) / 2 - tw / 2));
+      const ly = Math.min(H - th - 2, Math.max(2, (ay + by) / 2 - th - 6));
+      ctx.fillStyle = p.surface;
+      ctx.globalAlpha = 0.92;
+      ctx.fillRect(lx, ly, tw, th);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = p.line;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(lx + 0.5, ly + 0.5, tw - 1, th - 1);
+      ctx.fillStyle = p.ink;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, lx + 5, ly + th / 2);
+      ctx.textBaseline = 'alphabetic';
     }
   }, [
     terrain,
@@ -1605,6 +1872,7 @@ export function BattleBoard({
     entriesById,
     currentEntryId,
     selected,
+    selectedIds,
     reach,
     hover,
     tool,
@@ -1615,6 +1883,9 @@ export function BattleBoard({
     pendingCount,
     brush,
     fitHeight,
+    marquee,
+    ruler,
+    state.rules.diagonals,
   ]);
 
   // Redraw on resize: the canvas is sized off its container.
@@ -1659,6 +1930,20 @@ export function BattleBoard({
                     className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
                   />
                 </label>
+                <label className="flex flex-col text-xs text-ink-muted">
+                  Floor
+                  <select
+                    value={newFloor}
+                    onChange={e => setNewFloor(e.target.value)}
+                    className="h-[30px] rounded-md border border-line bg-surface px-2 text-sm text-ink"
+                  >
+                    {MATERIALS.map((m, i) => (
+                      <option key={m.key} value={i}>
+                        {i === VOID ? 'Nothing yet' : m.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <Button
                   size="sm"
                   color="primary"
@@ -1668,6 +1953,7 @@ export function BattleBoard({
                     const res = await createBattleMapAction(campaignId, {
                       w: Number(newW),
                       h: Number(newH),
+                      material: Number(newFloor),
                     });
                     if (res.ok) {
                       await setBattleMapActiveAction(res.data.id, true);
@@ -1712,6 +1998,19 @@ export function BattleBoard({
   const sameTool = (a: Tool, b: Tool) =>
     JSON.stringify(a) === JSON.stringify(b);
   const mode = modeOf(tool);
+  /** The floor a paint, box or fill tool carries; stone for anything else. */
+  const floorOf = (t: Tool): number =>
+    t.kind === 'paint' || t.kind === 'fill'
+      ? t.material
+      : t.kind === 'rect' && t.apply === 'material'
+        ? t.value
+        : 1;
+  const withFloor = (t: Tool, material: number): Tool =>
+    t.kind === 'fill'
+      ? { kind: 'fill', material }
+      : t.kind === 'rect' && t.apply === 'material'
+        ? { kind: 'rect', apply: 'material', value: material }
+        : { kind: 'paint', material };
 
   return (
     <SectionCard
@@ -1809,6 +2108,47 @@ export function BattleBoard({
         <Refused refusal={refused} onDismiss={() => setRefused(null)} />
       )}
 
+      {placing && isStaff && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-gold/40 bg-gold/10 px-3 py-2 text-sm text-ink">
+          <Glyph name="target" size={14} className="text-gold" />
+          <span>Tap where {placing.label} stands.</span>
+          <button
+            type="button"
+            onClick={() => setPlacement(campaignId, null)}
+            className="ml-auto text-xs text-ink-subtle hover:text-ink"
+          >
+            Never mind · Esc
+          </button>
+        </div>
+      )}
+
+      {/* A player's rail: no paint, but the ruler is everybody's. */}
+      {!isStaff && !dimensional && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+            {MODES.filter(m => m.mode === 'select' || m.mode === 'ruler').map(
+              m => (
+                <button
+                  key={m.mode}
+                  type="button"
+                  onClick={() => setTool(m.tool)}
+                  className={`rounded px-2.5 py-1 text-xs transition-colors ${
+                    mode === m.mode
+                      ? 'bg-gold font-medium text-bg'
+                      : 'text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              )
+            )}
+          </div>
+          <Marginalia dash className="ml-1">
+            {MODES.find(m => m.mode === mode)?.hint}
+          </Marginalia>
+        </div>
+      )}
+
       {isStaff && !dimensional && (
         <div className="space-y-2">
           {/* One row of modes, one row of the chosen mode's tools. Every
@@ -1838,31 +2178,40 @@ export function BattleBoard({
 
           {mode === 'paint' && (
             <div className="flex flex-wrap items-center gap-1.5">
-              {MATERIALS.map((m, i) => (
-                <Button
-                  key={m.key}
-                  size="sm"
-                  variant={
-                    tool.kind === 'paint' && tool.material === i
-                      ? 'solid'
-                      : 'flat'
-                  }
-                  color={
-                    tool.kind === 'paint' && tool.material === i
-                      ? 'primary'
-                      : 'default'
-                  }
-                  className="min-w-0 gap-1.5 px-2"
-                  onPress={() => setTool({ kind: 'paint', material: i })}
-                >
-                  <span
-                    aria-hidden="true"
-                    className="inline-block h-3 w-3 rounded-sm border border-line"
-                    style={{ background: dark ? m.swatchDark : m.swatch }}
-                  />
-                  {m.name}
-                </Button>
-              ))}
+              {MATERIALS.map((m, i) => {
+                // The swatch picks the floor; how it goes on — brush, box
+                // or fill — is the row's own choice and survives the pick.
+                const chosen = floorOf(tool) === i;
+                return (
+                  <Button
+                    key={m.key}
+                    size="sm"
+                    variant={chosen ? 'solid' : 'flat'}
+                    color={chosen ? 'primary' : 'default'}
+                    className="min-w-0 gap-1.5 px-2"
+                    onPress={() => setTool(withFloor(tool, i))}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-3 w-3 rounded-sm border border-line"
+                      style={{ background: dark ? m.swatchDark : m.swatch }}
+                    />
+                    {m.name}
+                  </Button>
+                );
+              })}
+              <span className="mx-1 h-5 w-px bg-line" />
+              <BrushPicker brush={brush} onChange={setBrush} />
+              {toolButton(
+                'Box',
+                { kind: 'rect', apply: 'material', value: floorOf(tool) },
+                tool.kind === 'rect'
+              )}
+              {toolButton(
+                'Fill',
+                { kind: 'fill', material: floorOf(tool) },
+                tool.kind === 'fill'
+              )}
             </div>
           )}
 
@@ -1877,6 +2226,18 @@ export function BattleBoard({
                 'Lower 5 ft',
                 { kind: 'raise', by: -5 },
                 sameTool(tool, { kind: 'raise', by: -5 })
+              )}
+              <span className="mx-1 h-5 w-px bg-line" />
+              <BrushPicker brush={brush} onChange={setBrush} />
+              {toolButton(
+                'Box up',
+                { kind: 'rect', apply: 'elevation', value: 5 },
+                tool.kind === 'rect' && tool.value > 0
+              )}
+              {toolButton(
+                'Box down',
+                { kind: 'rect', apply: 'elevation', value: -5 },
+                tool.kind === 'rect' && tool.value < 0
               )}
             </div>
           )}
@@ -1939,23 +2300,12 @@ export function BattleBoard({
           {mode === 'fog' && (
             <div className="flex flex-wrap items-center gap-1.5">
               {toolButton('Reveal', { kind: 'reveal' }, tool.kind === 'reveal')}
-              <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
-                {([1, 2, 3] as const).map(b => (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => setBrush(b)}
-                    aria-label={`Brush ${b * 2 - 1} tiles across`}
-                    className={`rounded px-2 py-0.5 text-xs transition-colors ${
-                      brush === b
-                        ? 'bg-gold font-medium text-bg'
-                        : 'text-ink-muted hover:text-ink'
-                    }`}
-                  >
-                    {b * 2 - 1}×{b * 2 - 1}
-                  </button>
-                ))}
-              </div>
+              <BrushPicker brush={brush} onChange={setBrush} />
+              {toolButton(
+                'Box',
+                { kind: 'rect', apply: 'reveal', value: 0 },
+                tool.kind === 'rect'
+              )}
               <Button
                 size="sm"
                 variant="light"
@@ -2168,11 +2518,17 @@ export function BattleBoard({
               selectedToken.label ||
               'Something'}
           </span>
+          {selectedIds.length > 1 && (
+            <span className="rounded-sm border border-gold/50 px-1.5 py-0.5 text-[0.65rem] uppercase tracking-[0.12em] text-gold-strong dark:text-gold">
+              {selectedIds.length} together
+            </span>
+          )}
           {hoverToken && hoverToken.id !== selectedToken.id ? (
-            // Range, by the same Chebyshev rule the reach uses. The question a
-            // table asks most, answered without counting squares out loud.
+            // Range, by the table's diagonal rule. The question a table asks
+            // most, answered without counting squares out loud.
             <span className="tabular-nums">
-              {distanceFeet(selectedToken, hoverToken)} ft to{' '}
+              {distanceFeet(selectedToken, hoverToken, state.rules.diagonals)}{' '}
+              ft to{' '}
               {(hoverToken.entryId &&
                 entriesById.get(hoverToken.entryId)?.label) ||
                 hoverToken.label ||
@@ -2180,9 +2536,11 @@ export function BattleBoard({
             </span>
           ) : selectedToken.mine ? (
             <span>
-              {selectedToken.entryId
-                ? `Tap a lit tile to move there. ${speedOf(selectedToken)} ft.`
-                : 'Tap a tile to move it.'}
+              {selectedIds.length > 1
+                ? 'Tap a tile and the group steps with it.'
+                : selectedToken.entryId
+                  ? `Tap a lit tile to move there. ${speedOf(selectedToken)} ft.`
+                  : 'Tap a tile to move it.'}
             </span>
           ) : (
             <span>Not yours to move.</span>

@@ -12,6 +12,7 @@ import {
   removePlanLine,
   runPlan,
   setPlanLineCount,
+  setPlanLineSpots,
   updatePlan,
   type PlanRow,
 } from '@/server/encounter-plans';
@@ -127,6 +128,19 @@ export async function setPlanLineCountAction(
   }
 }
 
+/** Where a line's copies stand on a board. The whole list, each time. */
+export async function setPlanLineSpotsAction(
+  lineId: string,
+  spots: unknown
+): Promise<Result> {
+  try {
+    await setPlanLineSpots(lineId, spots);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to place them.');
+  }
+}
+
 export async function removePlanLineAction(lineId: string): Promise<Result> {
   try {
     await removePlanLine(lineId);
@@ -143,7 +157,14 @@ export async function removePlanLineAction(lineId: string): Promise<Result> {
 export async function runPlanAction(
   campaignId: string,
   planId: string
-): Promise<Result<{ encounterId: string; skipped: number }>> {
+): Promise<
+  Result<{
+    encounterId: string;
+    skipped: number;
+    placed: number;
+    unplaced: number;
+  }>
+> {
   try {
     const data = await runPlan(planId);
     revalidatePath(`/campaigns/${campaignId}`);

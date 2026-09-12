@@ -276,18 +276,27 @@ export function across(x: number, y: number, side: Side): [number, number] {
   }
 }
 
-/** An empty board: all void, no walls. What a new map starts as. */
-export function emptyTerrain(w: number, h: number): TerrainDoc {
+/**
+ * An empty board: one material everywhere, no walls. What a new map starts
+ * as. All void by default; a DM laying out a stone hall picks stone and
+ * paints the void back in where it belongs, which is less painting.
+ */
+export function emptyTerrain(
+  w: number,
+  h: number,
+  fill: number = VOID
+): TerrainDoc {
   const side = (n: number) => Math.max(MIN_SIDE, Math.min(MAX_SIDE, n | 0));
   const W = side(w);
   const H = side(h);
+  const material = MATERIALS[fill] ? fill : VOID;
   return {
     format: BATTLEMAP_FORMAT,
     version: BATTLEMAP_VERSION,
     w: W,
     h: H,
     elevation: new Array(W * H).fill(0),
-    material: new Array(W * H).fill(VOID),
+    material: new Array(W * H).fill(material),
     walls: [],
     props: [],
     lights: [],

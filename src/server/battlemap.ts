@@ -325,11 +325,43 @@ export async function listBattleMaps(campaignId: string): Promise<
   });
 }
 
+/**
+ * One board's whole terrain, for staff planning on it. Not `getBattleMapState`:
+ * that is the table's fogged, role-filtered read of the active board; this
+ * is the DM looking at any board of theirs in prep.
+ */
+export async function getBoardTerrain(mapId: string): Promise<{
+  id: string;
+  name: string;
+  terrain: TerrainDoc;
+  /** Where things already stand, so a plan does not put a goblin in the well. */
+  taken: { x: number; y: number; footprint: number }[];
+}> {
+  const { map } = await staffForMap(mapId);
+  const tokens = await db
+    .select({
+      x: battleMapTokens.x,
+      y: battleMapTokens.y,
+      footprint: battleMapTokens.footprint,
+      state: battleMapTokens.state,
+    })
+    .from(battleMapTokens)
+    .where(eq(battleMapTokens.mapId, mapId));
+  return {
+    id: map.id,
+    name: map.name,
+    terrain: normalizeTerrain(map.terrain),
+    taken: tokens
+      .filter(t => blocksTile(t.state as ItemState | null))
+      .map(t => ({ x: t.x, y: t.y, footprint: t.footprint })),
+  };
+}
+
 /* --- authoring --------------------------------------------------------- */
 
 export async function createBattleMap(
   campaignId: string,
-  input: { name?: string; w: number; h: number }
+  input: { name?: string; w: number; h: number; material?: number }
 ): Promise<string> {
   const { userId } = await staff(campaignId);
   const [row] = await db
@@ -337,7 +369,7 @@ export async function createBattleMap(
     .values({
       campaignId,
       name: (input.name ?? '').trim().slice(0, 120),
-      terrain: emptyTerrain(input.w, input.h),
+      terrain: emptyTerrain(input.w, input.h, input.material ?? VOID),
       revealed: [],
       createdBy: userId,
     })
@@ -548,6 +580,9 @@ export async function resetFog(mapId: string): Promise<void> {
   bumpVersion(map.campaignId);
 }
 
+/** How far the party sees when the board is lit from it or dealt around it. */
+const PARTY_SIGHT_FEET = 40;
+
 /**
  * Reveal what the party can see: the union of `visibleFrom` over every
  * `shared` token that belongs to a party-side combatant, within a torch's
@@ -555,7 +590,7 @@ export async function resetFog(mapId: string): Promise<void> {
  */
 export async function revealFromParty(
   mapId: string,
-  radiusFeet = 40
+  radiusFeet = PARTY_SIGHT_FEET
 ): Promise<number> {
   const { map } = await staffForMap(mapId);
   const doc = normalizeTerrain(map.terrain);
@@ -663,12 +698,47 @@ function itemFields(input: {
 }
 
 /**
+ * How many tiles a side each combatant stands on, read off the creature it
+ * was dealt from: an ogre is Large and takes four. Resolved once per distinct
+ * creature rather than per copy — six goblins are one bestiary read — and a
+ * hand-typed combatant, with no reference to read, is medium. Shared by the
+ * deal and by placing one combatant by hand, so the two cannot disagree.
+ */
+async function footprintsFor(
+  entries: { id: string; creatureRef: unknown }[]
+): Promise<Map<string, number>> {
+  const refs = new Map<string, ContentRef>();
+  for (const e of entries) {
+    const ref = e.creatureRef as ContentRef | null;
+    if (ref) refs.set(refKey(ref), ref);
+  }
+  const bySize = new Map<string, number>();
+  if (refs.size > 0) {
+    const resolved = await resolveContentRefs([...refs.values()]);
+    for (const [key, entry] of resolved) {
+      if (entry.type !== 'creature') continue;
+      const d = parseContentData('creature', entry.data) as CreatureData;
+      bySize.set(key, FOOTPRINT_BY_SIZE[d.size] ?? 1);
+    }
+  }
+  const out = new Map<string, number>();
+  for (const e of entries) {
+    const ref = e.creatureRef as ContentRef | null;
+    out.set(e.id, ref ? (bySize.get(refKey(ref)) ?? 1) : 1);
+  }
+  return out;
+}
+
+/**
  * Put a token down. Staff only. Refused if the footprint cannot stand there:
- * out of bounds, on void, on lava, on a pillar, or on somebody.
+ * out of bounds, on void, on somebody — and, through the table's fence, on
+ * lava or a pillar.
  *
  * An `entryId` must belong to the board's encounter — a goblin from March's
  * fight is not dealt into tonight's — and the partial unique index refuses a
- * second token for the same combatant.
+ * second token for the same combatant. A combatant's footprint comes off its
+ * creature unless the caller says otherwise, so "place Ogre 2" stands it on
+ * four tiles without the DM knowing an ogre is Large.
  */
 export async function placeToken(
   mapId: string,
@@ -677,17 +747,20 @@ export async function placeToken(
   const { map } = await staffForMap(mapId);
   const doc = normalizeTerrain(map.terrain);
 
+  let footprint = Math.max(1, Math.min(3, Math.trunc(input.footprint ?? 1)));
   if (input.entryId) {
     const entry = await db.query.initiativeEntries.findFirst({
-      columns: { encounterId: true },
+      columns: { id: true, encounterId: true, creatureRef: true },
       where: eq(initiativeEntries.id, input.entryId),
     });
     if (!entry || entry.encounterId !== map.encounterId) {
       throw new Error('NOT_IN_THIS_FIGHT');
     }
+    if (input.footprint === undefined) {
+      footprint = (await footprintsFor([entry])).get(entry.id) ?? 1;
+    }
   }
 
-  const footprint = Math.max(1, Math.min(3, Math.trunc(input.footprint ?? 1)));
   const me: Occupant = { x: input.x, y: input.y, footprint };
   await refuseStanding(
     standingIssue(doc, me, await occupantsExcept(mapId, null)),
@@ -776,36 +849,39 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
     .from(initiativeEntries)
     .where(eq(initiativeEntries.encounterId, map.encounterId));
 
-  /*
-   * How many tiles a side each stands on, read off the creature it was
-   * dealt from: an ogre is Large and takes four. Resolved once per distinct
-   * creature rather than per copy — six goblins are one bestiary read — and
-   * a hand-typed combatant, with no reference to read, is medium.
-   */
-  const refs = new Map<string, ContentRef>();
-  for (const e of entries) {
-    const ref = e.creatureRef as ContentRef | null;
-    if (ref) refs.set(refKey(ref), ref);
-  }
-  const footprints = new Map<string, number>();
-  if (refs.size > 0) {
-    const resolved = await resolveContentRefs([...refs.values()]);
-    for (const [key, entry] of resolved) {
-      if (entry.type !== 'creature') continue;
-      const d = parseContentData('creature', entry.data) as CreatureData;
-      footprints.set(key, FOOTPRINT_BY_SIZE[d.size] ?? 1);
-    }
-  }
-  const footprintOf = (e: (typeof entries)[number]) => {
-    const ref = e.creatureRef as ContentRef | null;
-    return ref ? (footprints.get(refKey(ref)) ?? 1) : 1;
-  };
+  const footprints = await footprintsFor(entries);
+  const footprintOf = (e: (typeof entries)[number]) =>
+    footprints.get(e.id) ?? 1;
 
   const existing = await db
-    .select({ entryId: battleMapTokens.entryId })
+    .select({
+      entryId: battleMapTokens.entryId,
+      x: battleMapTokens.x,
+      y: battleMapTokens.y,
+    })
     .from(battleMapTokens)
     .where(eq(battleMapTokens.mapId, mapId));
   const already = new Set(existing.map(e => e.entryId));
+
+  /*
+   * What the party can see from where it already stands, so a foe is dealt
+   * into the dark rather than into the open: an ambush the party watched
+   * being set up is not one. The same radius "reveal from party" uses. With
+   * nobody of the party on the board yet, nothing is lit and the foes take
+   * the far edge as before.
+   */
+  const partyIds = new Set(
+    entries.filter(e => e.side === 'party').map(e => e.id)
+  );
+  const lit = new Set<number>();
+  for (const t of existing) {
+    if (!t.entryId || !partyIds.has(t.entryId)) continue;
+    for (const i of visibleFrom(doc, { x: t.x, y: t.y }, PARTY_SIGHT_FEET)) {
+      lit.add(i);
+    }
+  }
+  const inTheOpen = (x: number, y: number, footprint: number) =>
+    footprintTiles(doc, { x, y, footprint }).some(i => lit.has(i));
 
   // Walk the board for the first standable tile each, party from the top-left
   // and foes from the bottom-right, so a fresh deal is two lines facing each
@@ -819,15 +895,19 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
     const order: number[] = [];
     for (let i = 0; i < doc.w * doc.h; i++) order.push(i);
     if (e.side === 'foe') order.reverse();
-    for (const i of order) {
-      const x = i % doc.w;
-      const y = Math.floor(i / doc.w);
-      if (doc.material[i] === VOID) continue;
-      if (canStand(doc, { x, y, footprint }, others)) {
-        spot = { x, y };
-        break;
+    const find = (avoidLit: boolean) => {
+      for (const i of order) {
+        const x = i % doc.w;
+        const y = Math.floor(i / doc.w);
+        if (doc.material[i] === VOID) continue;
+        if (avoidLit && inTheOpen(x, y, footprint)) continue;
+        if (canStand(doc, { x, y, footprint }, others)) return { x, y };
       }
-    }
+      return null;
+    };
+    // A foe stands in the dark when there is any; on a board lit end to end
+    // it stands where it can, because a fight with no foes on it is worse.
+    spot = e.side === 'foe' ? (find(true) ?? find(false)) : find(false);
     if (!spot) break;
     await db.insert(battleMapTokens).values({
       mapId,

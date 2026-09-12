@@ -751,7 +751,7 @@ async function numberDuplicates(
 export async function addEntry(
   encounterId: string,
   input: EntryInput
-): Promise<void> {
+): Promise<string> {
   const campaignId = await encounterCampaign(encounterId);
   await staff(campaignId);
   const existing = await db
@@ -765,27 +765,31 @@ export async function addEntry(
     input.label.trim() || 'Combatant'
   );
 
-  await db.insert(initiativeEntries).values({
-    encounterId,
-    label,
-    characterId: input.characterId ?? null,
-    initiative: input.initiative ?? 0,
-    hpCurrent: input.hpCurrent ?? null,
-    hpMax: input.hpMax ?? null,
-    hpTemp: input.hpTemp ?? 0,
-    armorClass: input.armorClass ?? null,
-    conditions: input.conditions ?? '',
-    conditionKeys: input.conditionKeys
-      ? serializeConditions(input.conditionKeys.split(','))
-      : '',
-    concentrating: input.concentrating ?? false,
-    side: input.side ?? (input.characterId ? 'party' : 'foe'),
-    sort: nextSort,
-    creatureRef: input.creatureRef ?? null,
-  });
+  const [row] = await db
+    .insert(initiativeEntries)
+    .values({
+      encounterId,
+      label,
+      characterId: input.characterId ?? null,
+      initiative: input.initiative ?? 0,
+      hpCurrent: input.hpCurrent ?? null,
+      hpMax: input.hpMax ?? null,
+      hpTemp: input.hpTemp ?? 0,
+      armorClass: input.armorClass ?? null,
+      conditions: input.conditions ?? '',
+      conditionKeys: input.conditionKeys
+        ? serializeConditions(input.conditionKeys.split(','))
+        : '',
+      concentrating: input.concentrating ?? false,
+      side: input.side ?? (input.characterId ? 'party' : 'foe'),
+      sort: nextSort,
+      creatureRef: input.creatureRef ?? null,
+    })
+    .returning({ id: initiativeEntries.id });
   // Coalesced in the hub, so the loops in `addPartyToEncounter` and
   // `addCreaturesToEncounter` cost one nudge between them rather than five.
   bumpVersion(campaignId);
+  return row.id;
 }
 
 async function entryCampaign(entryId: string): Promise<string> {
@@ -949,11 +953,12 @@ export async function addPartyToEncounter(encounterId: string): Promise<void> {
  * roll, not a record of one. Each copy rolls separately — three goblins that
  * share one initiative are one goblin with three health bars.
  */
+/** Returns the new entries' ids, in the order they were dealt. */
 export async function addCreaturesToEncounter(
   encounterId: string,
   ref: ContentRef,
   copies: number
-): Promise<void> {
+): Promise<string[]> {
   await staff(await encounterCampaign(encounterId));
   if (ref.type !== 'creature') throw new Error('NOT_A_CREATURE');
 
@@ -970,17 +975,21 @@ export async function addCreaturesToEncounter(
     Math.min(MAX_CREATURE_COPIES, Math.trunc(copies) || 1)
   );
 
+  const ids: string[] = [];
   for (let i = 0; i < count; i++) {
-    await addEntry(encounterId, {
-      label: entry.name,
-      initiative: rollDie(20) + d.initiative_bonus,
-      hpCurrent: d.hit_points,
-      hpMax: d.hit_points,
-      armorClass: d.armor_class,
-      side: 'foe',
-      creatureRef: ref,
-    });
+    ids.push(
+      await addEntry(encounterId, {
+        label: entry.name,
+        initiative: rollDie(20) + d.initiative_bonus,
+        hpCurrent: d.hit_points,
+        hpMax: d.hit_points,
+        armorClass: d.armor_class,
+        side: 'foe',
+        creatureRef: ref,
+      })
+    );
   }
+  return ids;
 }
 
 export async function rollInitiative(encounterId: string): Promise<void> {

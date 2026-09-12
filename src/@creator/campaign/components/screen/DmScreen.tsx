@@ -491,9 +491,17 @@ export function DmScreen({
     await save(next);
   };
 
+  /*
+   * Arranging, a change waits for "Save the screen" like the columns do.
+   * Otherwise — a fold, the shelf put away — it is written at once, the way
+   * the pin is: those are the changes a viewer makes twenty times a night
+   * without ever pressing Arrange, and the ones that used to be forgotten.
+   */
   const changeBattle = (next: BattleLayout) => {
-    setLayouts({ ...layouts, battle: next });
-    setDirty(true);
+    const merged = { ...layouts, battle: next };
+    setLayouts(merged);
+    if (arranging) setDirty(true);
+    else void save(merged);
   };
 
   const ctx: ScreenContext = {
