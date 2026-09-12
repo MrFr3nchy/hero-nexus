@@ -1,0 +1,367 @@
+List of items to improve for the general flow.
+
+Legend, after a review against the code (Sept 2026):
+  ~~struck~~        already in the app; pointer to where.
+  [partly]          the bones exist; what is listed is the missing half.
+  [gap]             nothing in the code does this yet.
+  [+]               added during the review — not in the original list.
+  "house rule"      the app's stated stance (see the file header comments in
+                    src/server/battlemap.ts, src/server/checks.ts and
+                    AttacksPanel.tsx): the app advises, refuses nothing a DM
+                    would rule on, and never trusts a number the browser made.
+                    Anything below that automates a rule should fit that stance —
+                    propose, and let the DM confirm or override with one tap.
+
+===============================================================================
+- Battle map / Sand Table
+===============================================================================
+
+  > [partly] Brush sizes. ~~There is no 3×3 or 5×5 option~~ — the Fog "Reveal"
+    tool has a 1×1 / 3×3 / 5×5 brush (BattleBoard.tsx, `brush`), but Floor and
+    Height paint one tile per tap. Filling a room square by square is the
+    hassle.
+      - Share the brush picker across Floor, Height and Fog.
+      - Add a rectangle tool (drag two corners → fill material / set height).
+      - Add a flood fill (tap a tile → every connected tile of the same
+        material takes the new one).
+      - On "new board", let the DM pick the starting material instead of
+        opening on all-void.
+
+  > [partly] The Shelf. ~~Things should be collapsible / customizable per
+    player~~ — the shelf is already per-viewer (stored in `screen_layouts`),
+    each panel folds, the whole shelf folds to a strip of glyphs, and
+    "Arrange" adds / removes / reorders (BattleArrangement.tsx). What is
+    missing and what makes it *feel* cluttered:
+      - Fold state is lost on every page load (`folded` is component state).
+        Remember it with the layout.
+      - Reorder on the shelf is up/down arrows. The desk and table screens
+        already drag-and-drop (DmScreen.tsx `movePanel`) — the shelf should
+        too.
+      - The default shelf is six panels. Open on three (mine / attacks / dice
+        for a player; initiative / statblock / dice for staff) and let the
+        badges on the strip pull people into the rest.
+      - Two shelves: one each side of the board on wide screens, so the board
+        stays square rather than a letterbox.
+
+  > [partly] Placing combatants. ~~Randomly placed~~ — "Deal them in" lays the
+    party from the top-left corner and foes from the bottom-right
+    (`dealEncounterIn`), and staff can then tap a token and tap where it goes.
+    Missing:
+      - Place one combatant from the initiative list onto a tapped tile
+        (`placeToken` already accepts an `entryId`; there is no control for it).
+      - Save placements on an Encounter Plan (EncounterPlanner.tsx), so a
+        prepared fight deals onto a prepared board in the spots the DM chose.
+      - Multi-select and move a group.
+      - "Deal in" should keep foes hidden (`visibility: 'dm'` — it does) and
+        also skip revealed tiles the party can see, so an ambush is not dealt
+        into the open.
+
+  > [gap] Action economy. There is no notion of Action / Bonus Action /
+    Reaction / Movement anywhere — no Dash, Disengage, Dodge, Help, Hide,
+    Ready, Search, Utilize, Magic, Influence, Study, or Jump.
+      - A per-turn strip on the acting combatant's card: action, bonus,
+        reaction, movement used / remaining. Resets on `advanceTurn`.
+      - Dash doubles the board's lit reach for the turn; Disengage flags "no
+        opportunity attacks"; Dodge flags "attacks against have disadvantage".
+      - Ready: hold an action with a trigger note; the DM is reminded when the
+        trigger's turn comes.
+      - The stat block's actions (StatBlockPanel) should spend the creature's
+        action when rolled, so a DM can see a monster has already acted.
+      - Under a DM toggle (see "rule of cool" below): advise only, or fence.
+
+  > [partly] Attacks against a target. ~~Should specify who they are attacking~~
+    — tapping a foe on the board aims the row (AttacksPanel: "vs Goblin 2 · 30
+    ft") and the range is checked in words. But the to-hit is never compared
+    to the target's **AC** (not DC) and damage is never applied.
+      - Compare the to-hit total to the target's AC when the app knows it
+        (a seated hero's is derived; a bestiary foe's is on the block; a
+        hand-typed foe has `armorClass` on the entry) and say Hit / Miss on
+        the roll line.
+      - On a hit, offer the damage as a one-tap "apply 12 to Goblin 2" for the
+        DM (and for the player when the target is a hero and the DM has
+        enabled it). Goes through `applyHp`, so temp HP, going down and death
+        saves all follow.
+      - Natural 20 doubles the damage dice automatically (2024: dice, not
+        modifiers). The tray already knows a crit (`critToneOf`).
+      - Apply the target's resistances / vulnerabilities / immunities from its
+        creature data when the damage type is known; say so on the line.
+      - Ammunition: a ranged attack with an ammunition weapon decrements the
+        matching stack in the pack.
+
+  > [gap] The rule of cool — DM overrides on every enforced rule, and the
+    "force rules" toggle. Merge with the item below it; they are one feature.
+      - A campaign-level switch: **Advise** (default; the app says what the
+        rules say and does nothing) vs **Enforce** (the app refuses). Flippable
+        mid-fight, announced to the table when it flips.
+      - Every rule the app *does* enforce today should honour it — the board's
+        `canStand` (standing in lava), the attunement cap, the death-save
+        gates — plus every automation added by this list.
+      - Per-instance override: any refused action shows "Do it anyway" to
+        staff, and the log line records "DM's ruling".
+
+  > [partly] Potions and weapon swaps. ~~Are potions / switching weapons
+    included?~~ — equip / stow / attune and handing items over exist
+    (MyHeroPanel, `applyLoadoutPatch`, `giveItem`). Missing:
+      - "Use" on a consumable: quantity −1, roll its effect (healing potion
+        2d4+2 → applied to HP), one log line. Item data has no "effect on use"
+        field; add one to the item schema / homebrew form.
+      - Potion-as-bonus-action is a table rule (see DM settings). Weapon swap
+        is free once per turn in 2024; a second draw/stow costs the Utilize
+        action — only matters once the action strip exists.
+
+  > [gap] Conditions should *do* something.
+      - Long rest: `restParty` restores HP / slots / half hit dice / −1
+        exhaustion and clears nothing else. Rules-wise a long rest does not
+        cure Poisoned by itself — the effect that caused it has a duration —
+        so the fix is **durations**, not a blanket clear: a condition carries
+        "until end of next turn" / "N rounds" / "until saved (DC, ability)" /
+        "until removed", and expires or re-prompts on `advanceTurn`. Then a
+        long rest clears whatever is left with a duration shorter than 8 hours.
+      - Poisoned → default the roll mode to Disadvantage on attacks and
+        checks (RollPanel, AttacksPanel, the Asking's answer). Frightened →
+        disadvantage while the source is in sight. Blinded, Restrained,
+        Prone, Invisible → the same on attacks made and received.
+      - Grappled / Restrained → speed 0 on the board's lit reach. Prone → half
+        speed (crawl) and standing up costs half. Exhaustion → −5 ft per
+        level and −2 per level on every d20 test.
+      - Incapacitated / Stunned / Paralyzed / Unconscious → the action strip
+        is greyed out; concentration breaks.
+      - The pre-set mode is a default, not a lock — the player can flip it
+        back (house rule).
+
+  > [partly] Concentration. ~~Concentration checks if hit~~ — a
+    `concentrating` flag exists on the entry (InitiativeTracker toggle) and
+    nothing reads it.
+      - On damage to a concentrating combatant, auto-issue a Constitution save
+        through the Asking at DC max(10, floor(damage / 2)); on a fail, clear
+        the flag and announce it.
+      - Break automatically on Incapacitated or 0 HP.
+      - Record *what* is being concentrated on (the spell), so a second
+        concentration spell ends the first, and the duration ties into the
+        round countdown.
+
+  > [partly] Spell save DCs. ~~Are there DCs for spells?~~ — `spellSaveDC` is
+    derived for every hero (PlayCard shows it) and the DM can ask for a save
+    at any DC. What is missing is the *casting* that uses it — see "Cast a
+    spell" under Overall.
+      - A monster's spell save DC comes off its stat block text, not a
+        field. Parse it once so "the mage casts Hold Person" asks the right
+        save at the right DC.
+      - Polymorph / Wild Shape / summons: a token temporarily wearing another
+        creature's block (AC, HP pool, attacks) and reverting when its HP hits
+        0. Nothing like this exists.
+
+  [+] Area of effect templates. Sphere / cube / cone / line, dragged from a
+      caster, that light the tiles and list who is inside — then one tap asks
+      every occupant for the save. The board already knows every token's
+      footprint and `distanceFeet`.
+
+  [+] Cover. Half / three-quarters / full read off the walls and blocking
+      props between attacker and target (`canSee` is the start), shown on the
+      aim line as "+2 AC (half cover)".
+
+  [+] Opportunity attacks. When a token leaves a hostile's reach on the board,
+      prompt that hostile's owner (a player, or the DM) for the reaction —
+      unless Disengage was taken.
+
+  [+] Movement fence. `moveToken` deliberately does not enforce distance
+      ("a later phase can fence it once movement speed is on the sheet" — it
+      is now). Make the fence the Enforce half of the rule-of-cool switch.
+
+  [+] A ruler. Tap two tiles → feet, for anybody, without selecting a token.
+
+  [+] Group initiative for identical monsters (six goblins act together), and
+      legendary / lair actions at initiative count 20, legendary resistance
+      counters, recharge abilities rolled at the start of the creature's turn.
+
+  [+] Undo for staff: the last HP change, the last token move, the last
+      condition. A mis-tap mid-fight costs the whole table a minute.
+
+  [+] Light and vision. Tokens carry a vision radius (darkvision 60 / 120,
+      torch 20+20); "Reveal from party" uses `visibleFrom` with a fixed
+      radius today — use each hero's, and the board's `lights`.
+
+  [+] Bulk conditions: apply one condition to every token in a selection or
+      inside an AoE template.
+
+===============================================================================
+- Session Screens
+===============================================================================
+
+  > [gap] Every roll through the tray. Rolls that show the dice animation:
+    attacks, stat-block actions, the Dice panel, death saves, lock picks,
+    ability scores, hit die at level-up. Rolls that do **not**: answering the
+    Asking (ChecksPanel), Roll Initiative (InitiativeTracker), spending a hit
+    die (PlayCard), rolling a creature's HP on deal-in. Rule: if the server
+    rolled a die and the viewer caused it, the tray shows the server's faces
+    (`showNotationRoll`), never a second client roll.
+
+  > [gap] Physical dice. Let a player type the face(s) they rolled on real
+    dice; the server still computes the modifier and the total (the house
+    rule — the browser sends a claim about the die, never the total), the
+    `campaign_rolls` row is flagged `physical`, the log line and the tray say
+    so (a hollow die, say), and every downstream automation — Hit/Miss,
+    concentration, the Asking's verdict — works the same.
+      - Needs a face per die for advantage / disadvantage / damage dice, not
+        one number.
+      - A DM setting: physical dice allowed / disallowed / allowed but marked.
+
+  > [gap] Control heights. A Select, a number Input and a text Input on one
+    row render at different heights (mixed HeroUI `size` props, and Select's
+    default is taller than Input `size="sm"`). Audit every row that mixes
+    them (ChecksPanel, HandoutsPanel, BattleBoard's tool rail, RollPanel,
+    NotebookPanel, CampaignManageForm) and settle on one size per context;
+    consider a shared `ControlRow` so it cannot drift again. Add it as a
+    checkable line in docs/design-language.md.
+
+  [+] "It's your turn" and "you're being asked" need to reach a player who is
+      looking at another tab: tab-title badge, an optional chime, and the
+      browser notification API (local, no service).
+
+  [+] Keyboard for the DM: next turn, previous turn, damage/heal the
+      highlighted combatant, toggle fog tool. A fight is run with one hand.
+
+  [+] The whole sand table on a phone in landscape — the board fills the
+      screen and the shelf becomes a bottom sheet. It stacks today, which
+      works, but a player at a real table holds a phone sideways.
+
+===============================================================================
+- Overall
+===============================================================================
+
+  > [gap] Weight and encumbrance. Items carry `weight` in their data and the
+    sheet never sums it. Show carried weight vs capacity (STR × 15) on the
+    sheet and in "Your hero"; under the variant rule (table setting) apply
+    −10 / −20 ft speed and the disadvantages at 5× / 10× STR. Coins weigh
+    something too (50 per lb) — a setting.
+
+  > [partly] Throw, jump and size. ~~Size~~ — a creature's size sets its
+    footprint on the board (`FOOTPRINT_BY_SIZE`) and a hero's `size` is on
+    the sheet. ~~Thrown range~~ — the aim line already says "long shot" /
+    "out of range" for thrown and ranged weapons. Missing:
+      - Jump: long jump = STR score ft (half without a 10 ft run-up), high
+        jump = 3 + STR mod ft. Show it on the sheet and let the board light a
+        jumpable gap over void / water / a pit.
+      - A hero's size should set their footprint too (a Large hero exists in
+        homebrew).
+      - Throwing a non-weapon (see improvised).
+
+  > [gap] Improvised weapons. Any inventory item, or "something in the room"
+    (a prop, a chair): 1d4 + STR/DEX, thrown 20/60, no proficiency. One row
+    at the bottom of Attacks.
+
+  > [partly] Interactive things. ~~Levers, buttons~~ — the board has things a
+    party can act on: open / closed / locked / broken, lock DC, hit points
+    (`operateThing`, `pickLock`, `damageThing`). Missing:
+      - A thing with an **effect**: operate it → a set of tiles changes
+        material or height, walls toggle, a door elsewhere opens. Authored
+        as "this lever affects these tiles".
+      - Traps: a tile that triggers when stepped on (Dex save DC, damage),
+        hidden until found (Perception vs DC through the Asking) or sprung.
+        Fits the same shape as a lever with a trigger of "entered".
+      - A pressure plate that fires on the party and not on the DM's foes.
+
+  > [gap] Something in N turns / round-based countdowns. Timers are wall-clock
+    (`campaign_timers`, seconds) and Clocks are progress segments. A fight
+    needs a third kind: a counter in **rounds** that ticks on `advanceTurn` and
+    announces at zero — "the ceiling comes down in 3 rounds", "the ritual
+    completes at the top of round 5". Staff-only or shared.
+
+  > [gap] Condition and effect durations (rage 10 rounds, Bless 10 rounds,
+    Hold Person "until saved"). Same mechanism as the countdown above,
+    attached to a combatant and named — "Rage · 7 rounds left" on the card,
+    and a re-prompted save at the end of each turn where the rules say so.
+    Also covers spell durations for the caster (concentration above).
+
+  > ~~Exhaustion points~~ — on the sheet (`combat.exhaustion` 0–6), editable on
+    the PlayCard, −1 on a long rest, death at 6. What is missing is only that
+    it changes nothing on rolls or speed — folded into "Conditions should do
+    something" above.
+
+  > [gap] In-world calendar and day / sleep cycles. Sessions carry a
+    real-world date and nothing carries a fictional one. A campaign calendar
+    (defaults: 7-day week, 12 months of 30, 24-hour day; DM-editable names
+    and lengths) with a current date/time the DM advances; long rests, travel
+    and downtime advance it; sessions, canon entries and journal pages can
+    pin to a fictional date. Survival (food / water / sleep) hooks off the
+    day tick — see DM settings.
+
+  > [gap] Consent for spells on another player. Casting on a fellow hero
+    prompts them: allow / contest (roll the save at the caster's DC) /
+    refuse. The Asking (`requestCheck` / `answerCheck` / decline) is exactly
+    this shape already — one more kind of request, addressed by the caster
+    rather than the DM.
+
+  > [partly] Cast a spell — in or out of combat. ~~Can cast spells outside
+    combat~~ — a player can already expend any slot at any time (PlayCard),
+    and prepared spells are togglable at the table. What is missing is a
+    **Cast** flow: pick a spell (and a slot level to upcast), the slot is
+    spent, the spell attack or the targets' saves are rolled/asked, damage or
+    healing is offered for application, concentration is set, and the
+    duration countdown starts. One log line. Works at the desk with no
+    fight running, because a lot of casting is Detect Magic in a corridor.
+      - Ritual casting (no slot, +10 minutes on the calendar).
+      - Spells with a "cast" effect need structured data the raw Open5e
+        fields do not carry (save ability, attack vs save, half on save,
+        healing). Add optional fields to the spell schema; the SRD spells
+        ship with them filled where they can be parsed.
+
+  [+] Heroic Inspiration: a token on the sheet, granted by the DM, spent to
+      reroll — the 2024 human gets one every long rest.
+
+  [+] Rests as a flow, not a button. A long rest asks each player to confirm
+      (spend hit dice on the short rest, swap prepared spells on the long
+      one), then applies; the calendar moves 8 hours; the survival rules run.
+
+  [+] Level-up at the table. XP awards land on the sheet (AwardsPanel); when
+      a hero crosses a threshold, tell them and open the advancement step of
+      the builder on that level, rather than making them notice.
+
+  [+] A shop. A merchant panel with SRD item prices the DM curates (stock,
+      markup), that a player buys from during downtime "shopping" — the coins
+      leave the purse, the item lands in the pack, one history line. `giveItem`
+      and `giveCoin` are the halves; a price list is what is missing.
+
+  [+] Ambient sound. A DM-uploaded track per board or per scene, played for
+      the table (files live in the campaign's uploads like images do; no
+      outbound calls). Optional, muted by default for players.
+
+  [+] Rules at hand. The Conditions panel is one line each; extend it to a
+      searchable "at the table" reference: the actions in combat, cover,
+      mounted / underwater, jumping, falling, suffocating, light, and the
+      table's own homebrew rules from settings — so nobody opens a PDF.
+
+===============================================================================
+- More settings for the DM
+===============================================================================
+
+  > [gap] Homebrew / optional rule toggles for the campaign. Today
+    `CampaignRules` governs character *building* (ability method, level cap,
+    multiclass, bans, backstory) and `customRules` is a free-text box that
+    nothing reads. Add a structured "at the table" block that the play
+    surfaces actually consult:
+      - Potion as an action / bonus action / free.
+      - Encumbrance: off / basic (STR × 15) / variant (5× / 10×).
+      - Survival: food and water per day, sleep, exhaustion on missing them.
+      - Flanking (advantage when a hostile is opposite an ally).
+      - Diagonal movement: 2024 (5-5-5) or 2014 optional (5-10-5) — the board
+        has a comment saying people will report the 2024 rule as a bug.
+      - Critical hits: 2024 (double dice) / max + roll / crit tables.
+      - Healing potions: rolled / maximum (a common house rule).
+      - Rest variants: gritty realism (long rest = a week) / heroic (short =
+        5 min, long = 1 hour).
+      - Massive damage / lingering injuries.
+      - Physical dice allowed (see above).
+      - Advise / Enforce (the rule-of-cool switch), and whether players may
+        apply damage to foes themselves or only propose it.
+      - Whether players see foe HP as a word (Bloodied — today) or a number.
+    Each toggle is one line in `describeRules`, so the table's rules render
+    on the campaign page and in "Rules at hand" without a second source.
+
+  [+] Per-fight overrides of those settings (this fight has no flanking),
+      falling back to the campaign's.
+
+  [+] Homebrew *rules* as content. A DM writes a house rule with a name and
+      text, the same way a spell is forged, and it shows up in "Rules at
+      hand" and on the campaign page. Publishable through the Library like
+      other homebrew, so a good house rule travels between tables.
