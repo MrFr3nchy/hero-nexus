@@ -14,6 +14,7 @@ import {
   type CreatureData,
   type FeatData,
   type ItemData,
+  type RuleData,
   type SpeciesData,
   type SpellData,
   type SubclassData,
@@ -549,6 +550,24 @@ function CreatureBody({ d }: { d: CreatureData }) {
   );
 }
 
+/**
+ * A house rule reads as a passage, not a table of facts: the summary in the
+ * DM's voice, the rule itself, and what in the book it stands in for.
+ */
+function RuleBody({ d }: { d: RuleData }) {
+  return (
+    <>
+      {d.replaces && <Fact label="Replaces">{d.replaces}</Fact>}
+      {d.summary.trim() && (
+        <p className="font-display text-base leading-snug text-ink">
+          {d.summary}
+        </p>
+      )}
+      <Prose>{d.body}</Prose>
+    </>
+  );
+}
+
 function Body({ entry }: { entry: ContentEntry }) {
   switch (entry.type) {
     case 'spell':
@@ -567,6 +586,8 @@ function Body({ entry }: { entry: ContentEntry }) {
       return <BackgroundBody d={parseContentData('background', entry.data)} />;
     case 'feat':
       return <FeatBody d={parseContentData('feat', entry.data)} />;
+    case 'rule':
+      return <RuleBody d={parseContentData('rule', entry.data)} />;
     default:
       return null;
   }

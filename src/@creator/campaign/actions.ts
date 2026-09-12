@@ -9,6 +9,7 @@ import {
   type ApprovalRow,
 } from '@/server/approvals';
 import { ABILITY_METHODS } from '@/@creator/character/schema';
+import { sanitizeTableRulesPatch } from '@/@creator/campaign/lib/table-rules';
 import type { ContentRef } from '@/@shared/content';
 import type { NotationRoll } from '@/@shared/lib/dice';
 import {
@@ -89,6 +90,12 @@ const settingsSchema = z
     customRules: z.string().max(8000).optional(),
     bannerImageId: z.string().min(1).max(64).nullable().optional(),
     rules: rulesSchema,
+    /**
+     * Sanitised against the registry rather than re-described here: a rule
+     * is one entry in `TABLE_RULE_FIELDS`, and a second list of its legal
+     * values in this file is the drift the registry exists to prevent.
+     */
+    table: z.unknown().transform(sanitizeTableRulesPatch).optional(),
   })
   .optional();
 

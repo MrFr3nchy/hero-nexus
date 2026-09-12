@@ -14,7 +14,10 @@
  *    stored document with parts hidden.
  * 2. **A position the browser produced is a claim, not a record.** Moves are
  *    validated against the rules in `lib/battlemap.ts` — bounds, void,
- *    occupancy — and refused rather than trusted.
+ *    occupancy — and refused rather than trusted. Standing in lava is the
+ *    one refusal the table's Advise / Enforce switch governs (`fence`):
+ *    advising, the board says it is lava and lets you; enforcing, it
+ *    refuses, and staff may rule past it.
  * 3. **A token is a position for an `initiativeEntries` row.** Its name, hit
  *    points and side come off the entry, through `LiveState`'s already
  *    role-filtered `entries`. This module never copies them.
@@ -27,6 +30,7 @@ import {
   canStand,
   fogged,
   footprintTiles,
+  standingIssue,
   visibleFrom,
   type Occupant,
 } from '@/@creator/campaign/lib/battlemap';
@@ -67,6 +71,7 @@ import { getCampaignImage, imageUrl } from './campaign-images';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
 import { resolveContentRefs } from './content';
+import { effectiveRules, fence } from './table-rules';
 
 export interface BattleTokenRow {
   id: string;
@@ -667,7 +672,7 @@ function itemFields(input: {
  */
 export async function placeToken(
   mapId: string,
-  input: TokenInput
+  input: TokenInput & { ruling?: boolean }
 ): Promise<string> {
   const { map } = await staffForMap(mapId);
   const doc = normalizeTerrain(map.terrain);
@@ -684,9 +689,12 @@ export async function placeToken(
 
   const footprint = Math.max(1, Math.min(3, Math.trunc(input.footprint ?? 1)));
   const me: Occupant = { x: input.x, y: input.y, footprint };
-  if (!canStand(doc, me, await occupantsExcept(mapId, null))) {
-    throw new Error('CANNOT_STAND_THERE');
-  }
+  await refuseStanding(
+    standingIssue(doc, me, await occupantsExcept(mapId, null)),
+    map.campaignId,
+    map.encounterId,
+    { isStaff: true, ruling: input.ruling }
+  );
 
   if (input.imageId) {
     const image = await getCampaignImage(input.imageId);
@@ -837,6 +845,25 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
 }
 
 /**
+ * A standing refusal, sorted into the two kinds `standingIssue` tells apart.
+ *
+ * Off the board, on no board, or on somebody: refused for everyone, always.
+ * Lava or a pillar: the rules, so it goes through the table's fence — nothing
+ * advising, a refusal staff can overrule enforcing.
+ */
+async function refuseStanding(
+  issue: ReturnType<typeof standingIssue>,
+  campaignId: string,
+  encounterId: string | null,
+  who: { isStaff: boolean; ruling?: boolean }
+): Promise<void> {
+  if (issue === null) return;
+  if (issue !== 'terrain') throw new Error('CANNOT_STAND_THERE');
+  const rules = await effectiveRules(campaignId, encounterId);
+  fence('CANNOT_STAND_THERE', rules, who);
+}
+
+/**
  * Move a token. The one write a player may make to the board.
  *
  * A player may move a token for their own seated character and nothing else;
@@ -844,12 +871,13 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
  * bounds, void, occupancy — and refused rather than trusted. **Distance is
  * not enforced here** on purpose: a DM says "you can't get there this turn"
  * and the table agrees, and the ghosted reach on the board is advice rather
- * than a fence. A later phase can fence it once movement speed is on the
- * sheet.
+ * than a fence. The table's `movementFence` rule is where that fence will
+ * live once movement is spent per turn (improvements 05).
  */
 export async function moveToken(
   tokenId: string,
-  to: { x: number; y: number }
+  to: { x: number; y: number },
+  opts: { ruling?: boolean } = {}
 ): Promise<void> {
   const token = await db.query.battleMapTokens.findFirst({
     where: eq(battleMapTokens.id, tokenId),
@@ -891,9 +919,12 @@ export async function moveToken(
   const doc = normalizeTerrain(map.terrain);
   if (!inBounds(doc, to.x, to.y)) throw new Error('CANNOT_STAND_THERE');
   const me: Occupant = { x: to.x, y: to.y, footprint: token.footprint };
-  if (!canStand(doc, me, await occupantsExcept(map.id, tokenId))) {
-    throw new Error('CANNOT_STAND_THERE');
-  }
+  await refuseStanding(
+    standingIssue(doc, me, await occupantsExcept(map.id, tokenId)),
+    map.campaignId,
+    map.encounterId,
+    { isStaff: isStaffRole(role), ruling: opts.ruling }
+  );
 
   await db
     .update(battleMapTokens)

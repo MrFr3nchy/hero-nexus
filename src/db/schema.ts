@@ -264,6 +264,7 @@ export const homebrew = sqliteTable(
         'background',
         'feat',
         'creature',
+        'rule',
       ],
     }).notNull(),
     name: text('name').notNull(),
@@ -479,6 +480,14 @@ export const initiativeEncounters = sqliteTable(
     turnIndex: integer('turn_index').notNull().default(0),
     /** The sitting this was fought at. Null is unfiled. */
     sessionId: text('session_id'),
+    /**
+     * This fight's departures from the campaign's table rules, as a partial
+     * `TableRules` (0046). Laid over `campaigns.settings.table` by
+     * `effectiveRules`; `{}` means the fight plays by the campaign's book.
+     */
+    ruleOverrides: text('rule_overrides', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('initiative_encounters_campaign_idx').on(t.campaignId)]

@@ -7,6 +7,7 @@ import {
   CONTENT_TYPE_ORDER,
   contentMeta,
   type ContentEntry,
+  type ContentType,
 } from '@/@shared/content';
 import { StatBlock } from '@/@shared/components/StatBlock';
 import {
@@ -105,7 +106,7 @@ const EXAMPLE_FIELDS: { label: string; value: string; note?: string }[] = [
 ];
 
 /** What each type is for, and the field people most often get wrong. */
-const TYPE_NOTES: Record<string, { forWhat: string; watch: string }> = {
+const TYPE_NOTES: Record<ContentType, { forWhat: string; watch: string }> = {
   class: {
     forWhat:
       'A whole career: the hit die, what you are trained in, and the features that arrive as you level.',
@@ -145,6 +146,18 @@ const TYPE_NOTES: Record<string, { forWhat: string; watch: string }> = {
       'Gear, weapons, armour and wondrous things — anything that can sit in an inventory.',
     watch:
       'Armour and weapon stats only appear once you set the kind. Attunement is a real flag: a character can hold three attuned items and the sheet counts them.',
+  },
+  creature: {
+    forWhat:
+      'Something the party meets: CR, AC, hit points, what it does on its turn.',
+    watch:
+      'The actions are what the DM rolls from the stat block panel mid-fight. Write the attack line the way the book does — "+5 to hit, 1d8+3 slashing" — and the dice come out right.',
+  },
+  rule: {
+    forWhat:
+      'A rule of the table — a potion that always heals its most, a flanking rule, a death save nobody sees.',
+    watch:
+      'Say what in the book it replaces. "Rules at hand" lists it beside the printed rule, and a DM adopting it wants to know what they are giving up.',
   },
 };
 
@@ -241,9 +254,9 @@ export function HomebrewGuide() {
 
       <Rule />
 
-      {/* ---- the seven ---- */}
+      {/* ---- the nine ---- */}
       <section>
-        <h2 className="font-display text-xl text-ink">The seven kinds</h2>
+        <h2 className="font-display text-xl text-ink">The nine kinds</h2>
         <p className="mt-2 max-w-prose text-sm text-ink-muted">
           Pick the kind first. It decides which fields the Forge asks for, and
           changing it later clears the stat fields — your name and description

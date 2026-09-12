@@ -20,11 +20,20 @@ import {
   type PlayState,
 } from '@/server/play';
 
+import { RuleRefusal } from '@/server/table-rules';
+
 type Result<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
-  | { ok: false; error: string };
+  | Refusal;
 
-function fail(err: unknown, fallback: string): { ok: false; error: string } {
+/**
+ * `overridable` is set only when the rules refused and the caller is staff:
+ * the control shows "Do it anyway" and re-sends with `{ ruling: true }`.
+ * Decided on the server (`RuleRefusal`), never in the browser.
+ */
+type Refusal = { ok: false; error: string; overridable?: boolean };
+
+function fail(err: unknown, fallback: string): Refusal {
   const code = err instanceof Error ? err.message : '';
   const messages: Record<string, string> = {
     NOT_AUTHENTICATED: 'You are not signed in.',
@@ -47,7 +56,13 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
   // Unmapped errors reach the client as a generic sentence, which makes them
   // invisible in a bug report. Keep the real one in the server log.
   if (!messages[code]) console.error('[action]', fallback, err);
-  return { ok: false, error: messages[code] ?? fallback };
+  return {
+    ok: false,
+    error: messages[code] ?? fallback,
+    ...(err instanceof RuleRefusal && err.overridable
+      ? { overridable: true }
+      : {}),
+  };
 }
 
 const patchSchema = z.object({
@@ -164,6 +179,7 @@ const loadoutSchema = z.object({
   prepare: z
     .object({ key: z.string().min(1).max(200), prepared: z.boolean() })
     .optional(),
+  ruling: z.boolean().optional(),
 });
 
 export async function getPlayLoadoutAction(

@@ -38,6 +38,8 @@ const CATEGORIES_FOR: Record<ContentType, string[]> = {
   spell: ['spell'],
   item: ['magic-item', 'weapon', 'armor'],
   creature: ['creature'],
+  // The SRD prints no house rules. Every one is forged.
+  rule: [],
 };
 
 /** Every SRD entry of one type, adapted and sorted by name. */

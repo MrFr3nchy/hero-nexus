@@ -10,8 +10,11 @@ typed defs, and `homebrew.data` held `{}` and was never read. One renderer, one 
 and one validator cannot serve two vocabularies. So both sources adapt into
 `ContentEntry`, and nothing downstream knows or cares which it is looking at.
 
-The eight types are **class, subclass, species, background, feat, spell, item,
-creature**.
+The nine types are **class, subclass, species, background, feat, spell, item,
+creature, rule**. The last is the one kind that never lands on a sheet: a house
+rule is put in play at a table — approved into its library like anything else —
+and read from "Rules at hand" and the campaign page. It is content all the same,
+because that is what lets a good one travel through the Library.
 
 ---
 
@@ -122,14 +125,14 @@ extension point; that is the shape to watch for.
 | Module                               | Holds                                                                     |
 | ------------------------------------ | ------------------------------------------------------------------------- |
 | `@/@shared/content/types.ts`         | `ContentRef`, `ContentEntry`, `CONTENT_TYPES`, `refKey`. No React, no db. |
-| `@/@shared/content/schemas.ts`       | The seven stat shapes. Every leaf defaulted and `.catch()`ed.             |
+| `@/@shared/content/schemas.ts`       | The nine stat shapes. Every leaf defaulted and `.catch()`ed.              |
 | `@/@shared/content/adapt.ts`         | `fromReference` / `fromHomebrew` — the two sources becoming one.          |
 | `@/@shared/content/registry.ts`      | Label, plural, glyph, description, chips. One row per type.               |
 | `@/server/content.ts`                | `listPickableContent`, `resolveContentRefs` — SRD + own + campaign.       |
 | `@/server/campaign-content.ts`       | The library: what is in play at a table.                                  |
 | `@/@shared/components/StatBlock.tsx` | The renderer (rule 5).                                                    |
 
-## The seven field contracts
+## The nine field contracts
 
 `data` is validated against its type's schema on every write, so a malformed blob never
 reaches a stat block. What each type's `data` must contain:
@@ -143,6 +146,8 @@ reaches a stat block. What each type's `data` must contain:
 | **feat**       | `FeatDef`       | `category` (Origin / General / Fighting Style / Epic Boon), `prerequisite`, `benefits[]` — one line per benefit, as Open5e files them                                                                                                                                                                 |
 | **spell**      | Open5e raw      | `level` (0 = cantrip), `school`, `casting_time`, `range_text`, `duration`, `concentration`, `ritual`, `verbal`/`somatic`/`material` (+ `material_specified`, `material_consumed`), `target_type`, `saving_throw_ability`, `attack_roll`, `damage_roll`, `damage_types[]`, `higher_level`, `classes[]` |
 | **item**       | Open5e raw      | `kind` (wondrous/weapon/armor/gear/consumable), `rarity`, `requires_attunement` (+ `attunement_detail`), `weight`, `cost`, plus `weapon` or `armor` stats when the kind calls for them                                                                                                                |
+| **creature**   | Open5e raw      | `size`, `creature_type`, `armor_class`, `hit_points`, `hit_dice`, `challenge_rating`, `speed`, `ability_scores`, `saving_throws`, `skill_bonuses`, the senses, damage and condition immunities, `traits[]`, `actions[]`, `bonus_actions[]`, `reactions[]`, `legendary_actions[]`                      |
+| **rule**       | its own         | `summary` (the one line "Rules at hand" shows first), `body` (the whole rule), `replaces` (the printed rule it stands in for, if any). The name is the entry's `name`; the DM's reasoning is its `description`                                                                                        |
 
 A class feature is `{ key, name, desc, levels[], detailByLevel }` — `levels` is the
 character levels it is gained at, so one feature that arrives three times is one entry,

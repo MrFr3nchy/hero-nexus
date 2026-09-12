@@ -17,6 +17,7 @@ import {
   type CreatureData,
   type FeatData,
   type ItemData,
+  type RuleData,
   type SpeciesData,
   type SpellData,
   type SubclassData,
@@ -1268,6 +1269,38 @@ function CreatureForm({
 }
 
 /* ------------------------------------------------------------------ *
+ * House rule
+ * ------------------------------------------------------------------ */
+
+function RuleForm({ d, onChange }: { d: RuleData; onChange: Patch<RuleData> }) {
+  return (
+    <div className="space-y-5">
+      <FieldGroup title="The rule">
+        <TextField
+          label="In one line"
+          value={d.summary}
+          onChange={v => onChange({ ...d, summary: v })}
+          placeholder="A potion of healing always heals its maximum."
+        />
+        <LongTextField
+          label="The whole of it"
+          value={d.body}
+          minRows={5}
+          onChange={v => onChange({ ...d, body: v })}
+          placeholder="What happens, when, and any exceptions. Name what triggers it and what it costs."
+        />
+        <TextField
+          label="Replaces"
+          value={d.replaces}
+          onChange={v => onChange({ ...d, replaces: v })}
+          placeholder="Healing potions, Flanking, Death saving throws…"
+        />
+      </FieldGroup>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * The switch
  * ------------------------------------------------------------------ */
 
@@ -1297,6 +1330,8 @@ export function ContentDataForm({
       return <ItemForm d={value as ItemData} onChange={onChange} />;
     case 'creature':
       return <CreatureForm d={value as CreatureData} onChange={onChange} />;
+    case 'rule':
+      return <RuleForm d={value as RuleData} onChange={onChange} />;
     default:
       return null;
   }

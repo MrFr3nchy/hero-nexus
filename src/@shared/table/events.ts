@@ -35,6 +35,7 @@ export const TABLE_EVENT_KINDS = [
   'whisper',
   'gift',
   'thing',
+  'rules',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -182,6 +183,22 @@ export interface ThingEvent extends BaseEvent {
   what: 'opened' | 'closed' | 'unlocked' | 'held' | 'broken';
 }
 
+/**
+ * The DM changed what the app does about the rules — flipped the table from
+ * advising to enforcing, or turned an optional rule on or off for this
+ * fight. Everyone hears it: a rule nobody knows about is not a rule.
+ */
+export interface RulesEvent extends BaseEvent {
+  kind: 'rules';
+  mode: 'advise' | 'enforce';
+  /** True when the mode itself moved; false when only optional rules did. */
+  modeChanged: boolean;
+  /** One line per rule that changed, already composed for reading. */
+  changed: string[];
+  /** Set when it applies to one fight rather than the campaign. */
+  encounterName: string | null;
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -195,7 +212,8 @@ export type TableEvent =
   | MapEvent
   | WhisperEvent
   | GiftEvent
-  | ThingEvent;
+  | ThingEvent
+  | RulesEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -234,6 +252,7 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   whisper: 'whisper',
   gift: 'chest',
   thing: 'key',
+  rules: 'gavel',
 };
 
 /**
@@ -405,6 +424,21 @@ export function describe(
         glyph,
         title: words[event.what],
         tone: event.what === 'broken' ? 'danger' : 'gold',
+      };
+    }
+
+    case 'rules': {
+      const where = event.encounterName ? ` for ${event.encounterName}` : '';
+      const title = event.modeChanged
+        ? event.mode === 'enforce'
+          ? `The DM is enforcing the rules${where}`
+          : `The DM has loosened the rules${where}`
+        : `The DM has changed the rules${where}`;
+      return {
+        glyph,
+        title,
+        detail: event.changed.join(' '),
+        tone: 'gold',
       };
     }
 

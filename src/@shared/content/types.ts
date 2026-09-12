@@ -12,7 +12,14 @@
  * server and the forms all import from this file.
  */
 
-/** Every kind of content the app can author, approve, and put on a sheet. */
+/**
+ * Every kind of content the app can author, approve, and put in play.
+ *
+ * `rule` is the one kind that never lands on a sheet: a house rule is put in
+ * play at a table — approved into its library like anything else — and read
+ * from "Rules at hand" and the campaign page. It is content all the same,
+ * because that is what lets a good one travel through the Library.
+ */
 export const CONTENT_TYPES = [
   'class',
   'subclass',
@@ -22,6 +29,7 @@ export const CONTENT_TYPES = [
   'spell',
   'item',
   'creature',
+  'rule',
 ] as const;
 
 export type ContentType = (typeof CONTENT_TYPES)[number];

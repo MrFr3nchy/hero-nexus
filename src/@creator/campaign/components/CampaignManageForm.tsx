@@ -16,6 +16,12 @@ import { useState } from 'react';
 
 import { RPG_SYSTEMS } from '@/@creator/campaign/types';
 import { ABILITY_METHODS } from '@/@creator/character/schema';
+import {
+  TABLE_RULE_FIELDS,
+  TABLE_RULE_GROUPS,
+  type TableRuleGroup,
+  type TableRules,
+} from '@/@creator/campaign/lib/table-rules';
 import { SectionCard, useConfirm } from '@/@shared/components/ui';
 import { ImagePicker } from './ImagePicker';
 import type { CampaignRow } from '@/server/campaigns';
@@ -62,6 +68,8 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
     allowedSources: settings.rules.allowedSources.join(', '),
     bannedSpecies: settings.rules.bannedSpecies.join(', '),
     bannedClasses: settings.rules.bannedClasses.join(', '),
+    // what the app does about the rules at the table
+    table: settings.table as TableRules,
   });
   const [status, setStatus] = useState(campaign.status);
   const [saving, setSaving] = useState(false);
@@ -102,6 +110,7 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
             bannedSpecies: parseList(form.bannedSpecies),
             bannedClasses: parseList(form.bannedClasses),
           },
+          table: form.table,
         },
       });
       setBanner(
@@ -277,6 +286,55 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
               onValueChange={v => set('allowedSources', v)}
               placeholder="e.g. PHB 2024, Xanathar's"
             />
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="At the table"
+          description="What the app does about the rules while people are playing. Every line defaults to the 2024 book; the note under each says where the alternative comes from."
+        >
+          <div className="space-y-6">
+            {(Object.keys(TABLE_RULE_GROUPS) as TableRuleGroup[]).map(group => {
+              const fields = TABLE_RULE_FIELDS.filter(f => f.group === group);
+              if (fields.length === 0) return null;
+              return (
+                <div key={group}>
+                  <h3 className="font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-gold/80">
+                    {TABLE_RULE_GROUPS[group].label}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-ink-subtle">
+                    {TABLE_RULE_GROUPS[group].line}
+                  </p>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                    {fields.map(field => {
+                      const value = field.read(form.table);
+                      return (
+                        <Select
+                          key={field.key}
+                          label={field.label}
+                          description={field.hint}
+                          selectedKeys={[value]}
+                          onSelectionChange={keys => {
+                            const next = String(Array.from(keys)[0] ?? value);
+                            set('table', field.write(form.table, next));
+                          }}
+                        >
+                          {field.options.map(o => (
+                            <SelectItem
+                              key={o.value}
+                              textValue={o.label}
+                              description={o.note}
+                            >
+                              {o.label}
+                            </SelectItem>
+                          ))}
+                        </Select>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </SectionCard>
 

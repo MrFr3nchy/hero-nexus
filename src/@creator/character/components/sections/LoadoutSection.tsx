@@ -19,6 +19,10 @@ import {
   giveItemAction,
   type LoadoutPatchInput,
 } from '@/@creator/campaign/play-actions';
+import {
+  Refused,
+  type RefusedState,
+} from '@/@creator/campaign/components/Refused';
 import { Glyph, Pill, SectionCard } from '@/@shared/components/ui';
 import type { Coins, CoinKey, PlayLoadout, Seat } from '@/server/play';
 
@@ -210,18 +214,33 @@ export function LoadoutSection({
     return true;
   };
 
+  // A refusal the rules made, shown beside the rows it refused. The server
+  // says whether this caller may rule past it; the button appears only then.
+  const [refused, setRefused] = useState<RefusedState | null>(null);
+
   const patch = async (input: LoadoutPatchInput) => {
     setBusy(true);
     const res = await applyLoadoutPatchAction(characterId, campaignId, input);
     setBusy(false);
     if (!res.ok) {
-      onError(res.error);
+      if (res.overridable) {
+        setRefused({
+          message: res.error,
+          ruling: () => patch({ ...input, ruling: true }),
+        });
+      } else {
+        onError(res.error);
+      }
       return;
     }
+    setRefused(null);
     setLoadout(res.data);
   };
 
   const atCap = loadout.attunedCount >= loadout.maxAttuned;
+  // Over the cap is a fence only where the table enforces; elsewhere the
+  // control says what the rules say and lets the box be ticked.
+  const capHolds = atCap && loadout.attunementEnforced;
 
   // Cantrips and always-prepared spells are never a decision, so they are
   // counted apart from the ones a player actually picks each morning.
@@ -243,11 +262,24 @@ export function LoadoutSection({
         title="What you are carrying"
         description="Tick what is in hand. Worn armour and a held shield move your armour class."
         actions={
-          <Pill tone={atCap ? 'warning' : 'default'}>
+          <Pill
+            tone={
+              loadout.attunedCount > loadout.maxAttuned
+                ? 'danger'
+                : atCap
+                  ? 'warning'
+                  : 'default'
+            }
+          >
             {loadout.attunedCount}/{loadout.maxAttuned} attuned
           </Pill>
         }
       >
+        {refused && (
+          <div className="mb-3">
+            <Refused refusal={refused} onDismiss={() => setRefused(null)} />
+          </div>
+        )}
         {loadout.items.length === 0 ? (
           <p className="text-sm text-ink-muted">
             Nothing in your pack yet. Rows are added in the builder — this is
@@ -288,16 +320,18 @@ export function LoadoutSection({
                 {(item.requiresAttunement || item.attuned) && (
                   <Tooltip
                     content={
-                      atCap && !item.attuned
-                        ? 'You are already attuned to three items.'
-                        : 'This item does nothing until you attune to it.'
+                      capHolds && !item.attuned
+                        ? 'You are already attuned to three items. This table enforces the cap.'
+                        : atCap && !item.attuned
+                          ? 'The rules allow three attuned items. This would be one more; the table is advising, not refusing.'
+                          : 'This item does nothing until you attune to it.'
                     }
                   >
                     <span>
                       <Checkbox
                         size="sm"
                         isSelected={item.attuned}
-                        isDisabled={locked || (atCap && !item.attuned)}
+                        isDisabled={locked || (capHolds && !item.attuned)}
                         onValueChange={v =>
                           patch({ attune: { itemId: item.id, attuned: v } })
                         }

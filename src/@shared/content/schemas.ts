@@ -17,6 +17,9 @@
  *   compendium pages read them raw. Renaming them here would fork the one
  *   shape the app already displays.
  *
+ * - **rule** is its own shape: a house rule has no Open5e ancestor. Three
+ *   fields, all prose.
+ *
  * Everything is defaulted. A half-filled homebrew row is a normal state — a
  * player sketches a spell, names it, and comes back for the damage later — so
  * validation must never reject an incomplete draft, only a malformed one.
@@ -456,6 +459,23 @@ export const creatureData = z.object({
 });
 
 /* ------------------------------------------------------------------ *
+ * House rule
+ * ------------------------------------------------------------------ */
+
+/**
+ * A rule of the table. The name is the entry's `name`, the DM's reasoning is
+ * its `description`; what is here is the rule itself. `summary` is the line
+ * "Rules at hand" shows before the reader opens it, `body` the whole thing,
+ * and `replaces` names the printed rule it stands in for, when it does.
+ */
+export const ruleData = z.object({
+  summary: text(300),
+  body: text(8000),
+  /** "Flanking", "Drinking a potion", "Death saving throws". */
+  replaces: text(120),
+});
+
+/* ------------------------------------------------------------------ *
  * The lookup
  * ------------------------------------------------------------------ */
 
@@ -468,6 +488,7 @@ export const CONTENT_SCHEMAS = {
   spell: spellData,
   item: itemData,
   creature: creatureData,
+  rule: ruleData,
 } as const satisfies Record<ContentType, z.ZodTypeAny>;
 
 export type ClassData = z.infer<typeof classData>;
@@ -478,6 +499,7 @@ export type FeatData = z.infer<typeof featData>;
 export type SpellData = z.infer<typeof spellData>;
 export type ItemData = z.infer<typeof itemData>;
 export type CreatureData = z.infer<typeof creatureData>;
+export type RuleData = z.infer<typeof ruleData>;
 
 export type ContentDataFor<T extends ContentType> = z.infer<
   (typeof CONTENT_SCHEMAS)[T]

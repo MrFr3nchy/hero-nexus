@@ -1,5 +1,11 @@
 # 01 — Table rules: the Advise / Enforce switch and the DM's toggles
 
+**Status: built** (`feat/improvements-01-table-rules`). What landed, and the two
+places it departs from the plan: `standingIssue` in `lib/battlemap.ts` tells the
+model's refusals (bounds, void, occupied) from the rules' (lava, a pillar), and
+only the second kind goes through the fence; the death-save gate `NOT_DYING` is
+left as a model refusal — there is no track to roll on — rather than a rule.
+
 Covers from `improvements.txt`: _the rule of cool_, _toggle for DMs to "force
 rules"_, the whole of _More settings for the DM_, _Rules at hand_, _per-fight
 overrides_, _homebrew rules as content_.

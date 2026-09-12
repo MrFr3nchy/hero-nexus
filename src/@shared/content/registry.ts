@@ -18,6 +18,7 @@ import {
   type FeatData,
   type CreatureData,
   type ItemData,
+  type RuleData,
   type SpeciesData,
   type SpellData,
   type SubclassData,
@@ -221,9 +222,24 @@ export const CONTENT_REGISTRY: Record<ContentType, ContentTypeMeta> = {
       ].filter(Boolean) as string[];
     },
   },
+
+  rule: {
+    id: 'rule',
+    label: 'House rule',
+    plural: 'House rules',
+    glyph: 'gavel',
+    description:
+      'A rule of the table — what it says, and the printed rule it stands in for.',
+    chips: entry => {
+      const d = parseContentData('rule', entry.data) as RuleData;
+      return [d.replaces ? `Replaces ${d.replaces}` : null].filter(
+        Boolean
+      ) as string[];
+    },
+  },
 };
 
-/** Ordered for pickers: what a character is, then what it carries. */
+/** Ordered for pickers: what a character is, what it carries, then the table's own. */
 export const CONTENT_TYPE_ORDER: ContentType[] = [
   'class',
   'subclass',
@@ -233,6 +249,7 @@ export const CONTENT_TYPE_ORDER: ContentType[] = [
   'spell',
   'item',
   'creature',
+  'rule',
 ];
 
 export function contentMeta(type: ContentType): ContentTypeMeta {

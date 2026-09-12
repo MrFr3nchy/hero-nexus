@@ -29,7 +29,8 @@ export type HomebrewType =
   | 'feat'
   | 'spell'
   | 'item'
-  | 'creature';
+  | 'creature'
+  | 'rule';
 
 /**
  * There is deliberately no `listPublicHomebrew` here.
