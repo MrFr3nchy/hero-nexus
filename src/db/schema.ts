@@ -538,6 +538,71 @@ export const initiativeEntries = sqliteTable(
 );
 
 /**
+ * Everything in a fight that ends (0049).
+ *
+ * A condition with a duration, a named effect that is not in the vocabulary
+ * (Rage, Bless), or a countdown that belongs to the room — one table, told
+ * apart by `kind`. `advanceTurn` is the clock; the pure tick lives in
+ * `campaign/lib/effects.ts`. A condition row mirrors its key onto the entry's
+ * `condition_keys` (and the sheet) on creation and takes it off on expiry, so
+ * nothing that reads the keys today has to learn about rows.
+ */
+export const encounterEffects = sqliteTable(
+  'encounter_effects',
+  {
+    id: uuid(),
+    encounterId: text('encounter_id')
+      .notNull()
+      .references(() => initiativeEncounters.id, { onDelete: 'cascade' }),
+    /** Who it is on. Null for a countdown that belongs to the room. */
+    entryId: text('entry_id').references(() => initiativeEntries.id, {
+      onDelete: 'cascade',
+    }),
+    kind: text('kind', { enum: ['condition', 'effect', 'countdown'] })
+      .notNull()
+      .default('effect'),
+    /** A `ConditionKey` for a condition; null otherwise. */
+    conditionKey: text('condition_key'),
+    label: text('label').notNull().default(''),
+    /** Rounds left. Null is "until removed" — or until saved, when a save is set. */
+    roundsLeft: integer('rounds_left'),
+    /** Whose turn it counts down on: the start or the end of the anchor's. */
+    endsOn: text('ends_on', { enum: ['start', 'end'] })
+      .notNull()
+      .default('end'),
+    /**
+     * The turn it is measured on. Null is the affected entry's own turn, and
+     * for a room countdown the top of the round. SET NULL on delete, so an
+     * effect whose caster left the fight falls back to its own entry's turn.
+     */
+    anchorEntryId: text('anchor_entry_id').references(
+      () => initiativeEntries.id,
+      { onDelete: 'set null' }
+    ),
+    /** A repeated save that ends it: `AbilityKey` + DC. Null is none. */
+    saveAbility: text('save_ability'),
+    saveDc: integer('save_dc'),
+    /** What put it there, for the log — and for concentration (07). */
+    sourceEntryId: text('source_entry_id').references(
+      () => initiativeEntries.id,
+      { onDelete: 'set null' }
+    ),
+    sourceLabel: text('source_label').notNull().default(''),
+    concentration: integer('concentration', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('shared'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('encounter_effects_encounter_idx').on(t.encounterId),
+    index('encounter_effects_entry_idx').on(t.entryId),
+  ]
+);
+
+/**
  * The table's shared roll log.
  *
  * Rolls are made on the server and every die face is stored, so the log is a
@@ -1772,6 +1837,12 @@ export const campaignChecks = sqliteTable(
     }),
     createdAt: text('created_at').default(nowIso).notNull(),
     resolvedAt: text('resolved_at'),
+    /**
+     * The effect this ask decides (0049). A repeated save is put to a seated
+     * hero as an ordinary check; a pass ends the effect that asked for it.
+     * Null for every check the DM raised by hand.
+     */
+    effectId: text('effect_id'),
   },
   t => [index('campaign_checks_campaign_idx').on(t.campaignId, t.createdAt)]
 );

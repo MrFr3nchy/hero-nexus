@@ -50,7 +50,10 @@ import {
   type TableRules,
   type TableRulesPatch,
 } from '@/@creator/campaign/lib/table-rules';
-import { listChecks, type CheckRow } from './checks';
+import { listChecks, requestCheck, type CheckRow } from './checks';
+import { writeEntryConditions } from './conditions';
+import { listEffects, tickEffects } from './effects';
+import type { EffectRow } from '@/@creator/campaign/lib/effects';
 import { listMaps, type MapRow } from './maps';
 import { applyPlayPatch, listPartyPlayState, type PlayState } from './play';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
@@ -218,6 +221,12 @@ export interface LiveState {
    * so the shelf panels share one object rather than each fetching settings.
    */
   rules: TableRules;
+  /**
+   * Everything in the fight with a clock on it — timed conditions, named
+   * effects, the room's countdowns. A hidden countdown is dropped for a
+   * player in `listEffects`, not in a component. Empty with no encounter.
+   */
+  effects: EffectRow[];
 }
 
 /**
@@ -414,7 +423,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
 
   // Both are their own modules and already role-filtered there — these are
   // reads, not second places that decide what a player may see.
-  const [checks, party, maps, battlemap, portraitRows, whispers] =
+  const [checks, party, maps, battlemap, portraitRows, whispers, effects] =
     await Promise.all([
       listChecks(campaignId),
       listPartyPlayState(campaignId),
@@ -426,6 +435,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
           .filter((id): id is string => id !== null)
       ),
       listWhispers(campaignId),
+      encounter ? listEffects(encounter.id, isStaff) : Promise.resolve([]),
     ]);
   const portraits: Record<string, string> = {};
   for (const [id, row] of portraitRows) portraits[id] = row.url;
@@ -498,6 +508,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     whispers,
     viewerCharacterId: membership?.characterId ?? null,
     rules,
+    effects,
   };
 }
 
@@ -689,6 +700,43 @@ export async function advanceTurn(
     label: up?.label ?? 'Somebody',
     characterId: up?.characterId ?? null,
   });
+
+  /*
+   * The one clock. Everything with rounds on it counts down here — a turn
+   * ending, the next beginning, the top of a new round — and nowhere else.
+   * Only forwards: "Back" is the DM correcting a mis-tap, and un-ticking
+   * would have to un-announce what the table was already told. A save that
+   * falls due on a seated hero comes back as a prompt and is raised here
+   * through the Asking, so a pass on it can close the effect that asked.
+   */
+  if (direction === 1) {
+    const ended = ordered[Math.min(enc.turnIndex, count - 1)];
+    const prompts = await tickEffects(
+      campaignId,
+      encounterId,
+      {
+        endedEntryId: ended?.id ?? null,
+        beganEntryId: up?.id ?? null,
+        newRound: round > enc.round,
+      },
+      userId
+    );
+    for (const p of prompts) {
+      await requestCheck(campaignId, {
+        kind: 'save',
+        ability: p.ability,
+        dc: p.dc,
+        dcVisibility: p.visibility === 'dm' ? 'hidden' : 'shown',
+        prompt: p.prompt,
+        targetUserIds: [p.userId],
+        effectId: p.effectId,
+      }).catch(err => {
+        // A seat that emptied between the tick and the ask is not a reason
+        // to stop the turn; the row stays and asks again next time round.
+        console.error('[effects] could not raise a save', err);
+      });
+    }
+  }
 }
 
 /* --- entries (staff) ------------------------------------------------- */
@@ -806,14 +854,18 @@ export async function updateEntry(
 ): Promise<void> {
   const campaignId = await entryCampaign(entryId);
   await staff(campaignId);
-  const set = { ...patch };
-  if (set.conditionKeys !== undefined) {
-    set.conditionKeys = serializeConditions(set.conditionKeys.split(','));
+  const { conditionKeys, ...set } = patch;
+  if (Object.keys(set).length > 0) {
+    await db
+      .update(initiativeEntries)
+      .set(set)
+      .where(eq(initiativeEntries.id, entryId));
   }
-  await db
-    .update(initiativeEntries)
-    .set(set)
-    .where(eq(initiativeEntries.id, entryId));
+  // Through the one writer, so the sheet behind a seated character follows
+  // and a clock behind an unticked condition is dropped with it.
+  if (conditionKeys !== undefined) {
+    await writeEntryConditions(entryId, conditionKeys.split(','));
+  }
   bumpVersion(campaignId);
 }
 

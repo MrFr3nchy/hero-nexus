@@ -166,12 +166,20 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
       const own = live.state?.party.find(
         p => p.characterId === live.state?.viewerCharacterId
       );
+      const ownEntry = live.state?.entries.find(
+        e => e.characterId === live.state?.viewerCharacterId
+      );
       return (
         <MyHeroPanel
           campaignId={ctx.campaignId}
           myCharacters={ctx.myCharacters}
           play={own}
           loadoutKey={own?.loadoutKey}
+          clocks={
+            ownEntry
+              ? live.state?.effects.filter(x => x.entryId === ownEntry.id)
+              : undefined
+          }
           onError={ctx.onError}
         />
       );
@@ -192,6 +200,8 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
         <PartyPlayPanel
           campaignId={ctx.campaignId}
           party={live.state.party}
+          entries={live.state.entries}
+          effects={live.state.effects}
           isStaff={ctx.isStaff}
           refresh={live.refresh}
           onError={ctx.onError}

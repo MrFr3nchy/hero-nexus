@@ -31,6 +31,7 @@ import {
   type SkillKey,
 } from '@/@creator/character/schema';
 import { savingThrow, skillBonus } from '@/@creator/character/lib/derive';
+import { d20PenaltyFor } from '@/@creator/campaign/lib/condition-effects';
 import { rollDie } from '@/@shared/lib/dice';
 import { db } from '@/db';
 import {
@@ -43,6 +44,7 @@ import {
   users,
 } from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
+import { settleEffectSave } from './effects';
 import { bumpVersion, publish } from './live-hub';
 import { requireUserId } from './session-user';
 
@@ -231,6 +233,11 @@ export interface CheckInput {
   dcVisibility?: 'hidden' | 'shown';
   /** Who is asked. Empty means everybody at the table. */
   targetUserIds?: string[];
+  /**
+   * The effect this save decides, when the clock raised it rather than the
+   * DM. A pass closes that effect; see `settleEffectSave`.
+   */
+  effectId?: string | null;
 }
 
 /**
@@ -294,6 +301,7 @@ export async function requestCheck(
       status: 'open',
       askedBy: userId,
       sessionId: sitting?.id ?? null,
+      effectId: input.effectId ?? null,
     })
     .returning({ id: campaignChecks.id });
 
@@ -371,18 +379,25 @@ async function checkAndTarget(checkId: string, userId: string) {
  * Null when there is no sheet to read — an unseated player, or a free ask that
  * names no skill. The roll then goes out as a flat d20 and says so, which is
  * honest; inventing a plausible bonus would be the worst of both.
+ *
+ * Exhaustion comes off every d20 test (2024: −2 a level), so it comes off
+ * here — the one place the Asking's arithmetic happens. A free ask with no
+ * sheet bonus still pays it: a tired hero rolling "just a d20" is tired.
  */
 function bonusFor(
   sheet: CharacterSheet | null,
   check: { kind: string; skill: string | null; ability: string | null }
 ): number | null {
   if (!sheet) return null;
+  const penalty = d20PenaltyFor(sheet.combat?.exhaustion ?? 0);
   if (check.kind === 'save' && check.ability) {
-    return savingThrow(sheet, check.ability as AbilityKey);
+    return savingThrow(sheet, check.ability as AbilityKey) + penalty;
   }
-  if (check.skill) return skillBonus(sheet, check.skill as SkillKey);
-  if (check.ability) return savingThrow(sheet, check.ability as AbilityKey);
-  return null;
+  if (check.skill) return skillBonus(sheet, check.skill as SkillKey) + penalty;
+  if (check.ability) {
+    return savingThrow(sheet, check.ability as AbilityKey) + penalty;
+  }
+  return penalty === 0 ? null : penalty;
 }
 
 /**
@@ -468,6 +483,17 @@ export async function answerCheck(
     .where(eq(campaignCheckTargets.id, target.id));
 
   await closeIfSettled(check.id);
+
+  // A save the clock asked for: a pass ends the effect behind it, and the
+  // table is told. The DC is the effect's own, never hidden from this path.
+  if (check.effectId && check.dc !== null) {
+    await settleEffectSave(
+      check.effectId,
+      total >= check.dc,
+      actorName,
+      userId
+    );
+  }
 
   bumpVersion(check.campaignId);
   publish(check.campaignId, {

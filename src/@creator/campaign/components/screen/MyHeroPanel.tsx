@@ -7,6 +7,7 @@ import { LoadoutSection } from '@/@creator/character/components/sections/Loadout
 import { EmptyState, CandleScene } from '@/@shared/components/ui';
 import type { CharacterRow } from '@/server/characters';
 import type { PlayLoadout, PlayState } from '@/server/play';
+import type { EffectRow } from '@/@creator/campaign/lib/effects';
 import { getPlayLoadoutAction } from '../../play-actions';
 import { PlayCard } from '../PlayCard';
 
@@ -31,12 +32,15 @@ export function MyHeroPanel({
   myCharacters,
   play,
   loadoutKey,
+  clocks,
   onError,
 }: {
   campaignId: string;
   myCharacters: CharacterRow[];
   /** The viewer's own at-the-table numbers off the live read, when seated. */
   play?: PlayState;
+  /** The clocks on the viewer's own combatant in the running fight. */
+  clocks?: EffectRow[];
   /**
    * The viewer's own `PlayState.loadoutKey` off the live state, when the
    * caller has it. It moves when the pack or the purse does — a potion handed
@@ -94,6 +98,7 @@ export function MyHeroPanel({
         <PlayCard
           state={local}
           campaignId={campaignId}
+          clocks={clocks}
           onChange={setLocal}
           onError={onError}
         />

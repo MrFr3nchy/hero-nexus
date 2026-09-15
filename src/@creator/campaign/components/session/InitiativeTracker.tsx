@@ -35,7 +35,13 @@ import {
   updateEntryAction,
 } from '../../actions';
 import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
-import { ConditionChips, ConditionPicker } from './ConditionPicker';
+import type { EffectRow } from '@/@creator/campaign/lib/effects';
+import { CountdownRows, EffectChips } from './EffectChips';
+import {
+  CountdownControl,
+  EffectPicker,
+  type PickerEntry,
+} from './EffectPicker';
 import { FightRules } from './FightRules';
 
 type Act = (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
@@ -223,12 +229,20 @@ function EntryLine({
   placeable,
   placing,
   onPlace,
+  effects,
+  everyone,
+  encounterId,
 }: {
   entry: EntryRow;
   current: boolean;
   isStaff: boolean;
   isYours: boolean;
   act: Act;
+  /** Every clock in the fight; the chips pick out this entry's. */
+  effects: EffectRow[];
+  /** Everybody in the order, for the picker's source list. */
+  everyone: PickerEntry[];
+  encounterId: string;
   /** A board is up and this combatant is not on it yet. */
   placeable: boolean;
   /** The board is waiting for a tap for this one. */
@@ -278,7 +292,13 @@ function EntryLine({
               </span>
             </Tooltip>
           )}
-          <ConditionChips stored={entry.conditionKeys} />
+          <EffectChips
+            entryId={entry.id}
+            conditionKeys={entry.conditionKeys}
+            effects={effects}
+            isStaff={isStaff}
+            act={act}
+          />
           {entry.conditions && (
             <span className="text-xs text-ink-subtle">{entry.conditions}</span>
           )}
@@ -338,13 +358,17 @@ function EntryLine({
             </Tooltip>
           )}
           <HpControl entry={entry} act={act} />
-          <ConditionPicker
-            stored={entry.conditionKeys}
-            onChange={keys =>
-              act(
-                updateEntryAction(entry.id, { conditionKeys: keys.join(',') })
-              )
-            }
+          <EffectPicker
+            encounterId={encounterId}
+            entries={[
+              {
+                id: entry.id,
+                label: entry.label,
+                conditionKeys: entry.conditionKeys,
+              },
+            ]}
+            others={everyone.filter(e => e.id !== entry.id)}
+            act={act}
           />
           <Button
             size="sm"
@@ -447,6 +471,12 @@ export function InitiativeTracker({
       )
     : null;
 
+  const everyone: PickerEntry[] = state.entries.map(e => ({
+    id: e.id,
+    label: e.label,
+    conditionKeys: e.conditionKeys,
+  }));
+
   const standing = state.entries.filter(
     e => e.side === 'party' && (e.hpCurrent == null || e.hpCurrent > 0)
   ).length;
@@ -489,6 +519,7 @@ export function InitiativeTracker({
       }
     >
       <ol className="divide-y divide-line">
+        <CountdownRows effects={state.effects} isStaff={isStaff} act={act} />
         {state.entries.map((e, i) => (
           <EntryLine
             key={e.id}
@@ -499,6 +530,9 @@ export function InitiativeTracker({
               e.characterId != null && e.characterId === state.viewerCharacterId
             }
             act={act}
+            effects={state.effects}
+            everyone={everyone}
+            encounterId={enc.id}
             placeable={
               isStaff &&
               !!onBoard &&
@@ -557,6 +591,8 @@ export function InitiativeTracker({
             encounterId={enc.id}
             act={act}
           />
+
+          <CountdownControl encounterId={enc.id} act={act} />
 
           <div className="flex flex-wrap items-end gap-2">
             <Input
