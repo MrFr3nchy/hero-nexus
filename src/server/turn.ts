@@ -176,9 +176,27 @@ export async function takeAction(
   key: ActionKey,
   opts: { note?: string; ruling?: boolean } = {}
 ): Promise<TurnState> {
+  const { entry, campaignId, userId, isStaff } = await authorizeEntry(entryId);
+  return takeActionUnchecked(entry, campaignId, { userId, isStaff }, key, opts);
+}
+
+/**
+ * The spend behind `takeAction`, for server code that has already decided
+ * who may — a spell resumed on a fellow player's yes spends the caster's
+ * action although the caster is not the one pressing (07). `who` is the
+ * combatant's own player, for the log and the fence.
+ */
+export async function takeActionUnchecked(
+  entry: Entry,
+  campaignId: string,
+  actor: { userId: string; isStaff: boolean },
+  key: ActionKey,
+  opts: { note?: string; ruling?: boolean } = {}
+): Promise<TurnState> {
   const def = actionDef(key);
   if (!def) throw new Error('NO_SUCH_ACTION');
-  const { entry, campaignId, userId, isStaff } = await authorizeEntry(entryId);
+  const { userId, isStaff } = actor;
+  const entryId = entry.id;
   const note = (opts.note ?? '').trim().slice(0, 120);
   if (def.note === 'required' && !note) throw new Error('NEEDS_A_NOTE');
 

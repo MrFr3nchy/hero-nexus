@@ -49,7 +49,10 @@ export interface ConsentPayload {
   spellName: string;
   slotLevel: number | null;
   ritual: boolean;
+  /** The target's tracker row in the fight, or '' at the desk. */
   targetEntryId: string;
+  /** The target hero, whichever way they were named. */
+  targetCharacterId: string;
   /** Whether this answer is the one that pays the slot. */
   pays: boolean;
 }

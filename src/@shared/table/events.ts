@@ -39,6 +39,7 @@ export const TABLE_EVENT_KINDS = [
   'effect',
   'action',
   'opportunity',
+  'cast',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -249,6 +250,23 @@ export interface OpportunityEvent extends BaseEvent {
   moverLabel: string;
 }
 
+/**
+ * Somebody cast a spell (07). `targets` are the names the audience may
+ * know — hidden foes reach staff only, in a second copy. `awaiting` names
+ * fellow heroes whose yes is still owed; `refused` is one of them saying no.
+ */
+export interface CastEvent extends BaseEvent {
+  kind: 'cast';
+  casterLabel: string;
+  spell: string;
+  level: number;
+  ritual: boolean;
+  concentration: boolean;
+  targets: string[];
+  awaiting: string[];
+  refused?: boolean;
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -266,7 +284,8 @@ export type TableEvent =
   | RulesEvent
   | EffectEvent
   | ActionEvent
-  | OpportunityEvent;
+  | OpportunityEvent
+  | CastEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -291,6 +310,12 @@ export interface EventReading {
   asks?: boolean;
 }
 
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
+}
+
 const GLYPHS: Record<TableEventKind, GlyphName> = {
   roll: 'die',
   turn: 'sword',
@@ -309,6 +334,7 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   effect: 'hourglass',
   action: 'sword',
   opportunity: 'target',
+  cast: 'sparkle',
 };
 
 /**
@@ -549,6 +575,37 @@ export function describe(
             .filter(Boolean)
             .join(' · ') || undefined,
         tone: 'gold',
+      };
+    }
+
+    case 'cast': {
+      if (event.refused) {
+        return {
+          glyph,
+          title: `${event.casterLabel}'s ${event.spell} is refused`,
+          tone: 'gold',
+        };
+      }
+      const at =
+        event.targets.length > 0 ? ` on ${event.targets.join(', ')}` : '';
+      const how = [
+        event.ritual
+          ? 'as a ritual'
+          : event.level > 0
+            ? `${ordinal(event.level)} level`
+            : 'a cantrip',
+        event.concentration ? 'concentrating' : '',
+        event.awaiting.length > 0
+          ? `waiting on ${event.awaiting.join(', ')}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      return {
+        glyph,
+        title: `${event.casterLabel} casts ${event.spell}${at}`,
+        detail: how || undefined,
+        tone: 'arcane',
       };
     }
 

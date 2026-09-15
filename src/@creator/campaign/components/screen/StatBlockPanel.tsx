@@ -1,6 +1,6 @@
 'use client';
 
-import { Button } from '@heroui/react';
+import { Button, Tooltip } from '@heroui/react';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -219,6 +219,15 @@ export function StatBlockPanel({
             {combatant.hpCurrent}/{combatant.hpMax} hp · ac{' '}
             {combatant.armorClass}
           </span>
+        )}
+        {data.spell_save_dc > 0 && (
+          <Tooltip content="Read off the block. Ask the save at this DC from the Asking.">
+            <span className="text-xs text-arcane">
+              spell save DC {data.spell_save_dc}
+              {data.spell_attack_bonus !== 0 &&
+                ` · ${data.spell_attack_bonus > 0 ? '+' : ''}${data.spell_attack_bonus} spell attack`}
+            </span>
+          </Tooltip>
         )}
         <div className="ml-auto inline-flex rounded-md border border-line bg-surface-2 p-0.5">
           {(['disadvantage', 'flat', 'advantage'] as const).map(m => (

@@ -250,7 +250,8 @@ function spellFromSrd(raw: Record<string, unknown>): SpellData {
     // Open5e flags Bless as an attack with a 1d4 "damage roll" because the
     // die is added to attacks. A spell attacks only when its prose says so.
     attack_roll:
-      Boolean(raw.attack_roll) && /spell attack|attack roll against/i.test(desc),
+      Boolean(raw.attack_roll) &&
+      /spell attack|attack roll against/i.test(desc),
     damage_roll: heals || /adds? \d+d\d+ to/i.test(desc) ? '' : damage,
     damage_types: Array.isArray(raw.damage_types) ? raw.damage_types : [],
     higher_level: str(raw.higher_level ?? ''),
@@ -388,6 +389,24 @@ function proficiencyForChallenge(cr: number): number {
   return 2 + Math.floor((Math.ceil(cr) - 1) / 4);
 }
 
+/**
+ * A monster's spell save DC and spell attack bonus, off whatever prose the
+ * row carries — traits, actions, the legacy `spell_list` line. Zero when
+ * nothing says.
+ */
+function spellNumbers(raw: Record<string, unknown>): {
+  spell_save_dc: number;
+  spell_attack_bonus: number;
+} {
+  const text = JSON.stringify(raw);
+  const dc = /spell save DC (\d+)/i.exec(text);
+  const atk = /([+\-]\d+) to hit with spell attacks/i.exec(text);
+  return {
+    spell_save_dc: dc ? Number(dc[1]) : 0,
+    spell_attack_bonus: atk ? Number(atk[1]) : 0,
+  };
+}
+
 function creatureFromSrd(raw: Record<string, unknown>): CreatureData {
   const speed = (raw.speed ?? {}) as Record<string, unknown>;
   const abilities = (raw.ability_scores ?? {}) as Record<string, unknown>;
@@ -459,6 +478,7 @@ function creatureFromSrd(raw: Record<string, unknown>): CreatureData {
     bonus_actions: creatureActions(raw, 'bonus_action'),
     reactions: creatureActions(raw, 'reaction'),
     legendary_actions: creatureActions(raw, 'legendary_action'),
+    ...spellNumbers(raw),
   });
 }
 

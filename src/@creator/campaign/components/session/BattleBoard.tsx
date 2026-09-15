@@ -110,6 +110,8 @@ import { speedReasons } from '@/@creator/campaign/lib/condition-effects';
 import { parseConditions } from '@/@creator/campaign/lib/conditions';
 import { movementBudget } from '@/@creator/campaign/lib/turn';
 import { TurnStrip } from './TurnStrip';
+import { areaTiles, type AreaShape } from '@/@creator/campaign/lib/battlemap';
+import { setLitArea } from '@/@shared/battlemap/area';
 
 /* --- tools ------------------------------------------------------------- */
 
@@ -141,6 +143,11 @@ type Tool =
   /** Two taps, feet between them. Anybody's, not only staff's. */
   | { kind: 'ruler' }
   /**
+   * A spell's shape on the grid (07): tap the origin, then where it points;
+   * the tiles light and the shelf's Cast panel takes who is inside. Anybody's.
+   */
+  | { kind: 'area'; shape: AreaShape; size: number }
+  /**
    * A thing: a scenery token, which is a row rather than terrain because a
    * player changes it. What the next tap puts down.
    */
@@ -158,7 +165,15 @@ type Tool =
  * The toolbar's modes. Each opens on one tool and shows only its own row.
  * `hint` is the scrawl beside the strip: what a tap on the board does now.
  */
-type Mode = 'select' | 'ruler' | 'paint' | 'shape' | 'build' | 'things' | 'fog';
+type Mode =
+  | 'select'
+  | 'ruler'
+  | 'area'
+  | 'paint'
+  | 'shape'
+  | 'build'
+  | 'things'
+  | 'fog';
 
 function modeOf(tool: Tool): Mode {
   switch (tool.kind) {
@@ -166,6 +181,8 @@ function modeOf(tool: Tool): Mode {
       return 'select';
     case 'ruler':
       return 'ruler';
+    case 'area':
+      return 'area';
     case 'paint':
     case 'fill':
       return 'paint';
@@ -208,6 +225,12 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
     label: 'Ruler',
     tool: { kind: 'ruler' },
     hint: 'tap two tiles for the feet between them',
+  },
+  {
+    mode: 'area',
+    label: 'Area',
+    tool: { kind: 'area', shape: 'sphere', size: 20 },
+    hint: 'tap the origin, then where it points · the shelf casts on who is inside',
   },
   {
     mode: 'paint',
@@ -279,6 +302,59 @@ const DEFAULT_SPEED_FEET = 30;
 
 /** Debounce on terrain writes. Painting is a stream; the save is a document. */
 const SAVE_MS = 500;
+
+/** Shape and size for the area tool (07). Shown to staff and players alike. */
+function AreaControls({
+  tool,
+  onChange,
+}: {
+  tool: { kind: 'area'; shape: AreaShape; size: number };
+  onChange: (next: { kind: 'area'; shape: AreaShape; size: number }) => void;
+}) {
+  const shapes: { key: AreaShape; label: string }[] = [
+    { key: 'sphere', label: 'Sphere' },
+    { key: 'cube', label: 'Cube' },
+    { key: 'cone', label: 'Cone' },
+    { key: 'line', label: 'Line' },
+    { key: 'emanation', label: 'Emanation' },
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+        {shapes.map(sh => (
+          <button
+            key={sh.key}
+            type="button"
+            onClick={() => onChange({ ...tool, shape: sh.key })}
+            className={`rounded px-2 py-0.5 text-xs transition-colors ${
+              tool.shape === sh.key
+                ? 'bg-arcane font-medium text-bg'
+                : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {sh.label}
+          </button>
+        ))}
+      </div>
+      <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+        {[5, 10, 15, 20, 30, 60].map(ft => (
+          <button
+            key={ft}
+            type="button"
+            onClick={() => onChange({ ...tool, size: ft })}
+            className={`rounded px-2 py-0.5 text-xs tabular-nums transition-colors ${
+              tool.size === ft
+                ? 'bg-arcane font-medium text-bg'
+                : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {ft} ft
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /** 1×1 / 3×3 / 5×5. One picker, shared by the floor, the height and the fog. */
 function BrushPicker({
@@ -520,6 +596,19 @@ export function BattleBoard({
     to: { x: number; y: number } | null;
     pinned: boolean;
   } | null>(null);
+  /** The area: an origin, a far end that follows the pointer until pinned. */
+  const [areaPick, setAreaPick] = useState<{
+    from: { x: number; y: number };
+    to: { x: number; y: number } | null;
+    pinned: boolean;
+  } | null>(null);
+  useEffect(() => {
+    if (tool.kind !== 'area') {
+      setAreaPick(null);
+      setLitArea(campaignId, null);
+    }
+  }, [tool.kind, campaignId]);
+
   useEffect(() => {
     if (tool.kind !== 'ruler') setRuler(null);
   }, [tool.kind]);
@@ -764,6 +853,48 @@ export function BattleBoard({
     );
   }, [terrain, selectedToken, board, sideOf, speedOf]);
 
+  /* --- the area ---------------------------------------------------------- */
+
+  const litArea = useMemo(() => {
+    if (!terrain || !board || tool.kind !== 'area' || !areaPick) return null;
+    const area = {
+      shape: tool.shape,
+      origin: areaPick.from,
+      direction: areaPick.to ?? undefined,
+      size: tool.size,
+    };
+    const tiles = areaTiles(terrain, area);
+    const inside = board.tokens.filter(t => {
+      if (!t.entryId) return false;
+      for (let dy = 0; dy < t.footprint; dy++) {
+        for (let dx = 0; dx < t.footprint; dx++) {
+          if (tiles.has((t.y + dy) * terrain.w + (t.x + dx))) return true;
+        }
+      }
+      return false;
+    });
+    const entryIds = [...new Set(inside.map(t => t.entryId as string))];
+    return {
+      area,
+      tiles,
+      entryIds,
+      labels: entryIds.map(id => entriesById.get(id)?.label ?? 'Something'),
+    };
+  }, [terrain, board, tool, areaPick, entriesById]);
+
+  useEffect(() => {
+    setLitArea(
+      campaignId,
+      litArea && areaPick?.pinned
+        ? {
+            area: litArea.area,
+            entryIds: litArea.entryIds,
+            labels: litArea.labels,
+          }
+        : null
+    );
+  }, [campaignId, litArea, areaPick?.pinned]);
+
   /* --- saving ---------------------------------------------------------- */
 
   const scheduleSave = useCallback(
@@ -970,6 +1101,15 @@ export function BattleBoard({
       return;
     }
 
+    // The area is anybody's too: origin, then direction, then clear.
+    if (tool.kind === 'area') {
+      if (!areaPick) setAreaPick({ from: at, to: null, pinned: false });
+      else if (!areaPick.pinned)
+        setAreaPick({ ...areaPick, to: at, pinned: true });
+      else setAreaPick(null);
+      return;
+    }
+
     // Somebody the initiative panel asked to have placed: this is where.
     if (isStaff && placing && tool.kind === 'select') {
       const res = await placeTokenAction(board.id, {
@@ -1124,6 +1264,8 @@ export function BattleBoard({
     const at = tileAt(ev);
     setHover(at);
     if (at && ruler && !ruler.pinned) setRuler({ ...ruler, to: at });
+    if (at && areaPick && !areaPick.pinned)
+      setAreaPick({ ...areaPick, to: at });
     if (at && marquee) setMarquee({ ...marquee, to: at });
     if (!painting || !at || !isStaff) return;
     if (tool.kind === 'reveal') {
@@ -1359,6 +1501,24 @@ export function BattleBoard({
         ctx.stroke();
       }
       ctx.restore();
+    }
+    // The area a spell would cover, in the arcane hue.
+    if (litArea) {
+      ctx.fillStyle = p.arcane;
+      ctx.globalAlpha = 0.35;
+      for (const i of litArea.tiles) {
+        const x = i % terrain.w;
+        const y = Math.floor(i / terrain.w);
+        ctx.fillRect(x * size, y * size, size, size);
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = p.arcane;
+      ctx.lineWidth = 2;
+      const ox = (litArea.area.origin.x + 0.5) * size;
+      const oy = (litArea.area.origin.y + 0.5) * size;
+      ctx.beginPath();
+      ctx.arc(ox, oy, size * 0.2, 0, Math.PI * 2);
+      ctx.stroke();
     }
     if (isStaff && pendingReveal.current.size > 0) {
       ctx.fillStyle = p.gold;
@@ -1958,6 +2118,7 @@ export function BattleBoard({
     fitHeight,
     marquee,
     ruler,
+    litArea,
     state.rules.diagonals,
   ]);
 
@@ -2199,26 +2360,30 @@ export function BattleBoard({
       {!isStaff && !dimensional && (
         <div className="flex flex-wrap items-center gap-1.5">
           <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
-            {MODES.filter(m => m.mode === 'select' || m.mode === 'ruler').map(
-              m => (
-                <button
-                  key={m.mode}
-                  type="button"
-                  onClick={() => setTool(m.tool)}
-                  className={`rounded px-2.5 py-1 text-xs transition-colors ${
-                    mode === m.mode
-                      ? 'bg-gold font-medium text-bg'
-                      : 'text-ink-muted hover:text-ink'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              )
-            )}
+            {MODES.filter(
+              m =>
+                m.mode === 'select' || m.mode === 'ruler' || m.mode === 'area'
+            ).map(m => (
+              <button
+                key={m.mode}
+                type="button"
+                onClick={() => setTool(m.tool)}
+                className={`rounded px-2.5 py-1 text-xs transition-colors ${
+                  mode === m.mode
+                    ? 'bg-gold font-medium text-bg'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
           <Marginalia dash className="ml-1">
             {MODES.find(m => m.mode === mode)?.hint}
           </Marginalia>
+          {tool.kind === 'area' && (
+            <AreaControls tool={tool} onChange={setTool} />
+          )}
         </div>
       )}
 
@@ -2248,6 +2413,10 @@ export function BattleBoard({
               {MODES.find(m => m.mode === mode)?.hint}
             </Marginalia>
           </div>
+
+          {tool.kind === 'area' && (
+            <AreaControls tool={tool} onChange={setTool} />
+          )}
 
           {mode === 'paint' && (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -2577,6 +2746,27 @@ export function BattleBoard({
           }}
         />
       </div>
+
+      {litArea && (
+        <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+          <Glyph name="sparkle" size={13} className="text-arcane" />
+          <span className="text-ink">
+            {litArea.area.shape} · {litArea.area.size} ft
+          </span>
+          <span>
+            {litArea.labels.length === 0
+              ? 'nobody inside'
+              : `${litArea.labels.length} inside: ${litArea.labels.join(', ')}`}
+          </span>
+          {areaPick?.pinned ? (
+            <Marginalia dash>
+              the shelf casts on them · tap again to clear
+            </Marginalia>
+          ) : (
+            <Marginalia dash>tap to pin it</Marginalia>
+          )}
+        </div>
+      )}
 
       {selectedToken && (
         <div className="flex flex-wrap items-center gap-3 text-sm text-ink-muted">

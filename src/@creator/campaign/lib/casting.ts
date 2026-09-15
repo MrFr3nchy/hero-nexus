@@ -20,7 +20,10 @@ export function concentrationDc(damage: number): number {
  * `1d8` for Cure Wounds at 1st, `4d8` at 2nd.
  */
 export function scaledRoll(
-  spell: Pick<SpellData, 'level' | 'damage_roll' | 'healing_roll' | 'slot_scaling'>,
+  spell: Pick<
+    SpellData,
+    'level' | 'damage_roll' | 'healing_roll' | 'slot_scaling'
+  >,
   slotLevel: number | null,
   kind: 'damage' | 'healing'
 ): string {
@@ -52,7 +55,10 @@ export function slotToSpend(
 ): number | null {
   if (spell.level === 0) return null;
   if (ritual && spell.ritual) return null;
-  return Math.max(spell.level, Math.min(9, Math.trunc(requested ?? spell.level)));
+  return Math.max(
+    spell.level,
+    Math.min(9, Math.trunc(requested ?? spell.level))
+  );
 }
 
 /** Which turn slot a casting time spends: "1 Bonus Action" → bonus, "1 Reaction" → reaction, else the action. */
@@ -99,11 +105,25 @@ export function damageForm(
   const dmg = Math.max(0, Math.trunc(damage));
   const left = form.hpCurrent - dmg;
   if (left > 0) return { form: { ...form, hpCurrent: left }, carried: 0 };
-  if (!form.revertsOnZero) return { form: { ...form, hpCurrent: 0 }, carried: 0 };
+  if (!form.revertsOnZero)
+    return { form: { ...form, hpCurrent: 0 }, carried: 0 };
   return { form: null, carried: form.carryExcess ? -left : 0 };
 }
 
 /** The condition a spell puts on a target, if any — typed for the effects table. */
-export function conditionOf(spell: Pick<SpellData, 'applies_condition'>): ConditionKey | null {
+export function conditionOf(
+  spell: Pick<SpellData, 'applies_condition'>
+): ConditionKey | null {
   return (spell.applies_condition as ConditionKey | null) ?? null;
+}
+
+/** "srd:spell:srd-2024_bless" → "Bless": the readable part of a stored key. */
+export function spellNameFromKey(key: string | null): string {
+  if (!key) return 'a spell';
+  const slug = key.split(':').pop() ?? key;
+  return slug
+    .replace(/^srd-\d+_/, '')
+    .split('-')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }

@@ -279,7 +279,10 @@ export const spellData = z.object({
   /** Dice healed, e.g. `2d8`; the caster's modifier is added where the text says. */
   healing_roll: text(60),
   /** What a successful save does to the damage. */
-  save_effect: z.enum(['none', 'half', 'negates']).default('none').catch('none'),
+  save_effect: z
+    .enum(['none', 'half', 'negates'])
+    .default('none')
+    .catch('none'),
   /** The shape on the grid, in feet. Null for a spell with no area. */
   area: z
     .object({
@@ -295,14 +298,14 @@ export const spellData = z.object({
   /** How long it lasts in rounds; 0 for instantaneous or anything not in rounds. */
   duration_rounds: count(10_000),
   /** A condition it puts on a target that fails (or does not save at all). */
-  applies_condition: z.enum(CONDITION_KEYS).nullable().default(null).catch(null),
+  applies_condition: z
+    .enum(CONDITION_KEYS)
+    .nullable()
+    .default(null)
+    .catch(null),
   /** Dice in a higher slot: `{ level, roll }` per slot level above the spell's. */
-  slot_scaling: listOf(
-    z.object({ level: count(9, 1), roll: text(60) }),
-    9
-  ),
+  slot_scaling: listOf(z.object({ level: count(9, 1), roll: text(60) }), 9),
 });
-
 
 const ITEM_KINDS = [
   'wondrous',
@@ -499,6 +502,13 @@ export const creatureData = z.object({
   bonus_actions: listOf(creatureFeature, 20),
   reactions: listOf(creatureFeature, 20),
   legendary_actions: listOf(creatureFeature, 20),
+  /**
+   * What its spells are rolled against (07), read once off the prose —
+   * "spell save DC 13", "+5 to hit with spell attacks" — so the stat block
+   * can ask the right save at the right DC. 0 when the block casts nothing.
+   */
+  spell_save_dc: count(40),
+  spell_attack_bonus: signedBonus,
 });
 
 /* ------------------------------------------------------------------ *

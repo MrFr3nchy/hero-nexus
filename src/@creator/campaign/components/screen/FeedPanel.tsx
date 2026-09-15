@@ -40,6 +40,7 @@ const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
   effect: 'Conditions and countdowns',
   action: 'Actions',
   opportunity: 'Opportunity attacks',
+  cast: 'Spells',
 };
 
 /**

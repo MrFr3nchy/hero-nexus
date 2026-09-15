@@ -43,14 +43,24 @@ import {
   characters,
   users,
 } from '@/db/schema';
+import type {
+  CheckPayload,
+  ConsentAnswer,
+  ConsentPayload,
+} from '@/@creator/campaign/lib/checks';
 import { requireCampaignRole } from './campaigns';
-import { settleEffectSave } from './effects';
+import { breakConcentration, settleEffectSave } from './effects';
 import { bumpVersion, publish } from './live-hub';
 import { requireUserId } from './session-user';
 
-export type CheckKind = 'check' | 'save' | 'free';
+export type CheckKind = 'check' | 'save' | 'free' | 'consent';
 export type CheckStatus = 'open' | 'answered' | 'cancelled';
-export type TargetStatus = 'waiting' | 'rolled' | 'dismissed';
+export type TargetStatus =
+  | 'waiting'
+  | 'rolled'
+  | 'dismissed'
+  | 'allowed'
+  | 'refused';
 export type RollMode = 'straight' | 'advantage' | 'disadvantage';
 
 /** How much of the asking a table remembers on the live view. */
@@ -86,6 +96,12 @@ export interface CheckRow {
   targets: CheckTargetRow[];
   /** The reader is asked and still owes a roll. What the answer control uses. */
   mine: boolean;
+  /**
+   * What the ask is about, when a spell raised it (07): the spell's name and
+   * who is casting, for the panel's line. Never the damage waiting inside the
+   * payload — that stays on the server.
+   */
+  spell: { name: string; casterLabel: string } | null;
 }
 
 /* --- how an ask reads -------------------------------------------------- */
@@ -106,6 +122,9 @@ export function askLine(input: {
   const skill = input.skill as SkillKey | null;
   const ability = input.ability as AbilityKey | null;
 
+  if (input.kind === 'consent') {
+    return input.prompt.trim() || 'A spell is coming your way';
+  }
   if (input.kind === 'save' && ability) {
     return `${ABILITY_LABELS[ability]} save`;
   }
@@ -117,6 +136,17 @@ export function askLine(input: {
 }
 
 /* --- reading ----------------------------------------------------------- */
+
+/** The spell behind an ask, for the panel. Nothing of the payload's numbers. */
+function spellOf(
+  payload: CheckPayload | null
+): { name: string; casterLabel: string } | null {
+  if (!payload) return null;
+  if (payload.kind === 'concentration') {
+    return { name: payload.spellName, casterLabel: '' };
+  }
+  return { name: payload.spellName, casterLabel: payload.casterLabel };
+}
 
 function isStaffRole(role: string): boolean {
   return role === 'gm' || role === 'co-gm';
@@ -174,6 +204,19 @@ export async function listChecks(campaignId: string): Promise<CheckRow[]> {
       )
     );
   const askerName = new Map(askers.map(a => [a.id, a.name ?? 'The DM']));
+  const casterIds = checks
+    .map(c => c.askedByCharacterId)
+    .filter((id): id is string => id !== null);
+  const casterName = new Map(
+    casterIds.length > 0
+      ? (
+          await db
+            .select({ id: characters.id, name: characters.name })
+            .from(characters)
+            .where(inArray(characters.id, casterIds))
+        ).map(c => [c.id, c.name])
+      : []
+  );
 
   return checks.map(check => {
     const hidden = check.dcVisibility === 'hidden';
@@ -193,9 +236,10 @@ export async function listChecks(campaignId: string): Promise<CheckRow[]> {
       dc: visibleDc,
       dcHidden: hidden,
       status: check.status,
-      askedByName: check.askedBy
-        ? (askerName.get(check.askedBy) ?? 'The DM')
-        : 'The DM',
+      askedByName:
+        (check.askedByCharacterId &&
+          casterName.get(check.askedByCharacterId)) ||
+        (check.askedBy ? (askerName.get(check.askedBy) ?? 'The DM') : 'The DM'),
       createdAt: check.createdAt,
       targets: mineRows.map(t => ({
         userId: t.userId,
@@ -218,6 +262,7 @@ export async function listChecks(campaignId: string): Promise<CheckRow[]> {
       mine:
         check.status === 'open' &&
         mineRows.some(t => t.userId === userId && t.status === 'waiting'),
+      spell: spellOf(check.payload as CheckPayload | null),
     };
   });
 }
@@ -238,6 +283,8 @@ export interface CheckInput {
    * DM. A pass closes that effect; see `settleEffectSave`.
    */
   effectId?: string | null;
+  /** What the answer settles (07). Written by server code only. */
+  payload?: CheckPayload | null;
 }
 
 /**
@@ -252,6 +299,22 @@ export async function requestCheck(
   input: CheckInput
 ): Promise<string> {
   const { userId } = await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  return requestCheckFrom(campaignId, { userId, characterId: null }, input);
+}
+
+/**
+ * An ask raised by server code on somebody's behalf — the clock's repeated
+ * save (04), a caster's save or consent (07). No staff gate: the caller has
+ * decided who may ask what, and the DC came from the server's own
+ * arithmetic, never the browser. `asker.characterId` names the hero asking
+ * when a player is, so the panel can say "Ilse asks".
+ */
+export async function requestCheckFrom(
+  campaignId: string,
+  asker: { userId: string; characterId: string | null },
+  input: CheckInput
+): Promise<string> {
+  const { userId } = asker;
 
   const members = await db
     .select({
@@ -302,6 +365,8 @@ export async function requestCheck(
       askedBy: userId,
       sessionId: sitting?.id ?? null,
       effectId: input.effectId ?? null,
+      askedByCharacterId: asker.characterId,
+      payload: input.payload ?? null,
     })
     .returning({ id: campaignChecks.id });
 
@@ -404,10 +469,22 @@ function bonusFor(
  * Answer an ask. Rolled here, on the server, with the modifier read off the
  * sheet — see rule 1 in the file header.
  */
+/**
+ * What an answer left for the caller to settle: a spell's payload with the
+ * verdict, for `settleSpellSave` in `casting.ts` — kept out of this module
+ * so the Asking does not import the thing that asks it.
+ */
+export interface AnswerResult {
+  campaignId: string;
+  userId: string;
+  passed: boolean | null;
+  payload: CheckPayload | null;
+}
+
 export async function answerCheck(
   checkId: string,
   mode: RollMode = 'straight'
-): Promise<void> {
+): Promise<AnswerResult> {
   const userId = await requireUserId();
   const { check, target } = await checkAndTarget(checkId, userId);
   if (!target) throw new Error('NOT_ASKED');
@@ -495,6 +572,14 @@ export async function answerCheck(
     );
   }
 
+  // What else the answer settles (07): a held concentration drops on a
+  // fail here; a spell's payload goes back to the caller, who lands it.
+  const payload = check.payload as CheckPayload | null;
+  const passed = check.dc === null ? null : total >= check.dc;
+  if (payload?.kind === 'concentration' && passed === false) {
+    await breakConcentration(payload.entryId, userId);
+  }
+
   bumpVersion(check.campaignId);
   publish(check.campaignId, {
     kind: 'check',
@@ -517,6 +602,123 @@ export async function answerCheck(
           ? 'pass'
           : 'fail',
   });
+  return { campaignId: check.campaignId, userId, passed, payload };
+}
+
+/**
+ * Answer a fellow player's spell (07): allow it, contest it with the save it
+ * calls for, or refuse it. Only the target answers; the caster and staff
+ * cannot press it for them — that is the whole point of asking.
+ *
+ * Returns the pending casting and how it went, for the caller to resume:
+ * `allow` lands it with no roll, `contest` lands it by the verdict, `refuse`
+ * lands nothing and the caster is told. The roll for a contest goes through
+ * the same arithmetic as `answerCheck` and into the same log.
+ */
+export async function answerConsent(
+  checkId: string,
+  answer: ConsentAnswer,
+  mode: RollMode = 'straight'
+): Promise<{
+  payload: ConsentPayload;
+  verdict: 'allowed' | 'refused' | 'pass' | 'fail';
+  campaignId: string;
+  userId: string;
+}> {
+  const userId = await requireUserId();
+  const { check, target } = await checkAndTarget(checkId, userId);
+  if (!target) throw new Error('NOT_ASKED');
+  if (check.kind !== 'consent') throw new Error('NOT_A_CONSENT');
+  if (check.status !== 'open') throw new Error('CHECK_CLOSED');
+  if (target.status !== 'waiting') throw new Error('ALREADY_ANSWERED');
+  const payload = check.payload as ConsentPayload | null;
+  if (!payload || payload.kind !== 'consent') throw new Error('NOT_A_CONSENT');
+
+  let verdict: 'allowed' | 'refused' | 'pass' | 'fail';
+  if (answer === 'allow' || answer === 'refuse') {
+    verdict = answer === 'allow' ? 'allowed' : 'refused';
+    await db
+      .update(campaignCheckTargets)
+      .set({ status: verdict, answeredAt: new Date().toISOString() })
+      .where(eq(campaignCheckTargets.id, target.id));
+  } else {
+    // Contest: the save the spell names, at the caster's DC, off the
+    // target's own sheet — `answerCheck`'s arithmetic, here.
+    if (!check.ability || check.dc === null) throw new Error('NO_SAVE_TO_ROLL');
+    const character = target.characterId
+      ? await db.query.characters.findFirst({
+          where: eq(characters.id, target.characterId),
+        })
+      : null;
+    const bonus = bonusFor(
+      (character?.sheet as CharacterSheet | undefined) ?? null,
+      { kind: 'save', skill: null, ability: check.ability }
+    );
+    const modifier = bonus ?? 0;
+    const dice =
+      mode === 'straight' ? [rollDie(20)] : [rollDie(20), rollDie(20)];
+    const face =
+      mode === 'advantage'
+        ? Math.max(...dice)
+        : mode === 'disadvantage'
+          ? Math.min(...dice)
+          : dice[0];
+    const total = face + modifier;
+    const actorName = character?.name?.trim() || 'A player';
+    const [roll] = await db
+      .insert(campaignRolls)
+      .values({
+        campaignId: check.campaignId,
+        actorUserId: userId,
+        characterId: target.characterId,
+        actorName,
+        label: `${ABILITY_LABELS[check.ability as AbilityKey]} save vs ${payload.spellName}`,
+        notation: `${mode === 'straight' ? '1d20' : '2d20'}${
+          modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`
+        }`,
+        dice,
+        dropped:
+          dice.length === 2 ? [dice[0] === face ? 1 : 0] : ([] as number[]),
+        modifier,
+        total,
+        visibility: 'table',
+      })
+      .returning({ id: campaignRolls.id });
+    await db
+      .update(campaignCheckTargets)
+      .set({
+        status: 'rolled',
+        rollId: roll.id,
+        total,
+        modifier,
+        answeredAt: new Date().toISOString(),
+      })
+      .where(eq(campaignCheckTargets.id, target.id));
+    verdict = total >= check.dc ? 'pass' : 'fail';
+  }
+
+  await closeIfSettled(check.id);
+  bumpVersion(check.campaignId);
+  publish(check.campaignId, {
+    kind: 'check',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    by: userId,
+    checkId: check.id,
+    ask: askLine(check),
+    state: 'answered',
+    targetNames: [],
+    dc: null,
+    actorName: null,
+    total: null,
+    outcome:
+      verdict === 'pass' || verdict === 'allowed'
+        ? 'pass'
+        : verdict === 'fail'
+          ? 'fail'
+          : null,
+  });
+  return { payload, verdict, campaignId: check.campaignId, userId };
 }
 
 /**

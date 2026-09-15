@@ -30,6 +30,7 @@ import {
   campaignTimers,
   campaigns,
   characters,
+  encounterEffects,
   initiativeEncounters,
   initiativeEntries,
   users,
@@ -64,7 +65,13 @@ import {
 } from '@/@creator/campaign/lib/attack';
 import { parseTurn, type TurnState } from '@/@creator/campaign/lib/turn';
 import { listMaps, type MapRow } from './maps';
-import { applyPlayPatch, listPartyPlayState, type PlayState } from './play';
+import {
+  applyPlayPatchUnchecked,
+  listPartyPlayState,
+  type PlayState,
+} from './play';
+import { concentrationAfterDamage } from './concentration';
+import { damageForm, type EntryForm } from '@/@creator/campaign/lib/casting';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { resolveContentRefs } from './content';
 import { listWhispers, type WhisperRow } from './whispers';
@@ -110,6 +117,10 @@ export interface EntryRow {
   creatureRef: ContentRef | null;
   /** What this combatant has spent since their turn began (05). */
   turn: TurnState;
+  /** The spell being concentrated on, as a `refKey` (07). Null when none is named. */
+  concentrationSpell: string | null;
+  /** Another shape worn for now (07): its label, hit points and AC. Null when itself. */
+  form: EntryForm | null;
   /**
    * Feet a turn: the sheet's or the block's speed after conditions and
    * exhaustion (`speedFor`). The board lights `movementBudget(turn, speed)`
@@ -376,6 +387,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
         ({
           ...r,
           turn: parseTurn(r.turn),
+          form: (r.form as EntryForm | null) ?? null,
           speed: speeds.get(r.id) ?? DEFAULT_SPEED_FEET,
         }) as EntryRow
     )
@@ -392,6 +404,9 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
               hpMax: null,
               hpTemp: 0,
               armorClass: null,
+              form: e.form
+                ? { ...e.form, hpCurrent: 0, hpMax: 0, armorClass: 0 }
+                : null,
               // The block is the DM's. A player knows what an aboleth is from
               // its name; they do not get a key into the bestiary from it.
               creatureRef: null,
@@ -760,7 +775,15 @@ export async function advanceTurn(
         .select()
         .from(initiativeEntries)
         .where(eq(initiativeEntries.encounterId, encounterId))
-    ).map(r => ({ ...r, turn: parseTurn(r.turn), speed: 0 }) as EntryRow)
+    ).map(
+      r =>
+        ({
+          ...r,
+          turn: parseTurn(r.turn),
+          form: (r.form as EntryForm | null) ?? null,
+          speed: 0,
+        }) as EntryRow
+    )
   );
   const count = ordered.length;
   if (count === 0) return;
@@ -1002,36 +1025,84 @@ export async function applyHpUnchecked(
    * since gone (the patch refuses it, and the row is all there is).
    */
   if (entry.characterId) {
-    try {
-      await applyPlayPatch(entry.characterId, campaignId, {
+    // Unchecked on purpose: every caller has decided who may already — the
+    // staff gate in `applyHp`, the rules in `attack` and `applyDamage`, the
+    // consent behind a spell. A seat that has since gone falls through to
+    // the row, which is all there is.
+    const character = await db.query.characters.findFirst({
+      where: eq(characters.id, entry.characterId),
+    });
+    if (character) {
+      await applyPlayPatchUnchecked(character, campaignId, {
         hpCurrentDelta: delta,
       });
       return;
-    } catch (err) {
-      const code = err instanceof Error ? err.message : '';
-      if (code !== 'FORBIDDEN' && code !== 'NOT_FOUND') throw err;
     }
   }
 
-  if (delta < 0) {
-    const damage = -delta;
+  // A shape worn for now takes the hit first (07); at 0 it drops, and the
+  // excess is carried or lost by the form's own rule.
+  let remaining = delta;
+  if (delta < 0 && entry.form) {
+    const worn = entry.form as EntryForm;
+    const after = damageForm(worn, -delta);
+    await db
+      .update(initiativeEntries)
+      .set({ form: after.form })
+      .where(eq(initiativeEntries.id, entryId));
+    if (after.form === null) {
+      // The row that timed the shape goes with it.
+      if (worn.effectId) {
+        await db
+          .delete(encounterEffects)
+          .where(eq(encounterEffects.id, worn.effectId));
+      }
+      publish(campaignId, {
+        kind: 'effect',
+        id: randomUUID(),
+        at: new Date().toISOString(),
+        what: 'ended',
+        label: `${worn.label} form`,
+        targets: [entry.label],
+        duration: '',
+        secret: false,
+      });
+    }
+    remaining = -after.carried;
+    if (remaining === 0) {
+      bumpVersion(campaignId);
+      return;
+    }
+  }
+  const dmg = remaining;
+
+  if (dmg < 0) {
+    const damage = -dmg;
     const fromTemp = Math.min(entry.hpTemp, damage);
     const rest = damage - fromTemp;
+    const hpAfter = Math.max(0, entry.hpCurrent - rest);
     await db
       .update(initiativeEntries)
       .set({
         hpTemp: entry.hpTemp - fromTemp,
-        hpCurrent: Math.max(0, entry.hpCurrent - rest),
+        hpCurrent: hpAfter,
       })
       .where(eq(initiativeEntries.id, entryId));
     bumpVersion(campaignId);
+    // A foe holding a spell rolls its Constitution save behind the screen.
+    await concentrationAfterDamage(
+      campaignId,
+      { entryId },
+      damage,
+      hpAfter <= 0
+    );
     return;
   }
 
-  const ceiling = entry.hpMax ?? entry.hpCurrent + delta;
+  const ceiling = entry.hpMax ?? entry.hpCurrent + dmg;
   await db
     .update(initiativeEntries)
-    .set({ hpCurrent: Math.min(ceiling, entry.hpCurrent + delta) })
+    .set({ hpCurrent: Math.min(ceiling, entry.hpCurrent + dmg) })
     .where(eq(initiativeEntries.id, entryId));
   bumpVersion(campaignId);
 }

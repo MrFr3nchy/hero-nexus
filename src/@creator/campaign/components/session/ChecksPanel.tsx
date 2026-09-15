@@ -31,6 +31,7 @@ import type { LiveState } from '@/server/session';
 import { rollAdvice } from '@/@creator/campaign/lib/condition-effects';
 import {
   answerCheckAction,
+  answerConsentAction,
   cancelCheckAction,
   dismissCheckAction,
   requestCheckAction,
@@ -68,6 +69,12 @@ function TargetLine({
       )}
       {target.status === 'dismissed' && (
         <span className="text-xs text-ink-subtle">set aside</span>
+      )}
+      {target.status === 'allowed' && (
+        <span className="text-xs text-success">allowed</span>
+      )}
+      {target.status === 'refused' && (
+        <span className="text-xs text-danger">refused</span>
       )}
       {target.status === 'rolled' && (
         <>
@@ -149,6 +156,18 @@ function CheckCard({
     await refresh();
   };
 
+  /** A fellow player's spell (07): let it in, roll against it, or say no. */
+  const consent = async (how: 'allow' | 'contest' | 'refuse') => {
+    setBusy(true);
+    const res = await answerConsentAction(check.id, how, mode);
+    setBusy(false);
+    if (!res.ok) {
+      onError(res.error);
+      return;
+    }
+    await refresh();
+  };
+
   const settled = check.status !== 'open';
 
   return (
@@ -164,6 +183,12 @@ function CheckCard({
           className={check.mine ? 'text-arcane' : 'text-ink-subtle'}
         />
         <span className="text-sm font-medium text-ink">{check.ask}</span>
+        {check.spell && check.kind !== 'consent' && (
+          <span className="text-xs text-arcane">
+            {check.spell.name}
+            {check.spell.casterLabel ? ` · ${check.spell.casterLabel}` : ''}
+          </span>
+        )}
         {check.dc !== null && (
           <span className="text-xs tabular-nums text-ink-muted">
             DC {check.dc}
@@ -203,7 +228,7 @@ function CheckCard({
         )}
       </div>
 
-      {check.prompt && (
+      {check.prompt && check.kind !== 'consent' && (
         <p className="mt-1 text-sm text-ink-muted">{check.prompt}</p>
       )}
 
@@ -213,7 +238,66 @@ function CheckCard({
         ))}
       </ul>
 
-      {check.mine && (
+      {check.mine && check.kind === 'consent' && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2">
+          <Tooltip content="It lands with no roll.">
+            <Button
+              size="sm"
+              color="primary"
+              isDisabled={busy}
+              onPress={() => consent('allow')}
+            >
+              Allow
+            </Button>
+          </Tooltip>
+          {check.ability && (
+            <>
+              <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+                {MODES.map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMode(m)}
+                    className={`rounded px-2 py-0.5 text-xs capitalize transition-colors ${
+                      mode === m
+                        ? 'bg-gold font-medium text-bg'
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <Tooltip content="Roll the save the spell calls for, at the caster's DC.">
+                <Button
+                  size="sm"
+                  variant="flat"
+                  isDisabled={busy}
+                  onPress={() => consent('contest')}
+                >
+                  Contest
+                </Button>
+              </Tooltip>
+            </>
+          )}
+          <Tooltip content="The caster is told, and spends nothing.">
+            <Button
+              size="sm"
+              variant="light"
+              className="text-ink-subtle"
+              isDisabled={busy}
+              onPress={() => consent('refuse')}
+            >
+              Refuse
+            </Button>
+          </Tooltip>
+          <Marginalia className="ml-auto" dash>
+            your hero, your call
+          </Marginalia>
+        </div>
+      )}
+
+      {check.mine && check.kind !== 'consent' && (
         <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2">
           <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
             {MODES.map(m => (

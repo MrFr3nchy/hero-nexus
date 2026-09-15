@@ -762,25 +762,47 @@ export function areaTiles(doc: TerrainDoc, area: Area): Set<number> {
       const d = area.direction ?? { x: o.x + 1, y: o.y };
       const dx = d.x - o.x;
       const dy = d.y - o.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const ux = dx / len;
-      const uy = dy / len;
       const halfWidth =
         area.shape === 'line'
           ? Math.max(1, Math.round((area.width || TILE_FEET) / TILE_FEET)) / 2
           : 0;
-      // Walk every tile in the bounding box and keep the ones whose centre
-      // projects onto the ray within length and within the width at that
-      // distance — a cone widens, a line does not.
+      const axis = dx === 0 || dy === 0;
+      const diagonal = Math.abs(dx) === Math.abs(dy) && dx !== 0;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      /*
+       * How far out and how far across a tile sits, in tiles. Along an axis
+       * or a diagonal the board's own arithmetic: a diagonal step is one
+       * tile on a 5-5-5 board, so a 15 ft cone reaches three tiles out
+       * whichever way it points. Anything in between projects onto the ray.
+       */
+      const place = (px: number, py: number): [number, number] | null => {
+        if (axis) {
+          const along = dx !== 0 ? px * Math.sign(dx) : py * Math.sign(dy);
+          const across = dx !== 0 ? Math.abs(py) : Math.abs(px);
+          return along > 0 ? [along, across] : null;
+        }
+        if (diagonal) {
+          const a = px * Math.sign(dx);
+          const b = py * Math.sign(dy);
+          if (a < 0 || b < 0 || (a === 0 && b === 0)) return null;
+          return [Math.max(a, b), Math.abs(a - b)];
+        }
+        const along = px * ux + py * uy;
+        const across = Math.abs(px * uy - py * ux);
+        return along > 0 ? [along, across] : null;
+      };
       for (let y = o.y - tiles; y <= o.y + tiles; y++) {
         for (let x = o.x - tiles; x <= o.x + tiles; x++) {
           if (x === o.x && y === o.y) continue;
-          const px = x - o.x;
-          const py = y - o.y;
-          const along = px * ux + py * uy;
-          if (along <= 0 || along > tiles + 0.01) continue;
-          const across = Math.abs(px * uy - py * ux);
-          const allowed = area.shape === 'cone' ? along / 2 + 0.5 : halfWidth + 0.01;
+          const at = place(x - o.x, y - o.y);
+          if (!at) continue;
+          const [along, across] = at;
+          if (along > tiles + 0.01) continue;
+          // As wide as it is long: half the distance out, either side.
+          const allowed =
+            area.shape === 'cone' ? along / 2 + 0.01 : halfWidth + 0.01;
           if (across <= allowed) add(x, y);
         }
       }
