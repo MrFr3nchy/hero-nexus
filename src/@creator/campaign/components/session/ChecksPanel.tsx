@@ -23,6 +23,7 @@ import {
   QuestScene,
   SectionCard,
 } from '@/@shared/components/ui';
+import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import type { CampaignMemberRow } from '@/server/campaigns';
 import { listMembersAction } from '../../actions';
 import type { CheckRow, CheckTargetRow } from '@/server/checks';
@@ -125,6 +126,9 @@ function CheckCard({
   refresh: () => void | Promise<void>;
   onError: (message: string) => void;
 }) {
+  // Whether this reader may hand over faces off real dice: the seated
+  // sheet carries the table's rule; staff always may.
+  const physicalDice = isStaff || Boolean(mine?.physicalDice);
   const [mode, setMode] = useState<Mode>('straight');
   const [busy, setBusy] = useState(false);
 
@@ -145,28 +149,48 @@ function CheckCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adviceKey]);
 
-  const answer = async () => {
+  const tray = useDiceTray();
+  const answer = async (faces?: number[]) => {
     setBusy(true);
-    const res = await answerCheckAction(check.id, mode);
+    const res = await answerCheckAction(check.id, mode, faces);
     setBusy(false);
     if (!res.ok) {
       onError(res.error);
       return;
     }
+    // The server rolled it and the reader caused it: the tray draws the
+    // server's faces (the rule in `DiceTray`'s header). The Asking used to
+    // land as a number in a list with nothing thrown.
+    void tray.showNotationRoll(res.data.roll, {
+      title: check.ask,
+      hint: check.dc !== null ? `DC ${check.dc}` : undefined,
+      physical: res.data.physical,
+    });
     await refresh();
   };
 
   /** A fellow player's spell (07): let it in, roll against it, or say no. */
-  const consent = async (how: 'allow' | 'contest' | 'refuse') => {
+  const consent = async (
+    how: 'allow' | 'contest' | 'refuse',
+    faces?: number[]
+  ) => {
     setBusy(true);
-    const res = await answerConsentAction(check.id, how, mode);
+    const res = await answerConsentAction(check.id, how, mode, faces);
     setBusy(false);
     if (!res.ok) {
       onError(res.error);
       return;
     }
+    if (res.data.roll) {
+      void tray.showNotationRoll(res.data.roll, {
+        title: check.ask,
+        hint: check.dc !== null ? `DC ${check.dc}` : undefined,
+        physical: res.data.physical,
+      });
+    }
     await refresh();
   };
+  const d20s = mode === 'straight' ? [20] : [20, 20];
 
   const settled = check.status !== 'open';
 
@@ -278,6 +302,15 @@ function CheckCard({
                   Contest
                 </Button>
               </Tooltip>
+              {physicalDice && (
+                <FaceEntry
+                  sides={d20s}
+                  label={check.ask}
+                  compact
+                  disabled={busy}
+                  onSubmit={faces => consent('contest', faces)}
+                />
+              )}
             </>
           )}
           <Tooltip content="The caster is told, and spends nothing.">
@@ -320,10 +353,18 @@ function CheckCard({
             color="primary"
             isDisabled={busy}
             isLoading={busy}
-            onPress={answer}
+            onPress={() => answer()}
           >
             Roll it
           </Button>
+          {physicalDice && (
+            <FaceEntry
+              sides={d20s}
+              label={check.ask}
+              disabled={busy}
+              onSubmit={faces => answer(faces)}
+            />
+          )}
           <Tooltip content="The DM is told you set it aside.">
             <Button
               size="sm"

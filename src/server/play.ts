@@ -32,7 +32,7 @@ import {
   type SpellSlotLevel,
 } from '@/@creator/character/schema';
 import { parseContentData, refKey } from '@/@shared/content';
-import { rollDie, type NotationRoll } from '@/@shared/lib/dice';
+import { d20Faces, rollDie, type NotationRoll } from '@/@shared/lib/dice';
 import { randomUUID } from 'node:crypto';
 import { resolveContentRefs } from './content';
 import { db } from '@/db';
@@ -49,6 +49,8 @@ import { concentrationAfterDamage } from './concentration';
 import { clearRestedEffects } from './effects';
 import { bumpVersion, publish } from './live-hub';
 import { effectiveRules, fence } from './table-rules';
+import { claimedFaces } from './dice-claims';
+import { physicalDiceAllowed } from '@/@creator/campaign/lib/table-rules';
 import { spendWeaponSwap } from './turn';
 import { DEFAULT_TABLE_RULES } from '@/@creator/campaign/lib/table-rules';
 import { requireUserId } from './session-user';
@@ -108,6 +110,12 @@ export interface PlayState {
   slots: { level: number; total: number; expended: number }[];
   /** Conditions the character is under, from the shared vocabulary. */
   conditions: ConditionKey[];
+  /**
+   * Whether this viewer may type the faces off real dice for this
+   * character: the table's `physicalDice` rule, staff always, and a sheet
+   * at nobody's table always — there is no rule to read there.
+   */
+  physicalDice: boolean;
   /**
    * A fingerprint of what is carried — every inventory row's id, count and
    * whether it is in hand, and the purse. Not for reading; for noticing. The
@@ -272,10 +280,20 @@ async function roleAt(campaignId: string): Promise<CampaignRole | null> {
   }
 }
 
+/** Whether faces off real dice may be handed over for a sheet at this table. */
+async function physicalFor(
+  campaignId: string | null,
+  isStaff: boolean
+): Promise<boolean> {
+  if (!campaignId) return true;
+  return physicalDiceAllowed(await effectiveRules(campaignId), isStaff);
+}
+
 function toPlayState(
   character: typeof characters.$inferSelect,
   canEdit: boolean,
-  conditions: ConditionKey[]
+  conditions: ConditionKey[],
+  physicalDice = false
 ): PlayState {
   const sheet = character.sheet as CharacterSheet;
   const level = sheet.identity?.level ?? 1;
@@ -319,6 +337,7 @@ function toPlayState(
     })).filter(s => s.total > 0),
 
     conditions,
+    physicalDice,
     stable: sheet.combat?.stable ?? false,
     dying: dyingState(sheet.combat?.hitPointsCurrent ?? 0, {
       successes: sheet.combat?.deathSaveSuccesses ?? 0,
@@ -372,8 +391,16 @@ export async function getPlayState(
   characterId: string,
   campaignId: string | null
 ): Promise<PlayState> {
-  const { character, canEdit } = await authorize(characterId, campaignId);
-  return toPlayState(character, canEdit, await conditionsFor(characterId));
+  const { character, canEdit, isStaff } = await authorize(
+    characterId,
+    campaignId
+  );
+  return toPlayState(
+    character,
+    canEdit,
+    await conditionsFor(characterId),
+    await physicalFor(campaignId, isStaff)
+  );
 }
 
 /** Every party member's play state, for the DM's view of the table. */
@@ -399,12 +426,14 @@ export async function listPartyPlayState(
       )
     );
 
+  const physical = await physicalFor(campaignId, isStaff);
   return Promise.all(
     rows.map(async r =>
       toPlayState(
         r.character,
         isStaff || r.character.ownerId === userId,
-        await conditionsFor(r.character.id)
+        await conditionsFor(r.character.id),
+        physical
       )
     )
   );
@@ -422,9 +451,18 @@ export async function applyPlayPatch(
   campaignId: string | null,
   patch: PlayPatch
 ): Promise<PlayState> {
-  const { character, canEdit } = await authorize(characterId, campaignId);
+  const { character, canEdit, isStaff } = await authorize(
+    characterId,
+    campaignId
+  );
   if (!canEdit) throw new Error('FORBIDDEN');
-  return applyPlayPatchUnchecked(character, campaignId, patch, canEdit);
+  return applyPlayPatchUnchecked(
+    character,
+    campaignId,
+    patch,
+    canEdit,
+    await physicalFor(campaignId, isStaff)
+  );
 }
 
 /**
@@ -436,7 +474,8 @@ export async function applyPlayPatchUnchecked(
   character: typeof characters.$inferSelect,
   campaignId: string | null,
   patch: PlayPatch,
-  canEdit = true
+  canEdit = true,
+  physicalDice = false
 ): Promise<PlayState> {
   const characterId = character.id;
   const sheet = character.sheet as CharacterSheet;
@@ -598,7 +637,8 @@ export async function applyPlayPatchUnchecked(
   return toPlayState(
     { ...character, sheet: next },
     canEdit,
-    await conditionsFor(characterId)
+    await conditionsFor(characterId),
+    physicalDice
   );
 }
 
@@ -1207,15 +1247,21 @@ export interface DeathSaveResult {
    * did: the log said 7 and the tray said 19.
    */
   roll: NotationRoll;
+  /** The face came off a real die. */
+  physical: boolean;
 }
 
 export async function rollDeathSave(
   characterId: string,
   campaignId: string | null,
-  options: { mode?: DeathSaveMode; secret?: boolean } = {}
+  options: { mode?: DeathSaveMode; secret?: boolean; faces?: number[] } = {}
 ): Promise<DeathSaveResult> {
-  const { character, canEdit } = await authorize(characterId, campaignId);
+  const { character, canEdit, isStaff } = await authorize(
+    characterId,
+    campaignId
+  );
   if (!canEdit) throw new Error('FORBIDDEN');
+  const claimed = await claimedFaces(campaignId, isStaff, options.faces);
 
   const sheet = character.sheet as CharacterSheet;
   const combat = { ...sheet.combat };
@@ -1247,7 +1293,8 @@ export async function rollDeathSave(
     secret = true;
   }
 
-  const dice = mode === 'straight' ? [rollDie(20)] : [rollDie(20), rollDie(20)];
+  const dice = d20Faces(mode, claimed);
+  if (!dice) throw new Error('BAD_FACES');
   const outcome = applyDeathSave(
     {
       successes: combat.deathSaveSuccesses,
@@ -1293,6 +1340,7 @@ export async function rollDeathSave(
       modifier: 0,
       total: outcome.result,
       visibility: secret ? 'dm' : 'table',
+      physical: claimed !== undefined,
     });
     bumpVersion(campaignId);
   }
@@ -1318,7 +1366,8 @@ export async function rollDeathSave(
     state: toPlayState(
       { ...character, sheet: next },
       canEdit,
-      await conditionsFor(characterId)
+      await conditionsFor(characterId),
+      await physicalFor(campaignId, isStaff)
     ),
     roll: {
       notation: mode === 'straight' ? '1d20' : '2d20',
@@ -1327,6 +1376,7 @@ export async function rollDeathSave(
       modifier: 0,
       total: outcome.result,
     },
+    physical: claimed !== undefined,
   };
 }
 
@@ -1342,13 +1392,25 @@ export async function rollDeathSave(
  * below zero for that die — a Con of 6 costs you nothing extra, it just stops
  * helping (2024 PHB).
  */
+export interface HitDiceResult {
+  state: PlayState;
+  /** The dice as the log has them, so the tray draws the server's faces. */
+  roll: NotationRoll;
+  physical: boolean;
+}
+
 export async function spendHitDice(
   characterId: string,
   campaignId: string | null,
-  count: number
-): Promise<PlayState> {
-  const { character, canEdit } = await authorize(characterId, campaignId);
+  count: number,
+  faces?: number[]
+): Promise<HitDiceResult> {
+  const { character, canEdit, isStaff } = await authorize(
+    characterId,
+    campaignId
+  );
   if (!canEdit) throw new Error('FORBIDDEN');
+  const claimed = await claimedFaces(campaignId, isStaff, faces);
 
   const sheet = character.sheet as CharacterSheet;
   const combat = { ...sheet.combat };
@@ -1360,10 +1422,18 @@ export async function spendHitDice(
   const conMod = abilityModifier(sheet.abilities?.constitution?.score ?? 10);
   const size = combat.hitDieSize || 8;
 
+  // One face per die spent, each within the die, or the server's own.
+  if (
+    claimed &&
+    (claimed.length !== spending ||
+      !claimed.every(f => Number.isInteger(f) && f >= 1 && f <= size))
+  ) {
+    throw new Error('BAD_FACES');
+  }
   const dice: number[] = [];
   let healed = 0;
   for (let i = 0; i < spending; i++) {
-    const roll = rollDie(size);
+    const roll = claimed ? claimed[i] : rollDie(size);
     dice.push(roll);
     healed += Math.max(0, roll + conMod);
   }
@@ -1381,6 +1451,7 @@ export async function spendHitDice(
   }
 
   const next: CharacterSheet = { ...sheet, combat };
+  const notation = `${spending}d${size}${conMod >= 0 ? '+' : ''}${conMod * spending}`;
 
   await db
     .update(characters)
@@ -1403,21 +1474,33 @@ export async function spendHitDice(
       characterId,
       actorName: character.name,
       label: `Short rest — ${spending} hit di${spending === 1 ? 'e' : 'ce'}`,
-      notation: `${spending}d${size}${conMod >= 0 ? '+' : ''}${conMod * spending}`,
+      notation,
       dice,
       dropped: [],
       modifier: conMod * spending,
       total: healed,
       visibility: 'table',
+      physical: claimed !== undefined,
     });
     bumpVersion(campaignId);
   }
 
-  return toPlayState(
-    { ...character, sheet: next },
-    canEdit,
-    await conditionsFor(characterId)
-  );
+  return {
+    state: toPlayState(
+      { ...character, sheet: next },
+      canEdit,
+      await conditionsFor(characterId),
+      await physicalFor(campaignId, isStaff)
+    ),
+    roll: {
+      notation,
+      dice,
+      dropped: [],
+      modifier: conMod * spending,
+      total: healed,
+    },
+    physical: claimed !== undefined,
+  };
 }
 
 /**

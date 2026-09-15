@@ -52,7 +52,12 @@ import {
 } from '@/@shared/battlemap/types';
 import { skillBonus } from '@/@creator/character/lib/derive';
 import type { CharacterSheet } from '@/@creator/character/schema';
-import { rollDie } from '@/@shared/lib/dice';
+import {
+  d20Faces,
+  d20Result,
+  rollDie,
+  type NotationRoll,
+} from '@/@shared/lib/dice';
 import { randomUUID } from 'node:crypto';
 import {
   parseContentData,
@@ -76,6 +81,7 @@ import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
 import { resolveContentRefs } from './content';
 import { effectiveRules, fence } from './table-rules';
+import { claimedFaces } from './dice-claims';
 import { spendMovement } from './turn';
 import { parseTurn } from '@/@creator/campaign/lib/turn';
 import {
@@ -1593,13 +1599,21 @@ export async function operateThing(
  */
 export async function pickLock(
   tokenId: string,
-  mode: 'straight' | 'advantage' | 'disadvantage' = 'straight'
-): Promise<{ total: number; opened: boolean }> {
+  mode: 'straight' | 'advantage' | 'disadvantage' = 'straight',
+  faces?: number[]
+): Promise<{
+  total: number;
+  opened: boolean;
+  /** The roll as the log has it, for the tray. */
+  roll: NotationRoll;
+  physical: boolean;
+}> {
   const { thing, map, userId, role } = await thingAndMap(tokenId);
   if (thing.state !== 'locked') throw new Error('NOT_LOCKED');
   if (!(await withinReach(map, thing, userId, role))) {
     throw new Error('OUT_OF_REACH');
   }
+  const claimed = await claimedFaces(map.campaignId, isStaffRole(role), faces);
 
   const seat = await db.query.campaignMembers.findFirst({
     columns: { characterId: true },
@@ -1617,13 +1631,9 @@ export async function pickLock(
     ? skillBonus(character.sheet as CharacterSheet, 'sleightOfHand')
     : 0;
 
-  const dice = mode === 'straight' ? [rollDie(20)] : [rollDie(20), rollDie(20)];
-  const face =
-    mode === 'advantage'
-      ? Math.max(...dice)
-      : mode === 'disadvantage'
-        ? Math.min(...dice)
-        : dice[0];
+  const dice = d20Faces(mode, claimed);
+  if (!dice) throw new Error('BAD_FACES');
+  const { face, dropped } = d20Result(mode, dice);
   const total = face + bonus;
   // No DC set is a lock that always gives: the DM said "locked" and not how
   // hard, and a lock nobody can ever pick is a wall.
@@ -1638,10 +1648,11 @@ export async function pickLock(
     label: `Pick the lock — ${name}`.slice(0, 80),
     notation: `${dice.length}d20${bonus >= 0 ? '+' : ''}${bonus}`,
     dice,
-    dropped: dice.length === 2 ? [dice[0] === face ? 1 : 0] : [],
+    dropped,
     modifier: bonus,
     total,
     visibility: 'table',
+    physical: claimed !== undefined,
   });
   if (opened) {
     await db
@@ -1659,7 +1670,18 @@ export async function pickLock(
     name: thing.label || 'Something',
     what: opened ? 'unlocked' : 'held',
   });
-  return { total, opened };
+  return {
+    total,
+    opened,
+    roll: {
+      notation: `${dice.length}d20${bonus >= 0 ? '+' : ''}${bonus}`,
+      dice,
+      dropped,
+      modifier: bonus,
+      total,
+    },
+    physical: claimed !== undefined,
+  };
 }
 
 /**

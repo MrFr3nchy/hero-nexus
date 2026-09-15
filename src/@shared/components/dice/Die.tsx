@@ -98,29 +98,54 @@ const BODY_FILL = 'color-mix(in srgb, var(--surface) 85%, var(--gold))';
 
 export type DieTone = 'plain' | 'crit' | 'fumble';
 
+/**
+ * How the body is drawn, apart from the tone's colour. `solid` is the app's
+ * die. `hollow` is a face read off a real die — an outline with nothing in
+ * it, because the app did not roll it and does not pretend to have. `screened`
+ * is a roll made behind the DM's screen, in ink rather than gold, for the
+ * one pair of eyes it is for.
+ */
+export type DieFinish = 'solid' | 'hollow' | 'screened';
+
 const TONE_RIM: Record<DieTone, string> = {
   plain: 'var(--gold)',
   crit: 'var(--success)',
   fumble: 'var(--danger)',
 };
 
+const SCREENED_RIM = 'var(--ink-muted)';
+const SCREENED_BODY = 'color-mix(in srgb, var(--surface) 78%, var(--ink))';
+
 function CubeFace({
   value,
   transform,
   size,
+  finish = 'solid',
 }: {
   value: number;
   transform: string;
   size: number;
+  finish?: DieFinish;
 }) {
   return (
     <div
-      className="absolute left-0 top-0 grid grid-cols-3 grid-rows-3 rounded-[16%] border border-gold/60 p-[13%] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35),inset_0_-6px_10px_rgba(122,92,46,0.14)] [backface-visibility:hidden]"
+      className={`absolute left-0 top-0 grid grid-cols-3 grid-rows-3 rounded-[16%] p-[13%] [backface-visibility:hidden] ${
+        finish === 'hollow'
+          ? 'border-2 border-dashed border-gold/80'
+          : finish === 'screened'
+            ? 'border border-ink-muted/60'
+            : 'border border-gold/60 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.35),inset_0_-6px_10px_rgba(122,92,46,0.14)]'
+      }`}
       style={{
         width: size,
         height: size,
         transform,
-        background: CUBE_FACE_FILL,
+        background:
+          finish === 'hollow'
+            ? 'var(--surface)'
+            : finish === 'screened'
+              ? SCREENED_BODY
+              : CUBE_FACE_FILL,
       }}
     >
       {Array.from({ length: 9 }).map((_, i) => {
@@ -157,6 +182,7 @@ export function DieGlyph({
   size,
   settled = true,
   tone = 'plain',
+  finish = 'solid',
 }: {
   sides: number;
   value: number;
@@ -164,35 +190,49 @@ export function DieGlyph({
   /** Dim the number while the die is still deciding. */
   settled?: boolean;
   tone?: DieTone;
+  finish?: DieFinish;
 }) {
   const shape = shapeFor(sides);
-  const rim = TONE_RIM[tone];
+  const rim =
+    finish === 'screened' && tone === 'plain' ? SCREENED_RIM : TONE_RIM[tone];
+  const hollow = finish === 'hollow';
   return (
     <svg
       viewBox="0 0 100 100"
       style={{ width: size, height: size, overflow: 'visible' }}
       aria-hidden="true"
     >
-      <polygon points={shape.silhouette} fill={BODY_FILL} />
-      {shape.facets.map(facet => (
-        <polygon
-          key={facet.points}
-          points={facet.points}
-          fill="#000"
-          opacity={facet.shade * 0.19}
-        />
-      ))}
+      <polygon
+        points={shape.silhouette}
+        fill={
+          hollow
+            ? 'var(--surface)'
+            : finish === 'screened'
+              ? SCREENED_BODY
+              : BODY_FILL
+        }
+      />
+      {!hollow &&
+        shape.facets.map(facet => (
+          <polygon
+            key={facet.points}
+            points={facet.points}
+            fill="#000"
+            opacity={facet.shade * 0.19}
+          />
+        ))}
       {/* Shadow alone is nearly invisible on the candlelight palette's dark
           body, so the facets turned toward the light also catch a sheen. It
           costs nothing on parchment, where white on near-white does not show. */}
-      {shape.facets.map(facet => (
-        <polygon
-          key={`lit-${facet.points}`}
-          points={facet.points}
-          fill="#fff"
-          opacity={(1 - facet.shade) * 0.07}
-        />
-      ))}
+      {!hollow &&
+        shape.facets.map(facet => (
+          <polygon
+            key={`lit-${facet.points}`}
+            points={facet.points}
+            fill="#fff"
+            opacity={(1 - facet.shade) * 0.07}
+          />
+        ))}
       {shape.facets.map(facet => (
         <polygon
           key={`edge-${facet.points}`}
@@ -201,15 +241,18 @@ export function DieGlyph({
           stroke={rim}
           strokeWidth="0.9"
           strokeLinejoin="round"
-          opacity="0.4"
+          opacity={hollow ? 0.25 : 0.4}
         />
       ))}
+      {/* A hollow die's outline is dashed: the app is drawing what it was
+          told, and an unbroken rim would claim more than it knows. */}
       <polygon
         points={shape.silhouette}
         fill="none"
         stroke={rim}
         strokeWidth="4"
         strokeLinejoin="round"
+        strokeDasharray={hollow ? '9 5' : undefined}
       />
       <text
         x={shape.label.x}
@@ -219,7 +262,9 @@ export function DieGlyph({
         fill={
           settled
             ? tone === 'plain'
-              ? 'var(--gold-strong)'
+              ? finish === 'screened'
+                ? 'var(--ink)'
+                : 'var(--gold-strong)'
               : rim
             : 'var(--ink-subtle)'
         }
@@ -258,6 +303,7 @@ export interface DieProps {
   /** Rolled but not counted — kept visible, struck through, and dimmed. */
   dropped?: boolean;
   tone?: DieTone;
+  finish?: DieFinish;
 }
 
 /**
@@ -275,6 +321,7 @@ export function Die({
   delay,
   dropped = false,
   tone = 'plain',
+  finish = 'solid',
 }: DieProps) {
   const reduce = useReducedMotion();
   const [settled, setSettled] = useState(Boolean(reduce));
@@ -338,6 +385,7 @@ export function Die({
           value={f.value}
           transform={f.transform}
           size={size}
+          finish={finish}
         />
       ))}
     </div>
@@ -348,6 +396,7 @@ export function Die({
       size={size}
       settled={settled}
       tone={tone}
+      finish={finish}
     />
   );
 
@@ -384,7 +433,10 @@ export function Die({
             height: size * 0.4,
             x: '-50%',
             y: '30%',
-            borderColor: TONE_RIM[tone],
+            borderColor:
+              finish === 'screened' && tone === 'plain'
+                ? SCREENED_RIM
+                : TONE_RIM[tone],
           }}
           initial={{ scale: 0.2, opacity: 0 }}
           animate={{ scale: [0.2, 2.1], opacity: [0.6, 0] }}

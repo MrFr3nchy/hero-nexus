@@ -70,6 +70,8 @@ export interface RollEvent extends BaseEvent {
   total: number;
   tone: 'plain' | 'crit' | 'fumble';
   secret: boolean;
+  /** The faces came off real dice on the table. */
+  physical?: boolean;
 }
 
 /** The order moved on. */
@@ -373,12 +375,15 @@ export function describe(
             ? 'danger'
             : 'gold';
       const forWhat = event.label ? ` · ${event.label}` : '';
+      const how = event.secret
+        ? ' · behind the screen'
+        : event.physical
+          ? ' · real dice'
+          : '';
       return {
         glyph,
         title: `${event.actorName}${forWhat} · ${event.total}`,
-        detail: event.secret
-          ? `${event.notation} · behind the screen`
-          : event.notation,
+        detail: `${event.notation}${how}`,
         tone,
       };
     }
