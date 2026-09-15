@@ -533,8 +533,91 @@ export const initiativeEntries = sqliteTable(
      * rather than only that one is standing there.
      */
     creatureRef: text('creature_ref', { mode: 'json' }),
+    /**
+     * What this combatant has spent since their turn began (0050) — a
+     * `TurnState` from `campaign/lib/turn.ts`. `{}` is a fresh turn.
+     * `advanceTurn` resets it; `takeAction` and `moveToken` write it.
+     */
+    turn: text('turn', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
+    /**
+     * The spell being concentrated on, as a `refKey` (0052). Set by the Cast
+     * flow beside `concentrating`; null when nothing is named.
+     */
+    concentrationSpell: text('concentration_spell'),
+    /**
+     * Another shape worn for now (0053) — an `EntryForm` from
+     * `campaign/lib/casting.ts`. Null when the combatant is itself.
+     */
+    form: text('form', { mode: 'json' }),
   },
   t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
+);
+
+/**
+ * Everything in a fight that ends (0049).
+ *
+ * A condition with a duration, a named effect that is not in the vocabulary
+ * (Rage, Bless), or a countdown that belongs to the room — one table, told
+ * apart by `kind`. `advanceTurn` is the clock; the pure tick lives in
+ * `campaign/lib/effects.ts`. A condition row mirrors its key onto the entry's
+ * `condition_keys` (and the sheet) on creation and takes it off on expiry, so
+ * nothing that reads the keys today has to learn about rows.
+ */
+export const encounterEffects = sqliteTable(
+  'encounter_effects',
+  {
+    id: uuid(),
+    encounterId: text('encounter_id')
+      .notNull()
+      .references(() => initiativeEncounters.id, { onDelete: 'cascade' }),
+    /** Who it is on. Null for a countdown that belongs to the room. */
+    entryId: text('entry_id').references(() => initiativeEntries.id, {
+      onDelete: 'cascade',
+    }),
+    kind: text('kind', { enum: ['condition', 'effect', 'countdown'] })
+      .notNull()
+      .default('effect'),
+    /** A `ConditionKey` for a condition; null otherwise. */
+    conditionKey: text('condition_key'),
+    label: text('label').notNull().default(''),
+    /** Rounds left. Null is "until removed" — or until saved, when a save is set. */
+    roundsLeft: integer('rounds_left'),
+    /** Whose turn it counts down on: the start or the end of the anchor's. */
+    endsOn: text('ends_on', { enum: ['start', 'end'] })
+      .notNull()
+      .default('end'),
+    /**
+     * The turn it is measured on. Null is the affected entry's own turn, and
+     * for a room countdown the top of the round. SET NULL on delete, so an
+     * effect whose caster left the fight falls back to its own entry's turn.
+     */
+    anchorEntryId: text('anchor_entry_id').references(
+      () => initiativeEntries.id,
+      { onDelete: 'set null' }
+    ),
+    /** A repeated save that ends it: `AbilityKey` + DC. Null is none. */
+    saveAbility: text('save_ability'),
+    saveDc: integer('save_dc'),
+    /** What put it there, for the log — and for concentration (07). */
+    sourceEntryId: text('source_entry_id').references(
+      () => initiativeEntries.id,
+      { onDelete: 'set null' }
+    ),
+    sourceLabel: text('source_label').notNull().default(''),
+    concentration: integer('concentration', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('shared'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [
+    index('encounter_effects_encounter_idx').on(t.encounterId),
+    index('encounter_effects_entry_idx').on(t.entryId),
+  ]
 );
 
 /**
@@ -582,6 +665,13 @@ export const campaignRolls = sqliteTable(
     physical: integer('physical', { mode: 'boolean' })
       .notNull()
       .default(false),
+    /**
+     * What an attack decided (0051): target, AC, hit, damage after
+     * resistances, and whether it was applied — a `RollOutcome` from
+     * `campaign/lib/attack.ts`. Null for every roll that is not an attack.
+     * Role-filtered in `getLiveState` before it leaves the server.
+     */
+    outcome: text('outcome', { mode: 'json' }),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('campaign_rolls_campaign_idx').on(t.campaignId, t.createdAt)]
@@ -1750,7 +1840,7 @@ export const campaignChecks = sqliteTable(
      * and a kind whose modifier the server cannot compute would be a prompt
      * pretending to be a roll.
      */
-    kind: text('kind', { enum: ['check', 'save', 'free'] })
+    kind: text('kind', { enum: ['check', 'save', 'free', 'consent'] })
       .notNull()
       .default('check'),
     /** A `SkillKey`. The vocabulary is already typed in character/schema.ts. */
@@ -1779,6 +1869,27 @@ export const campaignChecks = sqliteTable(
     }),
     createdAt: text('created_at').default(nowIso).notNull(),
     resolvedAt: text('resolved_at'),
+    /**
+     * The effect this ask decides (0049). A repeated save is put to a seated
+     * hero as an ordinary check; a pass ends the effect that asked for it.
+     * Null for every check the DM raised by hand.
+     */
+    effectId: text('effect_id'),
+    /**
+     * The character a *player* asked as (0052): a caster asking a fellow
+     * hero's consent, or for the save their spell calls for. Null for the
+     * DM's own asks.
+     */
+    askedByCharacterId: text('asked_by_character_id').references(
+      () => characters.id,
+      { onDelete: 'set null' }
+    ),
+    /**
+     * What the answer settles (0052) — a `CheckPayload` from
+     * `campaign/lib/checks.ts`. Written by the server when it asks, read back
+     * by `answerCheck`; the browser never sets it.
+     */
+    payload: text('payload', { mode: 'json' }),
   },
   t => [index('campaign_checks_campaign_idx').on(t.campaignId, t.createdAt)]
 );
@@ -1808,7 +1919,9 @@ export const campaignCheckTargets = sqliteTable(
     characterId: text('character_id').references(() => characters.id, {
       onDelete: 'set null',
     }),
-    status: text('status', { enum: ['waiting', 'rolled', 'dismissed'] })
+    status: text('status', {
+      enum: ['waiting', 'rolled', 'dismissed', 'allowed', 'refused'],
+    })
       .notNull()
       .default('waiting'),
     rollId: text('roll_id').references(() => campaignRolls.id, {
@@ -1998,6 +2111,15 @@ export const battleMapTokens = sqliteTable(
       .default('camera'),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
+    /**
+     * What this thing does when used, stepped on, struck or destroyed (0054):
+     * a `ThingEffect`. Null for a thing that only opens and closes.
+     */
+    effect: text('effect', { mode: 'json' }),
+    /** Darkvision in feet (0055). Null for normal sight. */
+    visionFeet: integer('vision_feet'),
+    /** A carried light's bright radius in feet (0055). Null for none. */
+    lightFeet: integer('light_feet'),
   },
   t => [index('battle_map_tokens_map_idx').on(t.mapId)]
 );

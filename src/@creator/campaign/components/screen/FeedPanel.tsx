@@ -37,6 +37,10 @@ const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
   gift: 'Gifts',
   thing: 'Doors and chests',
   rules: 'Rulings',
+  effect: 'Conditions and countdowns',
+  action: 'Actions',
+  opportunity: 'Opportunity attacks',
+  cast: 'Spells',
 };
 
 /**

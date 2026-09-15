@@ -183,6 +183,8 @@ export function SessionPanel({ campaignId }: { campaignId: string }) {
       <PartyPlayPanel
         campaignId={campaignId}
         party={state.party}
+        entries={state.entries}
+        effects={state.effects}
         isStaff={isStaff}
         refresh={refresh}
         onError={setError}

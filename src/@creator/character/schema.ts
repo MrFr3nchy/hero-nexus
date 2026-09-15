@@ -526,6 +526,24 @@ export const characterSheetSchema = z.object({
      * `exhaustion` above is deliberately not one of these.
      */
     conditions: z.array(z.string().max(30)).max(20).default([]).catch([]),
+    /**
+     * Damage types this character resists, ignores or suffers doubly — the
+     * words a stat block uses ("fire", "poison", "bludgeoning from nonmagical
+     * attacks"). Read by `adjustDamage` (improvements 06) when an attack
+     * lands; a dwarf's poison resistance or a tiefling's fire belongs here.
+     * Loose strings for the same reason `conditions` are.
+     */
+    damageResistances: z
+      .array(z.string().max(60))
+      .max(20)
+      .default([])
+      .catch([]),
+    damageImmunities: z.array(z.string().max(60)).max(20).default([]).catch([]),
+    damageVulnerabilities: z
+      .array(z.string().max(60))
+      .max(20)
+      .default([])
+      .catch([]),
   }),
 
   abilities,
@@ -580,6 +598,19 @@ export const characterSheetSchema = z.object({
       level9: spellSlot,
     }),
   }),
+
+  /**
+   * What the character sees with (improvements 08). Optional and guarded:
+   * a sheet without it takes its species' default on the board. A feat or a
+   * homebrew species writes it here, and the sheet's own number wins.
+   */
+  senses: z
+    .object({
+      /** Feet of darkvision. 0 or absent is normal sight. */
+      darkvision: z.number().int().min(0).max(1000).default(0).catch(0),
+    })
+    .default({ darkvision: 0 })
+    .catch({ darkvision: 0 }),
 
   details: z.object({
     appearance: z.string().max(4000).default(''),
@@ -669,6 +700,9 @@ export function makeEmptySheet(): CharacterSheet {
       stable: false,
       exhaustion: 0,
       conditions: [],
+      damageResistances: [],
+      damageImmunities: [],
+      damageVulnerabilities: [],
     },
     abilities: {
       strength: { score: 10, proficientSave: false },
@@ -725,6 +759,7 @@ export function makeEmptySheet(): CharacterSheet {
         level9: { ...emptySlot },
       },
     },
+    senses: { darkvision: 0 },
     details: {
       appearance: '',
       backstory: '',

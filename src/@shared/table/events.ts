@@ -36,6 +36,10 @@ export const TABLE_EVENT_KINDS = [
   'gift',
   'thing',
   'rules',
+  'effect',
+  'action',
+  'opportunity',
+  'cast',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -182,7 +186,20 @@ export interface ThingEvent extends BaseEvent {
   actorName: string;
   /** The thing's own name: "the cellar door". */
   name: string;
-  what: 'opened' | 'closed' | 'unlocked' | 'held' | 'broken';
+  what:
+    | 'opened'
+    | 'closed'
+    | 'unlocked'
+    | 'held'
+    | 'broken'
+    /** It did what it does (08): the floor dropped, the portcullis rose. */
+    | 'fired'
+    /** A hidden thing was found. */
+    | 'spotted'
+    /** Staff only: a hero stands beside something they have not found. */
+    | 'near';
+  /** The line the thing makes, or the nudge's words. */
+  detail?: string;
 }
 
 /**
@@ -201,6 +218,70 @@ export interface RulesEvent extends BaseEvent {
   encounterName: string | null;
 }
 
+/**
+ * Something with a clock on it was put on somebody, ran out, was shaken off,
+ * or — a countdown — came due. `label` is the effect's own name ("Poisoned",
+ * "Rage", "The ceiling comes down"); `targets` who it was on, already the
+ * words the table uses for them. A hidden countdown reaches staff only.
+ */
+export interface EffectEvent extends BaseEvent {
+  kind: 'effect';
+  what: 'applied' | 'ended' | 'saved' | 'fired' | 'cleared';
+  label: string;
+  targets: string[];
+  /** "3 rounds" / "until saved" on an application; empty otherwise. */
+  duration: string;
+  secret: boolean;
+}
+
+/**
+ * Somebody spent part of their turn. `again` marks a slot that was already
+ * spent — advising, the app records it and says so rather than refusing.
+ * `holding` is the staff-only nudge when a readied trigger's moment may
+ * have come: "Ilse is holding: if the door opens → cast Shield".
+ */
+export interface ActionEvent extends BaseEvent {
+  kind: 'action';
+  actorLabel: string;
+  /** The action's label — "Dash", "Ready", "Opportunity attack". */
+  action: string;
+  cost: 'action' | 'bonus' | 'reaction' | 'movement' | 'free';
+  /** What was readied, who was helped. May be empty. */
+  note: string;
+  again: boolean;
+  ruling: boolean;
+  what: 'took' | 'holding';
+}
+
+/**
+ * A creature left a hostile's reach without Disengaging, and the hostile
+ * still has its reaction. An offer, to the hostile's owner or to staff —
+ * nothing fires by itself.
+ */
+export interface OpportunityEvent extends BaseEvent {
+  kind: 'opportunity';
+  attackerLabel: string;
+  attackerEntryId: string;
+  moverLabel: string;
+}
+
+/**
+ * Somebody cast a spell (07). `targets` are the names the audience may
+ * know — hidden foes reach staff only, in a second copy. `awaiting` names
+ * fellow heroes whose yes is still owed; `refused` is one of them saying no.
+ */
+export interface CastEvent extends BaseEvent {
+  kind: 'cast';
+  casterLabel: string;
+  spell: string;
+  level: number;
+  ritual: boolean;
+  concentration: boolean;
+  targets: string[];
+  awaiting: string[];
+  refused?: boolean;
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -215,7 +296,11 @@ export type TableEvent =
   | WhisperEvent
   | GiftEvent
   | ThingEvent
-  | RulesEvent;
+  | RulesEvent
+  | EffectEvent
+  | ActionEvent
+  | OpportunityEvent
+  | CastEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -240,6 +325,12 @@ export interface EventReading {
   asks?: boolean;
 }
 
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
+}
+
 const GLYPHS: Record<TableEventKind, GlyphName> = {
   roll: 'die',
   turn: 'sword',
@@ -255,6 +346,10 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   gift: 'chest',
   thing: 'key',
   rules: 'gavel',
+  effect: 'hourglass',
+  action: 'sword',
+  opportunity: 'target',
+  cast: 'sparkle',
 };
 
 /**
@@ -424,11 +519,23 @@ export function describe(
         unlocked: `${event.actorName} picks the lock on ${event.name}`,
         held: `${event.name} holds — ${event.actorName} could not pick it`,
         broken: `${event.name} breaks`,
+        fired: event.actorName
+          ? `${event.actorName} sets off ${event.name}`
+          : `${event.name} goes off`,
+        spotted: `${event.actorName} spots ${event.name}`,
+        near: `${event.actorName} is beside ${event.name}`,
       };
       return {
         glyph,
         title: words[event.what],
-        tone: event.what === 'broken' ? 'danger' : 'gold',
+        detail: event.detail || undefined,
+        tone:
+          event.what === 'broken' || event.what === 'fired'
+            ? 'danger'
+            : event.what === 'near'
+              ? 'arcane'
+              : 'gold',
+        asks: event.what === 'near',
       };
     }
 
@@ -446,6 +553,100 @@ export function describe(
         tone: 'gold',
       };
     }
+
+    case 'effect': {
+      const who = event.targets.join(', ');
+      const words: Record<EffectEvent['what'], string> = {
+        applied: who ? `${event.label} · ${who}` : event.label,
+        ended: who ? `${event.label} ends on ${who}` : `${event.label} ends`,
+        saved: `${who || 'Somebody'} shakes off ${event.label}`,
+        fired: event.label,
+        cleared: `A long rest clears ${event.label}`,
+      };
+      return {
+        glyph,
+        title: words[event.what],
+        detail:
+          event.what === 'applied' && event.duration
+            ? event.secret
+              ? `${event.duration} · behind the screen`
+              : event.duration
+            : event.secret
+              ? 'Behind the screen'
+              : undefined,
+        // A countdown reaching zero is the one moment here that is actually
+        // dangerous — the ceiling came down. Shaking something off is good news.
+        tone:
+          event.what === 'fired'
+            ? 'danger'
+            : event.what === 'saved' || event.what === 'cleared'
+              ? 'success'
+              : 'gold',
+      };
+    }
+
+    case 'action': {
+      if (event.what === 'holding') {
+        const held = event.note.includes('→')
+          ? event.note
+          : `${event.note}${event.note ? ' → ' : ''}${event.action}`;
+        return {
+          glyph,
+          title: `${event.actorLabel} is holding: ${held}`,
+          tone: 'arcane',
+          asks: true,
+        };
+      }
+      return {
+        glyph,
+        title: `${event.actorLabel} · ${event.action}${event.again ? ' · again' : ''}`,
+        detail:
+          [event.note, event.ruling ? "DM's ruling" : '']
+            .filter(Boolean)
+            .join(' · ') || undefined,
+        tone: 'gold',
+      };
+    }
+
+    case 'cast': {
+      if (event.refused) {
+        return {
+          glyph,
+          title: `${event.casterLabel}'s ${event.spell} is refused`,
+          tone: 'gold',
+        };
+      }
+      const at =
+        event.targets.length > 0 ? ` on ${event.targets.join(', ')}` : '';
+      const how = [
+        event.ritual
+          ? 'as a ritual'
+          : event.level > 0
+            ? `${ordinal(event.level)} level`
+            : 'a cantrip',
+        event.concentration ? 'concentrating' : '',
+        event.awaiting.length > 0
+          ? `waiting on ${event.awaiting.join(', ')}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      return {
+        glyph,
+        title: `${event.casterLabel} casts ${event.spell}${at}`,
+        detail: how || undefined,
+        tone: 'arcane',
+      };
+    }
+
+    case 'opportunity':
+      return {
+        glyph,
+        title: `${event.attackerLabel} can take an opportunity attack on ${event.moverLabel}`,
+        detail: 'A reaction, if they want it.',
+        tone: 'arcane',
+        asks: true,
+      };
 
     case 'vitals': {
       const words: Record<VitalsEvent['state'], string> = {

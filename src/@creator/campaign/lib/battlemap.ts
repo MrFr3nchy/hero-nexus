@@ -536,6 +536,281 @@ export function canSee(doc: TerrainDoc, from: Tile, to: Tile): boolean {
   return true;
 }
 
+/* --- cover and flanking -------------------------------------------------- */
+
+export type Cover = 'none' | 'half' | 'three-quarters' | 'total';
+
+const COVER_RANK: Record<Cover, number> = {
+  none: 0,
+  half: 1,
+  'three-quarters': 2,
+  total: 3,
+};
+
+function worse(a: Cover, b: Cover): Cover {
+  return COVER_RANK[b] > COVER_RANK[a] ? b : a;
+}
+
+/**
+ * The tiles a sight line passes through, endpoints excluded — sampled along
+ * the segment finely enough that no tile it crosses is skipped.
+ */
+function tilesBetween(from: Tile, to: Tile): Tile[] {
+  const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y)) * 4;
+  const seen = new Set<string>();
+  const out: Tile[] = [];
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const x = Math.round(from.x + (to.x - from.x) * t);
+    const y = Math.round(from.y + (to.y - from.y) * t);
+    if ((x === from.x && y === from.y) || (x === to.x && y === to.y)) continue;
+    const key = `${x},${y}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ x, y });
+  }
+  return out;
+}
+
+/** Something standing between: a creature's tiles, for half cover. */
+export interface CoverOccupant {
+  x: number;
+  y: number;
+  footprint: number;
+}
+
+/**
+ * How much the target is covered from the attacker (2024 PHB, "Cover").
+ *
+ * Walls the sight line cannot see over give total cover — `canSee` already
+ * knows about height and elevation. A window crossed gives three-quarters, a
+ * rail half. A prop on a tile between: a pillar or a tree three-quarters, a
+ * table, barrel, chest, altar or statue half; rubble nothing. Another
+ * creature on a tile between gives half. The worst of them stands.
+ *
+ * Total cover is a refusal in `attack` — overridable, because a DM knows the
+ * target is leaning round the corner.
+ */
+export function coverBetween(
+  doc: TerrainDoc,
+  from: Tile,
+  to: Tile,
+  occupants: readonly CoverOccupant[] = []
+): Cover {
+  if (from.x === to.x && from.y === to.y) return 'none';
+  if (!canSee(doc, from, to)) return 'total';
+
+  let cover: Cover = 'none';
+  const p: [number, number] = [from.x, from.y];
+  const q: [number, number] = [to.x, to.y];
+  for (const w of doc.walls) {
+    if (w.kind !== 'window' && w.kind !== 'rail') continue;
+    const [r, s] = wallSegment(w);
+    if (!segmentsCross(p, q, r, s)) continue;
+    cover = worse(cover, w.kind === 'window' ? 'three-quarters' : 'half');
+  }
+
+  const between = tilesBetween(from, to);
+  if (between.length === 0) return cover;
+  const betweenKeys = new Set(between.map(t => `${t.x},${t.y}`));
+
+  for (const prop of doc.props) {
+    if (!betweenKeys.has(`${prop.x},${prop.y}`)) continue;
+    switch (prop.kind) {
+      case 'pillar':
+      case 'tree':
+        cover = worse(cover, 'three-quarters');
+        break;
+      case 'table':
+      case 'barrel':
+      case 'chest':
+      case 'altar':
+      case 'statue':
+        cover = worse(cover, 'half');
+        break;
+      case 'image':
+        // A standee is as tall as the DM said; head-high or more hides most.
+        cover = worse(
+          cover,
+          (prop.height ?? 0) >= 10 ? 'three-quarters' : 'half'
+        );
+        break;
+      default:
+        break;
+    }
+  }
+
+  for (const o of occupants) {
+    const size = Math.max(1, Math.min(3, Math.trunc(o.footprint) || 1));
+    for (let dy = 0; dy < size; dy++) {
+      for (let dx = 0; dx < size; dx++) {
+        if (betweenKeys.has(`${o.x + dx},${o.y + dy}`)) {
+          cover = worse(cover, 'half');
+        }
+      }
+    }
+  }
+  return cover;
+}
+
+/**
+ * Whether an ally of the attacker stands on the far side of the target — the
+ * optional flanking rule (01). For a one-tile target that is the tile
+ * mirrored through it; for a bigger one, any tile of the footprint's far
+ * side. An ally is any tile of any ally's footprint.
+ */
+export function flanked(
+  attacker: Tile,
+  target: CoverOccupant,
+  allies: readonly CoverOccupant[]
+): boolean {
+  const size = Math.max(1, Math.min(3, Math.trunc(target.footprint) || 1));
+  // Which side of the footprint the attacker stands on: a hero beside a
+  // Large ogre is west of it, not "south-west of its centre".
+  const dx =
+    attacker.x < target.x ? 1 : attacker.x > target.x + size - 1 ? -1 : 0;
+  const dy =
+    attacker.y < target.y ? 1 : attacker.y > target.y + size - 1 ? -1 : 0;
+  if (dx === 0 && dy === 0) return false;
+  // The tiles just past the footprint, opposite the attacker.
+  const far: Tile[] = [];
+  const beyondX = dx > 0 ? target.x + size : dx < 0 ? target.x - 1 : null;
+  const beyondY = dy > 0 ? target.y + size : dy < 0 ? target.y - 1 : null;
+  for (let i = 0; i < size; i++) {
+    if (beyondX !== null) far.push({ x: beyondX, y: beyondY ?? target.y + i });
+    if (beyondY !== null) far.push({ x: beyondX ?? target.x + i, y: beyondY });
+  }
+  const keys = new Set(far.map(t => `${t.x},${t.y}`));
+  return allies.some(a => {
+    const s = Math.max(1, Math.min(3, Math.trunc(a.footprint) || 1));
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        if (keys.has(`${a.x + x},${a.y + y}`)) return true;
+      }
+    }
+    return false;
+  });
+}
+
+/* --- areas ---------------------------------------------------------------- */
+
+export type AreaShape =
+  | 'sphere'
+  | 'cube'
+  | 'cone'
+  | 'line'
+  | 'cylinder'
+  | 'emanation';
+
+export interface Area {
+  shape: AreaShape;
+  /** The tile the effect springs from — the point of origin, or the caster. */
+  origin: Tile;
+  /** Cone and line: the tile the shape points at. Cube: the corner it grows toward. */
+  direction?: Tile;
+  /** Radius, side or length, in feet. */
+  size: number;
+  /** Line only; 0 reads as 5. */
+  width?: number;
+}
+
+/**
+ * The tiles an area covers, by the DMG's "on a grid" method.
+ *
+ * A sphere, cylinder or emanation is every tile whose centre is within `size`
+ * feet of the origin's — Chebyshev on a 5-5-5 board, so it draws as the
+ * square people expect. A cube is `size / 5` tiles a side, grown from the
+ * origin toward `direction` (or east and south). A cone is `size` long and as
+ * wide at its end as it is long, along `direction`; a line is `size` long and
+ * `width` wide. Tiles the origin cannot see — behind a wall — are left out,
+ * so a Fireball around a corner lights only what the blast reaches; the DM
+ * may add one back by tapping it.
+ */
+export function areaTiles(doc: TerrainDoc, area: Area): Set<number> {
+  const out = new Set<number>();
+  const add = (x: number, y: number) => {
+    if (!inBounds(doc, x, y)) return;
+    if (!canSee(doc, area.origin, { x, y })) return;
+    out.add(y * doc.w + x);
+  };
+  const tiles = Math.max(1, Math.round(area.size / TILE_FEET));
+  const o = area.origin;
+
+  switch (area.shape) {
+    case 'sphere':
+    case 'cylinder':
+    case 'emanation': {
+      for (let y = o.y - tiles; y <= o.y + tiles; y++) {
+        for (let x = o.x - tiles; x <= o.x + tiles; x++) add(x, y);
+      }
+      // An emanation spreads from the creature's own space and does not
+      // include it; a sphere centred on a point does.
+      if (area.shape === 'emanation') out.delete(o.y * doc.w + o.x);
+      return out;
+    }
+    case 'cube': {
+      const d = area.direction ?? { x: o.x + 1, y: o.y + 1 };
+      const sx = d.x < o.x ? -1 : 1;
+      const sy = d.y < o.y ? -1 : 1;
+      for (let i = 0; i < tiles; i++) {
+        for (let j = 0; j < tiles; j++) add(o.x + sx * i, o.y + sy * j);
+      }
+      return out;
+    }
+    case 'cone':
+    case 'line': {
+      const d = area.direction ?? { x: o.x + 1, y: o.y };
+      const dx = d.x - o.x;
+      const dy = d.y - o.y;
+      const halfWidth =
+        area.shape === 'line'
+          ? Math.max(1, Math.round((area.width || TILE_FEET) / TILE_FEET)) / 2
+          : 0;
+      const axis = dx === 0 || dy === 0;
+      const diagonal = Math.abs(dx) === Math.abs(dy) && dx !== 0;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      /*
+       * How far out and how far across a tile sits, in tiles. Along an axis
+       * or a diagonal the board's own arithmetic: a diagonal step is one
+       * tile on a 5-5-5 board, so a 15 ft cone reaches three tiles out
+       * whichever way it points. Anything in between projects onto the ray.
+       */
+      const place = (px: number, py: number): [number, number] | null => {
+        if (axis) {
+          const along = dx !== 0 ? px * Math.sign(dx) : py * Math.sign(dy);
+          const across = dx !== 0 ? Math.abs(py) : Math.abs(px);
+          return along > 0 ? [along, across] : null;
+        }
+        if (diagonal) {
+          const a = px * Math.sign(dx);
+          const b = py * Math.sign(dy);
+          if (a < 0 || b < 0 || (a === 0 && b === 0)) return null;
+          return [Math.max(a, b), Math.abs(a - b)];
+        }
+        const along = px * ux + py * uy;
+        const across = Math.abs(px * uy - py * ux);
+        return along > 0 ? [along, across] : null;
+      };
+      for (let y = o.y - tiles; y <= o.y + tiles; y++) {
+        for (let x = o.x - tiles; x <= o.x + tiles; x++) {
+          if (x === o.x && y === o.y) continue;
+          const at = place(x - o.x, y - o.y);
+          if (!at) continue;
+          const [along, across] = at;
+          if (along > tiles + 0.01) continue;
+          // As wide as it is long: half the distance out, either side.
+          const allowed =
+            area.shape === 'cone' ? along / 2 + 0.01 : halfWidth + 0.01;
+          if (across <= allowed) add(x, y);
+        }
+      }
+      return out;
+    }
+  }
+}
+
 /* --- fog --------------------------------------------------------------- */
 
 /**
@@ -592,6 +867,7 @@ export function fogged(
   return {
     format: doc.format,
     version: doc.version,
+    ambient: doc.ambient,
     w: doc.w,
     h: doc.h,
     elevation,

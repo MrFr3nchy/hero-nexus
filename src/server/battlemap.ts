@@ -27,12 +27,16 @@ import 'server-only';
 import { and, eq, inArray } from 'drizzle-orm';
 
 import {
+  canSee,
   canStand,
+  distanceFeet,
   fogged,
   footprintTiles,
+  reachFor,
   standingIssue,
   visibleFrom,
   type Occupant,
+  type Tile,
 } from '@/@creator/campaign/lib/battlemap';
 import {
   blocksTile,
@@ -72,6 +76,32 @@ import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
 import { resolveContentRefs } from './content';
 import { effectiveRules, fence } from './table-rules';
+import { spendMovement } from './turn';
+import { parseTurn } from '@/@creator/campaign/lib/turn';
+import {
+  applyTerrainChanges,
+  isTerrainChange,
+  pathBetween,
+  seesTile,
+  type Torch,
+} from '@/@creator/campaign/lib/things';
+import { heroDarkvision } from '@/@creator/campaign/lib/vision';
+import { adjustDamage } from '@/@creator/campaign/lib/attack';
+import { parseConditions } from '@/@creator/campaign/lib/conditions';
+import {
+  abilityModifier,
+  passivePerception,
+  savingThrow,
+} from '@/@creator/character/lib/derive';
+import type { AbilityKey } from '@/@creator/character/schema';
+import { rollNotation } from '@/@shared/lib/dice';
+import {
+  blocksStanding,
+  normalizeThingEffect,
+  type ThingEffect,
+} from '@/@shared/battlemap/types';
+import { putEffect } from './effects';
+import { applyHpUnchecked } from './hp';
 
 export interface BattleTokenRow {
   id: string;
@@ -100,8 +130,20 @@ export interface BattleTokenRow {
   hpMax: number | null;
   /** Whether it can be broken at all — true when it has hit points. Everybody. */
   breakable: boolean;
+  /**
+   * Whether it stops a creature standing on its tile (08). False for open
+   * and broken things and for anything that fires when stepped on — a plate
+   * in plain sight is a plate you can step on. Everybody.
+   */
+  blocks: boolean;
   /** Which way a picture faces: the camera, or a compass side, standing still. */
   facing: Facing;
+  /** What it does when used (08). Staff only; null on the wire otherwise. */
+  effect: ThingEffect | null;
+  /** Darkvision in feet; null for normal sight (08). */
+  visionFeet: number | null;
+  /** A carried light's bright radius; null for none (08). */
+  lightFeet: number | null;
   /** The campaign image it stands up as, if the DM gave it one. */
   imageId: string | null;
   /**
@@ -259,6 +301,10 @@ export async function getBattleMapState(
       hpCurrent: isStaff ? t.hpCurrent : null,
       hpMax: isStaff ? t.hpMax : null,
       breakable: t.hpMax !== null,
+      blocks: blocksStanding(t),
+      effect: isStaff ? normalizeThingEffect(t.effect) : null,
+      visionFeet: t.visionFeet,
+      lightFeet: t.lightFeet,
       facing: t.facing,
       imageId: t.imageId,
       imageUrl: t.imageId ? imageUrl(campaignId, t.imageId) : null,
@@ -598,8 +644,11 @@ export async function revealFromParty(
     .select({
       x: battleMapTokens.x,
       y: battleMapTokens.y,
+      footprint: battleMapTokens.footprint,
       entryId: battleMapTokens.entryId,
       visibility: battleMapTokens.visibility,
+      visionFeet: battleMapTokens.visionFeet,
+      lightFeet: battleMapTokens.lightFeet,
     })
     .from(battleMapTokens)
     .where(eq(battleMapTokens.mapId, mapId));
@@ -618,13 +667,34 @@ export async function revealFromParty(
     for (const r of rows) partyEntries.add(r.id);
   }
 
+  /*
+   * Per token (08): a tile is revealed to the party if some party token can
+   * see it — a clear line, and either the tile is lit (the board's ambient
+   * light, a brazier, a torch anybody carries) or it is within that token's
+   * own darkvision. On a bright board this is `visibleFrom` as it always was.
+   */
+  const torches: Torch[] = tokens
+    .filter(t => t.lightFeet && t.lightFeet > 0)
+    .map(t => ({ x: t.x, y: t.y, radiusFeet: t.lightFeet as number }));
   const revealed = revealedOf(map.revealed);
   const before = revealed.size;
+  const r = Math.ceil(radiusFeet / 5);
   for (const t of tokens) {
     if (t.visibility !== 'shared') continue;
     if (!t.entryId || !partyEntries.has(t.entryId)) continue;
-    for (const i of visibleFrom(doc, { x: t.x, y: t.y }, radiusFeet)) {
-      revealed.add(i);
+    const seer = {
+      x: t.x,
+      y: t.y,
+      footprint: t.footprint,
+      visionFeet: t.visionFeet,
+    };
+    for (let y = t.y - r; y <= t.y + r; y++) {
+      for (let x = t.x - r; x <= t.x + r; x++) {
+        if (!inBounds(doc, x, y)) continue;
+        if (seesTile(doc, seer, { x, y }, torches, canSee, radiusFeet)) {
+          revealed.add(y * doc.w + x);
+        }
+      }
     }
   }
 
@@ -649,17 +719,21 @@ async function occupantsExcept(
       y: battleMapTokens.y,
       footprint: battleMapTokens.footprint,
       state: battleMapTokens.state,
+      effect: battleMapTokens.effect,
     })
     .from(battleMapTokens)
     .where(eq(battleMapTokens.mapId, mapId));
-  // An open door and a smashed chest are walked through; the same rule the
-  // boards apply when they light a token's reach.
-  return rows.filter(r => r.id !== exceptId && blocksTile(r.state));
+  // An open door and a smashed chest are walked through, and so is a plate
+  // that fires when stepped on; the same rule the boards apply when they
+  // light a token's reach.
+  return rows.filter(r => r.id !== exceptId && blocksStanding(r));
 }
 
 export interface TokenInput {
   entryId?: string | null;
   label?: string;
+  visionFeet?: number | null;
+  lightFeet?: number | null;
   x: number;
   y: number;
   footprint?: number;
@@ -730,6 +804,69 @@ async function footprintsFor(
 }
 
 /**
+ * How far each combatant sees in the dark (08): a monster's darkvision off
+ * its block, a hero's off the sheet's `senses` or their species. Null for
+ * normal sight. Shared by the deal and by placing one by hand.
+ */
+async function visionFor(
+  entries: { id: string }[]
+): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  if (entries.length === 0) return out;
+  const rows = await db
+    .select({
+      id: initiativeEntries.id,
+      characterId: initiativeEntries.characterId,
+      creatureRef: initiativeEntries.creatureRef,
+    })
+    .from(initiativeEntries)
+    .where(
+      inArray(
+        initiativeEntries.id,
+        entries.map(e => e.id)
+      )
+    );
+  const refs = new Map<string, ContentRef>();
+  for (const r of rows) {
+    const ref = r.creatureRef as ContentRef | null;
+    if (ref) refs.set(refKey(ref), ref);
+  }
+  const dark = new Map<string, number>();
+  if (refs.size > 0) {
+    const resolved = await resolveContentRefs([...refs.values()]);
+    for (const [key, entry] of resolved) {
+      if (entry.type !== 'creature') continue;
+      const d = parseContentData('creature', entry.data) as CreatureData;
+      dark.set(key, d.darkvision);
+    }
+  }
+  const characterIds = rows
+    .map(r => r.characterId)
+    .filter((id): id is string => id !== null);
+  const sheets = new Map(
+    characterIds.length > 0
+      ? (
+          await db
+            .select({ id: characters.id, sheet: characters.sheet })
+            .from(characters)
+            .where(inArray(characters.id, characterIds))
+        ).map(c => [c.id, c.sheet as CharacterSheet])
+      : []
+  );
+  for (const r of rows) {
+    const sheet = r.characterId ? sheets.get(r.characterId) : undefined;
+    if (sheet) {
+      out.set(r.id, heroDarkvision(sheet));
+      continue;
+    }
+    const ref = r.creatureRef as ContentRef | null;
+    const feet = ref ? dark.get(refKey(ref)) : undefined;
+    out.set(r.id, feet && feet > 0 ? feet : null);
+  }
+  return out;
+}
+
+/**
  * Put a token down. Staff only. Refused if the footprint cannot stand there:
  * out of bounds, on void, on somebody — and, through the table's fence, on
  * lava or a pillar.
@@ -793,6 +930,14 @@ export async function placeToken(
     if (dup) throw new Error('ALREADY_ON_THE_BOARD');
   }
 
+  const vision =
+    input.visionFeet !== undefined
+      ? input.visionFeet
+      : input.entryId
+        ? ((await visionFor([{ id: input.entryId }])).get(input.entryId) ??
+          null)
+        : null;
+
   const [row] = await db
     .insert(battleMapTokens)
     .values({
@@ -803,6 +948,8 @@ export async function placeToken(
       y: input.y,
       altitude: Math.trunc(input.altitude ?? 0),
       footprint,
+      visionFeet: vision,
+      lightFeet: input.lightFeet ?? null,
       tint: (input.tint ?? '').slice(0, 20),
       visibility: input.visibility ?? 'shared',
       imageId: input.entryId ? null : (input.imageId ?? null),
@@ -852,6 +999,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
   const footprints = await footprintsFor(entries);
   const footprintOf = (e: (typeof entries)[number]) =>
     footprints.get(e.id) ?? 1;
+  const visions = await visionFor(entries);
 
   const existing = await db
     .select({
@@ -915,6 +1063,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
       x: spot.x,
       y: spot.y,
       footprint,
+      visionFeet: visions.get(e.id) ?? null,
       visibility: e.side === 'foe' ? 'dm' : 'shared',
     });
     dealt += 1;
@@ -948,17 +1097,24 @@ async function refuseStanding(
  *
  * A player may move a token for their own seated character and nothing else;
  * staff may move anything. The destination is checked against the rules —
- * bounds, void, occupancy — and refused rather than trusted. **Distance is
- * not enforced here** on purpose: a DM says "you can't get there this turn"
- * and the table agrees, and the ghosted reach on the board is advice rather
- * than a fence. The table's `movementFence` rule is where that fence will
- * live once movement is spent per turn (improvements 05).
+ * bounds, void, occupancy — and refused rather than trusted.
+ *
+ * Distance is the table's call (01 + 05): on the mover's own turn the move
+ * is priced by the cheapest path and spent from the turn's budget. Advising,
+ * a long move is recorded and the strip says so; enforcing with
+ * `movementFence`, it is refused as `TOO_FAR`, which staff may overrule. Off
+ * the mover's turn — the DM tidying the board — nobody's feet are spent.
+ *
+ * Then the offer: every hostile with its reaction whose reach the mover just
+ * left, without Disengaging, is told it may take an opportunity attack.
+ * Told, not made to — the app never swings for anybody.
  */
 export async function moveToken(
   tokenId: string,
-  to: { x: number; y: number },
+  destination: { x: number; y: number },
   opts: { ruling?: boolean } = {}
 ): Promise<void> {
+  let to = { x: destination.x, y: destination.y };
   const token = await db.query.battleMapTokens.findFirst({
     where: eq(battleMapTokens.id, tokenId),
   });
@@ -998,19 +1154,195 @@ export async function moveToken(
 
   const doc = normalizeTerrain(map.terrain);
   if (!inBounds(doc, to.x, to.y)) throw new Error('CANNOT_STAND_THERE');
-  const me: Occupant = { x: to.x, y: to.y, footprint: token.footprint };
+  const who = { isStaff: isStaffRole(role), ruling: opts.ruling };
   await refuseStanding(
-    standingIssue(doc, me, await occupantsExcept(map.id, tokenId)),
+    standingIssue(
+      doc,
+      { x: to.x, y: to.y, footprint: token.footprint },
+      await occupantsExcept(map.id, tokenId)
+    ),
     map.campaignId,
     map.encounterId,
-    { isStaff: isStaffRole(role), ruling: opts.ruling }
+    who
   );
+
+  /*
+   * The turn's feet. Priced the way the board lights reach — the cheapest
+   * path through this terrain among these tokens — so a player is refused
+   * only what the board already showed them was out of reach. Where no path
+   * exists (a wall between, and they were dragged over it) the straight
+   * distance stands in. Before the write, so a refusal moves nothing.
+   */
+  const entry = token.entryId
+    ? await db.query.initiativeEntries.findFirst({
+        where: eq(initiativeEntries.id, token.entryId),
+      })
+    : null;
+  const all = await db
+    .select()
+    .from(battleMapTokens)
+    .where(eq(battleMapTokens.mapId, map.id));
+  const entryIds = all
+    .map(t => t.entryId)
+    .filter((id): id is string => id !== null);
+  const entries =
+    entryIds.length > 0
+      ? await db
+          .select()
+          .from(initiativeEntries)
+          .where(inArray(initiativeEntries.id, entryIds))
+      : [];
+  const sideOf = new Map(entries.map(e => [e.id, e.side as string]));
+
+  /*
+   * The path, tile by tile, before anything is written: a plate on the
+   * way goes off under the mover and the move stops there (08). A move no
+   * path reaches — staff dragging over a wall — is a jump that crosses
+   * nothing. The destination `to` may move here; everything after reads it.
+   */
+  let trap: {
+    thing: typeof battleMapTokens.$inferSelect;
+    stopAt: Tile;
+  } | null = null;
+  if (entry && (token.x !== to.x || token.y !== to.y)) {
+    const blockedTiles = new Set<number>();
+    for (const t of all) {
+      if (t.id === token.id || !blocksStanding(t)) continue;
+      // Allies are walked through; only the destination tile is refused,
+      // and `standingIssue` already did that.
+      const ally = t.entryId && entry.side === (sideOf.get(t.entryId) ?? null);
+      if (ally) continue;
+      for (const i of footprintTiles(doc, t)) blockedTiles.add(i);
+    }
+    const path = pathBetween(doc, { x: token.x, y: token.y }, to, blockedTiles);
+    if (path) {
+      trap = await trapOnPath(map, doc, path, {
+        footprint: token.footprint,
+        side: entry.side,
+      });
+      if (trap) to = { x: trap.stopAt.x, y: trap.stopAt.y };
+    }
+  }
+
+  const me: Occupant = { x: to.x, y: to.y, footprint: token.footprint };
+  let spent: { ruling: boolean } | null = null;
+  if (entry && (token.x !== to.x || token.y !== to.y)) {
+    const asReach = (t: typeof token) => ({
+      id: t.id,
+      x: t.x,
+      y: t.y,
+      footprint: t.footprint,
+      side: t.entryId ? (sideOf.get(t.entryId) ?? null) : null,
+    });
+    const costs = reachFor(
+      doc,
+      asReach(token),
+      all.filter(t => t.id !== token.id && blocksStanding(t)).map(asReach),
+      10_000
+    );
+    const cost =
+      costs.get(to.y * doc.w + to.x) ??
+      distanceFeet({ x: token.x, y: token.y }, to);
+    spent = await spendMovement(entry, cost, who);
+  }
 
   await db
     .update(battleMapTokens)
     .set({ x: to.x, y: to.y, updatedAt: new Date().toISOString() })
     .where(eq(battleMapTokens.id, tokenId));
   bumpVersion(map.campaignId);
+
+  if (entry && spent && !parseTurn(entry.turn).disengaged) {
+    await offerOpportunityAttacks(
+      map.campaignId,
+      entry,
+      { x: token.x, y: token.y, footprint: token.footprint },
+      me,
+      all.filter(t => t.id !== token.id),
+      entries,
+      userId
+    );
+  }
+
+  // The plate goes off under them; then, standing still, whether they are
+  // beside anything else they have not found.
+  if (entry && trap) {
+    await fireThing(trap.thing.id, { userId, actorName: entry.label });
+  }
+  if (entry) await nudgeNearHidden(map, to, entry);
+}
+
+/**
+ * Who could swing as the mover leaves. A hostile is any combatant on another
+ * side; its reach is 5 ft, or 10 when its block says so. The mover was in
+ * reach and is not any more, and the hostile has its reaction: an
+ * `opportunity` event goes to the hostile's owner — staff for a foe, the
+ * seated player for a hero — and it is theirs to take or leave.
+ */
+async function offerOpportunityAttacks(
+  campaignId: string,
+  mover: typeof initiativeEntries.$inferSelect,
+  from: Occupant,
+  to: Occupant,
+  others: (typeof battleMapTokens.$inferSelect)[],
+  entries: (typeof initiativeEntries.$inferSelect)[],
+  byUserId: string
+): Promise<void> {
+  const byId = new Map(entries.map(e => [e.id, e]));
+  for (const t of others) {
+    const hostile = t.entryId ? byId.get(t.entryId) : undefined;
+    if (!hostile || hostile.side === mover.side) continue;
+    if (parseTurn(hostile.turn).reaction) continue;
+    // Down, incapacitated or otherwise unable to react: no offer.
+    if (hostile.hpCurrent !== null && hostile.hpCurrent <= 0) continue;
+    const reach = await reachOf(hostile);
+    const at = { x: t.x, y: t.y, footprint: t.footprint };
+    const before = distanceFeet(from, at);
+    const after = distanceFeet(to, at);
+    if (before > reach || after <= reach) continue;
+
+    let audience: 'staff' | { users: string[] } = 'staff';
+    if (hostile.characterId) {
+      const seat = await db.query.campaignMembers.findFirst({
+        columns: { userId: true },
+        where: and(
+          eq(campaignMembers.campaignId, campaignId),
+          eq(campaignMembers.characterId, hostile.characterId)
+        ),
+      });
+      if (seat) audience = { users: [seat.userId] };
+    }
+    publish(
+      campaignId,
+      {
+        kind: 'opportunity',
+        id: randomUUID(),
+        at: new Date().toISOString(),
+        by: byUserId,
+        attackerLabel: hostile.label,
+        attackerEntryId: hostile.id,
+        moverLabel: mover.label,
+      },
+      audience
+    );
+  }
+}
+
+/**
+ * How far a combatant can swing: 10 ft when its block's actions say
+ * "reach 10 ft.", else 5. A hero's reach weapon is not read here yet — the
+ * equipped weapon is 06's business, and 5 ft is the honest default.
+ */
+async function reachOf(
+  entry: typeof initiativeEntries.$inferSelect
+): Promise<number> {
+  if (!entry.creatureRef) return 5;
+  const resolved = await resolveContentRefs([entry.creatureRef as ContentRef]);
+  const block = [...resolved.values()][0];
+  if (!block) return 5;
+  const d = parseContentData('creature', block.data) as CreatureData;
+  const text = d.actions.map(a => a.desc).join(' ');
+  return /reach\s+10\s*ft/i.test(text) ? 10 : 5;
 }
 
 export async function updateToken(
@@ -1027,6 +1359,8 @@ export async function updateToken(
       | 'lockDc'
       | 'hpMax'
       | 'facing'
+      | 'visionFeet'
+      | 'lightFeet'
     >
   >
 ): Promise<void> {
@@ -1071,6 +1405,51 @@ export async function updateToken(
       ...(patch.visibility !== undefined
         ? { visibility: patch.visibility }
         : {}),
+      ...(patch.visionFeet !== undefined
+        ? {
+            visionFeet:
+              patch.visionFeet === null
+                ? null
+                : Math.max(0, Math.min(1000, Math.trunc(patch.visionFeet))) ||
+                  null,
+          }
+        : {}),
+      ...(patch.lightFeet !== undefined
+        ? {
+            lightFeet:
+              patch.lightFeet === null
+                ? null
+                : Math.max(0, Math.min(1000, Math.trunc(patch.lightFeet))) ||
+                  null,
+          }
+        : {}),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(battleMapTokens.id, tokenId));
+  bumpVersion(map.campaignId);
+}
+
+/**
+ * What a thing does when used (08). Staff only. The whole effect, replaced;
+ * null takes it away. A `findDc` hides the thing until found — its
+ * visibility flips to `dm` here so the author does not have to remember.
+ */
+export async function setThingEffect(
+  tokenId: string,
+  effect: unknown
+): Promise<void> {
+  const token = await db.query.battleMapTokens.findFirst({
+    where: eq(battleMapTokens.id, tokenId),
+  });
+  if (!token) throw new Error('NOT_FOUND');
+  if (token.entryId) throw new Error('NOT_A_THING');
+  const { map } = await staffForMap(token.mapId);
+  const clean = normalizeThingEffect(effect);
+  await db
+    .update(battleMapTokens)
+    .set({
+      effect: clean,
+      ...(clean?.findDc ? { visibility: 'dm' as const } : {}),
       updatedAt: new Date().toISOString(),
     })
     .where(eq(battleMapTokens.id, tokenId));
@@ -1189,15 +1568,20 @@ export async function operateThing(
     .set({ state: next, updatedAt: new Date().toISOString() })
     .where(eq(battleMapTokens.id, tokenId));
   bumpVersion(map.campaignId);
+  const actorName = await nameOf(userId, map.campaignId);
   publish(map.campaignId, {
     kind: 'thing',
     id: randomUUID(),
     at: new Date().toISOString(),
     by: userId,
-    actorName: await nameOf(userId, map.campaignId),
+    actorName,
     name: thing.label || 'Something',
     what: next === 'open' ? 'opened' : 'closed',
   });
+  // A lever does what it does (08).
+  if (normalizeThingEffect(thing.effect)?.trigger === 'operate') {
+    await fireThing(tokenId, { userId, actorName });
+  }
 }
 
 /**
@@ -1308,16 +1692,519 @@ export async function damageThing(
     })
     .where(eq(battleMapTokens.id, tokenId));
   bumpVersion(map.campaignId);
+  const actorName = await nameOf(userId, map.campaignId);
   if (broken && before > 0) {
     publish(map.campaignId, {
       kind: 'thing',
       id: randomUUID(),
       at: new Date().toISOString(),
       by: userId,
-      actorName: await nameOf(userId, map.campaignId),
+      actorName,
       name: thing.label || 'Something',
       what: 'broken',
     });
+  }
+  // A cracked dam, a collapsing pillar (08).
+  const effect = normalizeThingEffect(thing.effect);
+  if (delta < 0 && effect?.trigger === 'damage') {
+    await fireThing(tokenId, { userId, actorName });
+  } else if (broken && before > 0 && effect?.trigger === 'destroy') {
+    await fireThing(tokenId, { userId, actorName });
+  }
+}
+
+/* --- things that do something (08) -------------------------------------------- */
+
+type ThingRow = typeof battleMapTokens.$inferSelect;
+type MapRowT = typeof battleMaps.$inferSelect;
+
+/**
+ * Who stands on these tiles: every combatant token whose footprint touches
+ * one, with its entry, for a change that lands damage or a condition.
+ */
+async function standingOn(
+  map: MapRowT,
+  tiles: readonly number[]
+): Promise<
+  { token: ThingRow; entry: typeof initiativeEntries.$inferSelect }[]
+> {
+  if (tiles.length === 0) return [];
+  const doc = normalizeTerrain(map.terrain);
+  const set = new Set(tiles);
+  const tokens = await db
+    .select()
+    .from(battleMapTokens)
+    .where(eq(battleMapTokens.mapId, map.id));
+  const hit = tokens.filter(
+    t => t.entryId && footprintTiles(doc, t).some(i => set.has(i))
+  );
+  if (hit.length === 0) return [];
+  const entries = await db
+    .select()
+    .from(initiativeEntries)
+    .where(
+      inArray(
+        initiativeEntries.id,
+        hit.map(t => t.entryId as string)
+      )
+    );
+  const byId = new Map(entries.map(e => [e.id, e]));
+  return hit
+    .map(t => ({ token: t, entry: byId.get(t.entryId as string)! }))
+    .filter(x => x.entry);
+}
+
+/** A combatant's save bonus, off the sheet or the block; 0 for a hand-typed foe. */
+async function saveBonusOf(
+  entry: typeof initiativeEntries.$inferSelect,
+  ability: AbilityKey
+): Promise<number> {
+  if (entry.characterId) {
+    const c = await db.query.characters.findFirst({
+      columns: { sheet: true },
+      where: eq(characters.id, entry.characterId),
+    });
+    if (c) return savingThrow(c.sheet as CharacterSheet, ability);
+  }
+  const ref = entry.creatureRef as ContentRef | null;
+  if (!ref) return 0;
+  const resolved = await resolveContentRefs([ref]);
+  const block = [...resolved.values()][0];
+  if (!block) return 0;
+  const d = parseContentData('creature', block.data) as CreatureData;
+  return (
+    d.saving_throws[ability] ?? abilityModifier(d.ability_scores[ability] ?? 10)
+  );
+}
+
+async function defensesOf(entry: typeof initiativeEntries.$inferSelect) {
+  if (entry.characterId) {
+    const c = await db.query.characters.findFirst({
+      columns: { sheet: true },
+      where: eq(characters.id, entry.characterId),
+    });
+    const sheet = c?.sheet as CharacterSheet | undefined;
+    if (sheet) {
+      return {
+        resistances: sheet.combat?.damageResistances ?? [],
+        immunities: sheet.combat?.damageImmunities ?? [],
+        vulnerabilities: sheet.combat?.damageVulnerabilities ?? [],
+      };
+    }
+  }
+  const ref = entry.creatureRef as ContentRef | null;
+  const block = ref ? [...(await resolveContentRefs([ref])).values()][0] : null;
+  const d = block
+    ? (parseContentData('creature', block.data) as CreatureData)
+    : null;
+  return {
+    resistances: d?.damage_resistances ?? [],
+    immunities: d?.damage_immunities ?? [],
+    vulnerabilities: d?.damage_vulnerabilities ?? [],
+  };
+}
+
+/**
+ * A thing does what it does.
+ *
+ * The document changes land on a copy of the terrain and are written once;
+ * a `toggle` remembers what it undid so the next pull puts it back. A change
+ * to another thing sets its state with no reach check — the lever is the
+ * reach. Damage and conditions find whoever stands on the tiles, roll the
+ * save on the server (a trap fires before anyone can decide anything) with
+ * every roll in the log, and land through the same paths a spell uses. A
+ * hidden thing that fires is seen by everybody now. Returns false when the
+ * thing had nothing to do or was spent.
+ */
+export async function fireThing(
+  tokenId: string,
+  cause: { userId: string | null; actorName: string }
+): Promise<boolean> {
+  const thing = await db.query.battleMapTokens.findFirst({
+    where: eq(battleMapTokens.id, tokenId),
+  });
+  if (!thing) throw new Error('NOT_FOUND');
+  const effect = normalizeThingEffect(thing.effect);
+  if (!effect) return false;
+  if (effect.repeat === 'once' && effect.spent) return false;
+  const map = await db.query.battleMaps.findFirst({
+    where: eq(battleMaps.id, thing.mapId),
+  });
+  if (!map) throw new Error('NOT_FOUND');
+  const campaignId = map.campaignId;
+  const name = thing.label || 'Something';
+
+  // A toggle on its second pull runs what put the first back.
+  const undoing = effect.repeat === 'toggle' && (effect.undo?.length ?? 0) > 0;
+  const changes = undoing ? effect.undo! : effect.changes;
+
+  // 1. The document.
+  const doc = normalizeTerrain(map.terrain);
+  const terrainChanges = changes.filter(isTerrainChange);
+  const applied = applyTerrainChanges(doc, terrainChanges);
+  const revealed = revealedOf(map.revealed);
+  for (const c of changes) {
+    if (c.kind === 'reveal') for (const i of c.tiles) revealed.add(i);
+  }
+  await db
+    .update(battleMaps)
+    .set({
+      terrain: applied.doc,
+      revealed: [...revealed],
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(battleMaps.id, map.id));
+
+  // 2. Other things.
+  for (const c of changes) {
+    if (c.kind !== 'thing') continue;
+    await db
+      .update(battleMapTokens)
+      .set({ state: c.to, updatedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(battleMapTokens.id, c.tokenId),
+          eq(battleMapTokens.mapId, map.id)
+        )
+      );
+  }
+
+  // 3. Whoever stands there.
+  const lines: string[] = [];
+  for (const c of changes) {
+    if (c.kind === 'damage') {
+      const rolled = rollNotation(c.dice);
+      if (!rolled) continue;
+      await db.insert(campaignRolls).values({
+        campaignId,
+        actorUserId: cause.userId,
+        characterId: null,
+        actorName: name,
+        label: `${name} · ${c.type} damage`.slice(0, 80),
+        notation: rolled.notation.slice(0, 60),
+        dice: rolled.dice,
+        dropped: rolled.dropped,
+        modifier: rolled.modifier,
+        total: rolled.total,
+        visibility: 'table',
+      });
+      for (const { entry } of await standingOn(
+        { ...map, terrain: applied.doc },
+        c.area
+      )) {
+        let amount = rolled.total;
+        if (c.save) {
+          const ability = c.save.ability as AbilityKey;
+          const modifier = await saveBonusOf(entry, ability);
+          const die = rollDie(20);
+          const passed = die + modifier >= c.save.dc;
+          await db.insert(campaignRolls).values({
+            campaignId,
+            actorUserId: null,
+            characterId: entry.characterId,
+            actorName: entry.label,
+            label:
+              `${ability.charAt(0).toUpperCase() + ability.slice(1)} save vs ${name} · DC ${c.save.dc}`.slice(
+                0,
+                80
+              ),
+            notation: `1d20${modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`}`,
+            dice: [die],
+            dropped: [] as number[],
+            modifier,
+            total: die + modifier,
+            visibility: entry.side === 'party' ? 'table' : 'dm',
+          });
+          if (passed)
+            amount = c.save.effect === 'negates' ? 0 : Math.floor(amount / 2);
+        }
+        const adjusted = adjustDamage(amount, c.type, await defensesOf(entry));
+        if (adjusted.amount > 0) {
+          await applyHpUnchecked(entry.id, campaignId, -adjusted.amount);
+        }
+        lines.push(`${entry.label} takes ${adjusted.amount}`);
+      }
+    } else if (c.kind === 'condition') {
+      const [key] = parseConditions(c.condition);
+      if (!key) continue;
+      for (const { entry } of await standingOn(
+        { ...map, terrain: applied.doc },
+        c.area
+      )) {
+        if (c.save) {
+          const ability = c.save.ability as AbilityKey;
+          const modifier = await saveBonusOf(entry, ability);
+          const die = rollDie(20);
+          const passed = die + modifier >= c.save.dc;
+          await db.insert(campaignRolls).values({
+            campaignId,
+            actorUserId: null,
+            characterId: entry.characterId,
+            actorName: entry.label,
+            label:
+              `${ability.charAt(0).toUpperCase() + ability.slice(1)} save vs ${name} · DC ${c.save.dc}`.slice(
+                0,
+                80
+              ),
+            notation: `1d20${modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`}`,
+            dice: [die],
+            dropped: [] as number[],
+            modifier,
+            total: die + modifier,
+            visibility: entry.side === 'party' ? 'table' : 'dm',
+          });
+          if (passed) continue;
+        }
+        await putEffect(
+          campaignId,
+          entry.encounterId,
+          [entry.id],
+          {
+            kind: 'condition',
+            conditionKey: key,
+            rounds: c.rounds,
+            sourceLabel: name,
+          },
+          cause.userId
+        );
+      }
+    } else if (c.kind === 'sound') {
+      lines.push(c.text);
+    }
+  }
+
+  // 4. The thing itself: spent, toggled, and seen.
+  const next: ThingEffect = {
+    ...effect,
+    ...(effect.repeat === 'once' ? { spent: true } : {}),
+    ...(effect.repeat === 'toggle'
+      ? { undo: undoing ? [] : applied.undo }
+      : {}),
+  };
+  await db
+    .update(battleMapTokens)
+    .set({
+      effect: next,
+      ...(thing.visibility === 'dm' && effect.findDc
+        ? { visibility: 'shared' as const }
+        : {}),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(battleMapTokens.id, tokenId));
+
+  bumpVersion(campaignId);
+  publish(campaignId, {
+    kind: 'thing',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    by: cause.userId,
+    actorName: cause.actorName,
+    name,
+    what: 'fired',
+    detail: lines.join(' · '),
+  });
+  return true;
+}
+
+/**
+ * The hidden things a mover's path crosses that would go off under them
+ * (08): `enter` triggers, unspent, for their side. Returns the first, and
+ * the tile the move stops on — the plate you stepped on, not the far wall.
+ */
+async function trapOnPath(
+  map: MapRowT,
+  doc: TerrainDoc,
+  path: Tile[],
+  mover: { footprint: number; side: string | null }
+): Promise<{ thing: ThingRow; stopAt: Tile } | null> {
+  const things = (
+    await db
+      .select()
+      .from(battleMapTokens)
+      .where(eq(battleMapTokens.mapId, map.id))
+  ).filter(t => t.entryId === null && t.state !== 'broken' && t.effect);
+  if (things.length === 0) return null;
+  for (const step of path) {
+    const covered = new Set(
+      footprintTiles(doc, { x: step.x, y: step.y, footprint: mover.footprint })
+    );
+    for (const t of things) {
+      const effect = normalizeThingEffect(t.effect);
+      if (!effect || effect.trigger !== 'enter') continue;
+      if (effect.repeat === 'once' && effect.spent) continue;
+      if (effect.triggers === 'party' && mover.side !== 'party') continue;
+      if (effect.triggers === 'foe' && mover.side !== 'foe') continue;
+      if (footprintTiles(doc, t).some(i => covered.has(i))) {
+        return { thing: t, stopAt: step };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Search the ground within 5 ft (08): a Perception check rolled on the
+ * server off the hero's own sheet against each hidden thing's `findDc`.
+ * Found, the thing is shared and the table is told. The hero's player, or
+ * staff. Returns what was found.
+ */
+export async function searchNearby(entryId: string): Promise<string[]> {
+  const entry = await db.query.initiativeEntries.findFirst({
+    where: eq(initiativeEntries.id, entryId),
+  });
+  if (!entry) throw new Error('NOT_FOUND');
+  const enc = await db.query.initiativeEncounters.findFirst({
+    columns: { campaignId: true },
+    where: eq(initiativeEncounters.id, entry.encounterId),
+  });
+  if (!enc) throw new Error('NOT_FOUND');
+  const { role, userId } = await requireCampaignRole(enc.campaignId, [
+    'gm',
+    'co-gm',
+    'player',
+  ]);
+  if (!isStaffRole(role)) {
+    const seat = await db.query.campaignMembers.findFirst({
+      columns: { characterId: true },
+      where: and(
+        eq(campaignMembers.campaignId, enc.campaignId),
+        eq(campaignMembers.userId, userId)
+      ),
+    });
+    if (!entry.characterId || seat?.characterId !== entry.characterId) {
+      throw new Error('FORBIDDEN');
+    }
+  }
+  const map = await db.query.battleMaps.findFirst({
+    where: and(
+      eq(battleMaps.campaignId, enc.campaignId),
+      eq(battleMaps.encounterId, entry.encounterId),
+      eq(battleMaps.isActive, true)
+    ),
+  });
+  if (!map) return [];
+  const me = await db.query.battleMapTokens.findFirst({
+    where: and(
+      eq(battleMapTokens.mapId, map.id),
+      eq(battleMapTokens.entryId, entryId)
+    ),
+  });
+  if (!me) return [];
+  const hidden = (
+    await db
+      .select()
+      .from(battleMapTokens)
+      .where(eq(battleMapTokens.mapId, map.id))
+  ).filter(t => {
+    const effect = normalizeThingEffect(t.effect);
+    return (
+      t.entryId === null &&
+      t.visibility === 'dm' &&
+      effect?.findDc &&
+      distanceFeet(me, t) <= 5
+    );
+  });
+  if (hidden.length === 0) return [];
+
+  const character = entry.characterId
+    ? await db.query.characters.findFirst({
+        where: eq(characters.id, entry.characterId),
+      })
+    : null;
+  const sheet = character?.sheet as CharacterSheet | undefined;
+  const modifier = sheet ? skillBonus(sheet, 'perception') : 0;
+  const die = rollDie(20);
+  const total = die + modifier;
+  await db.insert(campaignRolls).values({
+    campaignId: enc.campaignId,
+    actorUserId: userId,
+    characterId: entry.characterId,
+    actorName: entry.label,
+    label: 'Wisdom (Perception) · searching',
+    notation: `1d20${modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`}`,
+    dice: [die],
+    dropped: [] as number[],
+    modifier,
+    total,
+    visibility: 'table',
+  });
+
+  const found: string[] = [];
+  for (const t of hidden) {
+    const effect = normalizeThingEffect(t.effect)!;
+    if (total < (effect.findDc ?? 0)) continue;
+    await db
+      .update(battleMapTokens)
+      .set({ visibility: 'shared', updatedAt: new Date().toISOString() })
+      .where(eq(battleMapTokens.id, t.id));
+    found.push(t.label || 'something');
+    publish(enc.campaignId, {
+      kind: 'thing',
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      by: userId,
+      actorName: entry.label,
+      name: t.label || 'something hidden',
+      what: 'spotted',
+    });
+  }
+  bumpVersion(enc.campaignId);
+  return found;
+}
+
+/**
+ * A nudge to staff (08): the mover stands within 5 ft of something hidden.
+ * Advice, not an automatic reveal — the DM decides whether the passive
+ * Perception on the line is enough.
+ */
+async function nudgeNearHidden(
+  map: MapRowT,
+  mover: { x: number; y: number },
+  entry: typeof initiativeEntries.$inferSelect
+): Promise<void> {
+  if (entry.side !== 'party') return;
+  const hidden = (
+    await db
+      .select()
+      .from(battleMapTokens)
+      .where(eq(battleMapTokens.mapId, map.id))
+  ).filter(t => {
+    const effect = normalizeThingEffect(t.effect);
+    return (
+      t.entryId === null &&
+      t.visibility === 'dm' &&
+      effect?.findDc &&
+      distanceFeet(mover, t) <= 5
+    );
+  });
+  if (hidden.length === 0) return;
+  const character = entry.characterId
+    ? await db.query.characters.findFirst({
+        where: eq(characters.id, entry.characterId),
+      })
+    : null;
+  const passive = character
+    ? passivePerception(character.sheet as CharacterSheet)
+    : null;
+  for (const t of hidden) {
+    const effect = normalizeThingEffect(t.effect)!;
+    publish(
+      map.campaignId,
+      {
+        kind: 'thing',
+        id: randomUUID(),
+        at: new Date().toISOString(),
+        by: null,
+        actorName: entry.label,
+        name: t.label || 'something hidden',
+        what: 'near',
+        detail:
+          passive !== null
+            ? `passive Perception ${passive} vs DC ${effect.findDc}${passive >= (effect.findDc ?? 0) ? ' — they would notice' : ''}`
+            : `DC ${effect.findDc}`,
+      },
+      'staff'
+    );
   }
 }
 

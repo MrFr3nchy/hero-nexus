@@ -22,6 +22,8 @@ import {
   type SpellData,
   type SubclassData,
 } from '@/@shared/content';
+import { SPELL_SHAPES, type SpellShape } from '@/@shared/content/schemas';
+import { CONDITIONS } from '@/@creator/campaign/lib/conditions';
 
 import {
   BoolField,
@@ -680,6 +682,86 @@ function SpellForm({
           placeholder="The damage increases by 1d6 for each spell slot level above 3."
           minRows={2}
         />
+      </FieldGroup>
+
+      {/* What the Cast flow acts on (improvements 07). Every one optional:
+          a spell with none of them still casts, and the flow does what the
+          prose says by hand. */}
+      <FieldGroup title="When cast">
+        <Row>
+          <TextField
+            label="Healing dice"
+            value={d.healing_roll}
+            onChange={v => onChange({ ...d, healing_roll: v })}
+            placeholder="2d8"
+          />
+          <PickOne
+            label="On a successful save"
+            value={d.save_effect}
+            options={[
+              { value: 'none', label: 'Nothing changes' },
+              { value: 'half', label: 'Half damage' },
+              { value: 'negates', label: 'No effect' },
+            ]}
+            onChange={v =>
+              onChange({
+                ...d,
+                save_effect: (v ?? 'none') as SpellData['save_effect'],
+              })
+            }
+          />
+          <NumberField
+            label="Duration in rounds"
+            value={d.duration_rounds}
+            min={0}
+            max={10_000}
+            onChange={v => onChange({ ...d, duration_rounds: v })}
+          />
+        </Row>
+        <Row>
+          <PickOne
+            label="Area"
+            value={d.area?.shape ?? null}
+            allowEmpty
+            emptyLabel="None"
+            options={opts(SPELL_SHAPES)}
+            onChange={v =>
+              onChange({
+                ...d,
+                area: v
+                  ? {
+                      shape: v as SpellShape,
+                      size: d.area?.size ?? 20,
+                      width: d.area?.width ?? 0,
+                    }
+                  : null,
+              })
+            }
+          />
+          {d.area && (
+            <NumberField
+              label="Size in feet"
+              value={d.area.size}
+              min={5}
+              max={1000}
+              onChange={v => onChange({ ...d, area: { ...d.area!, size: v } })}
+            />
+          )}
+          <PickOne
+            label="Applies a condition"
+            value={d.applies_condition}
+            allowEmpty
+            emptyLabel="None"
+            options={CONDITIONS.map(c => ({ value: c.key, label: c.label }))}
+            onChange={v =>
+              onChange({
+                ...d,
+                applies_condition:
+                  (v as SpellData['applies_condition']) ?? null,
+              })
+            }
+          />
+        </Row>
       </FieldGroup>
     </div>
   );

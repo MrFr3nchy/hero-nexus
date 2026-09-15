@@ -52,7 +52,6 @@ import {
 } from '@/@creator/campaign/lib/battlemap';
 import { floorArt, shade } from '@/@shared/battlemap/art';
 import {
-  blocksTile,
   edgeKey,
   FACINGS,
   inBounds,
@@ -105,6 +104,16 @@ import {
 import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
 import { ImagePicker } from '../ImagePicker';
 import { Refused, type RefusedState } from '../Refused';
+import { EffectPicker, type PickerEntry } from './EffectPicker';
+import { speedReasons } from '@/@creator/campaign/lib/condition-effects';
+import { parseConditions } from '@/@creator/campaign/lib/conditions';
+import { movementBudget } from '@/@creator/campaign/lib/turn';
+import { TurnStrip } from './TurnStrip';
+import { areaTiles, type AreaShape } from '@/@creator/campaign/lib/battlemap';
+import { setLitArea } from '@/@shared/battlemap/area';
+import { litAt } from '@/@creator/campaign/lib/things';
+import { ThingEffectEditor } from './ThingEffectEditor';
+import { SightControls } from './SightControls';
 
 /* --- tools ------------------------------------------------------------- */
 
@@ -136,6 +145,11 @@ type Tool =
   /** Two taps, feet between them. Anybody's, not only staff's. */
   | { kind: 'ruler' }
   /**
+   * A spell's shape on the grid (07): tap the origin, then where it points;
+   * the tiles light and the shelf's Cast panel takes who is inside. Anybody's.
+   */
+  | { kind: 'area'; shape: AreaShape; size: number }
+  /**
    * A thing: a scenery token, which is a row rather than terrain because a
    * player changes it. What the next tap puts down.
    */
@@ -153,7 +167,15 @@ type Tool =
  * The toolbar's modes. Each opens on one tool and shows only its own row.
  * `hint` is the scrawl beside the strip: what a tap on the board does now.
  */
-type Mode = 'select' | 'ruler' | 'paint' | 'shape' | 'build' | 'things' | 'fog';
+type Mode =
+  | 'select'
+  | 'ruler'
+  | 'area'
+  | 'paint'
+  | 'shape'
+  | 'build'
+  | 'things'
+  | 'fog';
 
 function modeOf(tool: Tool): Mode {
   switch (tool.kind) {
@@ -161,6 +183,8 @@ function modeOf(tool: Tool): Mode {
       return 'select';
     case 'ruler':
       return 'ruler';
+    case 'area':
+      return 'area';
     case 'paint':
     case 'fill':
       return 'paint';
@@ -203,6 +227,12 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
     label: 'Ruler',
     tool: { kind: 'ruler' },
     hint: 'tap two tiles for the feet between them',
+  },
+  {
+    mode: 'area',
+    label: 'Area',
+    tool: { kind: 'area', shape: 'sphere', size: 20 },
+    hint: 'tap the origin, then where it points · the shelf casts on who is inside',
   },
   {
     mode: 'paint',
@@ -274,6 +304,59 @@ const DEFAULT_SPEED_FEET = 30;
 
 /** Debounce on terrain writes. Painting is a stream; the save is a document. */
 const SAVE_MS = 500;
+
+/** Shape and size for the area tool (07). Shown to staff and players alike. */
+function AreaControls({
+  tool,
+  onChange,
+}: {
+  tool: { kind: 'area'; shape: AreaShape; size: number };
+  onChange: (next: { kind: 'area'; shape: AreaShape; size: number }) => void;
+}) {
+  const shapes: { key: AreaShape; label: string }[] = [
+    { key: 'sphere', label: 'Sphere' },
+    { key: 'cube', label: 'Cube' },
+    { key: 'cone', label: 'Cone' },
+    { key: 'line', label: 'Line' },
+    { key: 'emanation', label: 'Emanation' },
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+        {shapes.map(sh => (
+          <button
+            key={sh.key}
+            type="button"
+            onClick={() => onChange({ ...tool, shape: sh.key })}
+            className={`rounded px-2 py-0.5 text-xs transition-colors ${
+              tool.shape === sh.key
+                ? 'bg-arcane font-medium text-bg'
+                : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {sh.label}
+          </button>
+        ))}
+      </div>
+      <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+        {[5, 10, 15, 20, 30, 60].map(ft => (
+          <button
+            key={ft}
+            type="button"
+            onClick={() => onChange({ ...tool, size: ft })}
+            className={`rounded px-2 py-0.5 text-xs tabular-nums transition-colors ${
+              tool.size === ft
+                ? 'bg-arcane font-medium text-bg'
+                : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {ft} ft
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /** 1×1 / 3×3 / 5×5. One picker, shared by the floor, the height and the fog. */
 function BrushPicker({
@@ -515,6 +598,19 @@ export function BattleBoard({
     to: { x: number; y: number } | null;
     pinned: boolean;
   } | null>(null);
+  /** The area: an origin, a far end that follows the pointer until pinned. */
+  const [areaPick, setAreaPick] = useState<{
+    from: { x: number; y: number };
+    to: { x: number; y: number } | null;
+    pinned: boolean;
+  } | null>(null);
+  useEffect(() => {
+    if (tool.kind !== 'area') {
+      setAreaPick(null);
+      setLitArea(campaignId, null);
+    }
+  }, [tool.kind, campaignId]);
+
   useEffect(() => {
     if (tool.kind !== 'ruler') setRuler(null);
   }, [tool.kind]);
@@ -670,24 +766,66 @@ export function BattleBoard({
   }, [state.encounter, state.entries]);
 
   const selectedToken = board?.tokens.find(t => t.id === selected) ?? null;
+  const selectedEntry = selectedToken?.entryId
+    ? (entriesById.get(selectedToken.entryId) ?? null)
+    : null;
 
   /**
    * Speed off the sheet, for a seated character; the default for a monster
    * dealt in from the bestiary, whose stat block the tracker does not carry.
-   * Advice, not a fence: `moveToken` does not enforce distance, because a DM
-   * saying "you can't get there this turn" is how that rule is applied at a
-   * table, and a fence would put the app between them.
+   * Then through `speedFor`: grappled is 0, prone crawls, exhaustion takes
+   * its 5 ft a level — one rules module, so the board and the play card say
+   * the same number. Advice, not a fence: `moveToken` fences only under
+   * Enforce (01), because a DM saying "you can't get there this turn" is how
+   * that rule is applied at a table.
    */
   const speedOf = useCallback(
     (t: { entryId: string | null }): number => {
       const entry = t.entryId ? entriesById.get(t.entryId) : undefined;
+      if (!entry) return DEFAULT_SPEED_FEET;
+      // On the combatant's own turn the reach is what is *left*: the speed
+      // the server priced (conditions, exhaustion, the block) less what the
+      // turn has already walked, doubled by Dash. Off their turn, the whole
+      // speed — the DM planning where the ogre goes next.
+      return entry.id === currentEntryId
+        ? movementBudget(entry.turn, entry.speed)
+        : entry.speed;
+    },
+    [entriesById, currentEntryId]
+  );
+
+  /** Why the reach is what it is — "Grappled · speed 0". Empty when unremarkable. */
+  const speedWhy = useCallback(
+    (t: { entryId: string | null }): string[] => {
+      const entry = t.entryId ? entriesById.get(t.entryId) : undefined;
       const sheet = entry?.characterId
         ? state.party.find(p => p.characterId === entry.characterId)
         : undefined;
-      return sheet?.speed ?? DEFAULT_SPEED_FEET;
+      return speedReasons(
+        parseConditions(entry?.conditionKeys ?? ''),
+        sheet?.exhaustion ?? 0
+      );
     },
     [entriesById, state.party]
   );
+
+  /** The combatants under the selection, for putting one effect on all of them. */
+  const selectedEntries = useMemo<PickerEntry[]>(() => {
+    if (!board) return [];
+    const out: PickerEntry[] = [];
+    for (const id of selectedIds) {
+      const token = board.tokens.find(t => t.id === id);
+      const entry = token?.entryId ? entriesById.get(token.entryId) : undefined;
+      if (entry) {
+        out.push({
+          id: entry.id,
+          label: entry.label,
+          conditionKeys: entry.conditionKeys,
+        });
+      }
+    }
+    return out;
+  }, [board, selectedIds, entriesById]);
 
   const sideOf = useCallback(
     (t: { entryId: string | null }): string | null =>
@@ -712,10 +850,53 @@ export function BattleBoard({
       asReach(selectedToken),
       // An open door and a smashed chest are walked through — the server
       // applies the same rule when it checks the drop.
-      board.tokens.filter(t => blocksTile(t.state)).map(asReach),
+      board.tokens.filter(t => t.blocks).map(asReach),
       speedOf(selectedToken)
     );
   }, [terrain, selectedToken, board, sideOf, speedOf]);
+
+  /* --- the area ---------------------------------------------------------- */
+
+  const litArea = useMemo(() => {
+    if (!terrain || !board || tool.kind !== 'area' || !areaPick) return null;
+    const area = {
+      shape: tool.shape,
+      origin: areaPick.from,
+      direction: areaPick.to ?? undefined,
+      size: tool.size,
+    };
+    const tiles = areaTiles(terrain, area);
+    const inside = board.tokens.filter(t => {
+      if (!t.entryId) return false;
+      for (let dy = 0; dy < t.footprint; dy++) {
+        for (let dx = 0; dx < t.footprint; dx++) {
+          if (tiles.has((t.y + dy) * terrain.w + (t.x + dx))) return true;
+        }
+      }
+      return false;
+    });
+    const entryIds = [...new Set(inside.map(t => t.entryId as string))];
+    return {
+      area,
+      tiles,
+      entryIds,
+      labels: entryIds.map(id => entriesById.get(id)?.label ?? 'Something'),
+    };
+  }, [terrain, board, tool, areaPick, entriesById]);
+
+  useEffect(() => {
+    setLitArea(
+      campaignId,
+      litArea && areaPick?.pinned
+        ? {
+            area: litArea.area,
+            entryIds: litArea.entryIds,
+            labels: litArea.labels,
+            tiles: [...litArea.tiles],
+          }
+        : null
+    );
+  }, [campaignId, litArea, areaPick?.pinned]);
 
   /* --- saving ---------------------------------------------------------- */
 
@@ -923,6 +1104,15 @@ export function BattleBoard({
       return;
     }
 
+    // The area is anybody's too: origin, then direction, then clear.
+    if (tool.kind === 'area') {
+      if (!areaPick) setAreaPick({ from: at, to: null, pinned: false });
+      else if (!areaPick.pinned)
+        setAreaPick({ ...areaPick, to: at, pinned: true });
+      else setAreaPick(null);
+      return;
+    }
+
     // Somebody the initiative panel asked to have placed: this is where.
     if (isStaff && placing && tool.kind === 'select') {
       const res = await placeTokenAction(board.id, {
@@ -1028,7 +1218,7 @@ export function BattleBoard({
     // a refusal swallowed in the browser has no "Do it anyway".
     if (selectedToken && selectedToken.mine) {
       const others = board.tokens.filter(
-        t => t.id !== selectedToken.id && blocksTile(t.state)
+        t => t.id !== selectedToken.id && t.blocks
       );
       if (
         !canStandUnder(
@@ -1077,6 +1267,8 @@ export function BattleBoard({
     const at = tileAt(ev);
     setHover(at);
     if (at && ruler && !ruler.pinned) setRuler({ ...ruler, to: at });
+    if (at && areaPick && !areaPick.pinned)
+      setAreaPick({ ...areaPick, to: at });
     if (at && marquee) setMarquee({ ...marquee, to: at });
     if (!painting || !at || !isStaff) return;
     if (tool.kind === 'reveal') {
@@ -1313,6 +1505,24 @@ export function BattleBoard({
       }
       ctx.restore();
     }
+    // The area a spell would cover, in the arcane hue.
+    if (litArea) {
+      ctx.fillStyle = p.arcane;
+      ctx.globalAlpha = 0.35;
+      for (const i of litArea.tiles) {
+        const x = i % terrain.w;
+        const y = Math.floor(i / terrain.w);
+        ctx.fillRect(x * size, y * size, size, size);
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = p.arcane;
+      ctx.lineWidth = 2;
+      const ox = (litArea.area.origin.x + 0.5) * size;
+      const oy = (litArea.area.origin.y + 0.5) * size;
+      ctx.beginPath();
+      ctx.arc(ox, oy, size * 0.2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     if (isStaff && pendingReveal.current.size > 0) {
       ctx.fillStyle = p.gold;
       ctx.globalAlpha = 0.32;
@@ -1322,6 +1532,37 @@ export function BattleBoard({
         ctx.fillRect(x * size, y * size, size, size);
       }
       ctx.globalAlpha = 1;
+    }
+
+    // A dark board (08): what nobody lights sits under a cool grey, so the
+    // party can tell "we have seen this" from "we can see this now". Torches
+    // carried by tokens light their pool the way a brazier does.
+    const torches = (board?.tokens ?? [])
+      .filter(t => t.lightFeet && t.lightFeet > 0)
+      .map(t => ({ x: t.x, y: t.y, radiusFeet: t.lightFeet as number }));
+    if (terrain.ambient === 'dark') {
+      ctx.fillStyle = dark ? 'rgba(60,70,90,0.45)' : 'rgba(70,80,100,0.35)';
+      for (let y = 0; y < terrain.h; y++) {
+        for (let x = 0; x < terrain.w; x++) {
+          const i = y * terrain.w + x;
+          if (terrain.material[i] === VOID) continue;
+          if (litAt(terrain, { x, y }, torches)) continue;
+          ctx.fillRect(x * size, y * size, size, size);
+        }
+      }
+    }
+    for (const t of torches) {
+      const cx = (t.x + 0.5) * size;
+      const cy = (t.y + 0.5) * size;
+      const r = (t.radiusFeet / 5) * size;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(
+        0,
+        dark ? 'rgba(255,196,110,0.4)' : 'rgba(217,160,70,0.3)'
+      );
+      g.addColorStop(1, 'rgba(217,176,97,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
     }
 
     // Lights: a warm pool on the floor and a brazier standing in it.
@@ -1700,6 +1941,32 @@ export function BattleBoard({
         ctx.stroke();
       }
 
+      // The turn, as four pips under the selected token whose turn it is:
+      // action, bonus, reaction, movement — filled when spent. The same
+      // data the card's strip shows; drawn here so the board answers "has
+      // it acted" on its own.
+      if (t.id === selected && entry && entry.id === currentEntryId) {
+        const pr = Math.max(2, size * 0.07);
+        const gap = pr * 2.6;
+        const py = cy + r + Math.max(8, size * 0.26) + pr * 2.2;
+        const spent = [
+          entry.turn.action,
+          entry.turn.bonus,
+          entry.turn.reaction,
+          movementBudget(entry.turn, entry.speed) === 0,
+        ];
+        spent.forEach((on, i) => {
+          const px = cx + (i - 1.5) * gap;
+          ctx.beginPath();
+          ctx.arc(px, py, pr, 0, Math.PI * 2);
+          ctx.fillStyle = on ? p.gold : 'rgba(0,0,0,0.35)';
+          ctx.fill();
+          ctx.strokeStyle = p.gold;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        });
+      }
+
       // The face, clipped inside the rim, or initials when there is none.
       const face = faceFor(entry, t);
       const inner = r - Math.max(2, size * 0.07);
@@ -1885,6 +2152,7 @@ export function BattleBoard({
     fitHeight,
     marquee,
     ruler,
+    litArea,
     state.rules.diagonals,
   ]);
 
@@ -2126,26 +2394,30 @@ export function BattleBoard({
       {!isStaff && !dimensional && (
         <div className="flex flex-wrap items-center gap-1.5">
           <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
-            {MODES.filter(m => m.mode === 'select' || m.mode === 'ruler').map(
-              m => (
-                <button
-                  key={m.mode}
-                  type="button"
-                  onClick={() => setTool(m.tool)}
-                  className={`rounded px-2.5 py-1 text-xs transition-colors ${
-                    mode === m.mode
-                      ? 'bg-gold font-medium text-bg'
-                      : 'text-ink-muted hover:text-ink'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              )
-            )}
+            {MODES.filter(
+              m =>
+                m.mode === 'select' || m.mode === 'ruler' || m.mode === 'area'
+            ).map(m => (
+              <button
+                key={m.mode}
+                type="button"
+                onClick={() => setTool(m.tool)}
+                className={`rounded px-2.5 py-1 text-xs transition-colors ${
+                  mode === m.mode
+                    ? 'bg-gold font-medium text-bg'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
           <Marginalia dash className="ml-1">
             {MODES.find(m => m.mode === mode)?.hint}
           </Marginalia>
+          {tool.kind === 'area' && (
+            <AreaControls tool={tool} onChange={setTool} />
+          )}
         </div>
       )}
 
@@ -2175,6 +2447,10 @@ export function BattleBoard({
               {MODES.find(m => m.mode === mode)?.hint}
             </Marginalia>
           </div>
+
+          {tool.kind === 'area' && (
+            <AreaControls tool={tool} onChange={setTool} />
+          )}
 
           {mode === 'paint' && (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -2318,6 +2594,26 @@ export function BattleBoard({
               >
                 Fog it all
               </Button>
+              {/* The light everywhere nothing else lights (08). Dark, and
+                  "Reveal from the party" reads torches and darkvision. */}
+              {terrain && (
+                <div className="ml-2 inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+                  {(['bright', 'dim', 'dark'] as const).map(a => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => scheduleSave({ ...terrain, ambient: a })}
+                      className={`rounded px-2 py-0.5 text-xs capitalize transition-colors ${
+                        terrain.ambient === a
+                          ? 'bg-gold font-medium text-bg'
+                          : 'text-ink-muted hover:text-ink'
+                      }`}
+                    >
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2505,6 +2801,27 @@ export function BattleBoard({
         />
       </div>
 
+      {litArea && (
+        <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+          <Glyph name="sparkle" size={13} className="text-arcane" />
+          <span className="text-ink">
+            {litArea.area.shape} · {litArea.area.size} ft
+          </span>
+          <span>
+            {litArea.labels.length === 0
+              ? 'nobody inside'
+              : `${litArea.labels.length} inside: ${litArea.labels.join(', ')}`}
+          </span>
+          {areaPick?.pinned ? (
+            <Marginalia dash>
+              the shelf casts on them · tap again to clear
+            </Marginalia>
+          ) : (
+            <Marginalia dash>tap to pin it</Marginalia>
+          )}
+        </div>
+      )}
+
       {selectedToken && (
         <div className="flex flex-wrap items-center gap-3 text-sm text-ink-muted">
           <Glyph
@@ -2539,11 +2856,60 @@ export function BattleBoard({
               {selectedIds.length > 1
                 ? 'Tap a tile and the group steps with it.'
                 : selectedToken.entryId
-                  ? `Tap a lit tile to move there. ${speedOf(selectedToken)} ft.`
+                  ? speedOf(selectedToken) === 0
+                    ? 'Cannot move this turn.'
+                    : `Tap a lit tile to move there. ${speedOf(selectedToken)} ft${
+                        selectedEntry &&
+                        selectedEntry.id === currentEntryId &&
+                        selectedEntry.turn.movedFeet > 0
+                          ? ' left'
+                          : ''
+                      }.`
                   : 'Tap a tile to move it.'}
             </span>
           ) : (
             <span>Not yours to move.</span>
+          )}
+          {/* The turn under the token: the same pips the card shows, so the
+              board answers "has it acted" without a glance at the tracker. */}
+          {selectedEntry && selectedEntry.id === currentEntryId && (
+            <TurnStrip
+              entry={selectedEntry}
+              canSpend={isStaff || selectedToken.mine}
+              isStaff={isStaff}
+              refresh={refresh}
+              onError={onError}
+              compact
+            />
+          )}
+          {selectedToken.entryId &&
+            speedWhy(selectedToken).map(why => (
+              <span key={why} className="text-xs text-warning">
+                {why}
+              </span>
+            ))}
+          {isStaff && state.encounter && selectedEntries.length > 0 && (
+            <EffectPicker
+              encounterId={state.encounter.id}
+              entries={selectedEntries}
+              others={state.entries
+                .filter(e => !selectedEntries.some(s => s.id === e.id))
+                .map(e => ({
+                  id: e.id,
+                  label: e.label,
+                  conditionKeys: e.conditionKeys,
+                }))}
+              act={async p => {
+                const res = await p;
+                if (!res.ok) onError(res.error ?? 'Something went wrong.');
+                await refresh();
+              }}
+              triggerLabel={
+                selectedEntries.length > 1
+                  ? `Afflict ${selectedEntries.length}`
+                  : 'Afflict'
+              }
+            />
           )}
           {/* What a thing is, and what can be done to it. Anyone beside it
               opens or closes it; a locked one is picked, rolled on the
@@ -2691,6 +3057,17 @@ export function BattleBoard({
                 </button>
               ))}
             </div>
+          )}
+          {isStaff && selectedToken.entryId === null && (
+            <ThingEffectEditor
+              campaignId={campaignId}
+              token={selectedToken}
+              terrain={terrain}
+              onDone={refresh}
+            />
+          )}
+          {isStaff && selectedToken.entryId !== null && (
+            <SightControls token={selectedToken} onDone={refresh} />
           )}
           {isStaff && (
             <>

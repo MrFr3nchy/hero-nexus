@@ -35,8 +35,18 @@ import {
   updateEntryAction,
 } from '../../actions';
 import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
-import { ConditionChips, ConditionPicker } from './ConditionPicker';
+import type { EffectRow } from '@/@creator/campaign/lib/effects';
+import { CountdownRows, EffectChips } from './EffectChips';
+import { spellNameFromKey } from '@/@creator/campaign/lib/casting';
+import { dropConcentrationAction } from '../../casting-actions';
+import { ShapePicker } from './ShapePicker';
+import {
+  CountdownControl,
+  EffectPicker,
+  type PickerEntry,
+} from './EffectPicker';
 import { FightRules } from './FightRules';
+import { TurnStrip } from './TurnStrip';
 
 type Act = (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
 
@@ -223,12 +233,26 @@ function EntryLine({
   placeable,
   placing,
   onPlace,
+  effects,
+  everyone,
+  encounterId,
+  campaignId,
+  refresh,
+  onError,
 }: {
+  campaignId: string;
   entry: EntryRow;
   current: boolean;
   isStaff: boolean;
   isYours: boolean;
   act: Act;
+  refresh: () => Promise<void> | void;
+  onError: (message: string) => void;
+  /** Every clock in the fight; the chips pick out this entry's. */
+  effects: EffectRow[];
+  /** Everybody in the order, for the picker's source list. */
+  everyone: PickerEntry[];
+  encounterId: string;
   /** A board is up and this combatant is not on it yet. */
   placeable: boolean;
   /** The board is waiting for a tap for this one. */
@@ -272,13 +296,50 @@ function EntryLine({
             </span>
           )}
           {entry.concentrating && (
-            <Tooltip content="Concentrating — damage forces a save.">
+            <Tooltip
+              content={
+                isStaff || isYours
+                  ? 'Concentrating — damage forces a save. Tap to drop it.'
+                  : 'Concentrating — damage forces a save.'
+              }
+            >
+              <button
+                type="button"
+                disabled={!(isStaff || isYours)}
+                onClick={() => act(dropConcentrationAction(entry.id))}
+                className="rounded-sm border border-arcane/40 bg-arcane/10 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-arcane disabled:cursor-default"
+              >
+                {entry.concentrationSpell
+                  ? spellNameFromKey(entry.concentrationSpell)
+                  : 'Conc.'}
+              </button>
+            </Tooltip>
+          )}
+          {entry.form && (
+            <Tooltip
+              content={`Wearing another shape. ${
+                showNumbers
+                  ? `${entry.form.hpCurrent} / ${entry.form.hpMax} hp · AC ${entry.form.armorClass}. `
+                  : ''
+              }At 0 the shape drops.`}
+            >
               <span className="rounded-sm border border-arcane/40 bg-arcane/10 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-arcane">
-                Conc.
+                as {entry.form.label}
+                {showNumbers && (
+                  <span className="ml-1 normal-case tracking-normal tabular-nums">
+                    {entry.form.hpCurrent}/{entry.form.hpMax}
+                  </span>
+                )}
               </span>
             </Tooltip>
           )}
-          <ConditionChips stored={entry.conditionKeys} />
+          <EffectChips
+            entryId={entry.id}
+            conditionKeys={entry.conditionKeys}
+            effects={effects}
+            isStaff={isStaff}
+            act={act}
+          />
           {entry.conditions && (
             <span className="text-xs text-ink-subtle">{entry.conditions}</span>
           )}
@@ -314,6 +375,21 @@ function EntryLine({
             {hpWord(entry.hpCurrent, entry.hpMax)}
           </p>
         )}
+        {/* The turn, on the card whose turn it is: staff see every one, a
+            player their own. Off-turn the same people see the one slot that
+            is still theirs to spend — the reaction. */}
+        {(isStaff || isYours) && (
+          <div className="mt-2">
+            <TurnStrip
+              entry={entry}
+              canSpend={isStaff || isYours}
+              isStaff={isStaff}
+              refresh={refresh}
+              onError={onError}
+              offTurn={!current}
+            />
+          </div>
+        )}
       </div>
 
       {isStaff && (
@@ -338,14 +414,19 @@ function EntryLine({
             </Tooltip>
           )}
           <HpControl entry={entry} act={act} />
-          <ConditionPicker
-            stored={entry.conditionKeys}
-            onChange={keys =>
-              act(
-                updateEntryAction(entry.id, { conditionKeys: keys.join(',') })
-              )
-            }
+          <EffectPicker
+            encounterId={encounterId}
+            entries={[
+              {
+                id: entry.id,
+                label: entry.label,
+                conditionKeys: entry.conditionKeys,
+              },
+            ]}
+            others={everyone.filter(e => e.id !== entry.id)}
+            act={act}
           />
+          <ShapePicker campaignId={campaignId} entry={entry} act={act} />
           <Button
             size="sm"
             variant={entry.concentrating ? 'flat' : 'light'}
@@ -447,6 +528,12 @@ export function InitiativeTracker({
       )
     : null;
 
+  const everyone: PickerEntry[] = state.entries.map(e => ({
+    id: e.id,
+    label: e.label,
+    conditionKeys: e.conditionKeys,
+  }));
+
   const standing = state.entries.filter(
     e => e.side === 'party' && (e.hpCurrent == null || e.hpCurrent > 0)
   ).length;
@@ -489,6 +576,7 @@ export function InitiativeTracker({
       }
     >
       <ol className="divide-y divide-line">
+        <CountdownRows effects={state.effects} isStaff={isStaff} act={act} />
         {state.entries.map((e, i) => (
           <EntryLine
             key={e.id}
@@ -499,6 +587,12 @@ export function InitiativeTracker({
               e.characterId != null && e.characterId === state.viewerCharacterId
             }
             act={act}
+            effects={state.effects}
+            everyone={everyone}
+            encounterId={enc.id}
+            campaignId={campaignId}
+            refresh={refresh}
+            onError={onError}
             placeable={
               isStaff &&
               !!onBoard &&
@@ -557,6 +651,8 @@ export function InitiativeTracker({
             encounterId={enc.id}
             act={act}
           />
+
+          <CountdownControl encounterId={enc.id} act={act} />
 
           <div className="flex flex-wrap items-end gap-2">
             <Input

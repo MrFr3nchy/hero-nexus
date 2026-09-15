@@ -6,14 +6,61 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelectedToken } from '@/@shared/battlemap/selection';
 import { useDiceTray } from '@/@shared/components/dice';
 import { Glyph, Marginalia } from '@/@shared/components/ui';
-import { withAdvantage } from '@/@shared/lib/dice';
 import { distanceFeet } from '@/@creator/campaign/lib/battlemap';
+import {
+  attackedWith,
+  rollAdvice,
+} from '@/@creator/campaign/lib/condition-effects';
+import { parseConditions } from '@/@creator/campaign/lib/conditions';
 import { fmtBonus, type WeaponAttack } from '@/@creator/character/lib/derive';
 import type { LiveState } from '@/server/session';
 import { rollAction } from '../../actions';
-import { getMyAttacksAction, mySeatAction } from '../../fight-actions';
+import {
+  attackAction,
+  getMyAttacksAction,
+  mySeatAction,
+} from '../../fight-actions';
+import {
+  ammunitionFor,
+  coverWords,
+  outcomeWords,
+  type RollOutcome,
+} from '@/@creator/campaign/lib/attack';
+import { coverBetween, flanked } from '@/@creator/campaign/lib/battlemap';
+import { Refused, type RefusedState } from '../Refused';
 
 type Mode = 'flat' | 'advantage' | 'disadvantage';
+
+/**
+ * What the target's own state does to the swing — "Prone · advantage in
+ * melee, disadvantage at range". Words only: the mode picker is the
+ * attacker's, and whether this blow is melee is theirs to know.
+ */
+function TargetAdvice({
+  conditions,
+  name,
+}: {
+  conditions: ReturnType<typeof parseConditions>;
+  name: string;
+}) {
+  const melee = attackedWith(conditions, true);
+  const ranged = attackedWith(conditions, false);
+  if (melee === 'flat' && ranged === 'flat') return null;
+  const word = (m: typeof melee) =>
+    m === 'advantage'
+      ? 'advantage'
+      : m === 'disadvantage'
+        ? 'disadvantage'
+        : 'straight';
+  return (
+    <p className="text-[0.7rem] text-ink-muted">
+      Against {name}:{' '}
+      {melee === ranged
+        ? word(melee)
+        : `${word(melee)} in melee, ${word(ranged)} at range`}
+    </p>
+  );
+}
 
 /**
  * The viewer's weapons in hand, ready to roll.
@@ -21,13 +68,17 @@ type Mode = 'flat' | 'advantage' | 'disadvantage';
  * One row per equipped weapon off `weaponAttacks` — the same pure function
  * the play page uses, on a live path. *Hit* rolls `1d20+bonus` with the
  * mode; *damage* rolls the dice string, two-handed when the weapon is
- * versatile and the viewer says so. Both go through `rollAction` as the
- * character, so both land in the shared log and the tray draws the server's
- * faces, and the label names the weapon and — when a token is selected on the
- * board — the target and the range.
+ * versatile and the viewer says so. **Attack** is one press for both (06):
+ * the server spends the action, rolls to hit with the target's state folded
+ * in, compares against an AC it knows — raised by cover — rolls damage
+ * (doubled dice on a natural 20), takes the target's defences off it, and
+ * applies or proposes; the tray draws the hit then the damage, and the row
+ * says what came of it. *Damage* alone is still here for the odd effect that
+ * wants dice without a swing.
  *
- * It refuses nothing. A long shot, a target out of reach: the row says so in
- * words and rolls anyway, because a DM can rule it and the app cannot.
+ * It refuses only what the rules refuse under Enforce — a spent action, total
+ * cover, an empty quiver — and staff may rule past. A long shot, a target
+ * out of reach: the row says so in words and rolls anyway.
  */
 export function AttacksPanel({
   campaignId,
@@ -42,6 +93,13 @@ export function AttacksPanel({
   const [attacks, setAttacks] = useState<WeaponAttack[] | null>(null);
   const [mode, setMode] = useState<Mode>('flat');
   const [twoHanded, setTwoHanded] = useState<Set<string>>(new Set());
+  const [refusal, setRefusal] = useState<RefusedState | null>(null);
+  const [last, setLast] = useState<{
+    itemId: string;
+    outcome: RollOutcome;
+    total: number;
+  } | null>(null);
+  const [improvised, setImprovised] = useState({ label: '', thrown: false });
   const tray = useDiceTray();
   const selectedId = useSelectedToken(campaignId);
 
@@ -65,6 +123,22 @@ export function AttacksPanel({
     load();
   }, [load, mine?.loadoutKey]);
 
+  /*
+   * The rules' default for the mode, from what the attacker is under. A
+   * default and not a lock — the picker stays — and re-applied only when the
+   * advice moves, so a player who flipped it back is not fought every poll.
+   */
+  const advice = useMemo(
+    () => rollAdvice(mine?.conditions ?? [], 'attack'),
+    [mine?.conditions]
+  );
+  const adviceKey = `${advice.mode}:${advice.because.join('|')}`;
+  useEffect(() => {
+    setMode(advice.mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adviceKey]);
+  const penalty = mine?.d20Penalty ?? 0;
+
   /* --- the target ------------------------------------------------------ */
 
   const board = state.battlemap;
@@ -83,37 +157,123 @@ export function AttacksPanel({
     const entry = token.entryId
       ? state.entries.find(e => e.id === token.entryId)
       : undefined;
+    // Cover and flanking off the board the viewer sees, so the aim line can
+    // say "half cover +2" before the swing. The server prices them again
+    // off the whole board; a player's fogged copy can only under-count.
+    const others = board.tokens.filter(
+      t => t.id !== token.id && t.id !== myToken?.id
+    );
+    const cover = myToken
+      ? coverBetween(board.terrain, myToken, token, others)
+      : 'none';
+    const mySide = state.entries.find(e => e.characterId === characterId)?.side;
+    const allies = others.filter(t => {
+      const e = t.entryId ? state.entries.find(x => x.id === t.entryId) : null;
+      return e && e.side === mySide;
+    });
     return {
       token,
+      entryId: entry?.id ?? null,
       // `||`, not `??`: a token's label is the empty string, not null, when
       // it has none — and a foe the DM has not named is "Something" here for
       // the same reason it is on the board's own status line.
       name: entry?.label || token.label || 'Something',
       feet: myToken ? distanceFeet(myToken, token) : null,
+      conditions: parseConditions(entry?.conditionKeys ?? ''),
+      cover,
+      flanking:
+        !!myToken && state.rules.flanking && flanked(myToken, token, allies),
     };
-  }, [board, selectedId, myToken, state.entries]);
+  }, [
+    board,
+    selectedId,
+    myToken,
+    state.entries,
+    state.rules.flanking,
+    characterId,
+  ]);
+
+  const myEntry = useMemo(
+    () => state.entries.find(e => e.characterId === characterId) ?? null,
+    [state.entries, characterId]
+  );
+
+  /**
+   * The whole swing, one press. The tray draws the to-hit the server rolled,
+   * then the damage, and the row keeps the verdict until the next swing. A
+   * refusal shows where the press happened, with "Do it anyway" for staff.
+   */
+  const swing = async (
+    weapon:
+      | { kind: 'item'; itemId: string; twoHanded?: boolean }
+      | { kind: 'improvised'; label: string; thrown: boolean },
+    title: string,
+    ruling = false
+  ) => {
+    if (!myEntry) {
+      onError('You are not in this fight yet — ask the DM to add the party.');
+      return;
+    }
+    const res = await attackAction({
+      attackerEntryId: myEntry.id,
+      weapon,
+      targetEntryId: target?.entryId ?? null,
+      mode,
+      ruling,
+    });
+    if (!res.ok) {
+      if (res.overridable) {
+        setRefusal({
+          message: res.error,
+          ruling: () => swing(weapon, title, true),
+        });
+      } else {
+        onError(res.error);
+      }
+      return;
+    }
+    setRefusal(null);
+    const { hit, damage, outcome } = res.data;
+    setLast({
+      itemId: weapon.kind === 'item' ? weapon.itemId : 'improvised',
+      outcome,
+      total: hit.total,
+    });
+    const at = target ? ` vs ${target.name}` : '';
+    await tray.showNotationRoll(hit, {
+      title,
+      hint: `to hit${at}${
+        outcome.hit === true
+          ? outcome.critical
+            ? ' · critical'
+            : ' · hit'
+          : outcome.hit === false
+            ? ' · miss'
+            : ''
+      }`,
+    });
+    if (damage) {
+      await tray.showNotationRoll(damage, {
+        title,
+        hint: `damage${at}${outcome.damage?.adjusted ? ` · ${outcome.damage.amount} lands` : ''}`,
+      });
+    }
+  };
 
   /* --- rolling ---------------------------------------------------------- */
 
-  const roll = async (attack: WeaponAttack, what: 'hit' | 'damage') => {
+  /** Damage dice alone, for an effect that wants them without a swing. */
+  const rollDamage = async (attack: WeaponAttack) => {
     if (!characterId) return;
     const two = twoHanded.has(attack.itemId) && attack.versatileDamage;
-    const notation =
-      what === 'hit'
-        ? mode === 'flat'
-          ? `1d20${fmtBonus(attack.attackBonus)}`
-          : withAdvantage(`1d20${fmtBonus(attack.attackBonus)}`, mode)
-        : two
-          ? attack.versatileDamage
-          : attack.damage;
+    const notation = two ? attack.versatileDamage : attack.damage;
     if (!notation) return;
     const at = target
       ? ` vs ${target.name}${target.feet !== null ? ` · ${target.feet} ft` : ''}`
       : '';
-    const label = `${attack.name} · ${what === 'hit' ? 'to hit' : 'damage'}${at}`;
     const res = await rollAction(campaignId, {
       notation,
-      label: label.slice(0, 80),
+      label: `${attack.name} · damage${at}`.slice(0, 80),
       characterId,
       visibility: 'table',
     });
@@ -123,8 +283,14 @@ export function AttacksPanel({
     }
     await tray.showNotationRoll(res.data, {
       title: attack.name,
-      hint: `${what === 'hit' ? 'to hit' : 'damage'}${at}`,
+      hint: `damage${at}`,
     });
+  };
+
+  /** "arrows" beside a bow — the word only; the count lives in the pack. */
+  const ammo = (attack: WeaponAttack): string | null => {
+    const word = ammunitionFor(attack.name, attack.properties);
+    return word ? `${word}s` : null;
   };
 
   const inRange = (
@@ -186,11 +352,39 @@ export function AttacksPanel({
                 · {target.feet} ft
               </span>
             )}
+            {target.cover !== 'none' && (
+              <span
+                className={
+                  target.cover === 'total' ? 'text-danger' : 'text-warning'
+                }
+              >
+                · {coverWords(target.cover)}
+              </span>
+            )}
+            {target.flanking && (
+              <span className="text-success">· flanking</span>
+            )}
           </span>
         ) : (
           <Marginalia dash>tap a foe on the board to aim</Marginalia>
         )}
       </div>
+      {refusal && (
+        <Refused refusal={refusal} onDismiss={() => setRefusal(null)} />
+      )}
+      {(advice.because.length > 0 || penalty !== 0) && (
+        <p className="text-[0.7rem] text-warning">
+          {[
+            ...advice.because,
+            penalty !== 0 ? `Exhaustion · ${penalty} to hit` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      )}
+      {target && target.conditions.length > 0 && (
+        <TargetAdvice conditions={target.conditions} name={target.name} />
+      )}
 
       <ul className="divide-y divide-line">
         {attacks.map(a => {
@@ -235,19 +429,29 @@ export function AttacksPanel({
                   size="sm"
                   color="primary"
                   className="h-6 min-w-0 px-2 text-xs"
-                  onPress={() => roll(a, 'hit')}
+                  onPress={() =>
+                    swing(
+                      { kind: 'item', itemId: a.itemId, twoHanded: two },
+                      a.name
+                    )
+                  }
                 >
-                  Hit
+                  Attack
                 </Button>
                 <Button
                   size="sm"
                   variant="flat"
                   className="h-6 min-w-0 px-2 text-xs"
                   isDisabled={!a.damage}
-                  onPress={() => roll(a, 'damage')}
+                  onPress={() => rollDamage(a)}
                 >
                   Damage
                 </Button>
+                {ammo(a) && (
+                  <span className="text-[0.65rem] tabular-nums text-ink-subtle">
+                    {ammo(a)}
+                  </span>
+                )}
                 {a.versatileDamage && (
                   <Tooltip content="Versatile: two hands for the bigger die.">
                     <button
@@ -276,10 +480,87 @@ export function AttacksPanel({
                   </span>
                 )}
               </div>
+              {last?.itemId === a.itemId && (
+                <Verdict outcome={last.outcome} total={last.total} />
+              )}
             </li>
           );
         })}
+        {/* Anything to hand: 1d4 + STR, or DEX thrown at 20/60, no
+            proficiency. A chair, a tankard, the goblin's own spear. */}
+        <li className="py-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm text-ink">Improvised</span>
+            <input
+              type="text"
+              aria-label="What is thrown or swung"
+              placeholder="a chair"
+              value={improvised.label}
+              onChange={e =>
+                setImprovised(s => ({ ...s, label: e.target.value }))
+              }
+              className="h-6 w-28 rounded border border-line bg-surface-2 px-1.5 text-xs text-ink placeholder:text-ink-subtle"
+            />
+            <button
+              type="button"
+              onClick={() => setImprovised(s => ({ ...s, thrown: !s.thrown }))}
+              className={`rounded border px-1.5 py-0.5 text-[0.65rem] ${
+                improvised.thrown
+                  ? 'border-gold bg-gold/15 text-gold-strong dark:text-gold'
+                  : 'border-line text-ink-subtle'
+              }`}
+            >
+              thrown 20/60
+            </button>
+            <Button
+              size="sm"
+              color="primary"
+              className="h-6 min-w-0 px-2 text-xs"
+              onPress={() =>
+                swing(
+                  {
+                    kind: 'improvised',
+                    label: improvised.label,
+                    thrown: improvised.thrown,
+                  },
+                  improvised.label.trim() || 'Improvised'
+                )
+              }
+            >
+              Attack
+            </Button>
+            <span className="font-mono text-xs text-ink-muted">
+              1d4 {improvised.thrown ? '+ DEX' : '+ STR'} bludgeoning
+            </span>
+          </div>
+          {last?.itemId === 'improvised' && (
+            <Verdict outcome={last.outcome} total={last.total} />
+          )}
+        </li>
       </ul>
     </div>
+  );
+}
+
+/** What the last swing with this weapon came to, under its row. */
+function Verdict({ outcome, total }: { outcome: RollOutcome; total: number }) {
+  const tone =
+    outcome.hit === true
+      ? 'text-success'
+      : outcome.hit === false
+        ? 'text-danger'
+        : 'text-ink-muted';
+  return (
+    <p className={`mt-1 text-xs ${tone}`}>
+      {outcome.targetLabel ? `${outcome.targetLabel} · ` : ''}
+      {outcomeWords(outcome, total)}
+      {outcome.because.length > 0 && (
+        <span className="text-ink-subtle">
+          {' '}
+          · {outcome.because.join(' · ')}
+        </span>
+      )}
+      {outcome.applied && <span className="text-ink-subtle"> · applied</span>}
+    </p>
   );
 }

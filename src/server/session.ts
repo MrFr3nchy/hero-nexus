@@ -8,9 +8,12 @@ import { abilityModifier } from '@/@creator/character/lib/derive';
 import type { CharacterSheet } from '@/@creator/character/schema';
 import {
   parseContentData,
+  refKey,
   type ContentRef,
   type CreatureData,
 } from '@/@shared/content';
+import { speedFor } from '@/@creator/campaign/lib/condition-effects';
+import { parseConditions } from '@/@creator/campaign/lib/conditions';
 import {
   critToneOf,
   d20Faces,
@@ -52,9 +55,20 @@ import {
   type TableRules,
   type TableRulesPatch,
 } from '@/@creator/campaign/lib/table-rules';
-import { listChecks, type CheckRow } from './checks';
+import { listChecks, requestCheck, type CheckRow } from './checks';
+import { writeEntryConditions } from './conditions';
+import { listEffects, tickEffects } from './effects';
+import type { EffectRow } from '@/@creator/campaign/lib/effects';
+import { beginEntryTurn } from './turn';
+import {
+  outcomeForPlayer,
+  type RollOutcome,
+} from '@/@creator/campaign/lib/attack';
+import { parseTurn, type TurnState } from '@/@creator/campaign/lib/turn';
 import { listMaps, type MapRow } from './maps';
-import { applyPlayPatch, listPartyPlayState, type PlayState } from './play';
+import { listPartyPlayState, type PlayState } from './play';
+import { applyHpUnchecked } from './hp';
+import type { EntryForm } from '@/@creator/campaign/lib/casting';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { claimedFaces } from './dice-claims';
 import { resolveContentRefs } from './content';
@@ -99,6 +113,18 @@ export interface EntryRow {
   sort: number;
   /** Where the block is. Staff only; null for a player and for a hand-typed foe. */
   creatureRef: ContentRef | null;
+  /** What this combatant has spent since their turn began (05). */
+  turn: TurnState;
+  /** The spell being concentrated on, as a `refKey` (07). Null when none is named. */
+  concentrationSpell: string | null;
+  /** Another shape worn for now (07): its label, hit points and AC. Null when itself. */
+  form: EntryForm | null;
+  /**
+   * Feet a turn: the sheet's or the block's speed after conditions and
+   * exhaustion (`speedFor`). The board lights `movementBudget(turn, speed)`
+   * of it on the combatant's own turn, and the strip counts against it.
+   */
+  speed: number;
 }
 
 export interface RollRow {
@@ -115,6 +141,12 @@ export interface RollRow {
   /** The faces were read off real dice; the sum is still the server's. */
   physical: boolean;
   createdAt: string;
+  /**
+   * What an attack decided (06), or null for a plain roll. Already filtered
+   * for the reader: a player never sees the AC, and sees hit / miss only
+   * where the table shows it.
+   */
+  outcome: RollOutcome | null;
 }
 
 export interface HandoutRow {
@@ -223,6 +255,12 @@ export interface LiveState {
    * so the shelf panels share one object rather than each fetching settings.
    */
   rules: TableRules;
+  /**
+   * Everything in the fight with a clock on it — timed conditions, named
+   * effects, the room's countdowns. A hidden countdown is dropped for a
+   * player in `listEffects`, not in a component. Empty with no encounter.
+   */
+  effects: EffectRow[];
 }
 
 /**
@@ -250,6 +288,55 @@ export async function tableAt(campaignId: string): Promise<TableKind> {
     }),
   ]);
   return !sitting ? 'desk' : fight ? 'battle' : 'table';
+}
+
+/** The default a monster walks at when its block is not to hand. */
+const DEFAULT_SPEED_FEET = 30;
+
+/**
+ * Every combatant's speed this turn, in one pass: heroes off their sheets,
+ * dealt-in monsters off their blocks (one batched resolve), hand-typed foes
+ * at the default — each through `speedFor` for conditions and exhaustion.
+ */
+async function speedsFor(
+  rows: (typeof initiativeEntries.$inferSelect)[]
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (rows.length === 0) return out;
+  const characterIds = rows
+    .map(r => r.characterId)
+    .filter((id): id is string => id !== null);
+  const sheets = new Map(
+    characterIds.length > 0
+      ? (
+          await db
+            .select({ id: characters.id, sheet: characters.sheet })
+            .from(characters)
+            .where(inArray(characters.id, characterIds))
+        ).map(c => [c.id, c.sheet as CharacterSheet])
+      : []
+  );
+  const refs = rows
+    .map(r => r.creatureRef as ContentRef | null)
+    .filter((r): r is ContentRef => r !== null);
+  const blocks = refs.length > 0 ? await resolveContentRefs(refs) : new Map();
+  for (const r of rows) {
+    let base = DEFAULT_SPEED_FEET;
+    let exhaustion = 0;
+    const sheet = r.characterId ? sheets.get(r.characterId) : undefined;
+    if (sheet) {
+      base = sheet.combat?.speed ?? base;
+      exhaustion = sheet.combat?.exhaustion ?? 0;
+    } else if (r.creatureRef) {
+      const block = blocks.get(refKey(r.creatureRef as ContentRef));
+      if (block) {
+        const d = parseContentData('creature', block.data) as CreatureData;
+        if (d.speed.walk > 0) base = d.speed.walk;
+      }
+    }
+    out.set(r.id, speedFor(base, parseConditions(r.conditionKeys), exhaustion));
+  }
+  return out;
 }
 
 function orderEntries(rows: EntryRow[]): EntryRow[] {
@@ -287,14 +374,24 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     })) ??
     null;
 
-  const rawEntries = encounter
-    ? orderEntries(
-        (await db
-          .select()
-          .from(initiativeEntries)
-          .where(eq(initiativeEntries.encounterId, encounter.id))) as EntryRow[]
-      )
+  const entryRows = encounter
+    ? await db
+        .select()
+        .from(initiativeEntries)
+        .where(eq(initiativeEntries.encounterId, encounter.id))
     : [];
+  const speeds = await speedsFor(entryRows);
+  const rawEntries = orderEntries(
+    entryRows.map(
+      r =>
+        ({
+          ...r,
+          turn: parseTurn(r.turn),
+          form: (r.form as EntryForm | null) ?? null,
+          speed: speeds.get(r.id) ?? DEFAULT_SPEED_FEET,
+        }) as EntryRow
+    )
+  );
 
   const entries = isStaff
     ? rawEntries
@@ -307,6 +404,9 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
               hpMax: null,
               hpTemp: 0,
               armorClass: null,
+              form: e.form
+                ? { ...e.form, hpCurrent: 0, hpMax: 0, armorClass: 0 }
+                : null,
               // The block is the DM's. A player knows what an aboleth is from
               // its name; they do not get a key into the bestiary from it.
               creatureRef: null,
@@ -378,22 +478,41 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     .orderBy(desc(campaignRolls.createdAt))
     .limit(ROLL_LOG_LIMIT);
 
+  // The rules are read here as well as below, because the roll log's
+  // outcome filter needs `showHitMiss` before the rest of the state is
+  // gathered. One read, used twice.
+  const campaignRow = await db.query.campaigns.findFirst({
+    columns: { settings: true },
+    where: eq(campaigns.id, campaignId),
+  });
+  const tableRules = mergeCampaignSettings(campaignRow?.settings).table;
+  const rules = encounter?.isActive
+    ? applyTableRulesPatch(tableRules, encounter.ruleOverrides)
+    : tableRules;
+
   const rolls: RollRow[] = rollRows
     .filter(r => isStaff || r.visibility === 'table')
-    .map(r => ({
-      id: r.id,
-      actorName: r.actorName,
-      characterId: r.characterId,
-      label: r.label,
-      notation: r.notation,
-      dice: (r.dice as number[]) ?? [],
-      dropped: (r.dropped as number[]) ?? [],
-      modifier: r.modifier,
-      total: r.total,
-      visibility: r.visibility,
-      physical: r.physical,
-      createdAt: r.createdAt,
-    }));
+    .map(r => {
+      const outcome = (r.outcome as RollOutcome | null) ?? null;
+      return {
+        id: r.id,
+        actorName: r.actorName,
+        characterId: r.characterId,
+        label: r.label,
+        notation: r.notation,
+        dice: (r.dice as number[]) ?? [],
+        dropped: (r.dropped as number[]) ?? [],
+        modifier: r.modifier,
+        total: r.total,
+        visibility: r.visibility,
+        physical: r.physical,
+        createdAt: r.createdAt,
+        outcome:
+          outcome && !isStaff
+            ? outcomeForPlayer(outcome, rules.showHitMiss)
+            : outcome,
+      };
+    });
 
   /*
    * Countdowns. A stopped one is dropped for everybody — the row is kept as a
@@ -420,7 +539,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
 
   // Both are their own modules and already role-filtered there — these are
   // reads, not second places that decide what a player may see.
-  const [checks, party, maps, battlemap, portraitRows, whispers] =
+  const [checks, party, maps, battlemap, portraitRows, whispers, effects] =
     await Promise.all([
       listChecks(campaignId),
       listPartyPlayState(campaignId),
@@ -432,6 +551,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
           .filter((id): id is string => id !== null)
       ),
       listWhispers(campaignId),
+      encounter ? listEffects(encounter.id, isStaff) : Promise.resolve([]),
     ]);
   const portraits: Record<string, string> = {};
   for (const [id, row] of portraitRows) portraits[id] = row.url;
@@ -458,17 +578,6 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     : encounter?.isActive
       ? 'battle'
       : 'table';
-
-  // The same fold `effectiveRules` does, off the row this read already
-  // holds rather than two more queries for it.
-  const campaignRow = await db.query.campaigns.findFirst({
-    columns: { settings: true },
-    where: eq(campaigns.id, campaignId),
-  });
-  const tableRules = mergeCampaignSettings(campaignRow?.settings).table;
-  const rules = encounter?.isActive
-    ? applyTableRulesPatch(tableRules, encounter.ruleOverrides)
-    : tableRules;
 
   return {
     role,
@@ -504,6 +613,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     whispers,
     viewerCharacterId: membership?.characterId ?? null,
     rules,
+    effects,
   };
 }
 
@@ -661,10 +771,20 @@ export async function advanceTurn(
    * whose turn it actually is would be the one not told.
    */
   const ordered = orderEntries(
-    (await db
-      .select()
-      .from(initiativeEntries)
-      .where(eq(initiativeEntries.encounterId, encounterId))) as EntryRow[]
+    (
+      await db
+        .select()
+        .from(initiativeEntries)
+        .where(eq(initiativeEntries.encounterId, encounterId))
+    ).map(
+      r =>
+        ({
+          ...r,
+          turn: parseTurn(r.turn),
+          form: (r.form as EntryForm | null) ?? null,
+          speed: 0,
+        }) as EntryRow
+    )
   );
   const count = ordered.length;
   if (count === 0) return;
@@ -695,6 +815,46 @@ export async function advanceTurn(
     label: up?.label ?? 'Somebody',
     characterId: up?.characterId ?? null,
   });
+
+  /*
+   * The one clock. Everything with rounds on it counts down here — a turn
+   * ending, the next beginning, the top of a new round — and nowhere else.
+   * Only forwards: "Back" is the DM correcting a mis-tap, and un-ticking
+   * would have to un-announce what the table was already told. A save that
+   * falls due on a seated hero comes back as a prompt and is raised here
+   * through the Asking, so a pass on it can close the effect that asked.
+   */
+  if (direction === 1) {
+    // The turn that begins is fresh: slots back, Dodge over, reaction
+    // returned — and anyone holding a Ready is nudged to staff.
+    await beginEntryTurn(campaignId, encounterId, up?.id ?? null, userId);
+    const ended = ordered[Math.min(enc.turnIndex, count - 1)];
+    const prompts = await tickEffects(
+      campaignId,
+      encounterId,
+      {
+        endedEntryId: ended?.id ?? null,
+        beganEntryId: up?.id ?? null,
+        newRound: round > enc.round,
+      },
+      userId
+    );
+    for (const p of prompts) {
+      await requestCheck(campaignId, {
+        kind: 'save',
+        ability: p.ability,
+        dc: p.dc,
+        dcVisibility: p.visibility === 'dm' ? 'hidden' : 'shown',
+        prompt: p.prompt,
+        targetUserIds: [p.userId],
+        effectId: p.effectId,
+      }).catch(err => {
+        // A seat that emptied between the tick and the ask is not a reason
+        // to stop the turn; the row stays and asks again next time round.
+        console.error('[effects] could not raise a save', err);
+      });
+    }
+  }
 }
 
 /* --- entries (staff) ------------------------------------------------- */
@@ -812,14 +972,18 @@ export async function updateEntry(
 ): Promise<void> {
   const campaignId = await entryCampaign(entryId);
   await staff(campaignId);
-  const set = { ...patch };
-  if (set.conditionKeys !== undefined) {
-    set.conditionKeys = serializeConditions(set.conditionKeys.split(','));
+  const { conditionKeys, ...set } = patch;
+  if (Object.keys(set).length > 0) {
+    await db
+      .update(initiativeEntries)
+      .set(set)
+      .where(eq(initiativeEntries.id, entryId));
   }
-  await db
-    .update(initiativeEntries)
-    .set(set)
-    .where(eq(initiativeEntries.id, entryId));
+  // Through the one writer, so the sheet behind a seated character follows
+  // and a clock behind an unticked condition is dropped with it.
+  if (conditionKeys !== undefined) {
+    await writeEntryConditions(entryId, conditionKeys.split(','));
+  }
   bumpVersion(campaignId);
 }
 
@@ -833,55 +997,10 @@ export async function updateEntry(
 export async function applyHp(entryId: string, delta: number): Promise<void> {
   const campaignId = await entryCampaign(entryId);
   await staff(campaignId);
-  const entry = await db.query.initiativeEntries.findFirst({
-    where: eq(initiativeEntries.id, entryId),
-  });
-  if (!entry) throw new Error('NOT_FOUND');
-  if (entry.hpCurrent == null) return;
-
-  /*
-   * A seated character's hit points live on the sheet, and the tracker row
-   * is a mirror of it. Writing the row alone left the DM's tracker saying 0
-   * while the player's card said 4, announced nothing when somebody went
-   * down, and started no death saves — so a party entry goes through the
-   * play patch, which writes the sheet, mirrors the row, and tells the table.
-   * The row-only path below is for foes, and for a character whose seat has
-   * since gone (the patch refuses it, and the row is all there is).
-   */
-  if (entry.characterId) {
-    try {
-      await applyPlayPatch(entry.characterId, campaignId, {
-        hpCurrentDelta: delta,
-      });
-      return;
-    } catch (err) {
-      const code = err instanceof Error ? err.message : '';
-      if (code !== 'FORBIDDEN' && code !== 'NOT_FOUND') throw err;
-    }
-  }
-
-  if (delta < 0) {
-    const damage = -delta;
-    const fromTemp = Math.min(entry.hpTemp, damage);
-    const rest = damage - fromTemp;
-    await db
-      .update(initiativeEntries)
-      .set({
-        hpTemp: entry.hpTemp - fromTemp,
-        hpCurrent: Math.max(0, entry.hpCurrent - rest),
-      })
-      .where(eq(initiativeEntries.id, entryId));
-    bumpVersion(campaignId);
-    return;
-  }
-
-  const ceiling = entry.hpMax ?? entry.hpCurrent + delta;
-  await db
-    .update(initiativeEntries)
-    .set({ hpCurrent: Math.min(ceiling, entry.hpCurrent + delta) })
-    .where(eq(initiativeEntries.id, entryId));
-  bumpVersion(campaignId);
+  await applyHpUnchecked(entryId, campaignId, delta);
 }
+
+export { applyHpUnchecked };
 
 export async function removeEntry(entryId: string): Promise<void> {
   const campaignId = await entryCampaign(entryId);

@@ -7,6 +7,9 @@ import { LoadoutSection } from '@/@creator/character/components/sections/Loadout
 import { EmptyState, CandleScene } from '@/@shared/components/ui';
 import type { CharacterRow } from '@/server/characters';
 import type { PlayLoadout, PlayState } from '@/server/play';
+import type { EffectRow } from '@/@creator/campaign/lib/effects';
+import type { EntryRow } from '@/server/session';
+import { TurnStrip } from '../session/TurnStrip';
 import { getPlayLoadoutAction } from '../../play-actions';
 import { PlayCard } from '../PlayCard';
 
@@ -31,12 +34,20 @@ export function MyHeroPanel({
   myCharacters,
   play,
   loadoutKey,
+  clocks,
+  turnEntry,
+  refresh,
   onError,
 }: {
   campaignId: string;
   myCharacters: CharacterRow[];
   /** The viewer's own at-the-table numbers off the live read, when seated. */
   play?: PlayState;
+  /** The clocks on the viewer's own combatant in the running fight. */
+  clocks?: EffectRow[];
+  /** The viewer's own tracker row, when it is their turn — for the strip. */
+  turnEntry?: EntryRow;
+  refresh?: () => Promise<void> | void;
   /**
    * The viewer's own `PlayState.loadoutKey` off the live state, when the
    * caller has it. It moves when the pack or the purse does — a potion handed
@@ -91,12 +102,29 @@ export function MyHeroPanel({
         </Link>
       </div>
       {local && (
-        <PlayCard
-          state={local}
-          campaignId={campaignId}
-          onChange={setLocal}
-          onError={onError}
-        />
+        <>
+          {turnEntry && (
+            <div className="rounded-md border border-gold/40 bg-gold/5 px-3 py-2">
+              <p className="mb-1 text-xs text-gold-strong dark:text-gold">
+                Your turn
+              </p>
+              <TurnStrip
+                entry={turnEntry}
+                canSpend
+                isStaff={false}
+                refresh={refresh ?? (() => undefined)}
+                onError={onError}
+              />
+            </div>
+          )}
+          <PlayCard
+            state={local}
+            campaignId={campaignId}
+            clocks={clocks}
+            onChange={setLocal}
+            onError={onError}
+          />
+        </>
       )}
       {loadout ? (
         <LoadoutSection

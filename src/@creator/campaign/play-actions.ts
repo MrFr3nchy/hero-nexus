@@ -46,6 +46,8 @@ function fail(err: unknown, fallback: string): Refusal {
     SECRET_NEEDS_A_TABLE: 'A secret roll needs a table to be secret from.',
     FORBIDDEN: 'That sheet is not yours to change.',
     ATTUNEMENT_FULL: 'You are already attuned to three items. Break one first.',
+    ALREADY_ACTED:
+      'The free hand is used and the action is spent. A second swap is the Utilize action.',
     NOT_AT_TABLE: 'They are not seated at this table.',
     NO_SUCH_ITEM: 'That is not in your pack any more.',
     ATTUNED:

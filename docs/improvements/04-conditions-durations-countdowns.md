@@ -58,6 +58,11 @@ CREATE INDEX encounter_effects_encounter_idx ON encounter_effects(encounter_id);
 
 `schema.ts` gets the matching `encounterEffects` table in the same change.
 
+_As landed:_ the same migration also adds a nullable `campaign_checks.effect_id`
+(SET NULL on delete). A repeated save for a seated hero is an ordinary ask
+through `requestCheck`, and `answerCheck` needs a column — not a parsed prompt
+— to know which effect a pass closes.
+
 A **condition** effect writes its key onto the entry (and the sheet, via
 `writeConditions`) when created and removes it when it expires — so every
 surface that reads `conditionKeys` today keeps working and gains an expiry.

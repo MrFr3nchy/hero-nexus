@@ -28,6 +28,8 @@ import {
   setBattleMapActive,
   setBattleMapVisibility,
   updateToken,
+  setThingEffect,
+  searchNearby,
   operateThing,
 } from '@/server/battlemap';
 
@@ -55,6 +57,7 @@ function fail(err: unknown, fallback: string): Refusal {
     FORBIDDEN: 'Only the DM and co-DMs build the board.',
     NOT_YOUR_TOKEN: 'That is not yours to move.',
     CANNOT_STAND_THERE: 'Nothing can stand there.',
+    TOO_FAR: 'That is further than they can move this turn.',
     NOT_IN_THIS_FIGHT: 'That combatant is not in the fight this board is for.',
     ALREADY_ON_THE_BOARD: 'They are already on the board.',
     NO_FIGHT: 'Put the board on the table during a fight, then deal them in.',
@@ -321,6 +324,8 @@ export async function updateTokenAction(
       lockDc: z.number().int().min(1).max(40).nullable().optional(),
       hpMax: z.number().int().min(1).max(9999).nullable().optional(),
       facing: z.enum(FACINGS).optional(),
+      visionFeet: z.number().int().min(0).max(1000).nullable().optional(),
+      lightFeet: z.number().int().min(0).max(1000).nullable().optional(),
     })
     .safeParse(patch);
   if (!parsed.success) return { ok: false, error: 'Invalid change.' };
@@ -329,6 +334,34 @@ export async function updateTokenAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Could not change that.');
+  }
+}
+
+/**
+ * What a thing does when used (08). The whole effect, replaced; validated
+ * for shape by `normalizeThingEffect` on the server. Null takes it away.
+ */
+export async function setThingEffectAction(
+  tokenId: string,
+  effect: unknown
+): Promise<Result> {
+  try {
+    await setThingEffect(tokenId, effect);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not set what it does.');
+  }
+}
+
+/** Search the ground within 5 ft for anything hidden (08). */
+export async function searchNearbyAction(
+  entryId: string
+): Promise<Result<{ found: string[] }>> {
+  try {
+    const found = await searchNearby(entryId);
+    return { ok: true, data: { found } };
+  } catch (err) {
+    return fail(err, 'Could not search.');
   }
 }
 

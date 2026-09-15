@@ -44,6 +44,7 @@ import { SittingCard } from '../session/SittingCard';
 import { ConditionsCard } from './ConditionsCard';
 import { RulesPanel } from './RulesPanel';
 import { AttacksPanel } from './AttacksPanel';
+import { CastPanel } from './CastPanel';
 import { FeedPanel } from './FeedPanel';
 import { StatBlockPanel } from './StatBlockPanel';
 import { unreadWhispers, WhispersPanel } from './WhispersPanel';
@@ -166,12 +167,27 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
       const own = live.state?.party.find(
         p => p.characterId === live.state?.viewerCharacterId
       );
+      const ownEntry = live.state?.entries.find(
+        e => e.characterId === live.state?.viewerCharacterId
+      );
+      const enc = live.state?.encounter;
+      const myTurn =
+        !!ownEntry &&
+        !!enc?.isActive &&
+        live.state?.entries[enc.turnIndex]?.id === ownEntry.id;
       return (
         <MyHeroPanel
           campaignId={ctx.campaignId}
           myCharacters={ctx.myCharacters}
           play={own}
           loadoutKey={own?.loadoutKey}
+          clocks={
+            ownEntry
+              ? live.state?.effects.filter(x => x.entryId === ownEntry.id)
+              : undefined
+          }
+          turnEntry={myTurn ? ownEntry : undefined}
+          refresh={live.refresh}
           onError={ctx.onError}
         />
       );
@@ -192,6 +208,8 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
         <PartyPlayPanel
           campaignId={ctx.campaignId}
           party={live.state.party}
+          entries={live.state.entries}
+          effects={live.state.effects}
           isStaff={ctx.isStaff}
           refresh={live.refresh}
           onError={ctx.onError}
@@ -277,6 +295,26 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
           onError={ctx.onError}
         />
       ) : null;
+
+    case 'spells': {
+      const seat = live.state?.viewerCharacterId ?? null;
+      if (!live.state) return null;
+      if (!seat) {
+        return (
+          <p className="py-1 text-xs text-ink-subtle">
+            No character seated here. Nothing to cast.
+          </p>
+        );
+      }
+      return (
+        <CastPanel
+          campaignId={ctx.campaignId}
+          characterId={seat}
+          state={live.state}
+          onError={ctx.onError}
+        />
+      );
+    }
 
     case 'statblock':
       return live.state ? (
