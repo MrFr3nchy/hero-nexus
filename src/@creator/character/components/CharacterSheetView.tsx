@@ -8,6 +8,8 @@ import {
   StatBlock,
 } from '@/@shared/components/ui';
 import { xpStanding } from '../lib/advancement';
+import type { Encumbrance } from '../lib/derive';
+import { WeightChip } from './WeightChip';
 import { AttacksSection } from './sections/AttacksSection';
 import {
   abilityModifier,
@@ -113,8 +115,11 @@ export function CharacterSheetView({
   sheet,
   slots,
   attacks = [],
+  load = null,
 }: {
   sheet: CharacterSheet;
+  /** The pack weighed (09), derived by the caller for the same reason. Null hides the chip. */
+  load?: Encumbrance | null;
   slots?: Partial<Record<NoteSection, ReactNode>>;
   /**
    * Derived by the caller, because deriving one needs the sheet's inventory
@@ -296,8 +301,9 @@ export function CharacterSheetView({
           <div className="space-y-3">
             {sheet.inventory.length > 0 && (
               <div>
-                <h3 className="mb-2 font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-gold/80">
+                <h3 className="mb-2 flex flex-wrap items-center gap-2 font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-gold/80">
                   Carried ({sheet.inventory.length})
+                  <WeightChip load={load} />
                 </h3>
                 <ul className="space-y-1">
                   {sheet.inventory.map(item => (

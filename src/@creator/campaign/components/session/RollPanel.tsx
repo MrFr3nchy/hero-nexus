@@ -187,8 +187,11 @@ export function RollPanel({
     [state.party, characterId]
   );
   const advice = useMemo(
-    () => rollAdvice(mine?.conditions ?? [], 'check'),
-    [mine?.conditions]
+    () =>
+      rollAdvice(mine?.conditions ?? [], 'check', null, {
+        heavilyLaden: mine?.weight?.disadvantage,
+      }),
+    [mine?.conditions, mine?.weight?.disadvantage]
   );
   const adviceKey = `${advice.mode}:${advice.because.join('|')}`;
   useEffect(() => {

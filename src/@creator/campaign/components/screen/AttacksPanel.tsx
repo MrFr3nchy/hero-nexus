@@ -13,11 +13,13 @@ import {
 } from '@/@creator/campaign/lib/condition-effects';
 import { parseConditions } from '@/@creator/campaign/lib/conditions';
 import { fmtBonus, type WeaponAttack } from '@/@creator/character/lib/derive';
+import type { Throwable } from '@/server/fight';
 import type { LiveState } from '@/server/session';
 import { rollAction } from '../../actions';
 import {
   attackAction,
   getMyAttacksAction,
+  listThrowablesAction,
   mySeatAction,
 } from '../../fight-actions';
 import {
@@ -99,7 +101,12 @@ export function AttacksPanel({
     outcome: RollOutcome;
     total: number;
   } | null>(null);
-  const [improvised, setImprovised] = useState({ label: '', thrown: false });
+  const [improvised, setImprovised] = useState<{
+    label: string;
+    thrown: boolean;
+    itemId: string;
+  }>({ label: '', thrown: false, itemId: '' });
+  const [throwables, setThrowables] = useState<Throwable[]>([]);
   const tray = useDiceTray();
   const selectedId = useSelectedToken(campaignId);
 
@@ -109,7 +116,12 @@ export function AttacksPanel({
 
   const load = useCallback(async () => {
     if (!characterId) return;
-    setAttacks(await getMyAttacksAction(characterId, campaignId));
+    const [a, t] = await Promise.all([
+      getMyAttacksAction(characterId, campaignId),
+      listThrowablesAction(characterId, campaignId),
+    ]);
+    setAttacks(a);
+    setThrowables(t);
   }, [characterId, campaignId]);
 
   // Re-read when the loadout changes: `party` carries the viewer's own play
@@ -129,8 +141,11 @@ export function AttacksPanel({
    * advice moves, so a player who flipped it back is not fought every poll.
    */
   const advice = useMemo(
-    () => rollAdvice(mine?.conditions ?? [], 'attack'),
-    [mine?.conditions]
+    () =>
+      rollAdvice(mine?.conditions ?? [], 'attack', null, {
+        heavilyLaden: mine?.weight?.disadvantage,
+      }),
+    [mine?.conditions, mine?.weight?.disadvantage]
   );
   const adviceKey = `${advice.mode}:${advice.because.join('|')}`;
   useEffect(() => {
@@ -206,7 +221,12 @@ export function AttacksPanel({
   const swing = async (
     weapon:
       | { kind: 'item'; itemId: string; twoHanded?: boolean }
-      | { kind: 'improvised'; label: string; thrown: boolean },
+      | {
+          kind: 'improvised';
+          label: string;
+          thrown: boolean;
+          itemId?: string | null;
+        },
     title: string,
     ruling = false
   ) => {
@@ -491,16 +511,38 @@ export function AttacksPanel({
         <li className="py-1.5">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-sm text-ink">Improvised</span>
-            <input
-              type="text"
-              aria-label="What is thrown or swung"
-              placeholder="a chair"
-              value={improvised.label}
-              onChange={e =>
-                setImprovised(s => ({ ...s, label: e.target.value }))
-              }
-              className="h-6 w-28 rounded border border-line bg-surface-2 px-1.5 text-xs text-ink placeholder:text-ink-subtle"
-            />
+            {/* Something from the pack (09), or anything typed. A heavy
+                thing is listed and marked; the server refuses the throw
+                under Enforce and the DM may rule it flies. */}
+            {throwables.length > 0 && (
+              <select
+                aria-label="A thing from the pack"
+                value={improvised.itemId}
+                onChange={e =>
+                  setImprovised(s => ({ ...s, itemId: e.target.value }))
+                }
+                className="h-6 max-w-36 rounded border border-line bg-surface-2 px-1 text-xs text-ink"
+              >
+                <option value="">from the pack…</option>
+                {throwables.map(t => (
+                  <option key={t.itemId} value={t.itemId}>
+                    {t.name} · {t.weight} lb{t.heavy ? ' · heavy' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+            {!improvised.itemId && (
+              <input
+                type="text"
+                aria-label="What is thrown or swung"
+                placeholder="a chair"
+                value={improvised.label}
+                onChange={e =>
+                  setImprovised(s => ({ ...s, label: e.target.value }))
+                }
+                className="h-6 w-28 rounded border border-line bg-surface-2 px-1.5 text-xs text-ink placeholder:text-ink-subtle"
+              />
+            )}
             <button
               type="button"
               onClick={() => setImprovised(s => ({ ...s, thrown: !s.thrown }))}
@@ -522,8 +564,12 @@ export function AttacksPanel({
                     kind: 'improvised',
                     label: improvised.label,
                     thrown: improvised.thrown,
+                    itemId: improvised.itemId || null,
                   },
-                  improvised.label.trim() || 'Improvised'
+                  (improvised.itemId
+                    ? throwables.find(t => t.itemId === improvised.itemId)
+                        ?.name
+                    : improvised.label.trim()) || 'Improvised'
                 )
               }
             >

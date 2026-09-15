@@ -44,6 +44,7 @@ import { parseTurn } from '@/@creator/campaign/lib/turn';
 import { normalizeTerrain } from '@/@shared/battlemap/types';
 import {
   parseContentData,
+  refKey,
   type ContentEntry,
   type ContentRef,
   type CreatureData,
@@ -70,6 +71,7 @@ import { bumpVersion, publish } from './live-hub';
 import { applyHpUnchecked } from './hp';
 import { requireUserId } from './session-user';
 import { effectiveRules, fence } from './table-rules';
+import type { TableRules } from '@/@creator/campaign/lib/table-rules';
 import { authorizeEntry, takeAction } from './turn';
 
 /**
@@ -151,7 +153,68 @@ export type AttackWeapon =
       label: string;
       thrown: boolean;
       damageType?: string | null;
+      /**
+       * A thing from the pack thrown or swung (09). Named off the row; a
+       * heavy one — over `THROWABLE_POUNDS` — is `TOO_HEAVY`, which staff
+       * may rule past. The row stays in the pack: retrieving it is narration.
+       */
+      itemId?: string | null;
     };
+
+/** What a hero can fling without the DM raising an eyebrow, in pounds. */
+export const THROWABLE_POUNDS = 5;
+
+/** A thing in the pack the improvised row may pick (09). */
+export interface Throwable {
+  itemId: string;
+  name: string;
+  weight: number;
+  /** Over the light limit; the DM would have to rule. */
+  heavy: boolean;
+}
+
+/**
+ * The pack as things to throw: every row with a weight the app knows,
+ * lightest first, weapons included — a longsword without Thrown is an
+ * improvised missile. Hand-typed rows weigh nothing known and are left out;
+ * the row's free text still names them.
+ */
+export async function listThrowables(
+  characterId: string,
+  campaignId: string
+): Promise<Throwable[]> {
+  const userId = await requireUserId();
+  const { role } = await requireCampaignRole(campaignId, [
+    'gm',
+    'co-gm',
+    'player',
+  ]);
+  const character = await db.query.characters.findFirst({
+    where: eq(characters.id, characterId),
+  });
+  if (!character) throw new Error('NOT_FOUND');
+  const isStaff = role === 'gm' || role === 'co-gm';
+  if (!isStaff && character.ownerId !== userId) throw new Error('FORBIDDEN');
+  const sheet = character.sheet as CharacterSheet;
+  const refs = sheet.inventory
+    .map(i => i.ref)
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+  const resolved = await resolveContentRefs(refs);
+  const out: Throwable[] = [];
+  for (const row of sheet.inventory) {
+    if (!row.ref || row.quantity <= 0) continue;
+    const entry = resolved.get(refKey(row.ref));
+    if (!entry || entry.type !== 'item') continue;
+    const data = parseContentData('item', entry.data);
+    out.push({
+      itemId: row.id,
+      name: row.name,
+      weight: data.weight,
+      heavy: data.weight > THROWABLE_POUNDS,
+    });
+  }
+  return out.sort((a, b) => a.weight - b.weight || a.name.localeCompare(b.name));
+}
 
 export interface AttackInput {
   attackerEntryId: string;
@@ -210,7 +273,9 @@ async function sheetOf(entry: Entry): Promise<CharacterSheet | null> {
 async function swingOf(
   attacker: Entry,
   weapon: AttackWeapon,
-  targetFeet: number | null
+  targetFeet: number | null,
+  rules: TableRules,
+  who: { isStaff: boolean; ruling?: boolean }
 ): Promise<Swing> {
   if (weapon.kind === 'creature-action') {
     const block = await blockOf(attacker);
@@ -243,8 +308,24 @@ async function swingOf(
     // 1d4 + STR, or DEX when thrown; no proficiency; 20/60 ft thrown.
     const ability = weapon.thrown ? 'dexterity' : 'strength';
     const mod = abilityMod(sheet, ability);
+    let name = weapon.label.trim().slice(0, 60);
+    if (weapon.itemId) {
+      // A thing from the pack (09): named off the row, weighed off its content.
+      const row = sheet.inventory.find(i => i.id === weapon.itemId);
+      if (!row || row.quantity <= 0) throw new Error('NO_SUCH_ITEM');
+      name = row.name.slice(0, 60);
+      if (row.ref) {
+        const resolved = await resolveContentRefs([row.ref]);
+        const entry = resolved.get(refKey(row.ref));
+        const weight =
+          entry && entry.type === 'item'
+            ? parseContentData('item', entry.data).weight
+            : 0;
+        if (weight > THROWABLE_POUNDS) fence('TOO_HEAVY', rules, who);
+      }
+    }
     return {
-      name: weapon.label.trim().slice(0, 60) || 'Improvised weapon',
+      name: name || 'Improvised weapon',
       attackBonus: mod + penalty,
       damage: `1d4${mod === 0 ? '' : mod > 0 ? `+${mod}` : `${mod}`}`,
       damageType: weapon.damageType?.trim().toLowerCase() || 'bludgeoning',
@@ -392,7 +473,13 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
   const geo = target
     ? await geometry(campaignId, attacker, target, rules.flanking)
     : null;
-  const swing = await swingOf(attacker, input.weapon, geo?.feet ?? null);
+  const swing = await swingOf(
+    attacker,
+    input.weapon,
+    geo?.feet ?? null,
+    rules,
+    who
+  );
   const because: string[] = [];
 
   // Cover first: a target that cannot be seen at all is refused before

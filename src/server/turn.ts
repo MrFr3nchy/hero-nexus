@@ -42,6 +42,8 @@ import {
 } from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
 import { resolveContentRefs } from './content';
+import { loadFor } from './load';
+import type { Encumbrance } from '@/@creator/character/lib/derive';
 import { bumpVersion, publish, type Audience } from './live-hub';
 import { effectiveRules, fence } from './table-rules';
 
@@ -95,9 +97,13 @@ export async function authorizeEntry(entryId: string): Promise<{
  * a seated hero off the sheet, a dealt-in monster off its block, a
  * hand-typed foe at the default.
  */
-export async function speedOfEntry(entry: Entry): Promise<number> {
+export async function speedOfEntry(
+  entry: Entry,
+  campaignId: string
+): Promise<number> {
   let base = DEFAULT_SPEED_FEET;
   let exhaustion = 0;
+  let load: Encumbrance | null = null;
   if (entry.characterId) {
     const character = await db.query.characters.findFirst({
       columns: { sheet: true },
@@ -106,6 +112,7 @@ export async function speedOfEntry(entry: Entry): Promise<number> {
     const sheet = character?.sheet as CharacterSheet | undefined;
     base = sheet?.combat?.speed ?? base;
     exhaustion = sheet?.combat?.exhaustion ?? 0;
+    if (sheet) load = await loadFor(sheet, campaignId);
   } else if (entry.creatureRef) {
     const resolved = await resolveContentRefs([
       entry.creatureRef as ContentRef,
@@ -116,7 +123,7 @@ export async function speedOfEntry(entry: Entry): Promise<number> {
       if (d.speed.walk > 0) base = d.speed.walk;
     }
   }
-  return speedFor(base, parseConditions(entry.conditionKeys), exhaustion);
+  return speedFor(base, parseConditions(entry.conditionKeys), exhaustion, load);
 }
 
 /** The entry whose turn it is in this fight, or null. */
@@ -226,7 +233,7 @@ export async function takeActionUnchecked(
       next = spent;
     }
   }
-  const speed = await speedOfEntry(entry);
+  const speed = await speedOfEntry(entry, campaignId);
   next = applyAction(next, key, note, speed);
   // Readying again replaces what was held; spending the reaction on the
   // held action clears it, so the nudge stops.
@@ -339,7 +346,7 @@ export async function spendMovement(
   if (!enc?.isActive) return null;
 
   const turn = parseTurn(entry.turn);
-  const budget = movementBudget(turn, await speedOfEntry(entry));
+  const budget = movementBudget(turn, await speedOfEntry(entry, enc.campaignId));
   let ruling = false;
   if (costFeet > budget) {
     const rules = await effectiveRules(enc.campaignId, entry.encounterId);

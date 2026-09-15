@@ -378,6 +378,29 @@ const armorStats = z
   .default(null)
   .catch(null);
 
+const itemUse = z
+  .object({
+    /** What it costs in a fight; `minute` is out of a turn's reach. */
+    action: z.enum(['action', 'bonus', 'free', 'minute']).default('action').catch('action'),
+    effect: z
+      .enum(['heal', 'damage', 'temp-hp', 'restore-slot', 'condition', 'text'])
+      .default('text')
+      .catch('text'),
+    /** Dice, e.g. "2d4+2". */
+    dice: text(40),
+    /** `restore-slot`: the level given back. */
+    slot_level: count(9),
+    /** `condition`: what it puts on the user. */
+    condition: z.enum(CONDITION_KEYS).nullable().default(null).catch(null),
+    /** Conditions it ends — an antitoxin ends poisoned. */
+    cure: listOf(z.enum(CONDITION_KEYS), 5),
+    /** Quantity −1 on use. A wand is not consumed; it has `charges`. */
+    consumed: flag,
+  })
+  .nullable()
+  .default(null)
+  .catch(null);
+
 export const itemData = z.object({
   kind: z.enum(ITEM_KINDS).default('wondrous').catch('wondrous'),
   rarity: z.enum(RARITIES).default('common').catch('common'),
@@ -390,7 +413,23 @@ export const itemData = z.object({
   charges: count(100),
   weapon: weaponStats,
   armor: armorStats,
+  /**
+   * What happens when it is used (improvements 09) — a potion drunk, an
+   * antitoxin swallowed, a wand's charge spent. Null for a thing that is
+   * only carried. Every leaf guarded (content-model rule 4).
+   */
+  use: itemUse,
 });
+
+export const ITEM_USE_ACTIONS = ['action', 'bonus', 'free', 'minute'] as const;
+export const ITEM_USE_EFFECTS = [
+  'heal',
+  'damage',
+  'temp-hp',
+  'restore-slot',
+  'condition',
+  'text',
+] as const;
 
 /* ------------------------------------------------------------------ *
  * Creature
@@ -551,6 +590,7 @@ export type BackgroundData = z.infer<typeof backgroundData>;
 export type FeatData = z.infer<typeof featData>;
 export type SpellData = z.infer<typeof spellData>;
 export type ItemData = z.infer<typeof itemData>;
+export type ItemUse = NonNullable<ItemData['use']>;
 export type CreatureData = z.infer<typeof creatureData>;
 export type RuleData = z.infer<typeof ruleData>;
 

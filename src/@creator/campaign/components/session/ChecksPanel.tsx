@@ -135,9 +135,10 @@ function CheckCard({
       rollAdvice(
         mine?.conditions ?? [],
         check.kind === 'save' ? 'save' : 'check',
-        check.ability
+        check.ability,
+        { heavilyLaden: mine?.weight?.disadvantage }
       ),
-    [mine?.conditions, check.kind, check.ability]
+    [mine?.conditions, mine?.weight?.disadvantage, check.kind, check.ability]
   );
   const adviceKey = `${advice.mode}:${advice.because.join('|')}`;
   useEffect(() => {

@@ -2369,3 +2369,55 @@ export const characterPortraits = sqliteTable(
   },
   t => [uniqueIndex('character_portraits_character_idx').on(t.characterId)]
 );
+
+/* ------------------------------------------------------------------ *
+ * Shops (improvements 09)
+ * ------------------------------------------------------------------ */
+
+/**
+ * A place the party buys and sells. The DM's until shared; stock points at
+ * content and is priced off the item's book cost with the shop's markup
+ * unless a row names its own price. `server/shops.ts` is the one place coin
+ * and rows move.
+ */
+export const campaignShops = sqliteTable(
+  'campaign_shops',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    name: text('name').notNull().default(''),
+    blurb: text('blurb').notNull().default(''),
+    /** Applied to the item's `cost`. Negative is a discount. */
+    markupPercent: integer('markup_percent').notNull().default(0),
+    /** What it pays for the party's junk, as a share of book cost. */
+    buysAtPercent: integer('buys_at_percent').notNull().default(50),
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('dm'),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_shops_campaign_idx').on(t.campaignId)]
+);
+
+export const campaignShopStock = sqliteTable(
+  'campaign_shop_stock',
+  {
+    id: uuid(),
+    shopId: text('shop_id')
+      .notNull()
+      .references(() => campaignShops.id, { onDelete: 'cascade' }),
+    /** A `ContentRef` of type item; stats resolved at read time. */
+    contentSource: text('content_source').notNull(),
+    contentKey: text('content_key').notNull(),
+    /** The denormalisation rule 1 allows: the name, for a list without a resolve. */
+    name: text('name').notNull().default(''),
+    /** Copper. Null is the item's cost × the shop's markup. */
+    priceCp: integer('price_cp'),
+    /** Null is unlimited. */
+    quantity: integer('quantity'),
+    sortOrder: integer('sort_order').notNull().default(0),
+  },
+  t => [index('campaign_shop_stock_shop_idx').on(t.shopId)]
+);

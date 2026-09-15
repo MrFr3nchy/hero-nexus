@@ -44,6 +44,12 @@ const ENDPOINTS: Record<string, string> = {
   creature: 'creatures',
   weapon: 'weapons',
   armor: 'armor',
+  /**
+   * The equipment chapter (improvements 09): adventuring gear, tools, potions
+   * of healing, and the same weapons and armour again, this time with the
+   * book's cost and weight. `listSrdContent` folds the two views together.
+   */
+  item: 'items',
 };
 
 interface Open5eDocument {
@@ -135,7 +141,12 @@ function dedupeByName(rows: Open5eRow[]): Open5eRow[] {
   return [...byName.values()];
 }
 
-export async function syncReference(): Promise<void> {
+/**
+ * Sync every category, or only the ones named — `npm run db:sync -- item`
+ * refreshes one table's worth without refetching the bestiary. A full sync
+ * replaces the table; a partial one replaces only the categories asked for.
+ */
+export async function syncReference(only: string[] = []): Promise<void> {
   const db = new Database(DB_PATH);
   try {
     const upsert = db.prepare(
@@ -145,10 +156,20 @@ export async function syncReference(): Promise<void> {
        DO UPDATE SET "name" = excluded."name", "data" = excluded."data"`
     );
 
-    db.exec('DELETE FROM "reference_data"');
+    const wanted = Object.entries(ENDPOINTS).filter(
+      ([category]) => only.length === 0 || only.includes(category)
+    );
+    if (only.length === 0) {
+      db.exec('DELETE FROM "reference_data"');
+    } else {
+      const clear = db.prepare(
+        'DELETE FROM "reference_data" WHERE "category" = ?'
+      );
+      for (const [category] of wanted) clear.run(category);
+    }
 
     let grandTotal = 0;
-    for (const [category, endpoint] of Object.entries(ENDPOINTS)) {
+    for (const [category, endpoint] of wanted) {
       try {
         const all = await fetchAll(endpoint);
         const preferred = all.filter(
@@ -195,7 +216,7 @@ if (
   (process.argv[1].endsWith('sync-reference.ts') ||
     process.argv[1].endsWith('sync-reference.js'))
 ) {
-  syncReference().catch(err => {
+  syncReference(process.argv.slice(2)).catch(err => {
     console.error('[sync] failed:', err);
     process.exit(1);
   });

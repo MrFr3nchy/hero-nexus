@@ -803,7 +803,8 @@ export function BattleBoard({
         : undefined;
       return speedReasons(
         parseConditions(entry?.conditionKeys ?? ''),
-        sheet?.exhaustion ?? 0
+        sheet?.exhaustion ?? 0,
+        sheet?.weight ?? null
       );
     },
     [entriesById, state.party]

@@ -9,6 +9,7 @@ import {
   parseContentData,
   refKey,
   type ContentEntry,
+  type ItemUse,
   type WeaponFacts,
   type WeaponMastery,
 } from '@/@shared/content';
@@ -297,3 +298,182 @@ export function spellAttackBonus(sheet: CharacterSheet): number | null {
 }
 
 export const fmtBonus = (n: number): string => (n >= 0 ? `+${n}` : `${n}`);
+
+/* --- what a hero carries (improvements 09) --------------------------------- */
+
+/** Coins to the pound, when the table counts them. */
+const COINS_PER_POUND = 50;
+
+/** Pounds of the rows alone. The builder calls this with the form's rows. */
+export function weighPack(
+  inventory: readonly Pick<InventoryItem, 'ref' | 'quantity'>[],
+  resolved: ResolvedContent
+): number {
+  let total = 0;
+  for (const item of inventory) {
+    if (!item.ref) continue;
+    const entry = resolved.get(refKey(item.ref));
+    if (!entry || entry.type !== 'item') continue;
+    const data = parseContentData('item', entry.data);
+    total += (data.weight ?? 0) * item.quantity;
+  }
+  return Math.round(total * 10) / 10;
+}
+
+/**
+ * Pounds carried: every inventory row's quantity times its item's weight,
+ * plus the purse at fifty coins a pound when asked. A row with no content
+ * behind it — "50 ft of rope" typed by hand — weighs nothing the app knows.
+ */
+export function carriedWeight(
+  sheet: CharacterSheet,
+  resolved: ResolvedContent,
+  opts: { coins?: boolean } = {}
+): number {
+  let total = weighPack(sheet.inventory ?? [], resolved);
+  if (opts.coins) {
+    const coins = Object.values(sheet.currency ?? {}).reduce(
+      (a, b) => a + (Number(b) || 0),
+      0
+    );
+    total += coins / COINS_PER_POUND;
+  }
+  return Math.round(total * 10) / 10;
+}
+
+/** 2024: Strength score × 15, doubled for Large, halved for Tiny. */
+export function capacityFor(strength: number, size: string): number {
+  const s = size.trim().toLowerCase();
+  const mult = s === 'tiny' ? 0.5 : s === 'large' ? 2 : s === 'huge' ? 4 : 1;
+  return Math.floor(Math.max(0, strength) * 15 * mult);
+}
+
+export function carryingCapacity(sheet: CharacterSheet): number {
+  return capacityFor(sheet.abilities.strength.score, sheet.identity.size);
+}
+
+export type EncumbranceRule = 'off' | 'basic' | 'variant';
+export type EncumbranceState = 'fine' | 'encumbered' | 'heavily' | 'over';
+
+export interface Encumbrance {
+  carried: number;
+  capacity: number;
+  state: EncumbranceState;
+  /**
+   * Feet taken off the speed: 0, 10 or 20. `over` is not a penalty but a
+   * stop — speed 0 — which `speedFor` reads off the state, so the number
+   * here stays finite and serialisable.
+   */
+  speedPenalty: number;
+  /** Variant, heavily encumbered: disadvantage on STR/DEX/CON tests. */
+  disadvantage: boolean;
+}
+
+/**
+ * The load from its three numbers, under the table's rule. `basic` is the
+ * 2024 book: only over capacity exists, and it stops you moving. `variant`
+ * is the 2014 optional rule: past 5 × STR you are slowed 10 ft; past
+ * 10 × STR, 20 ft and disadvantage on anything Strength, Dexterity or
+ * Constitution. `off` computes nothing but the numbers.
+ */
+export function loadOf(
+  carried: number,
+  capacity: number,
+  strength: number,
+  rule: EncumbranceRule
+): Encumbrance {
+  const none: Encumbrance = {
+    carried,
+    capacity,
+    state: 'fine',
+    speedPenalty: 0,
+    disadvantage: false,
+  };
+  if (rule === 'off') return none;
+  if (carried > capacity) {
+    return { ...none, state: 'over', disadvantage: rule === 'variant' };
+  }
+  if (rule === 'basic') return none;
+  if (carried > strength * 10) {
+    return { ...none, state: 'heavily', speedPenalty: 20, disadvantage: true };
+  }
+  if (carried > strength * 5) {
+    return { ...none, state: 'encumbered', speedPenalty: 10 };
+  }
+  return none;
+}
+
+/** `loadOf` over a whole sheet. */
+export function encumbrance(
+  sheet: CharacterSheet,
+  resolved: ResolvedContent,
+  rule: EncumbranceRule,
+  opts: { coins?: boolean } = {}
+): Encumbrance {
+  return loadOf(
+    carriedWeight(sheet, resolved, opts),
+    carryingCapacity(sheet),
+    sheet.abilities.strength.score,
+    rule
+  );
+}
+
+/**
+ * What using a thing does, in a few words for the row: "heals 2d4+2 · an
+ * action", "ends poisoned", "3 charges". Empty for a thing that is only
+ * carried.
+ */
+export function itemUseWords(
+  use: ItemUse | null | undefined,
+  charges: number,
+  chargesLeft: number | null | undefined
+): string {
+  const words: string[] = [];
+  if (use) {
+    if (use.effect === 'heal') words.push(`heals ${use.dice || '—'}`);
+    else if (use.effect === 'damage') words.push(`${use.dice || '—'} damage`);
+    else if (use.effect === 'temp-hp') words.push(`${use.dice || '—'} temp hp`);
+    else if (use.effect === 'restore-slot')
+      words.push(`a level ${use.slot_level} slot back`);
+    if (use.condition) words.push(use.condition);
+    if (use.cure.length > 0) words.push(`ends ${use.cure.join(', ')}`);
+    words.push(
+      use.action === 'action'
+        ? 'an action'
+        : use.action === 'bonus'
+          ? 'a bonus action'
+          : use.action === 'minute'
+            ? 'a minute'
+            : 'free'
+    );
+  }
+  if (charges > 0) {
+    const left = chargesLeft ?? charges;
+    words.push(`${left}/${charges} charges`);
+  }
+  return words.join(' · ');
+}
+
+/* --- jumping --------------------------------------------------------------- */
+
+export interface JumpDistances {
+  /** Feet of long jump with a 10 ft run-up: the Strength score. */
+  long: number;
+  /** Half that, standing. */
+  longStanding: number;
+  /** Feet of high jump with a run-up: 3 + the Strength modifier, never below 0. */
+  high: number;
+  highStanding: number;
+}
+
+/** 2024 PHB "Jumping". Movement caps these on the board; the sheet shows the book's numbers. */
+export function jumpDistances(sheet: CharacterSheet): JumpDistances {
+  const long = Math.max(0, sheet.abilities.strength.score);
+  const high = Math.max(0, 3 + abilityMod(sheet, 'strength'));
+  return {
+    long,
+    longStanding: Math.floor(long / 2),
+    high,
+    highStanding: Math.floor(high / 2),
+  };
+}

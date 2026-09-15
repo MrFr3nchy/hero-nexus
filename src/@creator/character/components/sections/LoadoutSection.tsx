@@ -17,8 +17,11 @@ import {
   applyLoadoutPatchAction,
   giveCoinAction,
   giveItemAction,
+  useItemAction,
   type LoadoutPatchInput,
 } from '@/@creator/campaign/play-actions';
+import { useDiceTray } from '@/@shared/components/dice';
+import { WeightChip } from '../WeightChip';
 import {
   Refused,
   type RefusedState,
@@ -49,6 +52,8 @@ function GivePopover({
   disabled,
   children,
   onGive,
+  trigger = 'Give',
+  verb = 'Hand it over',
 }: {
   label: string;
   others: Seat[];
@@ -56,6 +61,9 @@ function GivePopover({
   /** The amount controls, rendered inside the popover. */
   children?: React.ReactNode;
   onGive: (toCharacterId: string) => Promise<boolean>;
+  /** The trigger's word and the confirm's; "Give" / "Hand it over" by default. */
+  trigger?: string;
+  verb?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [to, setTo] = useState<string>(others[0]?.characterId ?? '');
@@ -76,7 +84,7 @@ function GivePopover({
           isDisabled={disabled}
           aria-label={label}
         >
-          Give
+          {trigger}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-64 border border-line bg-surface p-3">
@@ -110,7 +118,7 @@ function GivePopover({
               if (ok) setOpen(false);
             }}
           >
-            Hand it over
+            {verb}
           </Button>
         </div>
       </PopoverContent>
@@ -218,6 +226,48 @@ export function LoadoutSection({
   // says whether this caller may rule past it; the button appears only then.
   const [refused, setRefused] = useState<RefusedState | null>(null);
 
+  // Use a thing (09). The server rolls, lands it and says what happened in a
+  // line; the tray draws the server's dice rather than rolling its own, and
+  // the line sits under the row until the next thing is used.
+  const tray = useDiceTray();
+  const [used, setUsed] = useState<{ itemId: string; words: string } | null>(
+    null
+  );
+  const use = async (
+    itemId: string,
+    targetCharacterId: string | null = null,
+    ruling = false
+  ) => {
+    setBusy(true);
+    const res = await useItemAction(characterId, campaignId, {
+      itemId,
+      targetCharacterId,
+      ruling,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      if (res.overridable) {
+        setRefused({
+          message: res.error,
+          ruling: async () => {
+            await use(itemId, targetCharacterId, true);
+          },
+        });
+      } else {
+        onError(res.error);
+      }
+      return false;
+    }
+    setRefused(null);
+    setLoadout(res.data.loadout);
+    setUsed({ itemId, words: res.data.words });
+    if (res.data.roll) {
+      const name = loadout.items.find(i => i.id === itemId)?.name ?? 'Used';
+      void tray.showNotationRoll(res.data.roll, { title: name });
+    }
+    return true;
+  };
+
   const patch = async (input: LoadoutPatchInput) => {
     setBusy(true);
     const res = await applyLoadoutPatchAction(characterId, campaignId, input);
@@ -262,17 +312,20 @@ export function LoadoutSection({
         title="What you are carrying"
         description="Tick what is in hand. Worn armour and a held shield move your armour class."
         actions={
-          <Pill
-            tone={
-              loadout.attunedCount > loadout.maxAttuned
-                ? 'danger'
-                : atCap
-                  ? 'warning'
-                  : 'default'
-            }
-          >
-            {loadout.attunedCount}/{loadout.maxAttuned} attuned
-          </Pill>
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <WeightChip load={loadout.weight} />
+            <Pill
+              tone={
+                loadout.attunedCount > loadout.maxAttuned
+                  ? 'danger'
+                  : atCap
+                    ? 'warning'
+                    : 'default'
+              }
+            >
+              {loadout.attunedCount}/{loadout.maxAttuned} attuned
+            </Pill>
+          </span>
         }
       >
         {refused && (
@@ -295,7 +348,55 @@ export function LoadoutSection({
                 <span className="tabular-nums text-ink-subtle">
                   {item.quantity}&times;
                 </span>
-                <span className="min-w-0 flex-1 text-ink">{item.name}</span>
+                <span className="min-w-0 flex-1 text-ink">
+                  {item.name}
+                  {(item.weight > 0 || item.useWords) && (
+                    <span className="ml-2 text-xs text-ink-subtle">
+                      {[
+                        item.weight > 0 ? `${item.weight} lb` : '',
+                        item.useWords,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  )}
+                  {used?.itemId === item.id && (
+                    <span className="mt-0.5 block text-xs text-arcane">
+                      {used.words}
+                    </span>
+                  )}
+                </span>
+
+                {/* Use (09): drink it, spend a charge. Given to somebody else
+                    it is always an action, so the pick sits beside it. */}
+                {item.usable && loadout.canEdit && (
+                  <span className="inline-flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      color="primary"
+                      variant="flat"
+                      className="h-7 min-w-0 px-2.5 text-xs"
+                      isDisabled={locked || item.quantity === 0}
+                      onPress={() => use(item.id)}
+                    >
+                      {item.consumable ? 'Drink' : 'Use'}
+                    </Button>
+                    {canGive && item.consumable && (
+                      <GivePopover
+                        label={`Give ${item.name} to`}
+                        trigger="To…"
+                        verb="Administer"
+                        others={loadout.others}
+                        disabled={locked || item.quantity === 0}
+                        onGive={to => use(item.id, to)}
+                      >
+                        <p className="text-xs text-ink-subtle">
+                          Administering it to somebody else is an action.
+                        </p>
+                      </GivePopover>
+                    )}
+                  </span>
+                )}
 
                 <Checkbox
                   size="sm"

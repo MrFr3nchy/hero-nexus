@@ -36,7 +36,9 @@ const CATEGORIES_FOR: Record<ContentType, string[]> = {
   background: ['background'],
   feat: ['feat'],
   spell: ['spell'],
-  item: ['magic-item', 'weapon', 'armor'],
+  // The equipment chapter (`item`, 09) lists the weapons and armour again
+  // with the book's cost and weight; `mergeEquipment` folds the two.
+  item: ['magic-item', 'weapon', 'armor', 'item'],
   creature: ['creature'],
   // The SRD prints no house rules. Every one is forged.
   rule: [],
@@ -55,7 +57,48 @@ export async function listSrdContent(
         .filter((e): e is ContentEntry => e !== null);
     })
   );
-  return pages.flat().sort((a, b) => a.name.localeCompare(b.name));
+  const flat = type === 'item' ? mergeEquipment(pages) : pages.flat();
+  return flat.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * One entry per slug for items (09). The `weapon` and `armor` categories
+ * carry the stats and no price; the equipment chapter (`item`) carries the
+ * same weapons and armour with the book's cost and weight, plus everything
+ * that is only gear. Where both name a slug the stats row wins and takes the
+ * chapter's cost and weight; a chapter row nothing else names stands alone.
+ * Magic items are their own list and never collide.
+ */
+function mergeEquipment(pages: ContentEntry[][]): ContentEntry[] {
+  const out = new Map<string, ContentEntry>();
+  const chapter = new Map<string, ContentEntry>();
+  for (const page of pages) {
+    for (const entry of page) {
+      const key = entry.ref.key;
+      if (out.has(key)) {
+        // Same slug from two categories: the earlier (stats) row stays and
+        // this one is the chapter's; remember it for its price.
+        chapter.set(key, entry);
+        continue;
+      }
+      out.set(key, entry);
+    }
+  }
+  for (const [key, priced] of chapter) {
+    const stats = out.get(key)!;
+    const from = priced.data as { cost?: number; weight?: number };
+    const data = stats.data as { cost?: number; weight?: number };
+    out.set(key, {
+      ...stats,
+      description: stats.description || priced.description,
+      data: {
+        ...data,
+        cost: data.cost || from.cost || 0,
+        weight: data.weight || from.weight || 0,
+      },
+    });
+  }
+  return [...out.values()];
 }
 
 /** Every SRD entry across every category this app models as content. */

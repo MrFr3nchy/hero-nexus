@@ -15,7 +15,9 @@ import {
   setOwnConditions,
   setPlayConditions,
   spendHitDice,
+  useItem,
   type DeathSaveResult,
+  type UseItemResult,
   type PlayLoadout,
   type PlayState,
 } from '@/server/play';
@@ -33,7 +35,11 @@ type Result<T = undefined> =
  */
 type Refusal = { ok: false; error: string; overridable?: boolean };
 
-function fail(err: unknown, fallback: string): Refusal {
+function fail(
+  err: unknown,
+  fallback: string,
+  overrides: Record<string, string> = {}
+): Refusal {
   const code = err instanceof Error ? err.message : '';
   const messages: Record<string, string> = {
     NOT_AUTHENTICATED: 'You are not signed in.',
@@ -54,6 +60,11 @@ function fail(err: unknown, fallback: string): Refusal {
       'You are attuned to that. Break the attunement first, then give it.',
     NOTHING_TO_GIVE: 'There is nothing to hand over.',
     NOT_ENOUGH_COIN: 'You do not have that much.',
+    NOTHING_LEFT: 'There is none of that left.',
+    NOTHING_TO_USE: 'That is not something you use — only carry.',
+    NO_CHARGES: 'It has no charges left. It recharges at dawn, if it does.',
+    INCAPACITATED: 'You cannot act this turn.',
+    ...overrides,
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
   // invisible in a bug report. Keep the real one in the server log.
@@ -310,5 +321,36 @@ export async function giveCoinAction(
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Failed to hand the coins over.');
+  }
+}
+
+const useItemSchema = z.object({
+  itemId: z.string().min(1),
+  targetCharacterId: z.string().min(1).nullable().optional(),
+  ruling: z.boolean().optional(),
+});
+
+/**
+ * Use a thing in the pack (09): drink the potion, swallow the antitoxin,
+ * spend the wand's charge. In a fight it costs the turn what the table says
+ * a potion costs; administering to somebody else is always an action.
+ */
+export async function useItemAction(
+  characterId: string,
+  campaignId: string | null,
+  input: unknown
+): Promise<Result<UseItemResult>> {
+  const parsed = useItemSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid.' };
+  }
+  try {
+    const data = await useItem(characterId, campaignId, parsed.data);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Failed to use it.', {
+      ALREADY_ACTED:
+        'The action is spent this turn. Using a thing takes an action — or a bonus action, where the table allows it.',
+    });
   }
 }

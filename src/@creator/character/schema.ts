@@ -216,6 +216,12 @@ const inventoryItem = z.object({
    * label, so re-choosing a package swaps its kit and touches nothing else.
    */
   grantedBy: z.string().trim().max(60).default(''),
+  /**
+   * Charges left on this row (improvements 09), for a wand or a staff. Null
+   * is full — the item's own `charges` — so a sheet from before the field
+   * reads as never used.
+   */
+  charges: z.number().int().min(0).max(100).nullable().optional(),
 });
 export type InventoryItem = z.infer<typeof inventoryItem>;
 
