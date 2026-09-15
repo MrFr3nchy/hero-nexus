@@ -30,6 +30,7 @@ import {
   DIE_STAGGER_MS,
   FLIGHT_MS,
   GROUP_STAGGER_MS,
+  type DieFinish,
   type DieTone,
 } from './Die';
 
@@ -41,6 +42,11 @@ import {
  * rolled in this browser for an ability score or on the server for the table's
  * log. That is the whole point of hoisting it out of the character creator —
  * one animation, fed from anywhere.
+ *
+ * **The rule, written down (improvements 03):** if the server rolled a die
+ * and the viewer caused it, the tray draws the server's faces. Never a
+ * second client roll. Never no animation. `showNotationRoll` is how; a
+ * surface that rolls on the server and animates nothing is a bug.
  * ------------------------------------------------------------------ */
 
 export interface DieCast {
@@ -58,12 +64,18 @@ export interface CastGroup {
   /** Names this group when several land at once — "Strength", "Level 4". */
   caption?: string;
   tone?: DieTone;
+  /** Solid for the app's dice; hollow for faces read off real ones; screened behind the DM's. */
+  finish?: DieFinish;
 }
 
 export interface CastOptions {
   title?: string;
   /** One short line under the title — "four d6, drop the lowest". */
   hint?: string;
+  /** The faces came off real dice: the tray draws them hollow. */
+  physical?: boolean;
+  /** Rolled behind the screen: drawn screened, for staff's own eyes. */
+  secret?: boolean;
 }
 
 export interface DiceTrayApi {
@@ -106,7 +118,8 @@ export function groupFromResult(
 /** One line from `rollNotation`, or from the table's roll log. */
 export function groupFromNotation(
   roll: NotationRoll,
-  caption?: string
+  caption?: string,
+  finish: DieFinish = 'solid'
 ): CastGroup {
   const sides = notationSides(roll.notation) ?? [];
   const tone = critToneOf(roll.notation, roll.dice, roll.dropped);
@@ -120,7 +133,15 @@ export function groupFromNotation(
     total: roll.total,
     caption,
     tone: tone ?? 'plain',
+    finish,
   };
+}
+
+/** How a cast is drawn, from what the caller said about it. */
+function finishOf(options?: CastOptions): DieFinish {
+  if (options?.secret) return 'screened';
+  if (options?.physical) return 'hollow';
+  return 'solid';
 }
 
 /* ---- timing ------------------------------------------------------- */
@@ -168,6 +189,7 @@ function GroupRow({
   const reduce = useReducedMotion();
   const [landed, setLanded] = useState(Boolean(reduce));
   const tone = group.tone ?? 'plain';
+  const finish = group.finish ?? 'solid';
 
   useEffect(() => {
     if (reduce) return;
@@ -193,6 +215,7 @@ function GroupRow({
               delay={baseDelay + i * DIE_STAGGER_MS}
               dropped={die.dropped}
               tone={tone}
+              finish={finish}
             />
           ))}
         </div>
@@ -361,9 +384,20 @@ function TrayOverlay({
           ))}
         </div>
 
-        {line && done && (
+        {(line || cast.options.physical || cast.options.secret) && done && (
           <div className="mt-3 text-center">
-            <Marginalia dash>{line}</Marginalia>
+            <Marginalia dash>
+              {[
+                line,
+                cast.options.secret
+                  ? 'behind the screen'
+                  : cast.options.physical
+                    ? 'real dice — the faces are yours, the sum is the app’s'
+                    : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </Marginalia>
           </div>
         )}
 
@@ -431,10 +465,13 @@ export function DiceTrayProvider({ children }: { children: ReactNode }) {
         return roll;
       },
       async showNotationRoll(roll, options) {
-        await castGroups([groupFromNotation(roll)], {
-          title: options?.title ?? roll.notation,
-          hint: options?.hint,
-        });
+        await castGroups(
+          [groupFromNotation(roll, undefined, finishOf(options))],
+          {
+            ...options,
+            title: options?.title ?? roll.notation,
+          }
+        );
       },
       async rollSpec(spec, groups = 1, options) {
         const results = Array.from({ length: Math.max(1, groups) }, () =>

@@ -8,6 +8,7 @@ import type { ContentEntry } from '@/@shared/content';
 import {
   applyDamage,
   attack,
+  FacesNeeded,
   getEntryCreature,
   getMyAttacks,
   mySeat,
@@ -55,7 +56,17 @@ type Result<T = undefined> =
  * the control shows "Do it anyway" and re-sends with `{ ruling: true }`.
  * Decided on the server (`RuleRefusal`), never in the browser.
  */
-type Refusal = { ok: false; error: string; overridable?: boolean };
+type Refusal = {
+  ok: false;
+  error: string;
+  overridable?: boolean;
+  /**
+   * Real dice (03): the swing wants this many faces and these sides — the
+   * target's state gave it advantage, or a natural 20 doubled the damage
+   * dice — so the control can ask for exactly those and send again.
+   */
+  needFaces?: { which: 'hit' | 'damage'; sides: number[] };
+};
 
 function fail(err: unknown, fallback: string): Refusal {
   const code = err instanceof Error ? err.message : '';
@@ -79,6 +90,10 @@ function fail(err: unknown, fallback: string): Refusal {
       'That hit is for the DM — or its target — to land, not you.',
     ALREADY_APPLIED: 'Already applied.',
     BAD_NOTATION: 'The weapon carries no dice the app can roll.',
+    PHYSICAL_DICE_OFF:
+      'This table rolls in the app. Ask the DM to allow real dice.',
+    NEED_HIT_FACES: 'The swing takes a different number of d20s here.',
+    NEED_DAMAGE_FACES: 'The damage takes a different number of dice here.',
   };
   if (!messages[code]) console.error('[fight-action]', fallback, err);
   return {
@@ -86,6 +101,18 @@ function fail(err: unknown, fallback: string): Refusal {
     error: messages[code] ?? fallback,
     ...(err instanceof RuleRefusal && err.overridable
       ? { overridable: true }
+      : {}),
+    ...(err instanceof FacesNeeded
+      ? {
+          needFaces: {
+            which: err.message === 'NEED_HIT_FACES' ? 'hit' : 'damage',
+            sides: err.sides,
+          },
+          error:
+            err.message === 'NEED_HIT_FACES'
+              ? `The swing takes ${err.needed} d20${err.needed === 1 ? '' : 's'} here — the target's state changes the odds. Roll ${err.needed} and send the faces.`
+              : `The damage takes ${err.needed} dice here — a natural 20 doubles them. Roll ${err.needed} and send the faces.`,
+        }
       : {}),
   };
 }
@@ -116,6 +143,12 @@ const attackSchema = z.object({
   asReaction: z.boolean().optional(),
   damageOnMiss: z.boolean().optional(),
   ruling: z.boolean().optional(),
+  hitFaces: z.array(z.number().int().min(1).max(20)).min(1).max(2).optional(),
+  damageFaces: z
+    .array(z.number().int().min(1).max(100))
+    .min(1)
+    .max(40)
+    .optional(),
 });
 
 export type AttackActionInput = z.infer<typeof attackSchema>;

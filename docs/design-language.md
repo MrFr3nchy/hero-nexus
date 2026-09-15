@@ -71,7 +71,11 @@ Neither counts against a page's one toy, and a page may not have a second animat
 element merely because one of them is on screen.
 
 - **The dice tray.** Raised by an action the reader took. Rolling dice is the app's
-  loudest verb, so it gets the loudest animation.
+  loudest verb, so it gets the loudest animation. **If the server rolled a die and
+  the viewer caused it, the tray draws the server's faces** — `showNotationRoll`,
+  never a second client roll, never no animation. A surface that rolls on the
+  server and animates nothing is a bug. The finish says whose die it was: solid
+  for the app's, hollow for a face read off real dice, screened behind the DM's.
 - **The table's announcements** (`@shared/table`). Raised by something _somebody else_
   did — a roll landing, a countdown starting, the DM asking you for a check. The
   quieter of the two on purpose: a slip arriving in the corner, nothing behind it
@@ -432,7 +436,9 @@ Run this against any page diff:
 8. Any `eyebrow`, any `confirm()`/`alert()`, any `—`/`0` flash before load? Fail
    (banned list).
 9. Any emoji in the UI? Fail (rule 8). Does every new glyph still read at 16px?
-10. Verified in light **and** dark, and with `prefers-reduced-motion: reduce`.
+10. A roll made on the server that the tray never draws, or a tray roll the
+    server never made? Fail (rule 4, the dice tray).
+11. Verified in light **and** dark, and with `prefers-reduced-motion: reduce`.
 
 ---
 

@@ -3,11 +3,12 @@
 import { Button, Input, Select, SelectItem, Switch } from '@heroui/react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { useDiceTray } from '@/@shared/components/dice';
+import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import { motion } from '@/@shared/components/motion';
 import { Marginalia, SectionCard } from '@/@shared/components/ui';
-import { critToneOf, withAdvantage } from '@/@shared/lib/dice';
+import { critToneOf, notationSides, withAdvantage } from '@/@shared/lib/dice';
 import { rollAdvice } from '@/@creator/campaign/lib/condition-effects';
+import { physicalDiceAllowed } from '@/@creator/campaign/lib/table-rules';
 import type { CharacterRow } from '@/server/characters';
 import type { LiveState, RollRow } from '@/server/session';
 import { clearRollsAction, rollAction } from '../../actions';
@@ -70,6 +71,11 @@ function RollLine({
           {roll.visibility === 'dm' && (
             <span className="ml-1.5 rounded-sm border border-line px-1 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle">
               behind the screen
+            </span>
+          )}
+          {roll.physical && (
+            <span className="ml-1.5 rounded-sm border border-dashed border-gold/60 px-1 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle">
+              real dice
             </span>
           )}
         </p>
@@ -203,7 +209,7 @@ export function RollPanel({
    * screen are a picture of the log entry, not a second roll — which is why
    * the animation waits for the round trip instead of racing it.
    */
-  const roll = async (expression: string) => {
+  const roll = async (expression: string, faces?: number[]) => {
     const finished =
       mode === 'flat' ? expression : withAdvantage(expression, mode);
     setSpin(s => s + 1);
@@ -212,6 +218,7 @@ export function RollPanel({
       label,
       characterId: characterId || null,
       visibility: hidden ? 'dm' : 'table',
+      faces,
     });
     if (!res.ok) {
       onError(res.error ?? 'The dice did not land.');
@@ -221,10 +228,18 @@ export function RollPanel({
     const shown = tray.showNotationRoll(res.data, {
       title: named || res.data.notation,
       hint: named ? res.data.notation : undefined,
+      secret: isStaff && hidden,
+      physical: faces !== undefined,
     });
     await refresh();
     await shown;
   };
+  // Real dice at this table: the rule, or staff. The typed notation says
+  // how many faces to ask for; nothing typed, nothing to ask.
+  const physicalDice = physicalDiceAllowed(state.rules, isStaff);
+  const typedSides = notation.trim()
+    ? notationSides(mode === 'flat' ? notation : withAdvantage(notation, mode))
+    : null;
 
   return (
     <SectionCard
@@ -292,6 +307,13 @@ export function RollPanel({
           >
             Roll
           </Button>
+          {physicalDice && typedSides && typedSides.length > 0 && (
+            <FaceEntry
+              sides={typedSides}
+              label={label.trim() || notation.trim()}
+              onSubmit={faces => roll(notation, faces)}
+            />
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

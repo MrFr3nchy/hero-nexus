@@ -34,6 +34,7 @@ import {
 } from '@/server/battlemap';
 
 import { RuleRefusal } from '@/server/table-rules';
+import type { NotationRoll } from '@/@shared/lib/dice';
 
 type Result<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
@@ -68,6 +69,10 @@ function fail(err: unknown, fallback: string): Refusal {
     NOT_LOCKED: 'It is not locked.',
     OUT_OF_REACH: 'You are not close enough. Move beside it first.',
     INDESTRUCTIBLE: 'That cannot be broken.',
+    PHYSICAL_DICE_OFF:
+      'This table rolls in the app. Ask the DM to allow real dice.',
+    BAD_FACES:
+      'Those faces do not fit the roll — one per die, each within its die.',
   };
   if (!messages[code]) console.error('[action]', fallback, err);
   return {
@@ -390,15 +395,29 @@ export async function operateThingAction(
 
 export async function pickLockAction(
   tokenId: string,
-  mode: unknown
-): Promise<Result<{ total: number; opened: boolean }>> {
+  mode: unknown,
+  faces?: unknown
+): Promise<
+  Result<{
+    total: number;
+    opened: boolean;
+    roll: NotationRoll;
+    physical: boolean;
+  }>
+> {
   const parsed = z
     .enum(['straight', 'advantage', 'disadvantage'])
     .safeParse(mode ?? 'straight');
+  const claimed = z
+    .array(z.number().int().min(1).max(20))
+    .min(1)
+    .max(2)
+    .safeParse(faces);
   try {
     const data = await pickLock(
       tokenId,
-      parsed.success ? parsed.data : 'straight'
+      parsed.success ? parsed.data : 'straight',
+      claimed.success ? claimed.data : undefined
     );
     return { ok: true, data };
   } catch (err) {

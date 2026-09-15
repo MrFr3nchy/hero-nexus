@@ -1,4 +1,10 @@
-export { Die, DieGlyph, type DieProps, type DieTone } from './Die';
+export {
+  Die,
+  DieGlyph,
+  type DieFinish,
+  type DieProps,
+  type DieTone,
+} from './Die';
 export { shapeFor, type DieShape } from './geometry';
 export {
   DiceTrayProvider,
@@ -10,3 +16,4 @@ export {
   type DiceTrayApi,
   type DieCast,
 } from './DiceTray';
+export { FaceEntry } from './FaceEntry';

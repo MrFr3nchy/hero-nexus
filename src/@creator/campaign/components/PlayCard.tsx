@@ -7,7 +7,7 @@ import { Glyph, Marginalia, Stat } from '@/@shared/components/ui';
 import type { PlayState } from '@/server/play';
 import { conditionDef } from '../lib/conditions';
 import { effectDetail, effectName, type EffectRow } from '../lib/effects';
-import { useDiceTray } from '@/@shared/components/dice';
+import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import type { DeathSaveMode } from '@/@creator/character/lib/dying';
 import { startTimerAction } from '../actions';
 import {
@@ -139,6 +139,7 @@ function DeathSaveControl({
   state,
   campaignId,
   canRollSecret,
+  physicalDice,
   disabled,
   onChange,
   onError,
@@ -146,6 +147,7 @@ function DeathSaveControl({
   state: PlayState;
   campaignId: string | null;
   canRollSecret: boolean;
+  physicalDice: boolean;
   disabled: boolean;
   onChange: (next: PlayState) => void;
   onError: (message: string) => void;
@@ -154,11 +156,12 @@ function DeathSaveControl({
   const [busy, setBusy] = useState(false);
   const tray = useDiceTray();
 
-  const roll = async (secret: boolean) => {
+  const roll = async (secret: boolean, faces?: number[]) => {
     setBusy(true);
     const res = await rollDeathSaveAction(state.characterId, campaignId, {
       mode,
       secret,
+      faces,
     });
     setBusy(false);
     if (!res.ok) {
@@ -172,7 +175,8 @@ function DeathSaveControl({
     // tray said 19.)
     void tray.showNotationRoll(res.data.roll, {
       title: 'Death save',
-      hint: secret ? 'behind the screen' : undefined,
+      secret,
+      physical: res.data.physical,
     });
   };
 
@@ -202,6 +206,14 @@ function DeathSaveControl({
       >
         Roll a death save
       </Button>
+      {physicalDice && (
+        <FaceEntry
+          sides={mode === 'straight' ? [20] : [20, 20]}
+          label="Death save"
+          disabled={disabled || busy}
+          onSubmit={faces => roll(false, faces)}
+        />
+      )}
       {canRollSecret && (
         <Tooltip content="Rolled behind the screen. The table sees nothing.">
           <Button
@@ -293,6 +305,7 @@ export function PlayCard({
   campaignId,
   compact = false,
   canRollSecret = false,
+  physicalDice = false,
   clocks = [],
   onChange,
   onError,
@@ -303,6 +316,12 @@ export function PlayCard({
   compact?: boolean;
   /** Staff may roll a death save the players never see. */
   canRollSecret?: boolean;
+  /**
+   * The table lets this viewer type the faces off real dice (01's
+   * `physicalDice`, or staff). Off the table, a sheet at nobody's table
+   * gets it too — there is no rule to read and nothing to enforce.
+   */
+  physicalDice?: boolean;
   /**
    * The rows with a clock on this character in the running fight — so a
    * player sees "Poisoned · 3" on their own card, the same count the DM
@@ -339,15 +358,28 @@ export function PlayCard({
    * and one silent source of arithmetic nobody checks. The server rolls it,
    * heals, and puts the dice in the shared log.
    */
-  const spendDie = async () => {
+  const tray = useDiceTray();
+  const spendDie = async (faces?: number[]) => {
     setBusy(true);
-    const res = await spendHitDiceAction(state.characterId, campaignId, 1);
+    const res = await spendHitDiceAction(
+      state.characterId,
+      campaignId,
+      1,
+      faces
+    );
     setBusy(false);
     if (!res.ok) {
       onError(res.error);
       return;
     }
-    onChange(res.data);
+    onChange(res.data.state);
+    // The server rolled it and the viewer caused it: the tray draws the
+    // server's faces (the rule in `DiceTray`'s header).
+    void tray.showNotationRoll(res.data.roll, {
+      title: 'Hit die',
+      hint: `d${state.hitDieSize}, plus your Constitution`,
+      physical: res.data.physical,
+    });
   };
 
   const down = state.hpCurrent <= 0;
@@ -526,10 +558,19 @@ export function PlayCard({
                 aria-label="Spend a hit die"
                 className="min-w-0 px-2 text-ink-muted"
                 isDisabled={locked || state.hitDiceSpent >= state.hitDiceMax}
-                onPress={spendDie}
+                onPress={() => spendDie()}
               >
                 spend
               </Button>
+              {physicalDice && (
+                <FaceEntry
+                  sides={[state.hitDieSize || 8]}
+                  label="Hit die"
+                  compact
+                  disabled={locked || state.hitDiceSpent >= state.hitDiceMax}
+                  onSubmit={faces => spendDie(faces)}
+                />
+              )}
               <Button
                 size="sm"
                 variant="light"
@@ -637,6 +678,7 @@ export function PlayCard({
           state={state}
           campaignId={campaignId}
           canRollSecret={canRollSecret}
+          physicalDice={physicalDice}
           disabled={locked}
           onChange={onChange}
           onError={onError}

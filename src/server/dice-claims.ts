@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { TableRules } from '@/@creator/campaign/lib/table-rules';
+import { physicalDiceAllowed } from '@/@creator/campaign/lib/table-rules';
 import { effectiveRules } from './table-rules';
 
 /**
@@ -14,14 +14,6 @@ import { effectiveRules } from './table-rules';
  * table's `physicalDice` rule; staff always may, because a DM rolling
  * behind a real screen is the oldest thing at the table.
  */
-
-/** Whether a caller may hand over faces at this table. */
-export function physicalDiceAllowed(
-  rules: Pick<TableRules, 'physicalDice'>,
-  isStaff: boolean
-): boolean {
-  return isStaff || rules.physicalDice !== 'off';
-}
 
 /**
  * The faces a caller claims, if they may claim any; `undefined` when they
@@ -39,6 +31,7 @@ export async function claimedFaces(
   // everything else and allowed here too.
   if (!campaignId) return faces;
   const rules = await effectiveRules(campaignId);
-  if (!physicalDiceAllowed(rules, isStaff)) throw new Error('PHYSICAL_DICE_OFF');
+  if (!physicalDiceAllowed(rules, isStaff))
+    throw new Error('PHYSICAL_DICE_OFF');
   return faces;
 }

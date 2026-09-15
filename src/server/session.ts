@@ -16,7 +16,6 @@ import { speedFor } from '@/@creator/campaign/lib/condition-effects';
 import { parseConditions } from '@/@creator/campaign/lib/conditions';
 import {
   critToneOf,
-  d20Faces,
   parseNotation,
   rollDie,
   rollNotation,
@@ -1117,7 +1116,21 @@ export async function addCreaturesToEncounter(
   return ids;
 }
 
-export async function rollInitiative(encounterId: string): Promise<void> {
+/** One combatant's initiative die, for the tray to draw. Staff only. */
+export interface InitiativeRoll {
+  entryId: string;
+  label: string;
+  roll: NotationRoll;
+}
+
+/**
+ * Roll for anyone still at 0. Staff only. The dice come back so the tray
+ * can draw them — one group per combatant — rather than the numbers
+ * appearing in the order with nothing thrown.
+ */
+export async function rollInitiative(
+  encounterId: string
+): Promise<InitiativeRoll[]> {
   const campaignId = await encounterCampaign(encounterId);
   await staff(campaignId);
   const rows = await db
@@ -1125,12 +1138,25 @@ export async function rollInitiative(encounterId: string): Promise<void> {
     .from(initiativeEntries)
     .where(eq(initiativeEntries.encounterId, encounterId));
 
+  const rolled: InitiativeRoll[] = [];
   for (const row of rows) {
     if (row.initiative !== 0) continue;
+    const face = rollDie(20);
     await db
       .update(initiativeEntries)
-      .set({ initiative: rollDie(20) })
+      .set({ initiative: face })
       .where(eq(initiativeEntries.id, row.id));
+    rolled.push({
+      entryId: row.id,
+      label: row.label,
+      roll: {
+        notation: '1d20',
+        dice: [face],
+        dropped: [],
+        modifier: 0,
+        total: face,
+      },
+    });
   }
 
   // Back to the top of the order: the numbers just changed under it.
@@ -1139,6 +1165,7 @@ export async function rollInitiative(encounterId: string): Promise<void> {
     .set({ turnIndex: 0 })
     .where(eq(initiativeEncounters.id, encounterId));
   bumpVersion(campaignId);
+  return rolled;
 }
 
 /* --- the shared roll log --------------------------------------------- */

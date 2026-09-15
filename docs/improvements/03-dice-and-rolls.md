@@ -1,5 +1,14 @@
 # 03 — Every roll through the tray, and dice you can hold
 
+**Status: built** (`feat/improvements-03-dice-and-rolls`). Departures: creature
+hit points are not rolled on deal-in — they never were (`hit_points` off the
+block) — so there is no roll to draw there; the attack's real-dice contract is
+"the swing says how many": a claim that does not fit the fold (two d20s where
+the target gives advantage, doubled damage dice on a 20) comes back as
+`needFaces` before anything is spent, and the control asks for exactly those.
+`tallyNotation(input, parsed, faces)` carries the notation text as well, so the
+row's `notation` is the one the caller wrote.
+
 Covers from `improvements.txt`: _make sure all rolls show the dice animation_,
 _physical dice_, and the `physicalDice` toggle from 01.
 

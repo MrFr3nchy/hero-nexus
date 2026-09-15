@@ -618,3 +618,19 @@ export function refuses(
   if (rules.mode !== 'enforce') return false;
   return !(opts.ruling && opts.isStaff);
 }
+
+/* --- real dice ------------------------------------------------------------ */
+
+/**
+ * Whether somebody may hand the app the faces off real dice at this table.
+ * Staff always may — a DM rolling behind a real screen is the oldest thing
+ * at the table; a player may when the rule is anything but off. Pure, so
+ * the control that offers "I rolled it" and the server that takes the claim
+ * agree.
+ */
+export function physicalDiceAllowed(
+  rules: Pick<TableRules, 'physicalDice'>,
+  isStaff: boolean
+): boolean {
+  return isStaff || rules.physicalDice !== 'off';
+}

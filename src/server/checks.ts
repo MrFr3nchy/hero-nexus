@@ -32,7 +32,7 @@ import {
 } from '@/@creator/character/schema';
 import { savingThrow, skillBonus } from '@/@creator/character/lib/derive';
 import { d20PenaltyFor } from '@/@creator/campaign/lib/condition-effects';
-import { rollDie } from '@/@shared/lib/dice';
+import { d20Faces, d20Result, type NotationRoll } from '@/@shared/lib/dice';
 import { db } from '@/db';
 import {
   campaignCheckTargets,
@@ -52,6 +52,7 @@ import { requireCampaignRole } from './campaigns';
 import { breakConcentration, settleEffectSave } from './effects';
 import { bumpVersion, publish } from './live-hub';
 import { requireUserId } from './session-user';
+import { claimedFaces } from './dice-claims';
 
 export type CheckKind = 'check' | 'save' | 'free' | 'consent';
 export type CheckStatus = 'open' | 'answered' | 'cancelled';
@@ -479,17 +480,31 @@ export interface AnswerResult {
   userId: string;
   passed: boolean | null;
   payload: CheckPayload | null;
+  /** The roll as the log has it, so the tray draws the server's faces. */
+  roll: NotationRoll;
+  physical: boolean;
 }
 
 export async function answerCheck(
   checkId: string,
-  mode: RollMode = 'straight'
+  mode: RollMode = 'straight',
+  faces?: number[]
 ): Promise<AnswerResult> {
   const userId = await requireUserId();
   const { check, target } = await checkAndTarget(checkId, userId);
   if (!target) throw new Error('NOT_ASKED');
   if (check.status !== 'open') throw new Error('CHECK_CLOSED');
   if (target.status !== 'waiting') throw new Error('ALREADY_ANSWERED');
+  const { role } = await requireCampaignRole(check.campaignId, [
+    'gm',
+    'co-gm',
+    'player',
+  ]);
+  const claimed = await claimedFaces(
+    check.campaignId,
+    role === 'gm' || role === 'co-gm',
+    faces
+  );
 
   const character = target.characterId
     ? await db.query.characters.findFirst({
@@ -503,14 +518,13 @@ export async function answerCheck(
   );
   const modifier = bonus ?? 0;
 
-  const dice = mode === 'straight' ? [rollDie(20)] : [rollDie(20), rollDie(20)];
-  const face =
-    mode === 'advantage'
-      ? Math.max(...dice)
-      : mode === 'disadvantage'
-        ? Math.min(...dice)
-        : dice[0];
+  const dice = d20Faces(mode, claimed);
+  if (!dice) throw new Error('BAD_FACES');
+  const { face, dropped } = d20Result(mode, dice);
   const total = face + modifier;
+  const notation = `${mode === 'straight' ? '1d20' : '2d20'}${
+    modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`
+  }`;
 
   const ask = askLine(check);
   const person = await db.query.users.findFirst({
@@ -531,20 +545,18 @@ export async function answerCheck(
       characterId: target.characterId,
       actorName,
       label: ask,
-      notation: `${mode === 'straight' ? '1d20' : '2d20'}${
-        modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`
-      }`,
+      notation,
       dice,
       // The die that did not count is marked dropped rather than dropped from
       // the record, so a reader sees the advantage instead of being told it.
-      dropped:
-        dice.length === 2 ? [dice[0] === face ? 1 : 0] : ([] as number[]),
+      dropped,
       modifier,
       total,
       // Always 'table'. A player cannot hide a roll from their DM, and a DM
       // hiding the answer to their own question from the table would be
       // hiding it from the person who rolled it.
       visibility: 'table',
+      physical: claimed !== undefined,
     })
     .returning({ id: campaignRolls.id });
 
@@ -602,7 +614,14 @@ export async function answerCheck(
           ? 'pass'
           : 'fail',
   });
-  return { campaignId: check.campaignId, userId, passed, payload };
+  return {
+    campaignId: check.campaignId,
+    userId,
+    passed,
+    payload,
+    roll: { notation, dice, dropped, modifier, total },
+    physical: claimed !== undefined,
+  };
 }
 
 /**
@@ -618,12 +637,16 @@ export async function answerCheck(
 export async function answerConsent(
   checkId: string,
   answer: ConsentAnswer,
-  mode: RollMode = 'straight'
+  mode: RollMode = 'straight',
+  faces?: number[]
 ): Promise<{
   payload: ConsentPayload;
   verdict: 'allowed' | 'refused' | 'pass' | 'fail';
   campaignId: string;
   userId: string;
+  /** The contest's roll, for the tray. Null when nothing was rolled. */
+  roll: NotationRoll | null;
+  physical: boolean;
 }> {
   const userId = await requireUserId();
   const { check, target } = await checkAndTarget(checkId, userId);
@@ -633,6 +656,9 @@ export async function answerConsent(
   if (target.status !== 'waiting') throw new Error('ALREADY_ANSWERED');
   const payload = check.payload as ConsentPayload | null;
   if (!payload || payload.kind !== 'consent') throw new Error('NOT_A_CONSENT');
+  // Only a player is ever asked for consent, so the claim is a player's.
+  const claimed = await claimedFaces(check.campaignId, false, faces);
+  let contestRoll: NotationRoll | null = null;
 
   let verdict: 'allowed' | 'refused' | 'pass' | 'fail';
   if (answer === 'allow' || answer === 'refuse') {
@@ -655,14 +681,9 @@ export async function answerConsent(
       { kind: 'save', skill: null, ability: check.ability }
     );
     const modifier = bonus ?? 0;
-    const dice =
-      mode === 'straight' ? [rollDie(20)] : [rollDie(20), rollDie(20)];
-    const face =
-      mode === 'advantage'
-        ? Math.max(...dice)
-        : mode === 'disadvantage'
-          ? Math.min(...dice)
-          : dice[0];
+    const dice = d20Faces(mode, claimed);
+    if (!dice) throw new Error('BAD_FACES');
+    const { face, dropped } = d20Result(mode, dice);
     const total = face + modifier;
     const actorName = character?.name?.trim() || 'A player';
     const [roll] = await db
@@ -677,11 +698,11 @@ export async function answerConsent(
           modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`
         }`,
         dice,
-        dropped:
-          dice.length === 2 ? [dice[0] === face ? 1 : 0] : ([] as number[]),
+        dropped,
         modifier,
         total,
         visibility: 'table',
+        physical: claimed !== undefined,
       })
       .returning({ id: campaignRolls.id });
     await db
@@ -695,6 +716,15 @@ export async function answerConsent(
       })
       .where(eq(campaignCheckTargets.id, target.id));
     verdict = total >= check.dc ? 'pass' : 'fail';
+    contestRoll = {
+      notation: `${mode === 'straight' ? '1d20' : '2d20'}${
+        modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : `${modifier}`
+      }`,
+      dice,
+      dropped,
+      modifier,
+      total,
+    };
   }
 
   await closeIfSettled(check.id);
@@ -718,7 +748,14 @@ export async function answerConsent(
           ? 'fail'
           : null,
   });
-  return { payload, verdict, campaignId: check.campaignId, userId };
+  return {
+    payload,
+    verdict,
+    campaignId: check.campaignId,
+    userId,
+    roll: contestRoll,
+    physical: claimed !== undefined,
+  };
 }
 
 /**

@@ -33,6 +33,7 @@ import {
   setHandoutVisibility,
   updateEntry,
   type EntryInput,
+  type InitiativeRoll,
   type LiveState,
   type RollInput,
 } from '@/server/session';
@@ -486,8 +487,13 @@ export async function applyHpAction(
 }
 export async function rollInitiativeAction(
   encounterId: string
-): Promise<Result> {
-  return sessionAction(() => rollInitiative(encounterId));
+): Promise<Result<InitiativeRoll[]>> {
+  try {
+    const data = await rollInitiative(encounterId);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Could not roll for them.');
+  }
 }
 export async function rollAction(
   campaignId: string,
@@ -502,6 +508,19 @@ export async function rollAction(
       return {
         ok: false,
         error: 'That is not dice. Try 2d6+3, d20, or 4d6kh3.',
+      };
+    }
+    if (code === 'PHYSICAL_DICE_OFF') {
+      return {
+        ok: false,
+        error: 'This table rolls in the app. Ask the DM to allow real dice.',
+      };
+    }
+    if (code === 'BAD_FACES') {
+      return {
+        ok: false,
+        error:
+          'Those faces do not fit the roll — one per die, each within its die.',
       };
     }
     return fail(err, 'The dice did not land.');

@@ -16,6 +16,7 @@ import {
   setPlayConditions,
   spendHitDice,
   type DeathSaveResult,
+  type HitDiceResult,
   type PlayLoadout,
   type PlayState,
 } from '@/server/play';
@@ -54,6 +55,10 @@ function fail(err: unknown, fallback: string): Refusal {
       'You are attuned to that. Break the attunement first, then give it.',
     NOTHING_TO_GIVE: 'There is nothing to hand over.',
     NOT_ENOUGH_COIN: 'You do not have that much.',
+    PHYSICAL_DICE_OFF:
+      'This table rolls in the app. Ask the DM to allow real dice.',
+    BAD_FACES:
+      'Those faces do not fit the roll — one per die, each within its die.',
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
   // invisible in a bug report. Keep the real one in the server log.
@@ -125,10 +130,17 @@ export async function applyPlayPatchAction(
 export async function spendHitDiceAction(
   characterId: string,
   campaignId: string | null,
-  count: number
-): Promise<Result<PlayState>> {
+  count: number,
+  faces?: unknown
+): Promise<Result<HitDiceResult>> {
+  const claimed = facesSchema.safeParse(faces);
   try {
-    const data = await spendHitDice(characterId, campaignId, count);
+    const data = await spendHitDice(
+      characterId,
+      campaignId,
+      count,
+      claimed.success ? claimed.data : undefined
+    );
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Failed to spend the hit dice.');
@@ -166,9 +178,21 @@ export async function setPlayConditionsAction(
 /** The shape a loadout control sends. Mirrors `LoadoutPatch` on the server. */
 export type LoadoutPatchInput = z.infer<typeof loadoutSchema>;
 
+/**
+ * Faces read off real dice: a short list of small integers, checked here
+ * only for shape. Whether they fit the roll — count, and each within its
+ * die — is the server's check, since it knows the notation.
+ */
+const facesSchema = z
+  .array(z.number().int().min(1).max(1000))
+  .min(1)
+  .max(100)
+  .optional();
+
 const deathSaveSchema = z.object({
   mode: z.enum(['straight', 'advantage', 'disadvantage']).optional(),
   secret: z.boolean().optional(),
+  faces: facesSchema,
 });
 
 const loadoutSchema = z.object({
