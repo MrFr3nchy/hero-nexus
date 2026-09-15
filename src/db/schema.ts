@@ -533,6 +533,14 @@ export const initiativeEntries = sqliteTable(
      * rather than only that one is standing there.
      */
     creatureRef: text('creature_ref', { mode: 'json' }),
+    /**
+     * What this combatant has spent since their turn began (0050) — a
+     * `TurnState` from `campaign/lib/turn.ts`. `{}` is a fresh turn.
+     * `advanceTurn` resets it; `takeAction` and `moveToken` write it.
+     */
+    turn: text('turn', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
   },
   t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
 );

@@ -8,9 +8,12 @@ import { abilityModifier } from '@/@creator/character/lib/derive';
 import type { CharacterSheet } from '@/@creator/character/schema';
 import {
   parseContentData,
+  refKey,
   type ContentRef,
   type CreatureData,
 } from '@/@shared/content';
+import { speedFor } from '@/@creator/campaign/lib/condition-effects';
+import { parseConditions } from '@/@creator/campaign/lib/conditions';
 import {
   critToneOf,
   rollDie,
@@ -54,6 +57,8 @@ import { listChecks, requestCheck, type CheckRow } from './checks';
 import { writeEntryConditions } from './conditions';
 import { listEffects, tickEffects } from './effects';
 import type { EffectRow } from '@/@creator/campaign/lib/effects';
+import { beginEntryTurn } from './turn';
+import { parseTurn, type TurnState } from '@/@creator/campaign/lib/turn';
 import { listMaps, type MapRow } from './maps';
 import { applyPlayPatch, listPartyPlayState, type PlayState } from './play';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
@@ -99,6 +104,14 @@ export interface EntryRow {
   sort: number;
   /** Where the block is. Staff only; null for a player and for a hand-typed foe. */
   creatureRef: ContentRef | null;
+  /** What this combatant has spent since their turn began (05). */
+  turn: TurnState;
+  /**
+   * Feet a turn: the sheet's or the block's speed after conditions and
+   * exhaustion (`speedFor`). The board lights `movementBudget(turn, speed)`
+   * of it on the combatant's own turn, and the strip counts against it.
+   */
+  speed: number;
 }
 
 export interface RollRow {
@@ -256,6 +269,55 @@ export async function tableAt(campaignId: string): Promise<TableKind> {
   return !sitting ? 'desk' : fight ? 'battle' : 'table';
 }
 
+/** The default a monster walks at when its block is not to hand. */
+const DEFAULT_SPEED_FEET = 30;
+
+/**
+ * Every combatant's speed this turn, in one pass: heroes off their sheets,
+ * dealt-in monsters off their blocks (one batched resolve), hand-typed foes
+ * at the default — each through `speedFor` for conditions and exhaustion.
+ */
+async function speedsFor(
+  rows: (typeof initiativeEntries.$inferSelect)[]
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (rows.length === 0) return out;
+  const characterIds = rows
+    .map(r => r.characterId)
+    .filter((id): id is string => id !== null);
+  const sheets = new Map(
+    characterIds.length > 0
+      ? (
+          await db
+            .select({ id: characters.id, sheet: characters.sheet })
+            .from(characters)
+            .where(inArray(characters.id, characterIds))
+        ).map(c => [c.id, c.sheet as CharacterSheet])
+      : []
+  );
+  const refs = rows
+    .map(r => r.creatureRef as ContentRef | null)
+    .filter((r): r is ContentRef => r !== null);
+  const blocks = refs.length > 0 ? await resolveContentRefs(refs) : new Map();
+  for (const r of rows) {
+    let base = DEFAULT_SPEED_FEET;
+    let exhaustion = 0;
+    const sheet = r.characterId ? sheets.get(r.characterId) : undefined;
+    if (sheet) {
+      base = sheet.combat?.speed ?? base;
+      exhaustion = sheet.combat?.exhaustion ?? 0;
+    } else if (r.creatureRef) {
+      const block = blocks.get(refKey(r.creatureRef as ContentRef));
+      if (block) {
+        const d = parseContentData('creature', block.data) as CreatureData;
+        if (d.speed.walk > 0) base = d.speed.walk;
+      }
+    }
+    out.set(r.id, speedFor(base, parseConditions(r.conditionKeys), exhaustion));
+  }
+  return out;
+}
+
 function orderEntries(rows: EntryRow[]): EntryRow[] {
   return [...rows].sort(
     (a, b) => b.initiative - a.initiative || a.sort - b.sort
@@ -291,14 +353,23 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     })) ??
     null;
 
-  const rawEntries = encounter
-    ? orderEntries(
-        (await db
-          .select()
-          .from(initiativeEntries)
-          .where(eq(initiativeEntries.encounterId, encounter.id))) as EntryRow[]
-      )
+  const entryRows = encounter
+    ? await db
+        .select()
+        .from(initiativeEntries)
+        .where(eq(initiativeEntries.encounterId, encounter.id))
     : [];
+  const speeds = await speedsFor(entryRows);
+  const rawEntries = orderEntries(
+    entryRows.map(
+      r =>
+        ({
+          ...r,
+          turn: parseTurn(r.turn),
+          speed: speeds.get(r.id) ?? DEFAULT_SPEED_FEET,
+        }) as EntryRow
+    )
+  );
 
   const entries = isStaff
     ? rawEntries
@@ -666,10 +737,12 @@ export async function advanceTurn(
    * whose turn it actually is would be the one not told.
    */
   const ordered = orderEntries(
-    (await db
-      .select()
-      .from(initiativeEntries)
-      .where(eq(initiativeEntries.encounterId, encounterId))) as EntryRow[]
+    (
+      await db
+        .select()
+        .from(initiativeEntries)
+        .where(eq(initiativeEntries.encounterId, encounterId))
+    ).map(r => ({ ...r, turn: parseTurn(r.turn), speed: 0 }) as EntryRow)
   );
   const count = ordered.length;
   if (count === 0) return;
@@ -710,6 +783,9 @@ export async function advanceTurn(
    * through the Asking, so a pass on it can close the effect that asked.
    */
   if (direction === 1) {
+    // The turn that begins is fresh: slots back, Dodge over, reaction
+    // returned — and anyone holding a Ready is nudged to staff.
+    await beginEntryTurn(campaignId, encounterId, up?.id ?? null, userId);
     const ended = ordered[Math.min(enc.turnIndex, count - 1)];
     const prompts = await tickEffects(
       campaignId,

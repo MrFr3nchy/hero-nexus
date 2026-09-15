@@ -43,6 +43,7 @@ import {
   type PickerEntry,
 } from './EffectPicker';
 import { FightRules } from './FightRules';
+import { TurnStrip } from './TurnStrip';
 
 type Act = (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
 
@@ -232,12 +233,16 @@ function EntryLine({
   effects,
   everyone,
   encounterId,
+  refresh,
+  onError,
 }: {
   entry: EntryRow;
   current: boolean;
   isStaff: boolean;
   isYours: boolean;
   act: Act;
+  refresh: () => Promise<void> | void;
+  onError: (message: string) => void;
   /** Every clock in the fight; the chips pick out this entry's. */
   effects: EffectRow[];
   /** Everybody in the order, for the picker's source list. */
@@ -333,6 +338,21 @@ function EntryLine({
           <p className="mt-1 text-xs text-ink-subtle">
             {hpWord(entry.hpCurrent, entry.hpMax)}
           </p>
+        )}
+        {/* The turn, on the card whose turn it is: staff see every one, a
+            player their own. Off-turn the same people see the one slot that
+            is still theirs to spend — the reaction. */}
+        {(isStaff || isYours) && (
+          <div className="mt-2">
+            <TurnStrip
+              entry={entry}
+              canSpend={isStaff || isYours}
+              isStaff={isStaff}
+              refresh={refresh}
+              onError={onError}
+              offTurn={!current}
+            />
+          </div>
         )}
       </div>
 
@@ -533,6 +553,8 @@ export function InitiativeTracker({
             effects={state.effects}
             everyone={everyone}
             encounterId={enc.id}
+            refresh={refresh}
+            onError={onError}
             placeable={
               isStaff &&
               !!onBoard &&

@@ -71,7 +71,8 @@ function fold(advantage: number, disadvantage: number): RollMode {
 export function rollAdvice(
   conditions: readonly ConditionKey[],
   what: D20Kind,
-  ability?: AbilityKey | null
+  ability?: AbilityKey | null,
+  turn?: TurnFlags
 ): RollAdvice {
   const because: string[] = [];
   let advantage = 0;
@@ -99,6 +100,17 @@ export function rollAdvice(
   if (what === 'save' && ability === 'dexterity' && has('restrained')) {
     worse('restrained');
   }
+  // Dodge (05): advantage on DEX saves until the next turn — unless the
+  // dodger is incapacitated or rooted, when the book says it lapses.
+  if (
+    what === 'save' &&
+    ability === 'dexterity' &&
+    turn?.dodging &&
+    dodgeHolds(conditions)
+  ) {
+    advantage += 1;
+    because.push('Dodging · advantage');
+  }
 
   // When both sides claimed it the mode is flat and the words stay, so the
   // picker explains a straight roll rather than pretending nothing applied.
@@ -109,9 +121,26 @@ export function rollAdvice(
 export function rollModeFor(
   conditions: readonly ConditionKey[],
   what: D20Kind,
-  ability?: AbilityKey | null
+  ability?: AbilityKey | null,
+  turn?: TurnFlags
 ): RollMode {
-  return rollAdvice(conditions, what, ability).mode;
+  return rollAdvice(conditions, what, ability, turn).mode;
+}
+
+/**
+ * The turn-state flags that bear on a roll (05). Only what a roll needs,
+ * so this module does not have to know the whole `TurnState`.
+ */
+export interface TurnFlags {
+  dodging?: boolean;
+}
+
+/** Dodge lapses while incapacitated or at speed 0. */
+export function dodgeHolds(conditions: readonly ConditionKey[]): boolean {
+  return (
+    !conditions.some(k => INCAPACITATING.has(k)) &&
+    !conditions.some(k => ROOTED.has(k))
+  );
 }
 
 /** 2024 exhaustion: −2 on every d20 test per level. Level 6 is death. */
@@ -182,10 +211,12 @@ export function canAct(conditions: readonly ConditionKey[]): TurnAllowance {
  */
 export function attackedWith(
   targetConditions: readonly ConditionKey[],
-  melee: boolean
+  melee: boolean,
+  targetTurn?: TurnFlags
 ): RollMode {
   let advantage = 0;
   let disadvantage = 0;
+  if (targetTurn?.dodging && dodgeHolds(targetConditions)) disadvantage += 1;
   for (const key of targetConditions) {
     switch (key) {
       case 'blinded':
