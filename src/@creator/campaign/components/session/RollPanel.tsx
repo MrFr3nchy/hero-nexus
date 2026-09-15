@@ -11,6 +11,8 @@ import { rollAdvice } from '@/@creator/campaign/lib/condition-effects';
 import type { CharacterRow } from '@/server/characters';
 import type { LiveState, RollRow } from '@/server/session';
 import { clearRollsAction, rollAction } from '../../actions';
+import { applyDamageAction } from '../../fight-actions';
+import { outcomeWords } from '@/@creator/campaign/lib/attack';
 
 /** The dice a table reaches for without typing anything. */
 const QUICK = ['d20', 'd12', 'd10', 'd8', 'd6', 'd4', 'd100'];
@@ -27,7 +29,22 @@ function critTone(roll: RollRow): 'crit' | 'fumble' | null {
   return critToneOf(roll.notation, roll.dice, roll.dropped);
 }
 
-function RollLine({ roll }: { roll: RollRow }) {
+/**
+ * One roll in the log. An attack's to-hit row (06) also reads its verdict —
+ * "hit (17) · 9 slashing → 4 after resistance" — and carries **Apply** while
+ * the damage is still proposed: for staff always, for a player when the
+ * table lets them land their own hits on a foe or the hit is on their own
+ * hero. The server decides again; the button is the offer.
+ */
+function RollLine({
+  roll,
+  canApply,
+  onApply,
+}: {
+  roll: RollRow;
+  canApply: boolean;
+  onApply: (rollId: string) => Promise<void>;
+}) {
   const tone = critTone(roll);
   const totalClass =
     tone === 'crit'
@@ -35,6 +52,7 @@ function RollLine({ roll }: { roll: RollRow }) {
       : tone === 'fumble'
         ? 'text-danger'
         : 'text-ink';
+  const o = roll.outcome;
 
   return (
     <li className="flex items-baseline gap-3 py-2">
@@ -76,6 +94,46 @@ function RollLine({ roll }: { roll: RollRow }) {
           {tone === 'crit' && ' · natural 20'}
           {tone === 'fumble' && ' · natural 1'}
         </p>
+        {o && (o.hit !== null || o.damage) && (
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
+            <span
+              className={
+                o.hit === true
+                  ? 'text-success'
+                  : o.hit === false
+                    ? 'text-danger'
+                    : 'text-ink-muted'
+              }
+            >
+              {outcomeWords(o, roll.total)}
+            </span>
+            {o.ac !== null && (
+              <span className="text-ink-subtle">vs AC {o.ac}</span>
+            )}
+            {o.because.length > 0 && (
+              <span className="text-ink-subtle">{o.because.join(' · ')}</span>
+            )}
+            {o.damage &&
+              o.targetEntryId &&
+              o.hit !== false &&
+              (o.applied ? (
+                <span className="text-ink-subtle">
+                  applied by {o.applied.byName}
+                </span>
+              ) : canApply ? (
+                <Button
+                  size="sm"
+                  variant="flat"
+                  className="h-5 min-w-0 px-1.5 text-[0.65rem]"
+                  onPress={() => onApply(roll.id)}
+                >
+                  Apply {o.damage.amount} to {o.targetLabel}
+                </Button>
+              ) : (
+                <span className="text-ink-subtle">proposed</span>
+              ))}
+          </p>
+        )}
       </div>
       <span className="shrink-0 text-[0.65rem] tabular-nums text-ink-subtle">
         {timeOf(roll.createdAt)}
@@ -299,7 +357,24 @@ export function RollPanel({
           ) : (
             <ol key={spin} className="divide-y divide-line">
               {state.rolls.map(r => (
-                <RollLine key={r.id} roll={r} />
+                <RollLine
+                  key={r.id}
+                  roll={r}
+                  canApply={
+                    isStaff ||
+                    (state.rules.playersApplyDamage !== 'never' &&
+                      r.characterId !== null &&
+                      r.characterId === state.viewerCharacterId) ||
+                    (r.outcome?.targetEntryId != null &&
+                      state.entries.find(e => e.id === r.outcome?.targetEntryId)
+                        ?.characterId === state.viewerCharacterId)
+                  }
+                  onApply={async id => {
+                    const res = await applyDamageAction(id);
+                    if (!res.ok) onError(res.error);
+                    await refresh();
+                  }}
+                />
               ))}
             </ol>
           )}

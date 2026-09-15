@@ -58,6 +58,10 @@ import { writeEntryConditions } from './conditions';
 import { listEffects, tickEffects } from './effects';
 import type { EffectRow } from '@/@creator/campaign/lib/effects';
 import { beginEntryTurn } from './turn';
+import {
+  outcomeForPlayer,
+  type RollOutcome,
+} from '@/@creator/campaign/lib/attack';
 import { parseTurn, type TurnState } from '@/@creator/campaign/lib/turn';
 import { listMaps, type MapRow } from './maps';
 import { applyPlayPatch, listPartyPlayState, type PlayState } from './play';
@@ -126,6 +130,12 @@ export interface RollRow {
   total: number;
   visibility: 'table' | 'dm';
   createdAt: string;
+  /**
+   * What an attack decided (06), or null for a plain roll. Already filtered
+   * for the reader: a player never sees the AC, and sees hit / miss only
+   * where the table shows it.
+   */
+  outcome: RollOutcome | null;
 }
 
 export interface HandoutRow {
@@ -453,21 +463,40 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     .orderBy(desc(campaignRolls.createdAt))
     .limit(ROLL_LOG_LIMIT);
 
+  // The rules are read here as well as below, because the roll log's
+  // outcome filter needs `showHitMiss` before the rest of the state is
+  // gathered. One read, used twice.
+  const campaignRow = await db.query.campaigns.findFirst({
+    columns: { settings: true },
+    where: eq(campaigns.id, campaignId),
+  });
+  const tableRules = mergeCampaignSettings(campaignRow?.settings).table;
+  const rules = encounter?.isActive
+    ? applyTableRulesPatch(tableRules, encounter.ruleOverrides)
+    : tableRules;
+
   const rolls: RollRow[] = rollRows
     .filter(r => isStaff || r.visibility === 'table')
-    .map(r => ({
-      id: r.id,
-      actorName: r.actorName,
-      characterId: r.characterId,
-      label: r.label,
-      notation: r.notation,
-      dice: (r.dice as number[]) ?? [],
-      dropped: (r.dropped as number[]) ?? [],
-      modifier: r.modifier,
-      total: r.total,
-      visibility: r.visibility,
-      createdAt: r.createdAt,
-    }));
+    .map(r => {
+      const outcome = (r.outcome as RollOutcome | null) ?? null;
+      return {
+        id: r.id,
+        actorName: r.actorName,
+        characterId: r.characterId,
+        label: r.label,
+        notation: r.notation,
+        dice: (r.dice as number[]) ?? [],
+        dropped: (r.dropped as number[]) ?? [],
+        modifier: r.modifier,
+        total: r.total,
+        visibility: r.visibility,
+        createdAt: r.createdAt,
+        outcome:
+          outcome && !isStaff
+            ? outcomeForPlayer(outcome, rules.showHitMiss)
+            : outcome,
+      };
+    });
 
   /*
    * Countdowns. A stopped one is dropped for everybody — the row is kept as a
@@ -533,17 +562,6 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
     : encounter?.isActive
       ? 'battle'
       : 'table';
-
-  // The same fold `effectiveRules` does, off the row this read already
-  // holds rather than two more queries for it.
-  const campaignRow = await db.query.campaigns.findFirst({
-    columns: { settings: true },
-    where: eq(campaigns.id, campaignId),
-  });
-  const tableRules = mergeCampaignSettings(campaignRow?.settings).table;
-  const rules = encounter?.isActive
-    ? applyTableRulesPatch(tableRules, encounter.ruleOverrides)
-    : tableRules;
 
   return {
     role,
@@ -955,6 +973,19 @@ export async function updateEntry(
 export async function applyHp(entryId: string, delta: number): Promise<void> {
   const campaignId = await entryCampaign(entryId);
   await staff(campaignId);
+  await applyHpUnchecked(entryId, campaignId, delta);
+}
+
+/**
+ * The arithmetic of `applyHp` with no gate on it, for a caller that has
+ * already decided who may — `attack` (06) applying or a player accepting a
+ * proposed hit. Never exported to an action directly.
+ */
+export async function applyHpUnchecked(
+  entryId: string,
+  campaignId: string,
+  delta: number
+): Promise<void> {
   const entry = await db.query.initiativeEntries.findFirst({
     where: eq(initiativeEntries.id, entryId),
   });
