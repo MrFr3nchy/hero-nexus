@@ -44,17 +44,19 @@ export interface TablePreferences {
 }
 
 /**
- * Everything announces except turns.
+ * Everything announces except turns and actions.
  *
  * A turn advancing is the one event a table is already watching the initiative
  * order for, and in a six-round fight it is thirty slips telling people
  * something the tracker in front of them already said. Yours still announces —
  * `describe` marks it as asking — because being told it is your go is the
- * whole reason to look up.
+ * whole reason to look up. An action taken is the same traffic three times
+ * over: the strip on the card already shows it. A readied trigger's nudge
+ * and an opportunity attack still announce — `describe` marks them as asking.
  */
 export function defaultPreferences(): TablePreferences {
   const announce = Object.fromEntries(
-    TABLE_EVENT_KINDS.map(k => [k, k !== 'turn'])
+    TABLE_EVENT_KINDS.map(k => [k, k !== 'turn' && k !== 'action'])
   ) as Record<TableEventKind, boolean>;
   return { announce, sound: false, whispersReadAt: {} };
 }

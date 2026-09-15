@@ -15,6 +15,8 @@ import {
 import { withAdvantage } from '@/@shared/lib/dice';
 import type { LiveState } from '@/server/session';
 import { rollAction } from '../../actions';
+import { takeActionAction } from '../../turn-actions';
+import { Refused, type RefusedState } from '../Refused';
 import { getEntryCreatureAction } from '../../fight-actions';
 
 /**
@@ -90,8 +92,47 @@ export function StatBlockPanel({
     };
   }, [combatant]);
 
-  const roll = async (name: string, notation: string, what: string) => {
+  const [refusal, setRefusal] = useState<RefusedState | null>(null);
+
+  /**
+   * A to-hit from the Actions list spends the creature's action first, a
+   * bonus action its bonus (05) — so a monster that has attacked shows it
+   * on the tracker. Under Enforce a spent slot refuses and the DM may rule
+   * past; advising, it is recorded "again" and the dice roll regardless.
+   * Damage spends nothing: it follows a hit that already did.
+   */
+  const spendFor = async (group: string, ruling = false): Promise<boolean> => {
+    if (!combatant) return false;
+    const key =
+      group === 'Actions'
+        ? 'attack'
+        : group === 'Bonus actions'
+          ? 'bonus'
+          : null;
+    if (!key) return true;
+    const res = await takeActionAction(combatant.id, key, { ruling });
+    if (res.ok) return true;
+    if (res.overridable) {
+      setRefusal({
+        message: res.error,
+        ruling: async () => {
+          await spendFor(group, true);
+        },
+      });
+    } else {
+      onError(res.error);
+    }
+    return false;
+  };
+
+  const roll = async (
+    name: string,
+    notation: string,
+    what: string,
+    group?: string
+  ) => {
     if (!combatant) return;
+    if (what === 'to hit' && group && !(await spendFor(group))) return;
     const finished =
       what === 'to hit' && mode !== 'flat'
         ? withAdvantage(notation, mode)
@@ -164,6 +205,10 @@ export function StatBlockPanel({
         </div>
       </div>
 
+      {refusal && (
+        <Refused refusal={refusal} onDismiss={() => setRefusal(null)} />
+      )}
+
       {groups.map(g => (
         <div key={g.title}>
           <p className="font-display-alt text-[0.6rem] uppercase tracking-[0.14em] text-ink-subtle">
@@ -185,7 +230,9 @@ export function StatBlockPanel({
                           size="sm"
                           color="primary"
                           className="h-6 min-w-0 px-2 text-xs"
-                          onPress={() => roll(a.name, r.hit!, 'to hit')}
+                          onPress={() =>
+                            roll(a.name, r.hit!, 'to hit', g.title)
+                          }
                         >
                           Hit {r.hit.replace('1d20', '')}
                         </Button>

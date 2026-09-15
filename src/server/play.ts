@@ -48,6 +48,7 @@ import { writeConditions } from './conditions';
 import { clearRestedEffects } from './effects';
 import { bumpVersion, publish } from './live-hub';
 import { effectiveRules, fence } from './table-rules';
+import { spendWeaponSwap } from './turn';
 import { DEFAULT_TABLE_RULES } from '@/@creator/campaign/lib/table-rules';
 import { requireUserId } from './session-user';
 
@@ -760,6 +761,14 @@ export async function applyLoadoutPatch(
   if (patch.equip) {
     const { itemId, equipped } = patch.equip;
     inventory = inventory.map(i => (i.id === itemId ? { ...i, equipped } : i));
+    // Mid-fight, on your own turn, the swap costs the free hand — and the
+    // second one the action (05). Off your turn or off the table, nothing.
+    if (campaignId) {
+      await spendWeaponSwap(characterId, campaignId, {
+        isStaff,
+        ruling: patch.ruling,
+      });
+    }
   }
 
   if (patch.attune) {

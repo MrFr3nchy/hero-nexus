@@ -28,8 +28,10 @@ import { and, eq, inArray } from 'drizzle-orm';
 
 import {
   canStand,
+  distanceFeet,
   fogged,
   footprintTiles,
+  reachFor,
   standingIssue,
   visibleFrom,
   type Occupant,
@@ -72,6 +74,8 @@ import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
 import { resolveContentRefs } from './content';
 import { effectiveRules, fence } from './table-rules';
+import { spendMovement } from './turn';
+import { parseTurn } from '@/@creator/campaign/lib/turn';
 
 export interface BattleTokenRow {
   id: string;
@@ -948,11 +952,17 @@ async function refuseStanding(
  *
  * A player may move a token for their own seated character and nothing else;
  * staff may move anything. The destination is checked against the rules —
- * bounds, void, occupancy — and refused rather than trusted. **Distance is
- * not enforced here** on purpose: a DM says "you can't get there this turn"
- * and the table agrees, and the ghosted reach on the board is advice rather
- * than a fence. The table's `movementFence` rule is where that fence will
- * live once movement is spent per turn (improvements 05).
+ * bounds, void, occupancy — and refused rather than trusted.
+ *
+ * Distance is the table's call (01 + 05): on the mover's own turn the move
+ * is priced by the cheapest path and spent from the turn's budget. Advising,
+ * a long move is recorded and the strip says so; enforcing with
+ * `movementFence`, it is refused as `TOO_FAR`, which staff may overrule. Off
+ * the mover's turn — the DM tidying the board — nobody's feet are spent.
+ *
+ * Then the offer: every hostile with its reaction whose reach the mover just
+ * left, without Disengaging, is told it may take an opportunity attack.
+ * Told, not made to — the app never swings for anybody.
  */
 export async function moveToken(
   tokenId: string,
@@ -999,18 +1009,152 @@ export async function moveToken(
   const doc = normalizeTerrain(map.terrain);
   if (!inBounds(doc, to.x, to.y)) throw new Error('CANNOT_STAND_THERE');
   const me: Occupant = { x: to.x, y: to.y, footprint: token.footprint };
+  const who = { isStaff: isStaffRole(role), ruling: opts.ruling };
   await refuseStanding(
     standingIssue(doc, me, await occupantsExcept(map.id, tokenId)),
     map.campaignId,
     map.encounterId,
-    { isStaff: isStaffRole(role), ruling: opts.ruling }
+    who
   );
+
+  /*
+   * The turn's feet. Priced the way the board lights reach — the cheapest
+   * path through this terrain among these tokens — so a player is refused
+   * only what the board already showed them was out of reach. Where no path
+   * exists (a wall between, and they were dragged over it) the straight
+   * distance stands in. Before the write, so a refusal moves nothing.
+   */
+  const entry = token.entryId
+    ? await db.query.initiativeEntries.findFirst({
+        where: eq(initiativeEntries.id, token.entryId),
+      })
+    : null;
+  const all = await db
+    .select()
+    .from(battleMapTokens)
+    .where(eq(battleMapTokens.mapId, map.id));
+  const entryIds = all
+    .map(t => t.entryId)
+    .filter((id): id is string => id !== null);
+  const entries =
+    entryIds.length > 0
+      ? await db
+          .select()
+          .from(initiativeEntries)
+          .where(inArray(initiativeEntries.id, entryIds))
+      : [];
+  const sideOf = new Map(entries.map(e => [e.id, e.side as string]));
+  let spent: { ruling: boolean } | null = null;
+  if (entry && (token.x !== to.x || token.y !== to.y)) {
+    const asReach = (t: typeof token) => ({
+      id: t.id,
+      x: t.x,
+      y: t.y,
+      footprint: t.footprint,
+      side: t.entryId ? (sideOf.get(t.entryId) ?? null) : null,
+    });
+    const costs = reachFor(
+      doc,
+      asReach(token),
+      all.filter(t => t.id !== token.id && blocksTile(t.state)).map(asReach),
+      10_000
+    );
+    const cost =
+      costs.get(to.y * doc.w + to.x) ??
+      distanceFeet({ x: token.x, y: token.y }, to);
+    spent = await spendMovement(entry, cost, who);
+  }
 
   await db
     .update(battleMapTokens)
     .set({ x: to.x, y: to.y, updatedAt: new Date().toISOString() })
     .where(eq(battleMapTokens.id, tokenId));
   bumpVersion(map.campaignId);
+
+  if (entry && spent && !parseTurn(entry.turn).disengaged) {
+    await offerOpportunityAttacks(
+      map.campaignId,
+      entry,
+      { x: token.x, y: token.y, footprint: token.footprint },
+      me,
+      all.filter(t => t.id !== token.id),
+      entries,
+      userId
+    );
+  }
+}
+
+/**
+ * Who could swing as the mover leaves. A hostile is any combatant on another
+ * side; its reach is 5 ft, or 10 when its block says so. The mover was in
+ * reach and is not any more, and the hostile has its reaction: an
+ * `opportunity` event goes to the hostile's owner — staff for a foe, the
+ * seated player for a hero — and it is theirs to take or leave.
+ */
+async function offerOpportunityAttacks(
+  campaignId: string,
+  mover: typeof initiativeEntries.$inferSelect,
+  from: Occupant,
+  to: Occupant,
+  others: (typeof battleMapTokens.$inferSelect)[],
+  entries: (typeof initiativeEntries.$inferSelect)[],
+  byUserId: string
+): Promise<void> {
+  const byId = new Map(entries.map(e => [e.id, e]));
+  for (const t of others) {
+    const hostile = t.entryId ? byId.get(t.entryId) : undefined;
+    if (!hostile || hostile.side === mover.side) continue;
+    if (parseTurn(hostile.turn).reaction) continue;
+    // Down, incapacitated or otherwise unable to react: no offer.
+    if (hostile.hpCurrent !== null && hostile.hpCurrent <= 0) continue;
+    const reach = await reachOf(hostile);
+    const at = { x: t.x, y: t.y, footprint: t.footprint };
+    const before = distanceFeet(from, at);
+    const after = distanceFeet(to, at);
+    if (before > reach || after <= reach) continue;
+
+    let audience: 'staff' | { users: string[] } = 'staff';
+    if (hostile.characterId) {
+      const seat = await db.query.campaignMembers.findFirst({
+        columns: { userId: true },
+        where: and(
+          eq(campaignMembers.campaignId, campaignId),
+          eq(campaignMembers.characterId, hostile.characterId)
+        ),
+      });
+      if (seat) audience = { users: [seat.userId] };
+    }
+    publish(
+      campaignId,
+      {
+        kind: 'opportunity',
+        id: randomUUID(),
+        at: new Date().toISOString(),
+        by: byUserId,
+        attackerLabel: hostile.label,
+        attackerEntryId: hostile.id,
+        moverLabel: mover.label,
+      },
+      audience
+    );
+  }
+}
+
+/**
+ * How far a combatant can swing: 10 ft when its block's actions say
+ * "reach 10 ft.", else 5. A hero's reach weapon is not read here yet — the
+ * equipped weapon is 06's business, and 5 ft is the honest default.
+ */
+async function reachOf(
+  entry: typeof initiativeEntries.$inferSelect
+): Promise<number> {
+  if (!entry.creatureRef) return 5;
+  const resolved = await resolveContentRefs([entry.creatureRef as ContentRef]);
+  const block = [...resolved.values()][0];
+  if (!block) return 5;
+  const d = parseContentData('creature', block.data) as CreatureData;
+  const text = d.actions.map(a => a.desc).join(' ');
+  return /reach\s+10\s*ft/i.test(text) ? 10 : 5;
 }
 
 export async function updateToken(
