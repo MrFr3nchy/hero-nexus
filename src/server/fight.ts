@@ -67,7 +67,7 @@ import {
 import { requireCampaignRole } from './campaigns';
 import { resolveContentRefs } from './content';
 import { bumpVersion, publish } from './live-hub';
-import { applyHpUnchecked } from './session';
+import { applyHpUnchecked } from './hp';
 import { requireUserId } from './session-user';
 import { effectiveRules, fence } from './table-rules';
 import { authorizeEntry, takeAction } from './turn';

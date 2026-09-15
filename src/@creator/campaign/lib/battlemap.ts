@@ -867,6 +867,7 @@ export function fogged(
   return {
     format: doc.format,
     version: doc.version,
+    ambient: doc.ambient,
     w: doc.w,
     h: doc.h,
     elevation,

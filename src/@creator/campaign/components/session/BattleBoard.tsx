@@ -52,7 +52,6 @@ import {
 } from '@/@creator/campaign/lib/battlemap';
 import { floorArt, shade } from '@/@shared/battlemap/art';
 import {
-  blocksTile,
   edgeKey,
   FACINGS,
   inBounds,
@@ -112,6 +111,9 @@ import { movementBudget } from '@/@creator/campaign/lib/turn';
 import { TurnStrip } from './TurnStrip';
 import { areaTiles, type AreaShape } from '@/@creator/campaign/lib/battlemap';
 import { setLitArea } from '@/@shared/battlemap/area';
+import { litAt } from '@/@creator/campaign/lib/things';
+import { ThingEffectEditor } from './ThingEffectEditor';
+import { SightControls } from './SightControls';
 
 /* --- tools ------------------------------------------------------------- */
 
@@ -848,7 +850,7 @@ export function BattleBoard({
       asReach(selectedToken),
       // An open door and a smashed chest are walked through — the server
       // applies the same rule when it checks the drop.
-      board.tokens.filter(t => blocksTile(t.state)).map(asReach),
+      board.tokens.filter(t => t.blocks).map(asReach),
       speedOf(selectedToken)
     );
   }, [terrain, selectedToken, board, sideOf, speedOf]);
@@ -890,6 +892,7 @@ export function BattleBoard({
             area: litArea.area,
             entryIds: litArea.entryIds,
             labels: litArea.labels,
+            tiles: [...litArea.tiles],
           }
         : null
     );
@@ -1215,7 +1218,7 @@ export function BattleBoard({
     // a refusal swallowed in the browser has no "Do it anyway".
     if (selectedToken && selectedToken.mine) {
       const others = board.tokens.filter(
-        t => t.id !== selectedToken.id && blocksTile(t.state)
+        t => t.id !== selectedToken.id && t.blocks
       );
       if (
         !canStandUnder(
@@ -1529,6 +1532,37 @@ export function BattleBoard({
         ctx.fillRect(x * size, y * size, size, size);
       }
       ctx.globalAlpha = 1;
+    }
+
+    // A dark board (08): what nobody lights sits under a cool grey, so the
+    // party can tell "we have seen this" from "we can see this now". Torches
+    // carried by tokens light their pool the way a brazier does.
+    const torches = (board?.tokens ?? [])
+      .filter(t => t.lightFeet && t.lightFeet > 0)
+      .map(t => ({ x: t.x, y: t.y, radiusFeet: t.lightFeet as number }));
+    if (terrain.ambient === 'dark') {
+      ctx.fillStyle = dark ? 'rgba(60,70,90,0.45)' : 'rgba(70,80,100,0.35)';
+      for (let y = 0; y < terrain.h; y++) {
+        for (let x = 0; x < terrain.w; x++) {
+          const i = y * terrain.w + x;
+          if (terrain.material[i] === VOID) continue;
+          if (litAt(terrain, { x, y }, torches)) continue;
+          ctx.fillRect(x * size, y * size, size, size);
+        }
+      }
+    }
+    for (const t of torches) {
+      const cx = (t.x + 0.5) * size;
+      const cy = (t.y + 0.5) * size;
+      const r = (t.radiusFeet / 5) * size;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(
+        0,
+        dark ? 'rgba(255,196,110,0.4)' : 'rgba(217,160,70,0.3)'
+      );
+      g.addColorStop(1, 'rgba(217,176,97,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
     }
 
     // Lights: a warm pool on the floor and a brazier standing in it.
@@ -2560,6 +2594,26 @@ export function BattleBoard({
               >
                 Fog it all
               </Button>
+              {/* The light everywhere nothing else lights (08). Dark, and
+                  "Reveal from the party" reads torches and darkvision. */}
+              {terrain && (
+                <div className="ml-2 inline-flex rounded-md border border-line bg-surface-2 p-0.5">
+                  {(['bright', 'dim', 'dark'] as const).map(a => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => scheduleSave({ ...terrain, ambient: a })}
+                      className={`rounded px-2 py-0.5 text-xs capitalize transition-colors ${
+                        terrain.ambient === a
+                          ? 'bg-gold font-medium text-bg'
+                          : 'text-ink-muted hover:text-ink'
+                      }`}
+                    >
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -3003,6 +3057,17 @@ export function BattleBoard({
                 </button>
               ))}
             </div>
+          )}
+          {isStaff && selectedToken.entryId === null && (
+            <ThingEffectEditor
+              campaignId={campaignId}
+              token={selectedToken}
+              terrain={terrain}
+              onDone={refresh}
+            />
+          )}
+          {isStaff && selectedToken.entryId !== null && (
+            <SightControls token={selectedToken} onDone={refresh} />
           )}
           {isStaff && (
             <>

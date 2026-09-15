@@ -2104,6 +2104,15 @@ export const battleMapTokens = sqliteTable(
       .default('camera'),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
+    /**
+     * What this thing does when used, stepped on, struck or destroyed (0054):
+     * a `ThingEffect`. Null for a thing that only opens and closes.
+     */
+    effect: text('effect', { mode: 'json' }),
+    /** Darkvision in feet (0055). Null for normal sight. */
+    visionFeet: integer('vision_feet'),
+    /** A carried light's bright radius in feet (0055). Null for none. */
+    lightFeet: integer('light_feet'),
   },
   t => [index('battle_map_tokens_map_idx').on(t.mapId)]
 );

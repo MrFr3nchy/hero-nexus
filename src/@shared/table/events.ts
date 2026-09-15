@@ -184,7 +184,20 @@ export interface ThingEvent extends BaseEvent {
   actorName: string;
   /** The thing's own name: "the cellar door". */
   name: string;
-  what: 'opened' | 'closed' | 'unlocked' | 'held' | 'broken';
+  what:
+    | 'opened'
+    | 'closed'
+    | 'unlocked'
+    | 'held'
+    | 'broken'
+    /** It did what it does (08): the floor dropped, the portcullis rose. */
+    | 'fired'
+    /** A hidden thing was found. */
+    | 'spotted'
+    /** Staff only: a hero stands beside something they have not found. */
+    | 'near';
+  /** The line the thing makes, or the nudge's words. */
+  detail?: string;
 }
 
 /**
@@ -501,11 +514,23 @@ export function describe(
         unlocked: `${event.actorName} picks the lock on ${event.name}`,
         held: `${event.name} holds — ${event.actorName} could not pick it`,
         broken: `${event.name} breaks`,
+        fired: event.actorName
+          ? `${event.actorName} sets off ${event.name}`
+          : `${event.name} goes off`,
+        spotted: `${event.actorName} spots ${event.name}`,
+        near: `${event.actorName} is beside ${event.name}`,
       };
       return {
         glyph,
         title: words[event.what],
-        tone: event.what === 'broken' ? 'danger' : 'gold',
+        detail: event.detail || undefined,
+        tone:
+          event.what === 'broken' || event.what === 'fired'
+            ? 'danger'
+            : event.what === 'near'
+              ? 'arcane'
+              : 'gold',
+        asks: event.what === 'near',
       };
     }
 

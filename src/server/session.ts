@@ -30,7 +30,6 @@ import {
   campaignTimers,
   campaigns,
   characters,
-  encounterEffects,
   initiativeEncounters,
   initiativeEntries,
   users,
@@ -65,13 +64,9 @@ import {
 } from '@/@creator/campaign/lib/attack';
 import { parseTurn, type TurnState } from '@/@creator/campaign/lib/turn';
 import { listMaps, type MapRow } from './maps';
-import {
-  applyPlayPatchUnchecked,
-  listPartyPlayState,
-  type PlayState,
-} from './play';
-import { concentrationAfterDamage } from './concentration';
-import { damageForm, type EntryForm } from '@/@creator/campaign/lib/casting';
+import { listPartyPlayState, type PlayState } from './play';
+import { applyHpUnchecked } from './hp';
+import type { EntryForm } from '@/@creator/campaign/lib/casting';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { resolveContentRefs } from './content';
 import { listWhispers, type WhisperRow } from './whispers';
@@ -999,113 +994,7 @@ export async function applyHp(entryId: string, delta: number): Promise<void> {
   await applyHpUnchecked(entryId, campaignId, delta);
 }
 
-/**
- * The arithmetic of `applyHp` with no gate on it, for a caller that has
- * already decided who may — `attack` (06) applying or a player accepting a
- * proposed hit. Never exported to an action directly.
- */
-export async function applyHpUnchecked(
-  entryId: string,
-  campaignId: string,
-  delta: number
-): Promise<void> {
-  const entry = await db.query.initiativeEntries.findFirst({
-    where: eq(initiativeEntries.id, entryId),
-  });
-  if (!entry) throw new Error('NOT_FOUND');
-  if (entry.hpCurrent == null) return;
-
-  /*
-   * A seated character's hit points live on the sheet, and the tracker row
-   * is a mirror of it. Writing the row alone left the DM's tracker saying 0
-   * while the player's card said 4, announced nothing when somebody went
-   * down, and started no death saves — so a party entry goes through the
-   * play patch, which writes the sheet, mirrors the row, and tells the table.
-   * The row-only path below is for foes, and for a character whose seat has
-   * since gone (the patch refuses it, and the row is all there is).
-   */
-  if (entry.characterId) {
-    // Unchecked on purpose: every caller has decided who may already — the
-    // staff gate in `applyHp`, the rules in `attack` and `applyDamage`, the
-    // consent behind a spell. A seat that has since gone falls through to
-    // the row, which is all there is.
-    const character = await db.query.characters.findFirst({
-      where: eq(characters.id, entry.characterId),
-    });
-    if (character) {
-      await applyPlayPatchUnchecked(character, campaignId, {
-        hpCurrentDelta: delta,
-      });
-      return;
-    }
-  }
-
-  // A shape worn for now takes the hit first (07); at 0 it drops, and the
-  // excess is carried or lost by the form's own rule.
-  let remaining = delta;
-  if (delta < 0 && entry.form) {
-    const worn = entry.form as EntryForm;
-    const after = damageForm(worn, -delta);
-    await db
-      .update(initiativeEntries)
-      .set({ form: after.form })
-      .where(eq(initiativeEntries.id, entryId));
-    if (after.form === null) {
-      // The row that timed the shape goes with it.
-      if (worn.effectId) {
-        await db
-          .delete(encounterEffects)
-          .where(eq(encounterEffects.id, worn.effectId));
-      }
-      publish(campaignId, {
-        kind: 'effect',
-        id: randomUUID(),
-        at: new Date().toISOString(),
-        what: 'ended',
-        label: `${worn.label} form`,
-        targets: [entry.label],
-        duration: '',
-        secret: false,
-      });
-    }
-    remaining = -after.carried;
-    if (remaining === 0) {
-      bumpVersion(campaignId);
-      return;
-    }
-  }
-  const dmg = remaining;
-
-  if (dmg < 0) {
-    const damage = -dmg;
-    const fromTemp = Math.min(entry.hpTemp, damage);
-    const rest = damage - fromTemp;
-    const hpAfter = Math.max(0, entry.hpCurrent - rest);
-    await db
-      .update(initiativeEntries)
-      .set({
-        hpTemp: entry.hpTemp - fromTemp,
-        hpCurrent: hpAfter,
-      })
-      .where(eq(initiativeEntries.id, entryId));
-    bumpVersion(campaignId);
-    // A foe holding a spell rolls its Constitution save behind the screen.
-    await concentrationAfterDamage(
-      campaignId,
-      { entryId },
-      damage,
-      hpAfter <= 0
-    );
-    return;
-  }
-
-  const ceiling = entry.hpMax ?? entry.hpCurrent + dmg;
-  await db
-    .update(initiativeEntries)
-    .set({ hpCurrent: Math.min(ceiling, entry.hpCurrent + dmg) })
-    .where(eq(initiativeEntries.id, entryId));
-  bumpVersion(campaignId);
-}
+export { applyHpUnchecked };
 
 export async function removeEntry(entryId: string): Promise<void> {
   const campaignId = await entryCampaign(entryId);
