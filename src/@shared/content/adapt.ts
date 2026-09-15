@@ -179,7 +179,58 @@ function featFromSrd(raw: RawFeat): FeatData {
  * Spell rows are consumed raw everywhere else in the app, so the field names
  * already line up — this is a filter, not a translation.
  */
+/**
+ * Rounds a duration string runs for: "1 minute" is 10, "1 round" 1, "1 hour"
+ * 600; "instantaneous", "until dispelled" and anything in days is 0 — not a
+ * thing the fight's clock counts.
+ */
+export function durationRounds(text: string): number {
+  const m = /(\d+)\s*(round|minute|hour)/i.exec(text);
+  if (!m) return 0;
+  const n = Number(m[1]);
+  switch (m[2].toLowerCase()) {
+    case 'round':
+      return n;
+    case 'minute':
+      return n * 10;
+    case 'hour':
+      return n * 600;
+    default:
+      return 0;
+  }
+}
+
+/** The condition a spell's prose says it applies, when it names one. */
+export function conditionInProse(desc: string): string | null {
+  const m =
+    /(?:has|have|gains?|suffers?) the (\w+) condition/i.exec(desc) ??
+    /(?:is|becomes|are) (Blinded|Charmed|Deafened|Frightened|Grappled|Incapacitated|Invisible|Paralyzed|Petrified|Poisoned|Prone|Restrained|Stunned|Unconscious)\b/i.exec(
+      desc
+    );
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Spell rows are consumed raw everywhere else in the app, so the field names
+ * already line up — this is a filter, not a translation. The 07 fields are
+ * read off Open5e's structured columns where it has them (`shape_type`,
+ * `shape_size`, `casting_options`) and off the prose where it does not.
+ */
 function spellFromSrd(raw: Record<string, unknown>): SpellData {
+  const desc = str(raw.desc ?? '');
+  const heals = /regains?\b[^.]{0,60}\bhit points/i.test(desc);
+  const damage = str(raw.damage_roll ?? '');
+  const shape = str(raw.shape_type ?? '').toLowerCase();
+  const options = Array.isArray(raw.casting_options)
+    ? (raw.casting_options as Record<string, unknown>[])
+    : [];
+  const scaling = options
+    .map(o => {
+      const m = /^slot_level_(\d)$/.exec(str(o.type));
+      const roll = str(o.damage_roll ?? '');
+      return m && roll ? { level: Number(m[1]), roll } : null;
+    })
+    .filter((x): x is { level: number; roll: string } => x !== null);
   return parseContentData('spell', {
     level: raw.level,
     school: keyOf(raw.school) || null,
@@ -196,13 +247,29 @@ function spellFromSrd(raw: Record<string, unknown>): SpellData {
     material_consumed: Boolean(raw.material_consumed),
     target_type: str(raw.target_type ?? ''),
     saving_throw_ability: raw.saving_throw_ability ?? null,
-    attack_roll: Boolean(raw.attack_roll),
-    damage_roll: str(raw.damage_roll ?? ''),
+    // Open5e flags Bless as an attack with a 1d4 "damage roll" because the
+    // die is added to attacks. A spell attacks only when its prose says so.
+    attack_roll:
+      Boolean(raw.attack_roll) && /spell attack|attack roll against/i.test(desc),
+    damage_roll: heals || /adds? \d+d\d+ to/i.test(desc) ? '' : damage,
     damage_types: Array.isArray(raw.damage_types) ? raw.damage_types : [],
     higher_level: str(raw.higher_level ?? ''),
     classes: Array.isArray(raw.classes)
       ? (raw.classes as unknown[]).map(nameOf).filter(Boolean)
       : [],
+    healing_roll: heals ? damage : '',
+    save_effect: !raw.saving_throw_ability
+      ? 'none'
+      : /half as much damage/i.test(desc)
+        ? 'half'
+        : 'negates',
+    area:
+      shape && Number(raw.shape_size) > 0
+        ? { shape, size: Number(raw.shape_size), width: 0 }
+        : null,
+    duration_rounds: durationRounds(str(raw.duration ?? '')),
+    applies_condition: conditionInProse(desc),
+    slot_scaling: scaling,
   });
 }
 
