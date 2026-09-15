@@ -648,6 +648,13 @@ export const campaignRolls = sqliteTable(
     visibility: text('visibility', { enum: ['table', 'dm'] })
       .notNull()
       .default('table'),
+    /**
+     * What an attack decided (0051): target, AC, hit, damage after
+     * resistances, and whether it was applied — a `RollOutcome` from
+     * `campaign/lib/attack.ts`. Null for every roll that is not an attack.
+     * Role-filtered in `getLiveState` before it leaves the server.
+     */
+    outcome: text('outcome', { mode: 'json' }),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('campaign_rolls_campaign_idx').on(t.campaignId, t.createdAt)]

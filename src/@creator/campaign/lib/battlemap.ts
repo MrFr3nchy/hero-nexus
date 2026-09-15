@@ -536,6 +536,162 @@ export function canSee(doc: TerrainDoc, from: Tile, to: Tile): boolean {
   return true;
 }
 
+/* --- cover and flanking -------------------------------------------------- */
+
+export type Cover = 'none' | 'half' | 'three-quarters' | 'total';
+
+const COVER_RANK: Record<Cover, number> = {
+  none: 0,
+  half: 1,
+  'three-quarters': 2,
+  total: 3,
+};
+
+function worse(a: Cover, b: Cover): Cover {
+  return COVER_RANK[b] > COVER_RANK[a] ? b : a;
+}
+
+/**
+ * The tiles a sight line passes through, endpoints excluded — sampled along
+ * the segment finely enough that no tile it crosses is skipped.
+ */
+function tilesBetween(from: Tile, to: Tile): Tile[] {
+  const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y)) * 4;
+  const seen = new Set<string>();
+  const out: Tile[] = [];
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const x = Math.round(from.x + (to.x - from.x) * t);
+    const y = Math.round(from.y + (to.y - from.y) * t);
+    if ((x === from.x && y === from.y) || (x === to.x && y === to.y)) continue;
+    const key = `${x},${y}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ x, y });
+  }
+  return out;
+}
+
+/** Something standing between: a creature's tiles, for half cover. */
+export interface CoverOccupant {
+  x: number;
+  y: number;
+  footprint: number;
+}
+
+/**
+ * How much the target is covered from the attacker (2024 PHB, "Cover").
+ *
+ * Walls the sight line cannot see over give total cover — `canSee` already
+ * knows about height and elevation. A window crossed gives three-quarters, a
+ * rail half. A prop on a tile between: a pillar or a tree three-quarters, a
+ * table, barrel, chest, altar or statue half; rubble nothing. Another
+ * creature on a tile between gives half. The worst of them stands.
+ *
+ * Total cover is a refusal in `attack` — overridable, because a DM knows the
+ * target is leaning round the corner.
+ */
+export function coverBetween(
+  doc: TerrainDoc,
+  from: Tile,
+  to: Tile,
+  occupants: readonly CoverOccupant[] = []
+): Cover {
+  if (from.x === to.x && from.y === to.y) return 'none';
+  if (!canSee(doc, from, to)) return 'total';
+
+  let cover: Cover = 'none';
+  const p: [number, number] = [from.x, from.y];
+  const q: [number, number] = [to.x, to.y];
+  for (const w of doc.walls) {
+    if (w.kind !== 'window' && w.kind !== 'rail') continue;
+    const [r, s] = wallSegment(w);
+    if (!segmentsCross(p, q, r, s)) continue;
+    cover = worse(cover, w.kind === 'window' ? 'three-quarters' : 'half');
+  }
+
+  const between = tilesBetween(from, to);
+  if (between.length === 0) return cover;
+  const betweenKeys = new Set(between.map(t => `${t.x},${t.y}`));
+
+  for (const prop of doc.props) {
+    if (!betweenKeys.has(`${prop.x},${prop.y}`)) continue;
+    switch (prop.kind) {
+      case 'pillar':
+      case 'tree':
+        cover = worse(cover, 'three-quarters');
+        break;
+      case 'table':
+      case 'barrel':
+      case 'chest':
+      case 'altar':
+      case 'statue':
+        cover = worse(cover, 'half');
+        break;
+      case 'image':
+        // A standee is as tall as the DM said; head-high or more hides most.
+        cover = worse(
+          cover,
+          (prop.height ?? 0) >= 10 ? 'three-quarters' : 'half'
+        );
+        break;
+      default:
+        break;
+    }
+  }
+
+  for (const o of occupants) {
+    const size = Math.max(1, Math.min(3, Math.trunc(o.footprint) || 1));
+    for (let dy = 0; dy < size; dy++) {
+      for (let dx = 0; dx < size; dx++) {
+        if (betweenKeys.has(`${o.x + dx},${o.y + dy}`)) {
+          cover = worse(cover, 'half');
+        }
+      }
+    }
+  }
+  return cover;
+}
+
+/**
+ * Whether an ally of the attacker stands on the far side of the target — the
+ * optional flanking rule (01). For a one-tile target that is the tile
+ * mirrored through it; for a bigger one, any tile of the footprint's far
+ * side. An ally is any tile of any ally's footprint.
+ */
+export function flanked(
+  attacker: Tile,
+  target: CoverOccupant,
+  allies: readonly CoverOccupant[]
+): boolean {
+  const size = Math.max(1, Math.min(3, Math.trunc(target.footprint) || 1));
+  // Which side of the footprint the attacker stands on: a hero beside a
+  // Large ogre is west of it, not "south-west of its centre".
+  const dx =
+    attacker.x < target.x ? 1 : attacker.x > target.x + size - 1 ? -1 : 0;
+  const dy =
+    attacker.y < target.y ? 1 : attacker.y > target.y + size - 1 ? -1 : 0;
+  if (dx === 0 && dy === 0) return false;
+  // The tiles just past the footprint, opposite the attacker.
+  const far: Tile[] = [];
+  const beyondX = dx > 0 ? target.x + size : dx < 0 ? target.x - 1 : null;
+  const beyondY = dy > 0 ? target.y + size : dy < 0 ? target.y - 1 : null;
+  for (let i = 0; i < size; i++) {
+    if (beyondX !== null) far.push({ x: beyondX, y: beyondY ?? target.y + i });
+    if (beyondY !== null) far.push({ x: beyondX ?? target.x + i, y: beyondY });
+  }
+  const keys = new Set(far.map(t => `${t.x},${t.y}`));
+  return allies.some(a => {
+    const s = Math.max(1, Math.min(3, Math.trunc(a.footprint) || 1));
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        if (keys.has(`${a.x + x},${a.y + y}`)) return true;
+      }
+    }
+    return false;
+  });
+}
+
 /* --- fog --------------------------------------------------------------- */
 
 /**
