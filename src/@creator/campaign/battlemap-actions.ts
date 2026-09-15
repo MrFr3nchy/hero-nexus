@@ -55,6 +55,7 @@ function fail(err: unknown, fallback: string): Refusal {
     FORBIDDEN: 'Only the DM and co-DMs build the board.',
     NOT_YOUR_TOKEN: 'That is not yours to move.',
     CANNOT_STAND_THERE: 'Nothing can stand there.',
+    TOO_FAR: 'That is further than they can move this turn.',
     NOT_IN_THIS_FIGHT: 'That combatant is not in the fight this board is for.',
     ALREADY_ON_THE_BOARD: 'They are already on the board.',
     NO_FIGHT: 'Put the board on the table during a fight, then deal them in.',

@@ -106,11 +106,10 @@ import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
 import { ImagePicker } from '../ImagePicker';
 import { Refused, type RefusedState } from '../Refused';
 import { EffectPicker, type PickerEntry } from './EffectPicker';
-import {
-  speedFor,
-  speedReasons,
-} from '@/@creator/campaign/lib/condition-effects';
+import { speedReasons } from '@/@creator/campaign/lib/condition-effects';
 import { parseConditions } from '@/@creator/campaign/lib/conditions';
+import { movementBudget } from '@/@creator/campaign/lib/turn';
+import { TurnStrip } from './TurnStrip';
 
 /* --- tools ------------------------------------------------------------- */
 
@@ -676,6 +675,9 @@ export function BattleBoard({
   }, [state.encounter, state.entries]);
 
   const selectedToken = board?.tokens.find(t => t.id === selected) ?? null;
+  const selectedEntry = selectedToken?.entryId
+    ? (entriesById.get(selectedToken.entryId) ?? null)
+    : null;
 
   /**
    * Speed off the sheet, for a seated character; the default for a monster
@@ -689,16 +691,16 @@ export function BattleBoard({
   const speedOf = useCallback(
     (t: { entryId: string | null }): number => {
       const entry = t.entryId ? entriesById.get(t.entryId) : undefined;
-      const sheet = entry?.characterId
-        ? state.party.find(p => p.characterId === entry.characterId)
-        : undefined;
-      return speedFor(
-        sheet?.speed ?? DEFAULT_SPEED_FEET,
-        parseConditions(entry?.conditionKeys ?? ''),
-        sheet?.exhaustion ?? 0
-      );
+      if (!entry) return DEFAULT_SPEED_FEET;
+      // On the combatant's own turn the reach is what is *left*: the speed
+      // the server priced (conditions, exhaustion, the block) less what the
+      // turn has already walked, doubled by Dash. Off their turn, the whole
+      // speed — the DM planning where the ogre goes next.
+      return entry.id === currentEntryId
+        ? movementBudget(entry.turn, entry.speed)
+        : entry.speed;
     },
-    [entriesById, state.party]
+    [entriesById, currentEntryId]
   );
 
   /** Why the reach is what it is — "Grappled · speed 0". Empty when unremarkable. */
@@ -1745,6 +1747,32 @@ export function BattleBoard({
         ctx.stroke();
       }
 
+      // The turn, as four pips under the selected token whose turn it is:
+      // action, bonus, reaction, movement — filled when spent. The same
+      // data the card's strip shows; drawn here so the board answers "has
+      // it acted" on its own.
+      if (t.id === selected && entry && entry.id === currentEntryId) {
+        const pr = Math.max(2, size * 0.07);
+        const gap = pr * 2.6;
+        const py = cy + r + Math.max(8, size * 0.26) + pr * 2.2;
+        const spent = [
+          entry.turn.action,
+          entry.turn.bonus,
+          entry.turn.reaction,
+          movementBudget(entry.turn, entry.speed) === 0,
+        ];
+        spent.forEach((on, i) => {
+          const px = cx + (i - 1.5) * gap;
+          ctx.beginPath();
+          ctx.arc(px, py, pr, 0, Math.PI * 2);
+          ctx.fillStyle = on ? p.gold : 'rgba(0,0,0,0.35)';
+          ctx.fill();
+          ctx.strokeStyle = p.gold;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        });
+      }
+
       // The face, clipped inside the rim, or initials when there is none.
       const face = faceFor(entry, t);
       const inner = r - Math.max(2, size * 0.07);
@@ -2586,11 +2614,29 @@ export function BattleBoard({
                 : selectedToken.entryId
                   ? speedOf(selectedToken) === 0
                     ? 'Cannot move this turn.'
-                    : `Tap a lit tile to move there. ${speedOf(selectedToken)} ft.`
+                    : `Tap a lit tile to move there. ${speedOf(selectedToken)} ft${
+                        selectedEntry &&
+                        selectedEntry.id === currentEntryId &&
+                        selectedEntry.turn.movedFeet > 0
+                          ? ' left'
+                          : ''
+                      }.`
                   : 'Tap a tile to move it.'}
             </span>
           ) : (
             <span>Not yours to move.</span>
+          )}
+          {/* The turn under the token: the same pips the card shows, so the
+              board answers "has it acted" without a glance at the tracker. */}
+          {selectedEntry && selectedEntry.id === currentEntryId && (
+            <TurnStrip
+              entry={selectedEntry}
+              canSpend={isStaff || selectedToken.mine}
+              isStaff={isStaff}
+              refresh={refresh}
+              onError={onError}
+              compact
+            />
           )}
           {selectedToken.entryId &&
             speedWhy(selectedToken).map(why => (

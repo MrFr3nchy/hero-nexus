@@ -37,6 +37,8 @@ export const TABLE_EVENT_KINDS = [
   'thing',
   'rules',
   'effect',
+  'action',
+  'opportunity',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -216,6 +218,37 @@ export interface EffectEvent extends BaseEvent {
   secret: boolean;
 }
 
+/**
+ * Somebody spent part of their turn. `again` marks a slot that was already
+ * spent — advising, the app records it and says so rather than refusing.
+ * `holding` is the staff-only nudge when a readied trigger's moment may
+ * have come: "Ilse is holding: if the door opens → cast Shield".
+ */
+export interface ActionEvent extends BaseEvent {
+  kind: 'action';
+  actorLabel: string;
+  /** The action's label — "Dash", "Ready", "Opportunity attack". */
+  action: string;
+  cost: 'action' | 'bonus' | 'reaction' | 'movement' | 'free';
+  /** What was readied, who was helped. May be empty. */
+  note: string;
+  again: boolean;
+  ruling: boolean;
+  what: 'took' | 'holding';
+}
+
+/**
+ * A creature left a hostile's reach without Disengaging, and the hostile
+ * still has its reaction. An offer, to the hostile's owner or to staff —
+ * nothing fires by itself.
+ */
+export interface OpportunityEvent extends BaseEvent {
+  kind: 'opportunity';
+  attackerLabel: string;
+  attackerEntryId: string;
+  moverLabel: string;
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -231,7 +264,9 @@ export type TableEvent =
   | GiftEvent
   | ThingEvent
   | RulesEvent
-  | EffectEvent;
+  | EffectEvent
+  | ActionEvent
+  | OpportunityEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -272,6 +307,8 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   thing: 'key',
   rules: 'gavel',
   effect: 'hourglass',
+  action: 'sword',
+  opportunity: 'target',
 };
 
 /**
@@ -491,6 +528,38 @@ export function describe(
               : 'gold',
       };
     }
+
+    case 'action': {
+      if (event.what === 'holding') {
+        const held = event.note.includes('→')
+          ? event.note
+          : `${event.note}${event.note ? ' → ' : ''}${event.action}`;
+        return {
+          glyph,
+          title: `${event.actorLabel} is holding: ${held}`,
+          tone: 'arcane',
+          asks: true,
+        };
+      }
+      return {
+        glyph,
+        title: `${event.actorLabel} · ${event.action}${event.again ? ' · again' : ''}`,
+        detail:
+          [event.note, event.ruling ? "DM's ruling" : '']
+            .filter(Boolean)
+            .join(' · ') || undefined,
+        tone: 'gold',
+      };
+    }
+
+    case 'opportunity':
+      return {
+        glyph,
+        title: `${event.attackerLabel} can take an opportunity attack on ${event.moverLabel}`,
+        detail: 'A reaction, if they want it.',
+        tone: 'arcane',
+        asks: true,
+      };
 
     case 'vitals': {
       const words: Record<VitalsEvent['state'], string> = {

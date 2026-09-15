@@ -169,6 +169,11 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
       const ownEntry = live.state?.entries.find(
         e => e.characterId === live.state?.viewerCharacterId
       );
+      const enc = live.state?.encounter;
+      const myTurn =
+        !!ownEntry &&
+        !!enc?.isActive &&
+        live.state?.entries[enc.turnIndex]?.id === ownEntry.id;
       return (
         <MyHeroPanel
           campaignId={ctx.campaignId}
@@ -180,6 +185,8 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
               ? live.state?.effects.filter(x => x.entryId === ownEntry.id)
               : undefined
           }
+          turnEntry={myTurn ? ownEntry : undefined}
+          refresh={live.refresh}
           onError={ctx.onError}
         />
       );
