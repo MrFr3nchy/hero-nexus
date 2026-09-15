@@ -3,7 +3,10 @@
 import { Button } from '@heroui/react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { useSelectedToken } from '@/@shared/battlemap/selection';
+import {
+  useSelectedToken,
+  useSelectedTokens,
+} from '@/@shared/battlemap/selection';
 import { useDiceTray } from '@/@shared/components/dice';
 import { Marginalia } from '@/@shared/components/ui';
 import { StatBlock } from '@/@shared/components/StatBlock';
@@ -15,7 +18,8 @@ import {
 import { withAdvantage } from '@/@shared/lib/dice';
 import type { LiveState } from '@/server/session';
 import { rollAction } from '../../actions';
-import { takeActionAction } from '../../turn-actions';
+import { attackAction } from '../../fight-actions';
+import { outcomeWords, type RollOutcome } from '@/@creator/campaign/lib/attack';
 import { Refused, type RefusedState } from '../Refused';
 import { getEntryCreatureAction } from '../../fight-actions';
 
@@ -59,6 +63,7 @@ export function StatBlockPanel({
   onError: (message: string) => void;
 }) {
   const selectedId = useSelectedToken(campaignId);
+  const selectedIds = useSelectedTokens(campaignId);
   const [entry, setEntry] = useState<ContentEntry | null | undefined>(
     undefined
   );
@@ -93,46 +98,74 @@ export function StatBlockPanel({
   }, [combatant]);
 
   const [refusal, setRefusal] = useState<RefusedState | null>(null);
+  const [last, setLast] = useState<{
+    name: string;
+    outcome: RollOutcome;
+    total: number;
+  } | null>(null);
+
+  /*
+   * The target: a second token shift-selected on the board. The first is the
+   * attacker — the block being read — so the other one is who it swings at;
+   * with none, the swing rolls and compares nothing, as it always did.
+   */
+  const targetEntryId = useMemo(() => {
+    const other = selectedIds.find(id => id !== selectedId);
+    const token = other
+      ? state.battlemap?.tokens.find(t => t.id === other)
+      : null;
+    return token?.entryId ?? null;
+  }, [selectedIds, selectedId, state.battlemap]);
+  const targetLabel = useMemo(
+    () => state.entries.find(e => e.id === targetEntryId)?.label ?? null,
+    [state.entries, targetEntryId]
+  );
 
   /**
-   * A to-hit from the Actions list spends the creature's action first, a
-   * bonus action its bonus (05) — so a monster that has attacked shows it
-   * on the tracker. Under Enforce a spent slot refuses and the DM may rule
-   * past; advising, it is recorded "again" and the dice roll regardless.
-   * Damage spends nothing: it follows a hit that already did.
+   * A to-hit from the block goes through `attack` (06): the creature's
+   * action is spent (05), the die compared against the target's AC when one
+   * is picked, the damage rolled and adjusted, and — for a foe swinging at
+   * a hero — proposed for the hero's player or the DM to land. Under
+   * Enforce a spent slot refuses and the DM may rule past. Damage alone
+   * still rolls through the log as before.
    */
-  const spendFor = async (group: string, ruling = false): Promise<boolean> => {
-    if (!combatant) return false;
-    const key =
-      group === 'Actions'
-        ? 'attack'
-        : group === 'Bonus actions'
-          ? 'bonus'
-          : null;
-    if (!key) return true;
-    const res = await takeActionAction(combatant.id, key, { ruling });
-    if (res.ok) return true;
-    if (res.overridable) {
-      setRefusal({
-        message: res.error,
-        ruling: async () => {
-          await spendFor(group, true);
-        },
-      });
-    } else {
-      onError(res.error);
+  const swing = async (name: string, ruling = false) => {
+    if (!combatant) return;
+    const res = await attackAction({
+      attackerEntryId: combatant.id,
+      weapon: { kind: 'creature-action', name },
+      targetEntryId,
+      mode,
+      ruling,
+    });
+    if (!res.ok) {
+      if (res.overridable) {
+        setRefusal({ message: res.error, ruling: () => swing(name, true) });
+      } else {
+        onError(res.error);
+      }
+      return;
     }
-    return false;
+    setRefusal(null);
+    const { hit, damage, outcome } = res.data;
+    setLast({ name, outcome, total: hit.total });
+    const at = targetLabel ? ` vs ${targetLabel}` : '';
+    await tray.showNotationRoll(hit, {
+      title: combatant.label,
+      hint: `${name} · to hit${at}${
+        outcome.hit === true ? ' · hit' : outcome.hit === false ? ' · miss' : ''
+      }`,
+    });
+    if (damage) {
+      await tray.showNotationRoll(damage, {
+        title: combatant.label,
+        hint: `${name} · damage${at}`,
+      });
+    }
   };
 
-  const roll = async (
-    name: string,
-    notation: string,
-    what: string,
-    group?: string
-  ) => {
+  const roll = async (name: string, notation: string, what: string) => {
     if (!combatant) return;
-    if (what === 'to hit' && group && !(await spendFor(group))) return;
     const finished =
       what === 'to hit' && mode !== 'flat'
         ? withAdvantage(notation, mode)
@@ -205,6 +238,11 @@ export function StatBlockPanel({
         </div>
       </div>
 
+      <Marginalia dash>
+        {targetLabel
+          ? `swinging at ${targetLabel}`
+          : 'shift-tap a second token to aim'}
+      </Marginalia>
       {refusal && (
         <Refused refusal={refusal} onDismiss={() => setRefusal(null)} />
       )}
@@ -223,6 +261,23 @@ export function StatBlockPanel({
                     <span className="font-medium">{a.name}.</span>{' '}
                     <span className="text-ink-muted">{a.desc}</span>
                   </p>
+                  {last?.name === a.name && (
+                    <p
+                      className={`mt-0.5 text-xs ${
+                        last.outcome.hit === true
+                          ? 'text-success'
+                          : last.outcome.hit === false
+                            ? 'text-danger'
+                            : 'text-ink-muted'
+                      }`}
+                    >
+                      {last.outcome.targetLabel
+                        ? `${last.outcome.targetLabel} · `
+                        : ''}
+                      {outcomeWords(last.outcome, last.total)}
+                      {last.outcome.applied ? ' · applied' : ''}
+                    </p>
+                  )}
                   {(r.hit || r.damage.length > 0) && (
                     <div className="mt-1 flex flex-wrap gap-1">
                       {r.hit && (
@@ -230,11 +285,9 @@ export function StatBlockPanel({
                           size="sm"
                           color="primary"
                           className="h-6 min-w-0 px-2 text-xs"
-                          onPress={() =>
-                            roll(a.name, r.hit!, 'to hit', g.title)
-                          }
+                          onPress={() => swing(a.name)}
                         >
-                          Hit {r.hit.replace('1d20', '')}
+                          Attack {r.hit.replace('1d20', '')}
                         </Button>
                       )}
                       {r.damage.map((d, i) => (

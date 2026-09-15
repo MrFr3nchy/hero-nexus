@@ -1,8 +1,19 @@
 'use server';
 
+import { z } from 'zod';
+
+import type { RollOutcome } from '@/@creator/campaign/lib/attack';
 import type { WeaponAttack } from '@/@creator/character/lib/derive';
 import type { ContentEntry } from '@/@shared/content';
-import { getEntryCreature, getMyAttacks, mySeat } from '@/server/fight';
+import {
+  applyDamage,
+  attack,
+  getEntryCreature,
+  getMyAttacks,
+  mySeat,
+  type AttackResult,
+} from '@/server/fight';
+import { RuleRefusal } from '@/server/table-rules';
 
 export async function getMyAttacksAction(
   characterId: string,
@@ -30,5 +41,108 @@ export async function mySeatAction(campaignId: string): Promise<string | null> {
     return await mySeat(campaignId);
   } catch {
     return null;
+  }
+}
+
+/* --- an attack that lands (06) ------------------------------------------------ */
+
+type Result<T = undefined> =
+  | ({ ok: true } & (T extends undefined ? object : { data: T }))
+  | Refusal;
+
+/**
+ * `overridable` is set only when the rules refused and the caller is staff:
+ * the control shows "Do it anyway" and re-sends with `{ ruling: true }`.
+ * Decided on the server (`RuleRefusal`), never in the browser.
+ */
+type Refusal = { ok: false; error: string; overridable?: boolean };
+
+function fail(err: unknown, fallback: string): Refusal {
+  const code = err instanceof Error ? err.message : '';
+  const messages: Record<string, string> = {
+    NOT_AUTHENTICATED: 'You are not signed in.',
+    SESSION_STALE: 'Your session is out of date. Sign in again.',
+    NOT_FOUND: 'That is no longer in the fight.',
+    FORBIDDEN: 'That is not yours to swing.',
+    NO_SUCH_TARGET: 'That target is not in this fight.',
+    NO_SHEET: 'No sheet to swing from.',
+    NO_BLOCK: 'No stat block behind that combatant.',
+    NO_SUCH_ACTION: 'That action is not on the block.',
+    NOT_AN_ATTACK: 'That action names no attack roll.',
+    NOT_IN_HAND: 'That weapon is not in hand.',
+    NO_LINE: 'Total cover — there is no line to them.',
+    NO_AMMUNITION: 'Nothing left to shoot.',
+    ALREADY_ACTED: 'The action is spent this turn.',
+    INCAPACITATED: 'They cannot act this turn.',
+    NOTHING_TO_APPLY: 'That roll has no damage to land.',
+    NOT_YOURS_TO_APPLY:
+      'That hit is for the DM — or its target — to land, not you.',
+    ALREADY_APPLIED: 'Already applied.',
+    BAD_NOTATION: 'The weapon carries no dice the app can roll.',
+  };
+  if (!messages[code]) console.error('[fight-action]', fallback, err);
+  return {
+    ok: false,
+    error: messages[code] ?? fallback,
+    ...(err instanceof RuleRefusal && err.overridable
+      ? { overridable: true }
+      : {}),
+  };
+}
+
+const weaponSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('item'),
+    itemId: z.string().min(1).max(64),
+    twoHanded: z.boolean().optional(),
+  }),
+  z.object({
+    kind: z.literal('creature-action'),
+    name: z.string().min(1).max(120),
+  }),
+  z.object({
+    kind: z.literal('improvised'),
+    label: z.string().max(60),
+    thrown: z.boolean(),
+    damageType: z.string().max(20).nullable().optional(),
+  }),
+]);
+
+const attackSchema = z.object({
+  attackerEntryId: z.string().min(1).max(64),
+  weapon: weaponSchema,
+  targetEntryId: z.string().min(1).max(64).nullable(),
+  mode: z.enum(['flat', 'advantage', 'disadvantage']),
+  asReaction: z.boolean().optional(),
+  damageOnMiss: z.boolean().optional(),
+  ruling: z.boolean().optional(),
+});
+
+export type AttackActionInput = z.infer<typeof attackSchema>;
+
+/** One swing: to hit, compared, damage rolled and adjusted, applied where allowed. */
+export async function attackAction(
+  input: unknown
+): Promise<Result<AttackResult>> {
+  const parsed = attackSchema.safeParse(input);
+  if (!parsed.success)
+    return { ok: false, error: 'That attack makes no sense.' };
+  try {
+    const data = await attack(parsed.data);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'The swing did not land.');
+  }
+}
+
+/** Land a proposed hit on its target. Idempotent. */
+export async function applyDamageAction(
+  rollId: string
+): Promise<Result<RollOutcome>> {
+  try {
+    const data = await applyDamage(rollId);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Could not apply that.');
   }
 }
