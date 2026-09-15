@@ -692,6 +692,125 @@ export function flanked(
   });
 }
 
+/* --- areas ---------------------------------------------------------------- */
+
+export type AreaShape =
+  | 'sphere'
+  | 'cube'
+  | 'cone'
+  | 'line'
+  | 'cylinder'
+  | 'emanation';
+
+export interface Area {
+  shape: AreaShape;
+  /** The tile the effect springs from — the point of origin, or the caster. */
+  origin: Tile;
+  /** Cone and line: the tile the shape points at. Cube: the corner it grows toward. */
+  direction?: Tile;
+  /** Radius, side or length, in feet. */
+  size: number;
+  /** Line only; 0 reads as 5. */
+  width?: number;
+}
+
+/**
+ * The tiles an area covers, by the DMG's "on a grid" method.
+ *
+ * A sphere, cylinder or emanation is every tile whose centre is within `size`
+ * feet of the origin's — Chebyshev on a 5-5-5 board, so it draws as the
+ * square people expect. A cube is `size / 5` tiles a side, grown from the
+ * origin toward `direction` (or east and south). A cone is `size` long and as
+ * wide at its end as it is long, along `direction`; a line is `size` long and
+ * `width` wide. Tiles the origin cannot see — behind a wall — are left out,
+ * so a Fireball around a corner lights only what the blast reaches; the DM
+ * may add one back by tapping it.
+ */
+export function areaTiles(doc: TerrainDoc, area: Area): Set<number> {
+  const out = new Set<number>();
+  const add = (x: number, y: number) => {
+    if (!inBounds(doc, x, y)) return;
+    if (!canSee(doc, area.origin, { x, y })) return;
+    out.add(y * doc.w + x);
+  };
+  const tiles = Math.max(1, Math.round(area.size / TILE_FEET));
+  const o = area.origin;
+
+  switch (area.shape) {
+    case 'sphere':
+    case 'cylinder':
+    case 'emanation': {
+      for (let y = o.y - tiles; y <= o.y + tiles; y++) {
+        for (let x = o.x - tiles; x <= o.x + tiles; x++) add(x, y);
+      }
+      // An emanation spreads from the creature's own space and does not
+      // include it; a sphere centred on a point does.
+      if (area.shape === 'emanation') out.delete(o.y * doc.w + o.x);
+      return out;
+    }
+    case 'cube': {
+      const d = area.direction ?? { x: o.x + 1, y: o.y + 1 };
+      const sx = d.x < o.x ? -1 : 1;
+      const sy = d.y < o.y ? -1 : 1;
+      for (let i = 0; i < tiles; i++) {
+        for (let j = 0; j < tiles; j++) add(o.x + sx * i, o.y + sy * j);
+      }
+      return out;
+    }
+    case 'cone':
+    case 'line': {
+      const d = area.direction ?? { x: o.x + 1, y: o.y };
+      const dx = d.x - o.x;
+      const dy = d.y - o.y;
+      const halfWidth =
+        area.shape === 'line'
+          ? Math.max(1, Math.round((area.width || TILE_FEET) / TILE_FEET)) / 2
+          : 0;
+      const axis = dx === 0 || dy === 0;
+      const diagonal = Math.abs(dx) === Math.abs(dy) && dx !== 0;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      /*
+       * How far out and how far across a tile sits, in tiles. Along an axis
+       * or a diagonal the board's own arithmetic: a diagonal step is one
+       * tile on a 5-5-5 board, so a 15 ft cone reaches three tiles out
+       * whichever way it points. Anything in between projects onto the ray.
+       */
+      const place = (px: number, py: number): [number, number] | null => {
+        if (axis) {
+          const along = dx !== 0 ? px * Math.sign(dx) : py * Math.sign(dy);
+          const across = dx !== 0 ? Math.abs(py) : Math.abs(px);
+          return along > 0 ? [along, across] : null;
+        }
+        if (diagonal) {
+          const a = px * Math.sign(dx);
+          const b = py * Math.sign(dy);
+          if (a < 0 || b < 0 || (a === 0 && b === 0)) return null;
+          return [Math.max(a, b), Math.abs(a - b)];
+        }
+        const along = px * ux + py * uy;
+        const across = Math.abs(px * uy - py * ux);
+        return along > 0 ? [along, across] : null;
+      };
+      for (let y = o.y - tiles; y <= o.y + tiles; y++) {
+        for (let x = o.x - tiles; x <= o.x + tiles; x++) {
+          if (x === o.x && y === o.y) continue;
+          const at = place(x - o.x, y - o.y);
+          if (!at) continue;
+          const [along, across] = at;
+          if (along > tiles + 0.01) continue;
+          // As wide as it is long: half the distance out, either side.
+          const allowed =
+            area.shape === 'cone' ? along / 2 + 0.01 : halfWidth + 0.01;
+          if (across <= allowed) add(x, y);
+        }
+      }
+      return out;
+    }
+  }
+}
+
 /* --- fog --------------------------------------------------------------- */
 
 /**
@@ -748,6 +867,7 @@ export function fogged(
   return {
     format: doc.format,
     version: doc.version,
+    ambient: doc.ambient,
     w: doc.w,
     h: doc.h,
     elevation,

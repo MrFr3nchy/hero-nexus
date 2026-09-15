@@ -64,7 +64,9 @@ import {
 } from '@/@creator/campaign/lib/attack';
 import { parseTurn, type TurnState } from '@/@creator/campaign/lib/turn';
 import { listMaps, type MapRow } from './maps';
-import { applyPlayPatch, listPartyPlayState, type PlayState } from './play';
+import { listPartyPlayState, type PlayState } from './play';
+import { applyHpUnchecked } from './hp';
+import type { EntryForm } from '@/@creator/campaign/lib/casting';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { resolveContentRefs } from './content';
 import { listWhispers, type WhisperRow } from './whispers';
@@ -110,6 +112,10 @@ export interface EntryRow {
   creatureRef: ContentRef | null;
   /** What this combatant has spent since their turn began (05). */
   turn: TurnState;
+  /** The spell being concentrated on, as a `refKey` (07). Null when none is named. */
+  concentrationSpell: string | null;
+  /** Another shape worn for now (07): its label, hit points and AC. Null when itself. */
+  form: EntryForm | null;
   /**
    * Feet a turn: the sheet's or the block's speed after conditions and
    * exhaustion (`speedFor`). The board lights `movementBudget(turn, speed)`
@@ -376,6 +382,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
         ({
           ...r,
           turn: parseTurn(r.turn),
+          form: (r.form as EntryForm | null) ?? null,
           speed: speeds.get(r.id) ?? DEFAULT_SPEED_FEET,
         }) as EntryRow
     )
@@ -392,6 +399,9 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
               hpMax: null,
               hpTemp: 0,
               armorClass: null,
+              form: e.form
+                ? { ...e.form, hpCurrent: 0, hpMax: 0, armorClass: 0 }
+                : null,
               // The block is the DM's. A player knows what an aboleth is from
               // its name; they do not get a key into the bestiary from it.
               creatureRef: null,
@@ -760,7 +770,15 @@ export async function advanceTurn(
         .select()
         .from(initiativeEntries)
         .where(eq(initiativeEntries.encounterId, encounterId))
-    ).map(r => ({ ...r, turn: parseTurn(r.turn), speed: 0 }) as EntryRow)
+    ).map(
+      r =>
+        ({
+          ...r,
+          turn: parseTurn(r.turn),
+          form: (r.form as EntryForm | null) ?? null,
+          speed: 0,
+        }) as EntryRow
+    )
   );
   const count = ordered.length;
   if (count === 0) return;
@@ -976,65 +994,7 @@ export async function applyHp(entryId: string, delta: number): Promise<void> {
   await applyHpUnchecked(entryId, campaignId, delta);
 }
 
-/**
- * The arithmetic of `applyHp` with no gate on it, for a caller that has
- * already decided who may — `attack` (06) applying or a player accepting a
- * proposed hit. Never exported to an action directly.
- */
-export async function applyHpUnchecked(
-  entryId: string,
-  campaignId: string,
-  delta: number
-): Promise<void> {
-  const entry = await db.query.initiativeEntries.findFirst({
-    where: eq(initiativeEntries.id, entryId),
-  });
-  if (!entry) throw new Error('NOT_FOUND');
-  if (entry.hpCurrent == null) return;
-
-  /*
-   * A seated character's hit points live on the sheet, and the tracker row
-   * is a mirror of it. Writing the row alone left the DM's tracker saying 0
-   * while the player's card said 4, announced nothing when somebody went
-   * down, and started no death saves — so a party entry goes through the
-   * play patch, which writes the sheet, mirrors the row, and tells the table.
-   * The row-only path below is for foes, and for a character whose seat has
-   * since gone (the patch refuses it, and the row is all there is).
-   */
-  if (entry.characterId) {
-    try {
-      await applyPlayPatch(entry.characterId, campaignId, {
-        hpCurrentDelta: delta,
-      });
-      return;
-    } catch (err) {
-      const code = err instanceof Error ? err.message : '';
-      if (code !== 'FORBIDDEN' && code !== 'NOT_FOUND') throw err;
-    }
-  }
-
-  if (delta < 0) {
-    const damage = -delta;
-    const fromTemp = Math.min(entry.hpTemp, damage);
-    const rest = damage - fromTemp;
-    await db
-      .update(initiativeEntries)
-      .set({
-        hpTemp: entry.hpTemp - fromTemp,
-        hpCurrent: Math.max(0, entry.hpCurrent - rest),
-      })
-      .where(eq(initiativeEntries.id, entryId));
-    bumpVersion(campaignId);
-    return;
-  }
-
-  const ceiling = entry.hpMax ?? entry.hpCurrent + delta;
-  await db
-    .update(initiativeEntries)
-    .set({ hpCurrent: Math.min(ceiling, entry.hpCurrent + delta) })
-    .where(eq(initiativeEntries.id, entryId));
-  bumpVersion(campaignId);
-}
+export { applyHpUnchecked };
 
 export async function removeEntry(entryId: string): Promise<void> {
   const campaignId = await entryCampaign(entryId);

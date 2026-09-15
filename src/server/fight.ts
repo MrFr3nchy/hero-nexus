@@ -67,7 +67,7 @@ import {
 import { requireCampaignRole } from './campaigns';
 import { resolveContentRefs } from './content';
 import { bumpVersion, publish } from './live-hub';
-import { applyHpUnchecked } from './session';
+import { applyHpUnchecked } from './hp';
 import { requireUserId } from './session-user';
 import { effectiveRules, fence } from './table-rules';
 import { authorizeEntry, takeAction } from './turn';
@@ -187,8 +187,11 @@ interface Swing {
 }
 
 async function blockOf(entry: Entry): Promise<CreatureData | null> {
-  if (!entry.creatureRef) return null;
-  const resolved = await resolveContentRefs([entry.creatureRef as ContentRef]);
+  // A shape worn for now (07) is the block that swings and is swung at.
+  const form = entry.form as { creatureRef?: ContentRef } | null;
+  const ref = form?.creatureRef ?? (entry.creatureRef as ContentRef | null);
+  if (!ref) return null;
+  const resolved = await resolveContentRefs([ref]);
   const block = [...resolved.values()][0];
   return block
     ? (parseContentData('creature', block.data) as CreatureData)
@@ -273,6 +276,8 @@ async function swingOf(
 
 /** The target's armour class, from wherever the app knows it. */
 async function armorClassOf(target: Entry): Promise<number | null> {
+  const form = target.form as { armorClass?: number } | null;
+  if (form?.armorClass !== undefined) return form.armorClass;
   if (target.armorClass !== null) return target.armorClass;
   const block = await blockOf(target);
   return block?.armor_class ?? null;

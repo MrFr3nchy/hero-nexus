@@ -541,6 +541,16 @@ export const initiativeEntries = sqliteTable(
     turn: text('turn', { mode: 'json' })
       .notNull()
       .default(sql`'{}'`),
+    /**
+     * The spell being concentrated on, as a `refKey` (0052). Set by the Cast
+     * flow beside `concentrating`; null when nothing is named.
+     */
+    concentrationSpell: text('concentration_spell'),
+    /**
+     * Another shape worn for now (0053) — an `EntryForm` from
+     * `campaign/lib/casting.ts`. Null when the combatant is itself.
+     */
+    form: text('form', { mode: 'json' }),
   },
   t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
 );
@@ -1823,7 +1833,7 @@ export const campaignChecks = sqliteTable(
      * and a kind whose modifier the server cannot compute would be a prompt
      * pretending to be a roll.
      */
-    kind: text('kind', { enum: ['check', 'save', 'free'] })
+    kind: text('kind', { enum: ['check', 'save', 'free', 'consent'] })
       .notNull()
       .default('check'),
     /** A `SkillKey`. The vocabulary is already typed in character/schema.ts. */
@@ -1858,6 +1868,21 @@ export const campaignChecks = sqliteTable(
      * Null for every check the DM raised by hand.
      */
     effectId: text('effect_id'),
+    /**
+     * The character a *player* asked as (0052): a caster asking a fellow
+     * hero's consent, or for the save their spell calls for. Null for the
+     * DM's own asks.
+     */
+    askedByCharacterId: text('asked_by_character_id').references(
+      () => characters.id,
+      { onDelete: 'set null' }
+    ),
+    /**
+     * What the answer settles (0052) — a `CheckPayload` from
+     * `campaign/lib/checks.ts`. Written by the server when it asks, read back
+     * by `answerCheck`; the browser never sets it.
+     */
+    payload: text('payload', { mode: 'json' }),
   },
   t => [index('campaign_checks_campaign_idx').on(t.campaignId, t.createdAt)]
 );
@@ -1887,7 +1912,9 @@ export const campaignCheckTargets = sqliteTable(
     characterId: text('character_id').references(() => characters.id, {
       onDelete: 'set null',
     }),
-    status: text('status', { enum: ['waiting', 'rolled', 'dismissed'] })
+    status: text('status', {
+      enum: ['waiting', 'rolled', 'dismissed', 'allowed', 'refused'],
+    })
       .notNull()
       .default('waiting'),
     rollId: text('roll_id').references(() => campaignRolls.id, {
@@ -2077,6 +2104,15 @@ export const battleMapTokens = sqliteTable(
       .default('camera'),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
+    /**
+     * What this thing does when used, stepped on, struck or destroyed (0054):
+     * a `ThingEffect`. Null for a thing that only opens and closes.
+     */
+    effect: text('effect', { mode: 'json' }),
+    /** Darkvision in feet (0055). Null for normal sight. */
+    visionFeet: integer('vision_feet'),
+    /** A carried light's bright radius in feet (0055). Null for none. */
+    lightFeet: integer('light_feet'),
   },
   t => [index('battle_map_tokens_map_idx').on(t.mapId)]
 );

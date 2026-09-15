@@ -37,6 +37,9 @@ import {
 import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
 import type { EffectRow } from '@/@creator/campaign/lib/effects';
 import { CountdownRows, EffectChips } from './EffectChips';
+import { spellNameFromKey } from '@/@creator/campaign/lib/casting';
+import { dropConcentrationAction } from '../../casting-actions';
+import { ShapePicker } from './ShapePicker';
 import {
   CountdownControl,
   EffectPicker,
@@ -233,9 +236,11 @@ function EntryLine({
   effects,
   everyone,
   encounterId,
+  campaignId,
   refresh,
   onError,
 }: {
+  campaignId: string;
   entry: EntryRow;
   current: boolean;
   isStaff: boolean;
@@ -291,9 +296,40 @@ function EntryLine({
             </span>
           )}
           {entry.concentrating && (
-            <Tooltip content="Concentrating — damage forces a save.">
+            <Tooltip
+              content={
+                isStaff || isYours
+                  ? 'Concentrating — damage forces a save. Tap to drop it.'
+                  : 'Concentrating — damage forces a save.'
+              }
+            >
+              <button
+                type="button"
+                disabled={!(isStaff || isYours)}
+                onClick={() => act(dropConcentrationAction(entry.id))}
+                className="rounded-sm border border-arcane/40 bg-arcane/10 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-arcane disabled:cursor-default"
+              >
+                {entry.concentrationSpell
+                  ? spellNameFromKey(entry.concentrationSpell)
+                  : 'Conc.'}
+              </button>
+            </Tooltip>
+          )}
+          {entry.form && (
+            <Tooltip
+              content={`Wearing another shape. ${
+                showNumbers
+                  ? `${entry.form.hpCurrent} / ${entry.form.hpMax} hp · AC ${entry.form.armorClass}. `
+                  : ''
+              }At 0 the shape drops.`}
+            >
               <span className="rounded-sm border border-arcane/40 bg-arcane/10 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-arcane">
-                Conc.
+                as {entry.form.label}
+                {showNumbers && (
+                  <span className="ml-1 normal-case tracking-normal tabular-nums">
+                    {entry.form.hpCurrent}/{entry.form.hpMax}
+                  </span>
+                )}
               </span>
             </Tooltip>
           )}
@@ -390,6 +426,7 @@ function EntryLine({
             others={everyone.filter(e => e.id !== entry.id)}
             act={act}
           />
+          <ShapePicker campaignId={campaignId} entry={entry} act={act} />
           <Button
             size="sm"
             variant={entry.concentrating ? 'flat' : 'light'}
@@ -553,6 +590,7 @@ export function InitiativeTracker({
             effects={state.effects}
             everyone={everyone}
             encounterId={enc.id}
+            campaignId={campaignId}
             refresh={refresh}
             onError={onError}
             placeable={

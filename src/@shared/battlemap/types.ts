@@ -44,7 +44,16 @@ export interface TerrainDoc {
   props: Prop[];
   /** Warm points. The palette is candlelight; lean into it. */
   lights: Light[];
+  /**
+   * The light everywhere nothing else lights (improvements 08). Bright is
+   * the default and how every board before it behaved: a party reveals what
+   * it can see. Dark: only a light's radius or a token's own vision reveals.
+   */
+  ambient: Ambient;
 }
+
+export type Ambient = 'bright' | 'dim' | 'dark';
+export const AMBIENTS: readonly Ambient[] = ['bright', 'dim', 'dark'];
 
 export type Side = 'n' | 'e' | 's' | 'w';
 export type WallKind = 'solid' | 'door' | 'window' | 'rail';
@@ -109,6 +118,21 @@ export const FACINGS: readonly Facing[] = ['camera', 'n', 'e', 's', 'w'];
 /** Whether a thing in this state still takes up its tile. */
 export function blocksTile(state: ItemState | null | undefined): boolean {
   return state !== 'open' && state !== 'broken';
+}
+
+/**
+ * Whether a token stops a creature standing on its tile: a closed thing
+ * does; an open or broken one does not; and a thing that goes off when
+ * stepped on (08) never does — a pressure plate you cannot step on is not a
+ * pressure plate. `effect` is the stored `ThingEffect`, or anything else.
+ */
+export function blocksStanding(token: {
+  state: ItemState | null | undefined;
+  effect?: unknown;
+}): boolean {
+  if (!blocksTile(token.state)) return false;
+  const e = token.effect as { trigger?: unknown } | null | undefined;
+  return !(e && typeof e === 'object' && e.trigger === 'enter');
 }
 
 /** What a thing on the board can be. Open and broken things do not block. */
@@ -297,6 +321,7 @@ export function emptyTerrain(
     h: H,
     elevation: new Array(W * H).fill(0),
     material: new Array(W * H).fill(material),
+    ambient: 'bright',
     walls: [],
     props: [],
     lights: [],
@@ -395,5 +420,182 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
     walls,
     props,
     lights,
+    ambient: (AMBIENTS as readonly unknown[]).includes(src.ambient)
+      ? (src.ambient as Ambient)
+      : 'bright',
+  };
+}
+
+/* --- things that do something (improvements 08) ---------------------------- */
+
+/** One thing a thing changes when it fires. Tiles are indices into the doc. */
+export type ThingChange =
+  | { kind: 'material'; tiles: number[]; to: number }
+  | { kind: 'elevation'; tiles: number[]; to: number }
+  | { kind: 'wall'; edge: string; to: WallKind | 'none'; open?: boolean }
+  | { kind: 'thing'; tokenId: string; to: ItemState }
+  | { kind: 'reveal'; tiles: number[] }
+  | {
+      kind: 'damage';
+      area: number[];
+      dice: string;
+      type: string;
+      save?: { ability: string; dc: number; effect: 'half' | 'negates' };
+    }
+  | {
+      kind: 'condition';
+      area: number[];
+      condition: string;
+      rounds: number | null;
+      save?: { ability: string; dc: number };
+    }
+  | { kind: 'sound'; text: string };
+
+export type ThingTrigger = 'operate' | 'enter' | 'damage' | 'destroy';
+
+/**
+ * What a thing does when it is used, stepped on, struck or destroyed. A
+ * lever that opens a portcullis, a plate that drops the floor, a dam that
+ * breaks. `undo` is what a `toggle` remembers so the second pull puts it back.
+ */
+export interface ThingEffect {
+  trigger: ThingTrigger;
+  /** Fires once and is then spent, toggles back and forth, or fires every time. */
+  repeat: 'once' | 'toggle' | 'always';
+  spent?: boolean;
+  /** Who sets it off when the trigger is `enter`. */
+  triggers: 'anyone' | 'party' | 'foe';
+  /** Hidden until found: a Perception DC. Absent = in plain sight. */
+  findDc?: number;
+  changes: ThingChange[];
+  /** For `toggle`: the changes that put the last firing back. */
+  undo?: ThingChange[];
+}
+
+const TRIGGERS: readonly ThingTrigger[] = [
+  'operate',
+  'enter',
+  'damage',
+  'destroy',
+];
+
+/** Read a stored effect, dropping anything malformed. Null for none. */
+export function normalizeThingEffect(raw: unknown): ThingEffect | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (!TRIGGERS.includes(r.trigger as ThingTrigger)) return null;
+  const tiles = (v: unknown) =>
+    Array.isArray(v)
+      ? v
+          .map(Number)
+          .filter(n => Number.isInteger(n) && n >= 0)
+          .slice(0, 4000)
+      : [];
+  const change = (c: unknown): ThingChange | null => {
+    if (!c || typeof c !== 'object') return null;
+    const x = c as Record<string, unknown>;
+    switch (x.kind) {
+      case 'material':
+        return {
+          kind: 'material',
+          tiles: tiles(x.tiles),
+          to: Math.trunc(Number(x.to)) || 0,
+        };
+      case 'elevation':
+        return {
+          kind: 'elevation',
+          tiles: tiles(x.tiles),
+          to: Math.trunc(Number(x.to)) || 0,
+        };
+      case 'wall':
+        return typeof x.edge === 'string' &&
+          ['solid', 'door', 'window', 'rail', 'none'].includes(String(x.to))
+          ? {
+              kind: 'wall',
+              edge: x.edge,
+              to: x.to as WallKind | 'none',
+              ...(x.open !== undefined ? { open: Boolean(x.open) } : {}),
+            }
+          : null;
+      case 'thing':
+        return typeof x.tokenId === 'string' &&
+          ITEM_STATES.includes(x.to as ItemState)
+          ? { kind: 'thing', tokenId: x.tokenId, to: x.to as ItemState }
+          : null;
+      case 'reveal':
+        return { kind: 'reveal', tiles: tiles(x.tiles) };
+      case 'damage': {
+        const save = x.save as Record<string, unknown> | undefined;
+        return typeof x.dice === 'string'
+          ? {
+              kind: 'damage',
+              area: tiles(x.area),
+              dice: x.dice.slice(0, 40),
+              type: String(x.type ?? 'bludgeoning').slice(0, 20),
+              ...(save && typeof save.ability === 'string'
+                ? {
+                    save: {
+                      ability: save.ability,
+                      dc: Math.max(
+                        1,
+                        Math.min(40, Math.trunc(Number(save.dc)) || 10)
+                      ),
+                      effect: save.effect === 'negates' ? 'negates' : 'half',
+                    },
+                  }
+                : {}),
+            }
+          : null;
+      }
+      case 'condition': {
+        const save = x.save as Record<string, unknown> | undefined;
+        return typeof x.condition === 'string'
+          ? {
+              kind: 'condition',
+              area: tiles(x.area),
+              condition: x.condition.slice(0, 30),
+              rounds:
+                x.rounds === null || x.rounds === undefined
+                  ? null
+                  : Math.max(1, Math.trunc(Number(x.rounds)) || 1),
+              ...(save && typeof save.ability === 'string'
+                ? {
+                    save: {
+                      ability: save.ability,
+                      dc: Math.max(
+                        1,
+                        Math.min(40, Math.trunc(Number(save.dc)) || 10)
+                      ),
+                    },
+                  }
+                : {}),
+            }
+          : null;
+      }
+      case 'sound':
+        return typeof x.text === 'string'
+          ? { kind: 'sound', text: x.text.slice(0, 200) }
+          : null;
+      default:
+        return null;
+    }
+  };
+  const list = (v: unknown) =>
+    (Array.isArray(v) ? v : [])
+      .map(change)
+      .filter((c): c is ThingChange => c !== null)
+      .slice(0, 40);
+  const findDc = Number(r.findDc);
+  return {
+    trigger: r.trigger as ThingTrigger,
+    repeat: r.repeat === 'toggle' || r.repeat === 'always' ? r.repeat : 'once',
+    ...(r.spent === true ? { spent: true } : {}),
+    triggers:
+      r.triggers === 'party' || r.triggers === 'foe' ? r.triggers : 'anyone',
+    ...(Number.isFinite(findDc) && findDc > 0
+      ? { findDc: Math.min(40, Math.trunc(findDc)) }
+      : {}),
+    changes: list(r.changes),
+    ...(Array.isArray(r.undo) ? { undo: list(r.undo) } : {}),
   };
 }

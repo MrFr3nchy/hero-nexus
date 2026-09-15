@@ -599,6 +599,19 @@ export const characterSheetSchema = z.object({
     }),
   }),
 
+  /**
+   * What the character sees with (improvements 08). Optional and guarded:
+   * a sheet without it takes its species' default on the board. A feat or a
+   * homebrew species writes it here, and the sheet's own number wins.
+   */
+  senses: z
+    .object({
+      /** Feet of darkvision. 0 or absent is normal sight. */
+      darkvision: z.number().int().min(0).max(1000).default(0).catch(0),
+    })
+    .default({ darkvision: 0 })
+    .catch({ darkvision: 0 }),
+
   details: z.object({
     appearance: z.string().max(4000).default(''),
     backstory: z.string().max(8000).default(''),
@@ -746,6 +759,7 @@ export function makeEmptySheet(): CharacterSheet {
         level9: { ...emptySlot },
       },
     },
+    senses: { darkvision: 0 },
     details: {
       appearance: '',
       backstory: '',

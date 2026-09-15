@@ -27,6 +27,7 @@ import {
   parseConditions,
   type ConditionKey,
 } from '@/@creator/campaign/lib/conditions';
+import { spellNameFromKey } from '@/@creator/campaign/lib/casting';
 import {
   durationWords,
   effectName,
@@ -184,7 +185,20 @@ export async function applyEffect(
 ): Promise<string[]> {
   const campaignId = await encounterCampaign(encounterId);
   const { userId } = await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  return putEffect(campaignId, encounterId, entryIds, input, userId);
+}
 
+/**
+ * The write behind `applyEffect`, for server code that has already decided
+ * who may — a spell landing its condition (07). Never exported to an action.
+ */
+export async function putEffect(
+  campaignId: string,
+  encounterId: string,
+  entryIds: readonly string[],
+  input: EffectInput,
+  userId: string | null
+): Promise<string[]> {
   const kind = input.kind;
   const visibility = input.visibility ?? 'shared';
   const rounds = cleanRounds(input.rounds);
@@ -658,4 +672,73 @@ export async function clearRestedEffects(
     secret: false,
   });
   return lifted;
+}
+
+/* --- concentration ----------------------------------------------------------- */
+
+/**
+ * Concentration drops (07): the flag comes off the entry, the spell it held
+ * is forgotten, every effect row the spell put on the table
+ * (`concentration = 1`, sourced from this entry) goes with it — its keys off
+ * the entries it sat on — and any shape worn under it reverts. One
+ * announcement: "Ilse loses Bless".
+ *
+ * Called on a failed save, at 0 hit points, on an incapacitating condition,
+ * when a second concentration spell is cast, and when the DM taps the glyph.
+ * Quiet when nothing was held.
+ */
+export async function breakConcentration(
+  entryId: string,
+  byUserId: string | null
+): Promise<void> {
+  const entry = await db.query.initiativeEntries.findFirst({
+    where: eq(initiativeEntries.id, entryId),
+  });
+  if (!entry || !entry.concentrating) return;
+  const campaignId = await encounterCampaign(entry.encounterId);
+
+  const rows = await db
+    .select()
+    .from(encounterEffects)
+    .where(
+      and(
+        eq(encounterEffects.sourceEntryId, entryId),
+        eq(encounterEffects.concentration, true)
+      )
+    );
+  for (const row of rows) await dropRow(row);
+
+  // A shape worn under this concentration — Polymorph — drops with it.
+  const wearers = await db
+    .select()
+    .from(initiativeEntries)
+    .where(eq(initiativeEntries.encounterId, entry.encounterId));
+  for (const w of wearers) {
+    const form = w.form as { effectId?: string | null } | null;
+    if (form && form.effectId && rows.some(r => r.id === form.effectId)) {
+      await db
+        .update(initiativeEntries)
+        .set({ form: null })
+        .where(eq(initiativeEntries.id, w.id));
+    }
+  }
+
+  await db
+    .update(initiativeEntries)
+    .set({ concentrating: false, concentrationSpell: null })
+    .where(eq(initiativeEntries.id, entryId));
+  bumpVersion(campaignId);
+  publish(campaignId, {
+    kind: 'effect',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    by: byUserId,
+    what: 'ended',
+    label: entry.concentrationSpell
+      ? `concentration on ${spellNameFromKey(entry.concentrationSpell)}`
+      : 'concentration',
+    targets: [entry.label],
+    duration: '',
+    secret: false,
+  });
 }

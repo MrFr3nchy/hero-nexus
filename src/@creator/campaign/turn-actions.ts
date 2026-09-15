@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { ACTION_KEYS, type TurnState } from '@/@creator/campaign/lib/turn';
 import { RuleRefusal } from '@/server/table-rules';
+import { searchNearby } from '@/server/battlemap';
 import { resetTurn, takeAction } from '@/server/turn';
 
 type Result<T = undefined> =
@@ -58,6 +59,13 @@ export async function takeActionAction(
   if (!parsedOpts.success) return { ok: false, error: 'Bad note.' };
   try {
     const data = await takeAction(entryId, parsedKey.data, parsedOpts.data);
+    // Search looks at the ground (08): anything hidden within 5 ft is
+    // rolled for and, found, shared with the table.
+    if (parsedKey.data === 'search') {
+      await searchNearby(entryId).catch(err =>
+        console.error('[turn-action] search', err)
+      );
+    }
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Could not take that.');

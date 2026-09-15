@@ -20,6 +20,7 @@ export const SCREEN_PANEL_KEYS = [
   'dice',
   'checks',
   'attacks',
+  'spells',
   'statblock',
   'whispers',
   'spotlight',
@@ -113,6 +114,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     label: 'Attacks',
     glyph: 'sword',
     description: 'Your weapons in hand, with to-hit and damage ready to roll.',
+    players: true,
+  },
+  spells: {
+    key: 'spells',
+    label: 'Spells',
+    glyph: 'sparkle',
+    description:
+      'Your prepared spells, cast on the tokens selected or the area lit.',
     players: true,
   },
   statblock: {

@@ -5,12 +5,15 @@ import { z } from 'zod';
 import { ABILITY_KEYS, SKILL_KEYS } from '@/@creator/character/schema';
 import {
   answerCheck,
+  answerConsent,
   cancelCheck,
   dismissCheck,
   listChecks,
   requestCheck,
+  requestCheckFrom,
   type CheckRow,
 } from '@/server/checks';
+import { resumeCast, settleSpellSave } from '@/server/casting';
 
 type Result<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
@@ -27,6 +30,10 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_ASKED: 'That was not asked of you.',
     CHECK_CLOSED: 'That request is already settled.',
     ALREADY_ANSWERED: 'You have already answered that one.',
+    NOT_A_CONSENT: 'That is not a spell asking your leave.',
+    NO_SAVE_TO_ROLL:
+      'That spell has no save to contest — allow it or refuse it.',
+    NO_SLOT: 'The caster has no slot left for it.',
   };
   if (!messages[code]) console.error('[action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
@@ -96,10 +103,53 @@ export async function answerCheckAction(
   mode: 'straight' | 'advantage' | 'disadvantage'
 ): Promise<Result> {
   try {
-    await answerCheck(checkId, mode);
+    const answer = await answerCheck(checkId, mode);
+    // A spell's save (07): the payload comes back here and the spell lands —
+    // kept out of `checks.ts` so the Asking does not import the caster.
+    if (answer.payload?.kind === 'spell' && answer.passed !== null) {
+      await settleSpellSave(
+        answer.campaignId,
+        answer.payload,
+        answer.passed,
+        answer.userId
+      );
+    }
     return { ok: true };
   } catch (err) {
     return fail(err, 'The dice did not land.');
+  }
+}
+
+/**
+ * Allow, contest or refuse a fellow player's spell (07). The pending casting
+ * resumes on a yes; any saves it then asks for are put to the table here.
+ */
+export async function answerConsentAction(
+  checkId: string,
+  answer: unknown,
+  mode: 'straight' | 'advantage' | 'disadvantage' = 'straight'
+): Promise<Result<{ landed: string[] }>> {
+  const parsed = z.enum(['allow', 'contest', 'refuse']).safeParse(answer);
+  if (!parsed.success) return { ok: false, error: 'Allow, contest or refuse.' };
+  try {
+    const res = await answerConsent(checkId, parsed.data, mode);
+    const cast = await resumeCast(
+      res.campaignId,
+      res.payload,
+      res.verdict,
+      res.userId
+    );
+    for (const ask of cast.asks) {
+      await requestCheckFrom(res.campaignId, ask.asker, ask.input);
+    }
+    return {
+      ok: true,
+      data: {
+        landed: cast.landed.map(l => `${l.targetLabel} · ${l.verdict}`),
+      },
+    };
+  } catch (err) {
+    return fail(err, 'Could not answer that.');
   }
 }
 

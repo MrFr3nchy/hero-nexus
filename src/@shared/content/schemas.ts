@@ -27,6 +27,7 @@
 import { z } from 'zod';
 
 import { ABILITY_KEYS, SKILL_KEYS } from '@/@creator/character/schema';
+import { CONDITION_KEYS } from '@/@creator/campaign/lib/conditions';
 
 import { CONTENT_TYPES, type ContentType } from './types';
 
@@ -233,6 +234,16 @@ const SPELL_SCHOOLS = [
   'transmutation',
 ] as const;
 
+export const SPELL_SHAPES = [
+  'sphere',
+  'cube',
+  'cone',
+  'line',
+  'cylinder',
+  'emanation',
+] as const;
+export type SpellShape = (typeof SPELL_SHAPES)[number];
+
 export const spellData = z.object({
   /** 0 is a cantrip. */
   level: count(9),
@@ -259,6 +270,41 @@ export const spellData = z.object({
   higher_level: text(4000),
   /** Class names this spell is on the list for. */
   classes: listOf(text(60), 20),
+
+  /*
+   * What the Cast flow (improvements 07) can act on. Optional and guarded:
+   * an SRD row fills them where its prose is regular, a homebrew form offers
+   * them, and a spell with none of them still casts — the flow asks.
+   */
+  /** Dice healed, e.g. `2d8`; the caster's modifier is added where the text says. */
+  healing_roll: text(60),
+  /** What a successful save does to the damage. */
+  save_effect: z
+    .enum(['none', 'half', 'negates'])
+    .default('none')
+    .catch('none'),
+  /** The shape on the grid, in feet. Null for a spell with no area. */
+  area: z
+    .object({
+      shape: z.enum(SPELL_SHAPES),
+      /** Radius, side or length, in feet. */
+      size: count(1000),
+      /** Line only: width in feet. 0 reads as 5. */
+      width: count(1000),
+    })
+    .nullable()
+    .default(null)
+    .catch(null),
+  /** How long it lasts in rounds; 0 for instantaneous or anything not in rounds. */
+  duration_rounds: count(10_000),
+  /** A condition it puts on a target that fails (or does not save at all). */
+  applies_condition: z
+    .enum(CONDITION_KEYS)
+    .nullable()
+    .default(null)
+    .catch(null),
+  /** Dice in a higher slot: `{ level, roll }` per slot level above the spell's. */
+  slot_scaling: listOf(z.object({ level: count(9, 1), roll: text(60) }), 9),
 });
 
 const ITEM_KINDS = [
@@ -456,6 +502,13 @@ export const creatureData = z.object({
   bonus_actions: listOf(creatureFeature, 20),
   reactions: listOf(creatureFeature, 20),
   legendary_actions: listOf(creatureFeature, 20),
+  /**
+   * What its spells are rolled against (07), read once off the prose —
+   * "spell save DC 13", "+5 to hit with spell attacks" — so the stat block
+   * can ask the right save at the right DC. 0 when the block casts nothing.
+   */
+  spell_save_dc: count(40),
+  spell_attack_bonus: signedBonus,
 });
 
 /* ------------------------------------------------------------------ *
