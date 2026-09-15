@@ -8,7 +8,7 @@ import {
   Switch,
   Tooltip,
 } from '@heroui/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ABILITY_KEYS,
@@ -26,7 +26,9 @@ import {
 import type { CampaignMemberRow } from '@/server/campaigns';
 import { listMembersAction } from '../../actions';
 import type { CheckRow, CheckTargetRow } from '@/server/checks';
+import type { PlayState } from '@/server/play';
 import type { LiveState } from '@/server/session';
+import { rollAdvice } from '@/@creator/campaign/lib/condition-effects';
 import {
   answerCheckAction,
   cancelCheckAction,
@@ -105,16 +107,36 @@ function TargetLine({
 function CheckCard({
   check,
   isStaff,
+  mine,
   refresh,
   onError,
 }: {
   check: CheckRow;
   isStaff: boolean;
+  /** The reader's own play state, for the default mode. Null when unseated. */
+  mine: PlayState | null;
   refresh: () => void | Promise<void>;
   onError: (message: string) => void;
 }) {
   const [mode, setMode] = useState<Mode>('straight');
   const [busy, setBusy] = useState(false);
+
+  // The rules' default from what the reader is under — restrained on a
+  // Dexterity save, poisoned on a check. A default, never a lock.
+  const advice = useMemo(
+    () =>
+      rollAdvice(
+        mine?.conditions ?? [],
+        check.kind === 'save' ? 'save' : 'check',
+        check.ability
+      ),
+    [mine?.conditions, check.kind, check.ability]
+  );
+  const adviceKey = `${advice.mode}:${advice.because.join('|')}`;
+  useEffect(() => {
+    setMode(advice.mode === 'flat' ? 'straight' : advice.mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adviceKey]);
 
   const answer = async () => {
     setBusy(true);
@@ -233,9 +255,22 @@ function CheckCard({
               Not now
             </Button>
           </Tooltip>
-          <Marginalia className="ml-auto" dash>
-            rolled on your own numbers
-          </Marginalia>
+          {advice.because.length > 0 || (mine?.d20Penalty ?? 0) !== 0 ? (
+            <span className="ml-auto text-xs text-warning">
+              {[
+                ...advice.because,
+                mine && mine.d20Penalty !== 0
+                  ? `Exhaustion · ${mine.d20Penalty} on d20 tests`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          ) : (
+            <Marginalia className="ml-auto" dash>
+              rolled on your own numbers
+            </Marginalia>
+          )}
         </div>
       )}
     </div>
@@ -404,6 +439,8 @@ export function ChecksPanel({
   const checks = state.checks ?? [];
   const open = checks.filter(c => c.status === 'open');
   const settled = checks.filter(c => c.status !== 'open').slice(0, 5);
+  const mine =
+    state.party.find(p => p.characterId === state.viewerCharacterId) ?? null;
 
   return (
     <SectionCard
@@ -432,6 +469,7 @@ export function ChecksPanel({
               key={c.id}
               check={c}
               isStaff={isStaff}
+              mine={mine}
               refresh={refresh}
               onError={onError}
             />
@@ -443,6 +481,7 @@ export function ChecksPanel({
                   key={c.id}
                   check={c}
                   isStaff={isStaff}
+                  mine={mine}
                   refresh={refresh}
                   onError={onError}
                 />

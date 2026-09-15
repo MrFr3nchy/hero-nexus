@@ -36,6 +36,7 @@ export const TABLE_EVENT_KINDS = [
   'gift',
   'thing',
   'rules',
+  'effect',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -199,6 +200,22 @@ export interface RulesEvent extends BaseEvent {
   encounterName: string | null;
 }
 
+/**
+ * Something with a clock on it was put on somebody, ran out, was shaken off,
+ * or — a countdown — came due. `label` is the effect's own name ("Poisoned",
+ * "Rage", "The ceiling comes down"); `targets` who it was on, already the
+ * words the table uses for them. A hidden countdown reaches staff only.
+ */
+export interface EffectEvent extends BaseEvent {
+  kind: 'effect';
+  what: 'applied' | 'ended' | 'saved' | 'fired' | 'cleared';
+  label: string;
+  targets: string[];
+  /** "3 rounds" / "until saved" on an application; empty otherwise. */
+  duration: string;
+  secret: boolean;
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -213,7 +230,8 @@ export type TableEvent =
   | WhisperEvent
   | GiftEvent
   | ThingEvent
-  | RulesEvent;
+  | RulesEvent
+  | EffectEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -253,6 +271,7 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   gift: 'chest',
   thing: 'key',
   rules: 'gavel',
+  effect: 'hourglass',
 };
 
 /**
@@ -439,6 +458,37 @@ export function describe(
         title,
         detail: event.changed.join(' '),
         tone: 'gold',
+      };
+    }
+
+    case 'effect': {
+      const who = event.targets.join(', ');
+      const words: Record<EffectEvent['what'], string> = {
+        applied: who ? `${event.label} · ${who}` : event.label,
+        ended: who ? `${event.label} ends on ${who}` : `${event.label} ends`,
+        saved: `${who || 'Somebody'} shakes off ${event.label}`,
+        fired: event.label,
+        cleared: `A long rest clears ${event.label}`,
+      };
+      return {
+        glyph,
+        title: words[event.what],
+        detail:
+          event.what === 'applied' && event.duration
+            ? event.secret
+              ? `${event.duration} · behind the screen`
+              : event.duration
+            : event.secret
+              ? 'Behind the screen'
+              : undefined,
+        // A countdown reaching zero is the one moment here that is actually
+        // dangerous — the ceiling came down. Shaking something off is good news.
+        tone:
+          event.what === 'fired'
+            ? 'danger'
+            : event.what === 'saved' || event.what === 'cleared'
+              ? 'success'
+              : 'gold',
       };
     }
 

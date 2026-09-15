@@ -105,6 +105,12 @@ import {
 import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
 import { ImagePicker } from '../ImagePicker';
 import { Refused, type RefusedState } from '../Refused';
+import { EffectPicker, type PickerEntry } from './EffectPicker';
+import {
+  speedFor,
+  speedReasons,
+} from '@/@creator/campaign/lib/condition-effects';
+import { parseConditions } from '@/@creator/campaign/lib/conditions';
 
 /* --- tools ------------------------------------------------------------- */
 
@@ -674,9 +680,11 @@ export function BattleBoard({
   /**
    * Speed off the sheet, for a seated character; the default for a monster
    * dealt in from the bestiary, whose stat block the tracker does not carry.
-   * Advice, not a fence: `moveToken` does not enforce distance, because a DM
-   * saying "you can't get there this turn" is how that rule is applied at a
-   * table, and a fence would put the app between them.
+   * Then through `speedFor`: grappled is 0, prone crawls, exhaustion takes
+   * its 5 ft a level — one rules module, so the board and the play card say
+   * the same number. Advice, not a fence: `moveToken` fences only under
+   * Enforce (01), because a DM saying "you can't get there this turn" is how
+   * that rule is applied at a table.
    */
   const speedOf = useCallback(
     (t: { entryId: string | null }): number => {
@@ -684,10 +692,47 @@ export function BattleBoard({
       const sheet = entry?.characterId
         ? state.party.find(p => p.characterId === entry.characterId)
         : undefined;
-      return sheet?.speed ?? DEFAULT_SPEED_FEET;
+      return speedFor(
+        sheet?.speed ?? DEFAULT_SPEED_FEET,
+        parseConditions(entry?.conditionKeys ?? ''),
+        sheet?.exhaustion ?? 0
+      );
     },
     [entriesById, state.party]
   );
+
+  /** Why the reach is what it is — "Grappled · speed 0". Empty when unremarkable. */
+  const speedWhy = useCallback(
+    (t: { entryId: string | null }): string[] => {
+      const entry = t.entryId ? entriesById.get(t.entryId) : undefined;
+      const sheet = entry?.characterId
+        ? state.party.find(p => p.characterId === entry.characterId)
+        : undefined;
+      return speedReasons(
+        parseConditions(entry?.conditionKeys ?? ''),
+        sheet?.exhaustion ?? 0
+      );
+    },
+    [entriesById, state.party]
+  );
+
+  /** The combatants under the selection, for putting one effect on all of them. */
+  const selectedEntries = useMemo<PickerEntry[]>(() => {
+    if (!board) return [];
+    const out: PickerEntry[] = [];
+    for (const id of selectedIds) {
+      const token = board.tokens.find(t => t.id === id);
+      const entry = token?.entryId ? entriesById.get(token.entryId) : undefined;
+      if (entry) {
+        out.push({
+          id: entry.id,
+          label: entry.label,
+          conditionKeys: entry.conditionKeys,
+        });
+      }
+    }
+    return out;
+  }, [board, selectedIds, entriesById]);
 
   const sideOf = useCallback(
     (t: { entryId: string | null }): string | null =>
@@ -2539,11 +2584,42 @@ export function BattleBoard({
               {selectedIds.length > 1
                 ? 'Tap a tile and the group steps with it.'
                 : selectedToken.entryId
-                  ? `Tap a lit tile to move there. ${speedOf(selectedToken)} ft.`
+                  ? speedOf(selectedToken) === 0
+                    ? 'Cannot move this turn.'
+                    : `Tap a lit tile to move there. ${speedOf(selectedToken)} ft.`
                   : 'Tap a tile to move it.'}
             </span>
           ) : (
             <span>Not yours to move.</span>
+          )}
+          {selectedToken.entryId &&
+            speedWhy(selectedToken).map(why => (
+              <span key={why} className="text-xs text-warning">
+                {why}
+              </span>
+            ))}
+          {isStaff && state.encounter && selectedEntries.length > 0 && (
+            <EffectPicker
+              encounterId={state.encounter.id}
+              entries={selectedEntries}
+              others={state.entries
+                .filter(e => !selectedEntries.some(s => s.id === e.id))
+                .map(e => ({
+                  id: e.id,
+                  label: e.label,
+                  conditionKeys: e.conditionKeys,
+                }))}
+              act={async p => {
+                const res = await p;
+                if (!res.ok) onError(res.error ?? 'Something went wrong.');
+                await refresh();
+              }}
+              triggerLabel={
+                selectedEntries.length > 1
+                  ? `Afflict ${selectedEntries.length}`
+                  : 'Afflict'
+              }
+            />
           )}
           {/* What a thing is, and what can be done to it. Anyone beside it
               opens or closes it; a locked one is picked, rolled on the

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Glyph, Marginalia, Stat } from '@/@shared/components/ui';
 import type { PlayState } from '@/server/play';
 import { conditionDef } from '../lib/conditions';
+import { effectDetail, effectName, type EffectRow } from '../lib/effects';
 import { useDiceTray } from '@/@shared/components/dice';
 import type { DeathSaveMode } from '@/@creator/character/lib/dying';
 import { startTimerAction } from '../actions';
@@ -292,6 +293,7 @@ export function PlayCard({
   campaignId,
   compact = false,
   canRollSecret = false,
+  clocks = [],
   onChange,
   onError,
 }: {
@@ -301,6 +303,12 @@ export function PlayCard({
   compact?: boolean;
   /** Staff may roll a death save the players never see. */
   canRollSecret?: boolean;
+  /**
+   * The rows with a clock on this character in the running fight — so a
+   * player sees "Poisoned · 3" on their own card, the same count the DM
+   * sees on the tracker. Empty off the sand table.
+   */
+  clocks?: EffectRow[];
   onChange: (next: PlayState) => void;
   onError: (message: string) => void;
 }) {
@@ -388,25 +396,54 @@ export function PlayCard({
         />
       </div>
 
-      {state.conditions.length > 0 && (
+      {(state.conditions.length > 0 ||
+        clocks.some(c => c.kind === 'effect')) && (
         <div className="mt-2 flex flex-wrap gap-1">
           {state.conditions.map(key => {
             const def = conditionDef(key);
             if (!def) return null;
+            const clock =
+              clocks.find(
+                c => c.kind === 'condition' && c.conditionKey === key
+              ) ?? null;
             return (
-              <Tooltip key={key} content={def.hint}>
+              <Tooltip
+                key={key}
+                content={
+                  clock ? `${def.hint} · ${effectDetail(clock)}` : def.hint
+                }
+              >
                 <span
-                  className={`rounded-sm border px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.08em] ${
+                  className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.08em] ${
                     def.tone === 'danger'
                       ? 'border-danger/40 bg-danger/10 text-danger'
                       : 'border-warning/40 bg-warning/10 text-warning'
                   }`}
                 >
                   {def.label}
+                  {clock?.roundsLeft != null && (
+                    <span className="font-display normal-case tracking-normal tabular-nums">
+                      · {clock.roundsLeft}
+                    </span>
+                  )}
                 </span>
               </Tooltip>
             );
           })}
+          {clocks
+            .filter(c => c.kind === 'effect')
+            .map(c => (
+              <Tooltip key={c.id} content={effectDetail(c)}>
+                <span className="inline-flex items-center gap-1 rounded-sm border border-arcane/40 bg-arcane/10 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.08em] text-arcane">
+                  {effectName(c)}
+                  {c.roundsLeft !== null && (
+                    <span className="font-display normal-case tracking-normal tabular-nums">
+                      · {c.roundsLeft}
+                    </span>
+                  )}
+                </span>
+              </Tooltip>
+            ))}
         </div>
       )}
 
@@ -524,7 +561,7 @@ export function PlayCard({
               <span className="text-xs text-ink-subtle">
                 {state.exhaustion >= 6
                   ? 'dead'
-                  : `−${state.exhaustion * 2} on d20 tests, −${state.exhaustion * 5} ft.`}
+                  : `${state.d20Penalty} on d20 tests · −${state.exhaustion * 5} ft`}
               </span>
             )}
             {state.canEdit && (
@@ -624,7 +661,26 @@ export function PlayCard({
           <div className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-3 @sm:grid-cols-6">
             <Stat plain label="AC" value={state.armorClass} />
             <Stat plain label="Init" value={mod(state.initiative)} />
-            <Stat plain label="Speed" value={state.speed} />
+            {/* What they can actually walk, with the sheet's number beside it
+                when a condition or exhaustion has taken some — the board
+                lights the first figure, the sheet says the second. */}
+            <Stat
+              plain
+              label="Speed"
+              value={
+                state.effectiveSpeed === state.speed ? (
+                  state.speed
+                ) : (
+                  <span className="text-warning">
+                    {state.effectiveSpeed}
+                    <span className="text-sm text-ink-subtle">
+                      {' '}
+                      / {state.speed}
+                    </span>
+                  </span>
+                )
+              }
+            />
             <Stat plain label="Prof" value={mod(state.proficiency)} />
             <Stat plain label="Pass. per" value={state.passivePerception} />
             <Stat

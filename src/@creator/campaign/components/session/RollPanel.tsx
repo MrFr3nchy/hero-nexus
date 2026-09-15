@@ -1,12 +1,13 @@
 'use client';
 
 import { Button, Input, Select, SelectItem, Switch } from '@heroui/react';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useDiceTray } from '@/@shared/components/dice';
 import { motion } from '@/@shared/components/motion';
 import { Marginalia, SectionCard } from '@/@shared/components/ui';
 import { critToneOf, withAdvantage } from '@/@shared/lib/dice';
+import { rollAdvice } from '@/@creator/campaign/lib/condition-effects';
 import type { CharacterRow } from '@/server/characters';
 import type { LiveState, RollRow } from '@/server/session';
 import { clearRollsAction, rollAction } from '../../actions';
@@ -116,6 +117,28 @@ export function RollPanel({
   );
   const [spin, setSpin] = useState(0);
   const tray = useDiceTray();
+
+  /*
+   * What the rules say about a d20 in this hand. A default, never a lock:
+   * the picker below is still the picker, and the DM's ruling on whether the
+   * source of the fear is in sight is theirs to make. Read off the live party
+   * state so a condition put on mid-fight moves the default without a remount.
+   */
+  const mine = useMemo(
+    () => state.party.find(p => p.characterId === characterId) ?? null,
+    [state.party, characterId]
+  );
+  const advice = useMemo(
+    () => rollAdvice(mine?.conditions ?? [], 'check'),
+    [mine?.conditions]
+  );
+  const adviceKey = `${advice.mode}:${advice.because.join('|')}`;
+  useEffect(() => {
+    setMode(advice.mode);
+    // Re-defaults only when the advice itself changes, so a player who flipped
+    // it back is not fought every poll.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adviceKey]);
 
   /**
    * The server rolls, then the tray draws the faces it rolled. The dice on
@@ -230,6 +253,18 @@ export function RollPanel({
               </button>
             ))}
           </div>
+          {(advice.because.length > 0 || (mine?.d20Penalty ?? 0) !== 0) && (
+            <span className="text-xs text-warning">
+              {[
+                ...advice.because,
+                mine && mine.d20Penalty !== 0
+                  ? `Exhaustion · ${mine.d20Penalty} on d20 tests`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          )}
 
           {myCharacters.length > 0 && (
             <Select

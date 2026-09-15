@@ -26,12 +26,17 @@ import { PlayCard } from './PlayCard';
 export function PartyPlayPanel({
   campaignId,
   party: live,
+  entries = [],
+  effects = [],
   isStaff,
   refresh,
   onError,
 }: {
   campaignId: string;
   party: LiveState['party'];
+  /** The fight's order and its clocks, so a card can show its own count. */
+  entries?: LiveState['entries'];
+  effects?: LiveState['effects'];
   isStaff: boolean;
   refresh: () => void | Promise<void>;
   onError: (message: string) => void;
@@ -59,6 +64,11 @@ export function PartyPlayPanel({
     setLocal(prev =>
       prev.map(p => (p.characterId === next.characterId ? next : p))
     );
+
+  const clocksFor = (characterId: string) => {
+    const entry = entries.find(e => e.characterId === characterId);
+    return entry ? effects.filter(x => x.entryId === entry.id) : [];
+  };
 
   if (party.length === 0) {
     return (
@@ -106,6 +116,7 @@ export function PartyPlayPanel({
           state={p}
           campaignId={campaignId}
           canRollSecret={isStaff}
+          clocks={clocksFor(p.characterId)}
           onChange={replace}
           onError={onError}
         />
@@ -120,6 +131,7 @@ export function PartyPlayPanel({
               state={p}
               campaignId={campaignId}
               canRollSecret={isStaff}
+              clocks={clocksFor(p.characterId)}
               compact={!isStaff}
               onChange={replace}
               onError={onError}

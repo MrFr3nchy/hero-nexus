@@ -4,9 +4,12 @@ import { and, eq } from 'drizzle-orm';
 
 import {
   parseConditions,
-  serializeConditions,
   type ConditionKey,
 } from '@/@creator/campaign/lib/conditions';
+import {
+  d20PenaltyFor,
+  speedFor,
+} from '@/@creator/campaign/lib/condition-effects';
 import {
   applyDamageWhileDown,
   applyDeathSave,
@@ -41,6 +44,8 @@ import {
   initiativeEntries,
 } from '@/db/schema';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
+import { writeConditions } from './conditions';
+import { clearRestedEffects } from './effects';
 import { bumpVersion, publish } from './live-hub';
 import { effectiveRules, fence } from './table-rules';
 import { DEFAULT_TABLE_RULES } from '@/@creator/campaign/lib/table-rules';
@@ -82,7 +87,16 @@ export interface PlayState {
   dying: DyingState;
 
   armorClass: number;
+  /** Off the sheet, before conditions and exhaustion. */
   speed: number;
+  /**
+   * What the character can actually walk this turn: `speedFor` over the
+   * conditions and exhaustion. The board lights this many feet; the card
+   * shows the arithmetic beside the sheet's number.
+   */
+  effectiveSpeed: number;
+  /** 2024 exhaustion: −2 per level on every d20 test. Zero when rested. */
+  d20Penalty: number;
   initiative: number;
   proficiency: number;
   passivePerception: number;
@@ -284,6 +298,12 @@ function toPlayState(
 
     armorClass: sheet.combat?.armorClass ?? 10,
     speed: sheet.combat?.speed ?? 30,
+    effectiveSpeed: speedFor(
+      sheet.combat?.speed ?? 30,
+      conditions,
+      sheet.combat?.exhaustion ?? 0
+    ),
+    d20Penalty: d20PenaltyFor(sheet.combat?.exhaustion ?? 0),
     initiative: abilityModifier(sheet.abilities?.dexterity?.score ?? 10),
     proficiency: proficiencyBonus(level),
     passivePerception: passivePerception(sheet),
@@ -1438,6 +1458,16 @@ export async function restParty(
     rested += 1;
   }
 
+  // Anything measured in rounds is over after eight hours; a curse with no
+  // clock on it is not a nap away. `clearRestedEffects` draws that line and
+  // tells the table what lifted.
+  if (kind === 'long') {
+    await clearRestedEffects(
+      campaignId,
+      rows.map(r => r.character.id)
+    );
+  }
+
   bumpVersion(campaignId);
   return rested;
 }
@@ -1451,43 +1481,6 @@ export async function setPlayConditions(
   await requireCampaignRole(campaignId, ['gm', 'co-gm']);
   await writeConditions(characterId, keys);
   bumpVersion(campaignId);
-}
-
-/**
- * Write a character's conditions to the sheet, and to the tracker row when
- * there is one.
- *
- * Both, because they are read by different surfaces: the initiative list reads
- * the row, and everything else reads the sheet. Writing only the row is what
- * made a condition die with the encounter.
- */
-async function writeConditions(
-  characterId: string,
-  keys: string[]
-): Promise<ConditionKey[]> {
-  const cleaned = parseConditions(serializeConditions(keys));
-
-  const character = await db.query.characters.findFirst({
-    where: eq(characters.id, characterId),
-  });
-  if (character) {
-    const sheet = character.sheet as CharacterSheet;
-    const next: CharacterSheet = {
-      ...sheet,
-      combat: { ...sheet.combat, conditions: cleaned },
-    };
-    await db
-      .update(characters)
-      .set({ sheet: next, updatedAt: new Date().toISOString() })
-      .where(eq(characters.id, characterId));
-  }
-
-  await db
-    .update(initiativeEntries)
-    .set({ conditionKeys: serializeConditions(cleaned) })
-    .where(eq(initiativeEntries.characterId, characterId));
-
-  return cleaned;
 }
 
 /**

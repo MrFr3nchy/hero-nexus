@@ -8,12 +8,48 @@ import { useDiceTray } from '@/@shared/components/dice';
 import { Glyph, Marginalia } from '@/@shared/components/ui';
 import { withAdvantage } from '@/@shared/lib/dice';
 import { distanceFeet } from '@/@creator/campaign/lib/battlemap';
+import {
+  attackedWith,
+  rollAdvice,
+} from '@/@creator/campaign/lib/condition-effects';
+import { parseConditions } from '@/@creator/campaign/lib/conditions';
 import { fmtBonus, type WeaponAttack } from '@/@creator/character/lib/derive';
 import type { LiveState } from '@/server/session';
 import { rollAction } from '../../actions';
 import { getMyAttacksAction, mySeatAction } from '../../fight-actions';
 
 type Mode = 'flat' | 'advantage' | 'disadvantage';
+
+/**
+ * What the target's own state does to the swing — "Prone · advantage in
+ * melee, disadvantage at range". Words only: the mode picker is the
+ * attacker's, and whether this blow is melee is theirs to know.
+ */
+function TargetAdvice({
+  conditions,
+  name,
+}: {
+  conditions: ReturnType<typeof parseConditions>;
+  name: string;
+}) {
+  const melee = attackedWith(conditions, true);
+  const ranged = attackedWith(conditions, false);
+  if (melee === 'flat' && ranged === 'flat') return null;
+  const word = (m: typeof melee) =>
+    m === 'advantage'
+      ? 'advantage'
+      : m === 'disadvantage'
+        ? 'disadvantage'
+        : 'straight';
+  return (
+    <p className="text-[0.7rem] text-ink-muted">
+      Against {name}:{' '}
+      {melee === ranged
+        ? word(melee)
+        : `${word(melee)} in melee, ${word(ranged)} at range`}
+    </p>
+  );
+}
 
 /**
  * The viewer's weapons in hand, ready to roll.
@@ -65,6 +101,22 @@ export function AttacksPanel({
     load();
   }, [load, mine?.loadoutKey]);
 
+  /*
+   * The rules' default for the mode, from what the attacker is under. A
+   * default and not a lock — the picker stays — and re-applied only when the
+   * advice moves, so a player who flipped it back is not fought every poll.
+   */
+  const advice = useMemo(
+    () => rollAdvice(mine?.conditions ?? [], 'attack'),
+    [mine?.conditions]
+  );
+  const adviceKey = `${advice.mode}:${advice.because.join('|')}`;
+  useEffect(() => {
+    setMode(advice.mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adviceKey]);
+  const penalty = mine?.d20Penalty ?? 0;
+
   /* --- the target ------------------------------------------------------ */
 
   const board = state.battlemap;
@@ -90,6 +142,7 @@ export function AttacksPanel({
       // the same reason it is on the board's own status line.
       name: entry?.label || token.label || 'Something',
       feet: myToken ? distanceFeet(myToken, token) : null,
+      conditions: parseConditions(entry?.conditionKeys ?? ''),
     };
   }, [board, selectedId, myToken, state.entries]);
 
@@ -98,11 +151,14 @@ export function AttacksPanel({
   const roll = async (attack: WeaponAttack, what: 'hit' | 'damage') => {
     if (!characterId) return;
     const two = twoHanded.has(attack.itemId) && attack.versatileDamage;
+    // Exhaustion comes off every d20 test (2024), so it comes off the hit
+    // and never the damage. Folded into the bonus so the log shows one number.
+    const toHit = `1d20${fmtBonus(attack.attackBonus + penalty)}`;
     const notation =
       what === 'hit'
         ? mode === 'flat'
-          ? `1d20${fmtBonus(attack.attackBonus)}`
-          : withAdvantage(`1d20${fmtBonus(attack.attackBonus)}`, mode)
+          ? toHit
+          : withAdvantage(toHit, mode)
         : two
           ? attack.versatileDamage
           : attack.damage;
@@ -191,6 +247,19 @@ export function AttacksPanel({
           <Marginalia dash>tap a foe on the board to aim</Marginalia>
         )}
       </div>
+      {(advice.because.length > 0 || penalty !== 0) && (
+        <p className="text-[0.7rem] text-warning">
+          {[
+            ...advice.because,
+            penalty !== 0 ? `Exhaustion · ${penalty} to hit` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      )}
+      {target && target.conditions.length > 0 && (
+        <TargetAdvice conditions={target.conditions} name={target.name} />
+      )}
 
       <ul className="divide-y divide-line">
         {attacks.map(a => {

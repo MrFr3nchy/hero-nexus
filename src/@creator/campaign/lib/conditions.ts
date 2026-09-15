@@ -138,12 +138,19 @@ export function conditionDef(key: string): ConditionDef | undefined {
   return BY_KEY.get(key as ConditionKey);
 }
 
-/** Parse the stored comma-separated column, dropping anything unrecognised. */
+/**
+ * Parse the stored comma-separated column, dropping anything unrecognised.
+ * Deduped and in the canonical order, so the union of a sheet's list and a
+ * tracker row's — which name the same keys — reads as one list, not two.
+ */
 export function parseConditions(stored: string): ConditionKey[] {
-  return stored
-    .split(',')
-    .map(s => s.trim())
-    .filter((s): s is ConditionKey => BY_KEY.has(s as ConditionKey));
+  const set = new Set(
+    stored
+      .split(',')
+      .map(s => s.trim())
+      .filter((s): s is ConditionKey => BY_KEY.has(s as ConditionKey))
+  );
+  return CONDITION_KEYS.filter(k => set.has(k));
 }
 
 /** Serialise back to the column, deduped and in the canonical order. */
