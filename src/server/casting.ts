@@ -88,7 +88,7 @@ import { resolveContentRefs } from './content';
 import { breakConcentration, putEffect } from './effects';
 import { bumpVersion, publish } from './live-hub';
 import { applyPlayPatchUnchecked } from './play';
-import { applyHpUnchecked } from './session';
+import { applyHpUnchecked } from './hp';
 import { requireUserId } from './session-user';
 import { effectiveRules, fence } from './table-rules';
 import { takeActionUnchecked } from './turn';

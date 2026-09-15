@@ -18,6 +18,8 @@ export interface LitArea {
   /** Combatants with a token touching a lit tile, in board order. */
   entryIds: string[];
   labels: string[];
+  /** The lit tile indices — what a thing's change is authored over (08). */
+  tiles: number[];
 }
 
 const lit = new Map<string, LitArea | null>();
