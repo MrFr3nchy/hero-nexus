@@ -17,6 +17,11 @@ import {
 } from '@/db/schema';
 import { characterSheetSchema } from '@/@creator/character/schema';
 import {
+  GREGORIAN_LIKE,
+  normalizeCalendar,
+  type CalendarDef,
+} from '@/@creator/campaign/lib/calendar';
+import {
   checkSheetAgainstRules,
   DEFAULT_CAMPAIGN_RULES,
   mergeRules,
@@ -49,6 +54,12 @@ export interface CampaignSettings {
    * running fight's overrides over it — never straight off the row.
    */
   table: TableRules;
+  /**
+   * The world's calendar (improvements 10): months, weekdays, hours, epoch.
+   * Where the clock *stands* is `campaigns.world_time`, not here — the
+   * definition changes once a campaign, the moment changes every rest.
+   */
+  calendar: CalendarDef;
 }
 
 export const DEFAULT_CAMPAIGN_SETTINGS: CampaignSettings = {
@@ -62,6 +73,7 @@ export const DEFAULT_CAMPAIGN_SETTINGS: CampaignSettings = {
   bannerImageId: null,
   rules: DEFAULT_CAMPAIGN_RULES,
   table: DEFAULT_TABLE_RULES,
+  calendar: GREGORIAN_LIKE,
 };
 
 /**
@@ -76,6 +88,7 @@ export function mergeCampaignSettings(raw: unknown): CampaignSettings {
     ...obj,
     rules: mergeRules(obj.rules),
     table: mergeTableRules(obj.table),
+    calendar: normalizeCalendar(obj.calendar),
   };
 }
 
@@ -128,9 +141,10 @@ export interface CampaignInviteRow {
 export interface CampaignInput {
   name: string;
   description?: string;
-  settings?: Partial<Omit<CampaignSettings, 'rules' | 'table'>> & {
+  settings?: Partial<Omit<CampaignSettings, 'rules' | 'table' | 'calendar'>> & {
     rules?: Partial<CampaignRules>;
     table?: TableRulesPatch;
+    calendar?: unknown;
   };
 }
 
@@ -351,6 +365,10 @@ export async function updateCampaign(
         ...patch,
         rules: { ...current.rules, ...(patch.rules ?? {}) },
         table: applyTableRulesPatch(current.table, patch.table),
+        calendar:
+          patch.calendar === undefined
+            ? current.calendar
+            : normalizeCalendar(patch.calendar),
       } satisfies CampaignSettings,
       updatedAt: new Date().toISOString(),
     })

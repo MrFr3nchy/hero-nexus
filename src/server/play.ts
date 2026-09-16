@@ -64,6 +64,8 @@ import { loadFor, loadsFor } from './load';
 import { effectiveRules, fence } from './table-rules';
 import { claimedFaces } from './dice-claims';
 import { physicalDiceAllowed } from '@/@creator/campaign/lib/table-rules';
+import { regainsInspirationOnLongRest } from '@/@creator/campaign/lib/rests';
+import { xpStanding } from '@/@creator/character/lib/advancement';
 import { spendWeaponSwap, takeActionUnchecked } from './turn';
 import { DEFAULT_TABLE_RULES } from '@/@creator/campaign/lib/table-rules';
 import { requireUserId } from './session-user';
@@ -146,6 +148,22 @@ export interface PlayState {
    * potion somebody handed you appears without a remount.
    */
   loadoutKey: string;
+  /** Holding Heroic Inspiration (10). One at a time. */
+  heroicInspiration: boolean;
+  /** The road's tally (10): days without, hours awake. Zero when not tracked. */
+  survival: {
+    daysWithoutFood: number;
+    daysWithoutWater: number;
+    hoursAwake: number;
+  };
+  /** Rations carried, by name — what the day tick will eat. */
+  rations: number;
+  /**
+   * Experience has outrun the level on the sheet (10): the level it earns,
+   * or null. Derived from `identity.xp` against the advancement table, never
+   * stored — the builder's save is what clears it.
+   */
+  levelEarned: number | null;
 }
 
 /**
@@ -394,6 +412,19 @@ function toPlayState(
       ),
       COIN_KEYS.map(k => sheet.currency?.[k] ?? 0).join(':'),
     ].join('|'),
+    heroicInspiration: sheet.combat?.heroicInspiration ?? false,
+    survival: {
+      daysWithoutFood: sheet.survival?.daysWithoutFood ?? 0,
+      daysWithoutWater: sheet.survival?.daysWithoutWater ?? 0,
+      hoursAwake: sheet.survival?.hoursAwake ?? 0,
+    },
+    rations: (sheet.inventory ?? [])
+      .filter(i => /\bration/i.test(i.name))
+      .reduce((n, i) => n + i.quantity, 0),
+    levelEarned: (() => {
+      const standing = xpStanding(sheet.identity?.xp ?? 0, level);
+      return standing.canLevel ? standing.earnedLevel : null;
+    })(),
   };
 }
 
@@ -1587,7 +1618,17 @@ export async function restParty(
   kind: 'short' | 'long'
 ): Promise<number> {
   await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  return (await applyRestUnchecked(campaignId, kind)).rested;
+}
 
+/**
+ * The write behind `restParty`, for the rest flow (`server/rests.ts`), which
+ * has already checked who is confirming. Never exported to an action.
+ */
+export async function applyRestUnchecked(
+  campaignId: string,
+  kind: 'short' | 'long'
+): Promise<{ rested: number; characterIds: string[] }> {
   const rows = await db
     .select({ character: characters })
     .from(campaignMembers)
@@ -1618,6 +1659,10 @@ export async function restParty(
         combat.hitDiceSpent - Math.max(1, Math.floor(combat.hitDiceMax / 2))
       );
       combat.exhaustion = Math.max(0, (combat.exhaustion ?? 0) - 1);
+      // 2024: a human wakes inspired (10). Anybody else keeps what they had.
+      if (regainsInspirationOnLongRest(sheet.identity.species)) {
+        combat.heroicInspiration = true;
+      }
       for (const key of SLOT_KEYS) {
         spellcasting.slots[key] = { ...spellcasting.slots[key], expended: 0 };
       }
@@ -1655,7 +1700,7 @@ export async function restParty(
   }
 
   bumpVersion(campaignId);
-  return rested;
+  return { rested, characterIds: rows.map(r => r.character.id) };
 }
 
 /** Set the conditions the tracker has this character under. Staff only. */

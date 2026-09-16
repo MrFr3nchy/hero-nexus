@@ -41,6 +41,9 @@ const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
   action: 'Actions',
   opportunity: 'Opportunity attacks',
   cast: 'Spells',
+  time: 'The clock',
+  rest: 'Rests',
+  levelup: 'Levels',
 };
 
 /**

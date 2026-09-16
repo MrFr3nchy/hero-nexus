@@ -314,6 +314,12 @@ export const campaigns = sqliteTable('campaigns', {
   })
     .notNull()
     .default('active'),
+  /**
+   * Where the world's clock stands — a `WorldTime` on the calendar in
+   * `settings.calendar`, JSON. Null is a table that has not started counting.
+   * `server/world-time.ts` is the only writer (improvements 10).
+   */
+  worldTime: text('world_time', { mode: 'json' }),
   createdAt: text('created_at').default(nowIso).notNull(),
   updatedAt: text('updated_at').default(nowIso).notNull(),
 });
@@ -744,6 +750,8 @@ export const canonEntries = sqliteTable(
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('dm'),
+    /** When, on the world's clock (`WorldTime`, JSON). Optional. */
+    worldDate: text('world_date', { mode: 'json' }),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -815,6 +823,9 @@ export const downtimePeriods = sqliteTable(
     label: text('label').notNull().default(''),
     opensAt: text('opens_at'),
     closesAt: text('closes_at'),
+    /** The span on the world's clock (`WorldTime`, JSON), when the DM says. */
+    worldFrom: text('world_from', { mode: 'json' }),
+    worldTo: text('world_to', { mode: 'json' }),
     /** 'open' accepts new actions; 'closed' does not. */
     status: text('status', { enum: ['open', 'closed'] })
       .notNull()
@@ -1003,6 +1014,8 @@ export const campaignSessions = sqliteTable(
      * counts from, so it is an instant rather than a day.
      */
     startedAt: text('started_at'),
+    /** The world's date the sitting opened on (`WorldTime`, JSON), if counting. */
+    worldDate: text('world_date', { mode: 'json' }),
     /**
      * `live` is now, and there may be **at most one per campaign** — enforced
      * by a partial unique index in `0037_live_sittings.sql` rather than by a
@@ -1691,6 +1704,8 @@ export const playerJournals = sqliteTable(
     sessionId: text('session_id').references(() => campaignSessions.id, {
       onDelete: 'set null',
     }),
+    /** When, on the world's clock (`WorldTime`, JSON). Optional. */
+    worldDate: text('world_date', { mode: 'json' }),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
@@ -2425,4 +2440,38 @@ export const campaignShopStock = sqliteTable(
     sortOrder: integer('sort_order').notNull().default(0),
   },
   t => [index('campaign_shop_stock_shop_idx').on(t.shopId)]
+);
+
+/* --- Rests as a flow (0058) -------------------------------------------- */
+
+/**
+ * A rest in progress (improvements 10).
+ *
+ * Staff call it, each player answers from their own hero panel, staff
+ * confirm and the sheets move. The answers are a row so a refresh does not
+ * lose who has spoken; one open rest per campaign, by the partial index in
+ * `0058_rests.sql`. `server/rests.ts` is the only writer.
+ */
+export const campaignRests = sqliteTable(
+  'campaign_rests',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['short', 'long'] }).notNull(),
+    status: text('status', { enum: ['open', 'done', 'broken'] })
+      .notNull()
+      .default('open'),
+    /** `{ [characterId]: { hitDice: number; confirmed: boolean } }`. */
+    answers: text('answers', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
+    calledBy: text('called_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    startedAt: text('started_at').default(nowIso).notNull(),
+    resolvedAt: text('resolved_at'),
+  },
+  t => [index('campaign_rests_campaign_idx').on(t.campaignId)]
 );

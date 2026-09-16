@@ -74,6 +74,8 @@ import { resolveContentRefs } from './content';
 import { loadsFor } from './load';
 import type { Encumbrance } from '@/@creator/character/lib/derive';
 import { listWhispers, type WhisperRow } from './whispers';
+import { readWorldClock, type WorldClock } from './world-time';
+import { openRest, type RestRow } from './rests';
 
 /** How much of the roll log the live view carries. */
 const ROLL_LOG_LIMIT = 40;
@@ -262,6 +264,14 @@ export interface LiveState {
    * player in `listEffects`, not in a component. Empty with no encounter.
    */
   effects: EffectRow[];
+  /**
+   * The world's clock (10): the calendar and where it stands, or null when
+   * the table has not started counting. Role-neutral — a date is not a
+   * secret — and read here so the mode bar and the chronicle share one.
+   */
+  clock: WorldClock;
+  /** The rest in progress, or null. Who has answered is on it. */
+  rest: RestRow | null;
 }
 
 /**
@@ -577,20 +587,31 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
 
   // Both are their own modules and already role-filtered there — these are
   // reads, not second places that decide what a player may see.
-  const [checks, party, maps, battlemap, portraitRows, whispers, effects] =
-    await Promise.all([
-      listChecks(campaignId),
-      listPartyPlayState(campaignId),
-      listMaps(campaignId),
-      getBattleMapState(campaignId, { userId, role }),
-      portraitsFor(
-        rawEntries
-          .map(e => e.characterId)
-          .filter((id): id is string => id !== null)
-      ),
-      listWhispers(campaignId),
-      encounter ? listEffects(encounter.id, isStaff) : Promise.resolve([]),
-    ]);
+  const [
+    checks,
+    party,
+    maps,
+    battlemap,
+    portraitRows,
+    whispers,
+    effects,
+    clock,
+    rest,
+  ] = await Promise.all([
+    listChecks(campaignId),
+    listPartyPlayState(campaignId),
+    listMaps(campaignId),
+    getBattleMapState(campaignId, { userId, role }),
+    portraitsFor(
+      rawEntries
+        .map(e => e.characterId)
+        .filter((id): id is string => id !== null)
+    ),
+    listWhispers(campaignId),
+    encounter ? listEffects(encounter.id, isStaff) : Promise.resolve([]),
+    readWorldClock(campaignId),
+    openRest(campaignId),
+  ]);
   const portraits: Record<string, string> = {};
   for (const [id, row] of portraitRows) portraits[id] = row.url;
   // `listMaps` already dropped anything this viewer may not see, and lighting
@@ -652,6 +673,8 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
     viewerCharacterId: membership?.characterId ?? null,
     rules,
     effects,
+    clock,
+    rest,
   };
 }
 
