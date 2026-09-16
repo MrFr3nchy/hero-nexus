@@ -37,6 +37,7 @@ export const SCREEN_PANEL_KEYS = [
   'canon',
   'chronicle',
   'downtime',
+  'encounters',
 ] as const;
 
 export type ScreenPanelKey = (typeof SCREEN_PANEL_KEYS)[number];
@@ -241,6 +242,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     glyph: 'hourglass',
     description: 'What the party is doing between sittings.',
     players: true,
+  },
+  encounters: {
+    key: 'encounters',
+    label: 'Fights planned',
+    glyph: 'crossed-swords',
+    description: 'Ambushes built ahead of time, ready to deal out.',
+    // Prep, not play: the ambush the party has not walked into yet.
+    players: false,
   },
 };
 

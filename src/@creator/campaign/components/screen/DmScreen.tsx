@@ -24,11 +24,15 @@ import {
 import { BattleArrangement } from './BattleArrangement';
 import { TableRibbon } from './TableRibbon';
 import { createEncounterAction } from '../../actions';
-import { listSessionsAction } from '../../chronicle-actions';
+import {
+  fileUnderSessionAction,
+  listSessionsAction,
+} from '../../chronicle-actions';
 import { getScreenAction, saveScreenAction } from '../../screen-actions';
 import { CanonPanel } from '../CanonPanel';
 import { ChroniclePanel } from '../ChroniclePanel';
 import { DowntimePanel } from '../DowntimePanel';
+import { EncounterPlanner } from '../EncounterPlanner';
 import { LedgerPanel } from '../LedgerPanel';
 import { NotebookPanel } from '../NotebookPanel';
 import { PartyPlayPanel } from '../PartyPlayPanel';
@@ -53,24 +57,37 @@ import { ScreenBox } from './ScreenBox';
 import { TimerPanel } from '../session/TimerPanel';
 import { MyHeroPanel } from './MyHeroPanel';
 
+/** "Session 4 · The bridge" — one line per sitting, for the filing select. */
+function SessionChoice({ session }: { session: SessionRow }) {
+  return (
+    <>
+      Session {session.number}
+      {session.title ? ` · ${session.title}` : ''}
+    </>
+  );
+}
+
 /**
  * What the initiative box shows when nothing is trying to kill anybody.
  *
- * The tab version leaves this to `SessionPanel`, which is why the box was
- * simply blank here — a dead panel on a screen whose whole promise is that
- * everything on it is useful. Calling for initiative is one field and a button,
- * so it belongs in the box rather than a tab away.
+ * This is the one place a fight starts from now — the Session tab that used
+ * to carry a copy is gone — so it also carries the filing: a fight can be put
+ * under the sitting it belongs to as it is called, the way the tab allowed,
+ * rather than found and filed from the chronicle afterwards.
  */
 function CallForInitiative({
   campaignId,
+  sessions,
   refresh,
   onError,
 }: {
   campaignId: string;
+  sessions: SessionRow[];
   refresh: () => Promise<void>;
   onError: (message: string) => void;
 }) {
   const [name, setName] = useState('');
+  const [sessionId, setSessionId] = useState('');
   const [busy, setBusy] = useState(false);
 
   return (
@@ -85,6 +102,25 @@ function CallForInitiative({
           value={name}
           onValueChange={setName}
         />
+        {sessions.length > 0 && (
+          <Select
+            aria-label="File under a session"
+            size="sm"
+            className="w-40"
+            placeholder="Unfiled"
+            selectedKeys={sessionId ? [sessionId] : []}
+            onSelectionChange={keys => {
+              const key = Array.from(keys)[0];
+              setSessionId(key ? String(key) : '');
+            }}
+          >
+            {sessions.map(s => (
+              <SelectItem key={s.id} textValue={`Session ${s.number}`}>
+                <SessionChoice session={s} />
+              </SelectItem>
+            ))}
+          </Select>
+        )}
         <Button
           size="sm"
           color="primary"
@@ -93,6 +129,14 @@ function CallForInitiative({
           onPress={async () => {
             setBusy(true);
             const res = await createEncounterAction(campaignId, name);
+            if (res.ok && sessionId) {
+              await fileUnderSessionAction(
+                campaignId,
+                'encounter',
+                res.data.id,
+                sessionId
+              );
+            }
             setBusy(false);
             if (!res.ok) {
               onError(res.error ?? 'Failed to start the encounter.');
@@ -105,6 +149,52 @@ function CallForInitiative({
           Roll for it
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Where a running fight is filed. One line above the order, staff only, and
+ * only when there is a sitting to file it under.
+ */
+function FileFightUnder({
+  campaignId,
+  encounterId,
+  sessions,
+  onError,
+}: {
+  campaignId: string;
+  encounterId: string;
+  sessions: SessionRow[];
+  onError: (message: string) => void;
+}) {
+  if (sessions.length === 0) return null;
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+      <span>File this fight under</span>
+      <Select
+        aria-label="File this fight under a session"
+        size="sm"
+        className="w-44"
+        classNames={{ trigger: 'h-7 min-h-7' }}
+        placeholder="Unfiled"
+        onSelectionChange={async keys => {
+          const key = Array.from(keys)[0];
+          const res = await fileUnderSessionAction(
+            campaignId,
+            'encounter',
+            encounterId,
+            key ? String(key) : null
+          );
+          if (!res.ok) onError(res.error ?? 'Failed to file it.');
+        }}
+      >
+        {sessions.map(s => (
+          <SelectItem key={s.id} textValue={`Session ${s.number}`}>
+            <SessionChoice session={s} />
+          </SelectItem>
+        ))}
+      </Select>
     </div>
   );
 }
@@ -147,6 +237,7 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
         return (
           <CallForInitiative
             campaignId={ctx.campaignId}
+            sessions={ctx.sessions}
             refresh={async () => {
               await live.refresh();
             }}
@@ -155,13 +246,23 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
         );
       }
       return (
-        <InitiativeTracker
-          campaignId={ctx.campaignId}
-          state={live.state}
-          isStaff={ctx.isStaff}
-          refresh={live.refresh}
-          onError={ctx.onError}
-        />
+        <>
+          {ctx.isStaff && live.state.encounter && (
+            <FileFightUnder
+              campaignId={ctx.campaignId}
+              encounterId={live.state.encounter.id}
+              sessions={ctx.sessions}
+              onError={ctx.onError}
+            />
+          )}
+          <InitiativeTracker
+            campaignId={ctx.campaignId}
+            state={live.state}
+            isStaff={ctx.isStaff}
+            refresh={live.refresh}
+            onError={ctx.onError}
+          />
+        </>
       );
 
     case 'mine': {
@@ -410,6 +511,12 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
           viewerRole={ctx.viewerRole}
         />
       );
+
+    case 'encounters':
+      // Staff only by `SCREEN_PANELS`, so a player's layout never stores it.
+      return ctx.isStaff ? (
+        <EncounterPlanner campaignId={ctx.campaignId} />
+      ) : null;
   }
 }
 

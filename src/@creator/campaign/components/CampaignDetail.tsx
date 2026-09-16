@@ -38,8 +38,7 @@ import { NotebookPanel, SharedNotes } from './NotebookPanel';
 import { PartySecrets } from './PartySecrets';
 import { QuestPanel } from './QuestPanel';
 import { RevealTimeline } from './RevealTimeline';
-import { SessionPanel } from './session/SessionPanel';
-import { BoardTab } from './session/BoardTab';
+import { EncounterPlanner } from './EncounterPlanner';
 
 const ROLE_LABEL = { gm: 'DM', 'co-gm': 'Co-DM', player: 'Player' } as const;
 const ROLE_TONE = { gm: 'gold', 'co-gm': 'arcane', player: 'neutral' } as const;
@@ -83,19 +82,18 @@ function TabTitle({
 }
 
 /**
- * Which tab leads at each of the three tables.
+ * Which tab opens at each of the three tables.
  *
- * The desk opens on the chronicle — between sittings a campaign is a record;
- * the table opens on the session; the sand table opens on the board. The
- * strip's order follows, so the leading tab is also the first one, and the
- * rest keep the order they always had. Decided once, when the page is
- * opened: tabs that rearrange themselves under a reader mid-sitting would be
- * the app moving the furniture while somebody is sitting on it.
+ * The desk opens on the chronicle — between sittings a campaign is a record.
+ * While the table is sitting, or a fight is running, play happens on the
+ * screen and this page is the record behind it, so it opens on the party.
+ * The strip's order never changes: a tab that is first on Tuesday and fourth
+ * on Friday costs muscle memory, which is the main thing a four-hour tool has.
  */
 const LEADING_TAB: Record<TableKind, string> = {
   desk: 'chronicle',
-  table: 'table',
-  battle: 'board',
+  table: 'party',
+  battle: 'party',
 };
 
 /**
@@ -140,32 +138,11 @@ export function CampaignDetail({
   const soon = pulse?.next ? countdownWords(pulse.next.date) : null;
 
   /*
-   * The tabs, in the order they have always had. The one that fits the table
-   * moves to the front and opens; nothing else moves.
+   * The tabs, in the order they have always had. Play is not among them: the
+   * screen at `/campaigns/[id]/screen` is the one surface a table plays from,
+   * and the Session and Board tabs that used to copy it are gone.
    */
-  const all: { key: string; title: ReactNode; content: ReactNode }[] = [
-    {
-      key: 'table',
-      title: <TabTitle glyph="die" label="Session" />,
-      content: (
-        <div className="pt-4">
-          <SessionPanel campaignId={campaign.id} />
-        </div>
-      ),
-    },
-    // The sand table gets a tab of its own, because a fight is run from it
-    // and a fight is a whole evening's attention: the tracker beside the
-    // board, and nothing else to scroll past. The Session tab keeps a copy,
-    // for a table that wants everything in one column.
-    {
-      key: 'board',
-      title: <TabTitle glyph="map" label="Board" />,
-      content: (
-        <div className="pt-4">
-          <BoardTab campaignId={campaign.id} />
-        </div>
-      ),
-    },
+  const tabs: { key: string; title: ReactNode; content: ReactNode }[] = [
     {
       key: 'party',
       title: <TabTitle glyph="person" label="Party" />,
@@ -271,6 +248,15 @@ export function CampaignDetail({
                 a tab of their own — a DM hands out experience while marking
                 the register. */}
           <AwardsPanel campaignId={campaign.id} viewerRole={campaign.role} />
+
+          {/* Prep, not play: the ambush the party has not walked into yet
+                sits with the sittings it is being built for. The screen
+                carries it too, as the "Fights planned" box. */}
+          {isStaff && (
+            <div className="mt-5">
+              <EncounterPlanner campaignId={campaign.id} />
+            </div>
+          )}
         </div>
       ),
     },
@@ -303,7 +289,10 @@ export function CampaignDetail({
     },
     {
       key: 'journal',
-      title: <TabTitle glyph="quill" label="Journal" />,
+      // Its own mark: Notes is the DM's prep, Journal is a player's
+      // in-character log, and two boxes wearing one glyph is the failure the
+      // set exists to prevent.
+      title: <TabTitle glyph="journal" label="Journal" />,
       content: (
         <div className="pt-4">
           <JournalPanel campaignId={campaign.id} viewerRole={campaign.role} />
@@ -372,10 +361,6 @@ export function CampaignDetail({
     },
   ];
   const leading = LEADING_TAB[table];
-  const tabs = [
-    ...all.filter(t => t.key === leading),
-    ...all.filter(t => t.key !== leading),
-  ];
 
   return (
     <PageShell width="wide">
@@ -476,6 +461,25 @@ export function CampaignDetail({
       </div>
 
       <Fleuron />
+
+      {/* While the table is sitting the play surface is the screen, and this
+          page is the record behind it. Say so, once, above the record. */}
+      {table !== 'desk' && (
+        <p className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
+          <span>
+            {table === 'battle'
+              ? 'A fight is running.'
+              : 'The table is sitting.'}
+          </span>
+          <Link
+            href={`/campaigns/${campaign.id}/screen`}
+            size="sm"
+            className="text-gold-strong dark:text-gold"
+          >
+            {isStaff ? 'Go behind the screen' : 'Take your seat'}
+          </Link>
+        </p>
+      )}
 
       <div className="mt-5">
         {/* Above the tabs, because the whole point is not having to know which
