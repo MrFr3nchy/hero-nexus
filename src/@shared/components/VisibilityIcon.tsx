@@ -1,5 +1,6 @@
 import { Button } from '@heroui/react';
-import { Icon } from '@iconify/react';
+
+import { Glyph } from './ui';
 
 export const VisibilityIcon = ({
   isVisible,
@@ -15,9 +16,10 @@ export const VisibilityIcon = ({
       onPress={toggleVisibility}
       className="focus:outline-none"
     >
-      <Icon
-        icon={isVisible ? 'heroicons:eye-slash' : 'heroicons:eye'}
-        className="h-4 w-4 text-ink-muted hover:text-ink"
+      <Glyph
+        name={isVisible ? 'eye-off' : 'eye'}
+        size={16}
+        className="text-ink-muted hover:text-ink"
       />
     </Button>
   );

@@ -67,7 +67,21 @@ export type GlyphName =
   | 'x'
   | 'pencil'
   | 'whisper'
-  | 'gavel';
+  | 'gavel'
+  // the sidebar and the shell — the rows every signed-in page carries
+  | 'house'
+  | 'castle'
+  | 'tree'
+  | 'wand'
+  | 'paw'
+  | 'journal'
+  | 'sign-out'
+  | 'chevron-left'
+  | 'chevron-right'
+  | 'sun'
+  | 'moon'
+  | 'eye'
+  | 'eye-off';
 
 /** Every glyph's artwork, drawn inside a 24×24 box. */
 const PATHS: Record<GlyphName, React.ReactNode> = {
@@ -335,6 +349,92 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
       <path d="M12.2 3.4 18.6 9.8l-2.8 2.8L9.4 6.2Z" />
       <path d="M12.6 9.4 4.6 17.4" />
       <path d="M3 21h9" />
+    </>
+  ),
+  // The sidebar set. These replaced an icon-CDN import (rule 8): each is
+  // drawn to read at 17px in a 15rem column, beside its own name.
+  // Home: the table you sit down at. One roof, one door.
+  house: (
+    <>
+      <path d="M3.5 11 12 3.5l8.5 7.5" />
+      <path d="M5.5 9.5v11h13v-11" />
+      <path d="M10 20.5v-6h4v6" />
+    </>
+  ),
+  // A campaign: the keep. Two towers, a crenellated wall, a gate.
+  castle: (
+    <>
+      <path d="M4 20.5V6h3v2.5h3V6h4v2.5h3V6h3v14.5Z" />
+      <path d="M10 20.5v-5a2 2 0 0 1 4 0v5" />
+    </>
+  ),
+  // Species: a tree, for the living kinds. Canopy as one lobed shape.
+  tree: (
+    <>
+      <path d="M12 3c-3.3 0-5 2.4-5 4.6-1.9.5-3 2-3 3.9 0 2.4 2 4 4.4 4H15.6c2.4 0 4.4-1.6 4.4-4 0-1.9-1.1-3.4-3-3.9C17 5.4 15.3 3 12 3Z" />
+      <path d="M12 15.5V21M9.5 21h5" />
+    </>
+  ),
+  // Spells: a wand with one spark off the tip. Distinct from `sparkle`, which
+  // is the spark alone.
+  wand: (
+    <>
+      <path d="m4 20 11-11" />
+      <path d="M15 9l-2.5-2.5 2.5-2.5 2.5 2.5Z" />
+      <path d="M19.5 3.5v2M20.5 8.5h2M17.5 11.5l1.4 1.4" />
+    </>
+  ),
+  // The bestiary: a paw. Four toes over one pad.
+  paw: (
+    <>
+      <ellipse cx="7" cy="9" rx="1.7" ry="2.2" />
+      <ellipse cx="17" cy="9" rx="1.7" ry="2.2" />
+      <ellipse cx="10.2" cy="5.5" rx="1.7" ry="2.2" />
+      <ellipse cx="13.8" cy="5.5" rx="1.7" ry="2.2" />
+      <path d="M12 11c-2.6 0-5 2.3-5 4.6 0 1.7 1.2 2.9 2.7 2.9.9 0 1.6-.5 2.3-.5s1.4.5 2.3.5c1.5 0 2.7-1.2 2.7-2.9C17 13.3 14.6 11 12 11Z" />
+    </>
+  ),
+  // A player's in-character journal: a bound book with a ribbon. Sits apart
+  // from `notebook` (the DM's prep book, spiral-bound) and `quill` (the act
+  // of writing) — two boxes wearing one mark is the failure this prevents.
+  journal: (
+    <>
+      <path d="M5.5 4.5A1.5 1.5 0 0 1 7 3h11.5v18H7a1.5 1.5 0 0 1-1.5-1.5Z" />
+      <path d="M5.5 17.5A1.5 1.5 0 0 1 7 16h11.5" />
+      <path d="M13.5 3v8l-2-1.5-2 1.5V3" />
+    </>
+  ),
+  // Sign out: a door with the way out marked.
+  'sign-out': (
+    <>
+      <path d="M10 4.5H5.5a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1H10" />
+      <path d="M9.5 12h10M16 8.5l3.5 3.5-3.5 3.5" />
+    </>
+  ),
+  // Furniture: fold and unfold the sidebar. Same weight as the up/down pair.
+  'chevron-left': <path d="M15 6l-6 6 6 6" />,
+  'chevron-right': <path d="M9 6l6 6-6 6" />,
+  // The palette toggle: parchment by day, candlelight by night.
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2.5M12 19v2.5M2.5 12H5m14 0h2.5M5.3 5.3l1.8 1.8m9.8 9.8 1.8 1.8m0-13.4-1.8 1.8M7.1 16.9l-1.8 1.8" />
+    </>
+  ),
+  moon: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />,
+  // Reveal and hide a password. The struck-through eye is the one in use
+  // when the field is showing its text.
+  eye: (
+    <>
+      <path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  'eye-off': (
+    <>
+      <path d="M4 4l16 16" />
+      <path d="M9.9 6c.7-.3 1.4-.5 2.1-.5 6 0 9.5 6.5 9.5 6.5s-1 1.9-2.9 3.6M14.6 17.6c-.8.3-1.7.4-2.6.4-6 0-9.5-6-9.5-6s1.3-2.5 3.7-4.3" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
     </>
   ),
 };
