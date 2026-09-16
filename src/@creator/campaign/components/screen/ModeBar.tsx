@@ -3,25 +3,30 @@
 import { Button, Tooltip } from '@heroui/react';
 import { useState } from 'react';
 
-import { Glyph, useConfirm } from '@/@shared/components/ui';
+import { Glyph, StatusMark, useConfirm } from '@/@shared/components/ui';
 import type { LiveState } from '@/server/session';
-import { TABLE_META, type TableKind } from '../../lib/screen';
+import { TABLE_KINDS, TABLE_META, type TableKind } from '../../lib/screen';
 import { createEncounterAction, endEncounterAction } from '../../actions';
 import { closeSittingAction, openSittingAction } from '../../chronicle-actions';
 import { setTableModeAction } from '../../rules-actions';
 
 /**
- * Which table the campaign is at, and the two verbs that change it.
+ * The mode bar: the three tables in a row, the one the campaign is at lit,
+ * and the verbs that move it.
  *
  * The table is derived — a sitting and a running fight already say which —
- * so there is no "switch to battle" here. What there is: *Take your seats* /
- * *Rise* and *Call for initiative* / *End the fight*, the verbs the DM already
- * had, put where the room is so changing the room is one press from inside
- * it.
+ * so there is no "switch to battle" here. What there is: *Take your seats*
+ * / *Rise* and *Call for initiative* / *End the fight*, the verbs the DM
+ * already had, put where the room is so changing the room is one press from
+ * inside it. The same four server actions the ribbon this replaces called.
  *
- * The pin is the viewer's own: a player who wants the board up between fights
- * pins the sand table and the screen holds it until they unpin. It is a
- * preference, stored with their layouts, and it says nothing to anybody else.
+ * The three segments say the flow — desk, then table, then sand table — and
+ * the lit one says where the campaign is, in the status language: a filled
+ * dot for the table the campaign is actually at. Pressing another segment
+ * pins the screen there: a player who wants the board up between fights, a
+ * DM checking a note mid-sitting. A pin is the viewer's own, stored with
+ * their layouts, and says nothing to anybody else; the segment they pinned
+ * takes the ink bar that means *yours*.
  *
  * The gavel is the table's Advise / Enforce switch, staff only, one tap and
  * no confirm: flipping it announces itself to everyone, which is the
@@ -29,7 +34,7 @@ import { setTableModeAction } from '../../rules-actions';
  * mode the pill says what the fight says and hands the tap to the initiative
  * box, where that override lives.
  */
-export function TableRibbon({
+export function ModeBar({
   campaignId,
   state,
   isStaff,
@@ -52,7 +57,7 @@ export function TableRibbon({
   const [busy, setBusy] = useState(false);
   const { confirm, dialog } = useConfirm();
   const actual = state.table;
-  const meta = TABLE_META[current];
+  const inPerson = state.rules.board === 'in-person';
   // While a fight overrides the mode, the campaign's switch changes nothing
   // at the table; the pill says what is in force and points at the fight.
   const fightHoldsMode =
@@ -71,46 +76,60 @@ export function TableRibbon({
     <>
       {dialog}
       <div className="flex flex-wrap items-center gap-2">
-        <Tooltip content={meta.line}>
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-sm border px-1.5 py-0.5 text-[0.65rem] uppercase tracking-[0.12em] ${
-              current === 'battle'
-                ? 'border-danger/50 text-danger'
-                : 'border-gold/50 text-gold-strong dark:text-gold'
-            }`}
-          >
-            <Glyph name={meta.glyph} size={12} />
-            {meta.label}
-            {pinned && (
-              <button
-                type="button"
-                onClick={() => onPin(null)}
-                title={`Pinned. The campaign is at ${TABLE_META[actual].label.toLowerCase()}. Unpin to follow it.`}
-                className="ml-1 text-ink-subtle hover:text-ink"
-                aria-label="Unpin"
-              >
-                <Glyph name="x" size={10} />
-              </button>
-            )}
-          </span>
-        </Tooltip>
-
-        {/* The viewer's pin, offered only for the tables the campaign is not
-            at: pinning to where you already are is a no-op wearing a button. */}
-        {!pinned &&
-          (['desk', 'table', 'battle'] as const)
-            .filter(k => k !== actual)
-            .map(k => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => onPin(k)}
-                className="text-[0.65rem] text-ink-subtle underline-offset-2 hover:text-ink hover:underline"
-                title={`Hold the screen at ${TABLE_META[k].label.toLowerCase()} for now`}
-              >
-                {TABLE_META[k].label.toLowerCase()}
-              </button>
-            ))}
+        <div
+          role="group"
+          aria-label="Which table the screen is set for"
+          className="flex overflow-hidden rounded-[5px] border border-line"
+        >
+          {TABLE_KINDS.map((kind, i) => {
+            const meta = TABLE_META[kind];
+            const isActual = kind === actual;
+            const isCurrent = kind === current;
+            const isPinned = pinned === kind;
+            const title = isActual
+              ? isPinned
+                ? `Pinned here. Unpin to follow the campaign.`
+                : `The campaign is at ${meta.label.toLowerCase()}. ${meta.line}`
+              : isPinned
+                ? `Pinned. The campaign is at ${TABLE_META[actual].label.toLowerCase()}. Unpin to follow it.`
+                : `Hold the screen at ${meta.label.toLowerCase()} for now`;
+            return (
+              <Tooltip key={kind} content={title}>
+                <button
+                  type="button"
+                  aria-pressed={isCurrent}
+                  onClick={() => onPin(isPinned || isActual ? null : kind)}
+                  className={`flex items-center gap-1.5 px-2 py-1 text-[0.6rem] uppercase tracking-[0.12em] transition-colors ${
+                    i > 0 ? 'border-l border-line' : ''
+                  } ${
+                    isCurrent
+                      ? kind === 'battle'
+                        ? 'bg-surface-2 text-danger'
+                        : 'bg-surface-2 text-gold-strong dark:text-gold'
+                      : 'text-ink-subtle hover:text-ink'
+                  } ${isPinned ? 'border-l-4 border-l-ink' : ''}`}
+                >
+                  {isActual ? (
+                    <StatusMark kind="live" size={7} />
+                  ) : (
+                    <Glyph name={meta.glyph} size={11} />
+                  )}
+                  <span>{meta.label}</span>
+                  {kind === 'battle' && inPerson && (
+                    <span className="normal-case tracking-normal text-ink-subtle">
+                      · in person
+                    </span>
+                  )}
+                  {isPinned && (
+                    <span className="text-[0.5625rem] font-bold text-ink">
+                      yours
+                    </span>
+                  )}
+                </button>
+              </Tooltip>
+            );
+          })}
+        </div>
 
         {isStaff && (
           <Tooltip
@@ -134,7 +153,7 @@ export function TableRibbon({
                 )
               }
               aria-pressed={state.rules.mode === 'enforce'}
-              className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[0.65rem] uppercase tracking-[0.12em] transition-colors disabled:opacity-60 ${
+              className={`inline-flex items-center gap-1 rounded-[5px] border px-2 py-1 text-[0.6rem] uppercase tracking-[0.12em] transition-colors disabled:opacity-60 ${
                 state.rules.mode === 'enforce'
                   ? 'border-danger/50 text-danger hover:bg-danger/10'
                   : 'border-line text-ink-subtle hover:border-gold/50 hover:text-ink'

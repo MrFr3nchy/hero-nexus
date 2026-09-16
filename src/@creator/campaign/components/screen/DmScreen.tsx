@@ -1,14 +1,22 @@
 'use client';
 
 import { Button, Input, Link, Select, SelectItem } from '@heroui/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import { listCharactersAction } from '@/@creator/character/actions';
 import {
   DiceSpinner,
-  Glyph,
+  Panel,
   Ribbon,
+  staleFor,
   useConfirm,
+  type PanelStatus,
 } from '@/@shared/components/ui';
 import { useCampaignLive } from '@/@shared/hooks/useCampaignLive';
 import { AtTable, useTable } from '@/@shared/table';
@@ -29,7 +37,7 @@ import {
   type TableKind,
 } from '../../lib/screen';
 import { BattleArrangement } from './BattleArrangement';
-import { TableRibbon } from './TableRibbon';
+import { ModeBar } from './ModeBar';
 import { createEncounterAction } from '../../actions';
 import {
   fileUnderSessionAction,
@@ -60,7 +68,6 @@ import { CastPanel } from './CastPanel';
 import { FeedPanel } from './FeedPanel';
 import { StatBlockPanel } from './StatBlockPanel';
 import { unreadWhispers, WhispersPanel } from './WhispersPanel';
-import { ScreenBox } from './ScreenBox';
 import { TimerPanel } from '../session/TimerPanel';
 import { MyHeroPanel } from './MyHeroPanel';
 
@@ -222,14 +229,20 @@ interface ScreenContext {
 }
 
 /**
- * One panel's contents.
+ * One panel's contents — what goes inside the `Panel` chrome.
  *
  * The panels are the ones the campaign page already has — this screen is an
  * arrangement of the app, not a second implementation of it. A quest ticked
  * here is ticked on the Quests tab, because it is the same component reading
  * the same server function.
  */
-function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
+function PanelContents({
+  id,
+  ctx,
+}: {
+  id: ScreenPanelKey;
+  ctx: ScreenContext;
+}) {
   const { live } = ctx;
 
   switch (id) {
@@ -561,6 +574,73 @@ function movePanel(
   return { columns };
 }
 
+/* --- what each panel wears ---------------------------------------------- */
+
+/** Panels that read the live state: their dot fills, and slashes when the
+ *  stream is down. Everything else is reference and wears a hollow dot. */
+const LIVE_PANELS: ReadonlySet<ScreenPanelKey> = new Set<ScreenPanelKey>([
+  'sitting',
+  'board',
+  'initiative',
+  'mine',
+  'vitals',
+  'dice',
+  'checks',
+  'attacks',
+  'spells',
+  'statblock',
+  'whispers',
+  'spotlight',
+  'timers',
+  'handouts',
+  'rules',
+  'shop',
+  'feed',
+]);
+
+/** Panels only the DM's side of the table can see: "only you". */
+const HIDDEN_PANELS: ReadonlySet<ScreenPanelKey> = new Set<ScreenPanelKey>([
+  'statblock',
+  'notebook',
+  'encounters',
+]);
+
+/**
+ * Which of the status language's states a panel is in right now, and what
+ * follows the word. One place, so the box grid and the shelf agree.
+ */
+function panelStatus(
+  key: ScreenPanelKey,
+  ctx: {
+    stale: boolean;
+    staleFor: string;
+    badges: Partial<Record<ScreenPanelKey, number>>;
+  }
+): { status: PanelStatus; detail?: ReactNode; badge?: number } {
+  const badge = ctx.badges[key];
+  if (key === 'checks' && badge) {
+    return { status: 'waiting', badge };
+  }
+  if (key === 'mine') return { status: 'yours' };
+  if (HIDDEN_PANELS.has(key)) return { status: 'hidden', badge };
+  if (LIVE_PANELS.has(key)) {
+    return ctx.stale
+      ? { status: 'stale', detail: ctx.staleFor, badge }
+      : { status: 'live', badge };
+  }
+  return { status: 'reference' };
+}
+
+/** The title a panel wears: the registry's label, with the round on the
+ *  order while a fight runs. */
+function panelTitle(key: ScreenPanelKey, ctx: ScreenContext): string {
+  const label = SCREEN_PANELS[key].label;
+  if (key === 'initiative' && ctx.live.state?.encounter?.isActive) {
+    return `${label} · Round ${ctx.live.state.encounter.round}`;
+  }
+  return label;
+}
+
 /* --- the screen -------------------------------------------------------- */
 
 /**
@@ -598,6 +678,20 @@ export function DmScreen({
   const [dragged, setDragged] = useState<ScreenPanelKey | null>(null);
   const [dropAt, setDropAt] = useState<DropAt | null>(null);
   const columnRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  /*
+   * The stale word names how long ago the last answer landed, so it needs a
+   * clock — but only while the stream is down. Connected, nothing here
+   * ticks; rule 9 keeps the screen still.
+   */
+  const stale = !live.connected && live.updatedAt !== null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!stale) return;
+    const t = setInterval(() => setNow(Date.now()), 5_000);
+    return () => clearInterval(t);
+  }, [stale]);
+  const staleAge = live.updatedAt ? staleFor(now - live.updatedAt) : '';
 
   useEffect(() => {
     getScreenAction(campaign.id)
@@ -708,6 +802,8 @@ export function DmScreen({
       }
     : {};
 
+  const statusCtx = { stale, staleFor: staleAge, badges };
+
   const columnCount = layout.columns.length;
   const onScreen = panelsOn(layout);
   // At a table with a real map there is no board to offer.
@@ -782,7 +878,7 @@ export function DmScreen({
           {isStaff ? 'Behind the screen' : 'At the table'}
         </Ribbon>
         {live.state && (
-          <TableRibbon
+          <ModeBar
             campaignId={campaign.id}
             state={live.state}
             isStaff={isStaff}
@@ -909,6 +1005,8 @@ export function DmScreen({
           arranging={arranging}
           isStaff={isStaff}
           badges={badges}
+          wear={key => panelStatus(key, statusCtx)}
+          titleOf={key => panelTitle(key, ctx)}
           onChange={changeBattle}
           board={fitHeight => (
             <BattleBoard
@@ -920,7 +1018,7 @@ export function DmScreen({
               fitHeight={fitHeight}
             />
           )}
-          renderPanel={key => <Panel id={key} ctx={ctx} />}
+          renderPanel={key => <PanelContents id={key} ctx={ctx} />}
         />
       ) : (
         /* The desk, the table, and a fight around a real map: columns of
@@ -990,7 +1088,7 @@ export function DmScreen({
                 )}
 
                 {column.map((key, boxIndex) => {
-                  const meta = SCREEN_PANELS[key];
+                  const wear = panelStatus(key, statusCtx);
                   return (
                     <div key={key} className="contents">
                       {dragged &&
@@ -1001,31 +1099,65 @@ export function DmScreen({
                             className="h-0.5 shrink-0 rounded bg-gold"
                           />
                         )}
-                      <ScreenBox
-                        id={key}
-                        title={meta.label}
-                        glyph={<Glyph name={meta.glyph} size={13} />}
-                        available={[key, ...spare]}
+                      <Panel
+                        title={panelTitle(key, ctx)}
+                        status={wear.status}
+                        statusDetail={wear.detail}
+                        badge={wear.badge}
                         arranging={arranging}
                         dragging={dragged === key}
-                        onDragStart={() => setDragged(key)}
+                        onDragStart={event => {
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', key);
+                          setDragged(key);
+                        }}
                         onDragEnd={() => {
                           setDragged(null);
                           setDropAt(null);
                         }}
-                        onSwap={next =>
-                          change({
-                            columns: layout.columns.map(col =>
-                              col.map(k => (k === key ? next : k))
-                            ),
-                          })
-                        }
                         onRemove={() =>
                           change({ columns: withoutPanel(layout, key) })
                         }
+                        arrangeControls={
+                          <Select
+                            aria-label={`Swap ${SCREEN_PANELS[key].label} for another panel`}
+                            size="sm"
+                            variant="flat"
+                            className="w-36"
+                            classNames={{ trigger: 'h-6 min-h-6' }}
+                            selectedKeys={[key]}
+                            onSelectionChange={keys => {
+                              const next = Array.from(keys)[0];
+                              if (next && next !== key) {
+                                change({
+                                  columns: layout.columns.map(col =>
+                                    col.map(k =>
+                                      k === key
+                                        ? (String(next) as ScreenPanelKey)
+                                        : k
+                                    )
+                                  ),
+                                });
+                              }
+                            }}
+                          >
+                            {[key, ...spare].map(k => (
+                              <SelectItem
+                                key={k}
+                                textValue={SCREEN_PANELS[k].label}
+                              >
+                                {SCREEN_PANELS[k].label}
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        }
+                        className="flex-1"
+                        // The board draws its own scroller and fits itself
+                        // to the box; anything else scrolls here.
+                        scroll={key !== 'board'}
                       >
-                        <Panel id={key} ctx={ctx} />
-                      </ScreenBox>
+                        <PanelContents id={key} ctx={ctx} />
+                      </Panel>
                     </div>
                   );
                 })}

@@ -37,6 +37,12 @@ export function useCampaignLive(campaignId: string) {
   const [state, setState] = useState<LiveState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  /**
+   * When the last answer landed, for the status language: a panel with the
+   * stream down says "stale 40s" rather than looking current. Null until the
+   * first read.
+   */
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const inFlight = useRef(false);
   const missed = useRef(false);
 
@@ -56,6 +62,7 @@ export function useCampaignLive(campaignId: string) {
       do {
         missed.current = false;
         setState(await getLiveStateAction(campaignId));
+        setUpdatedAt(Date.now());
       } while (missed.current);
       setError(null);
     } catch {
@@ -120,5 +127,5 @@ export function useCampaignLive(campaignId: string) {
     };
   }, [refresh, connected]);
 
-  return { state, error, refresh, connected };
+  return { state, error, refresh, connected, updatedAt };
 }

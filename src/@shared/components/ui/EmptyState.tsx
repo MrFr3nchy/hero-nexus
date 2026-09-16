@@ -3,6 +3,7 @@
 import { type ReactNode } from 'react';
 
 import { Float } from '../motion';
+import { usePanelDensity } from './Panel';
 
 interface EmptyStateProps {
   /** Small glyph — bobs gently in a Float. Keep it to an emoji or tiny icon. */
@@ -21,6 +22,25 @@ export function EmptyState({
   description,
   action,
 }: EmptyStateProps) {
+  const { inPanel } = usePanelDensity();
+
+  // An invitation on a page, an obstruction in a panel: the scene alone is
+  // half the height of a box. In a panel the words and the action stay and
+  // the scene goes.
+  if (inPanel) {
+    return (
+      <div data-empty-state className="px-2 py-3 text-center">
+        <h3 className="font-display-alt text-sm text-ink">{title}</h3>
+        {description && (
+          <p className="mx-auto mt-1 max-w-sm text-xs text-ink-muted">
+            {description}
+          </p>
+        )}
+        {action && <div className="mt-3 flex justify-center">{action}</div>}
+      </div>
+    );
+  }
+
   return (
     <div
       data-empty-state

@@ -30,3 +30,15 @@ export { Glyph, GLYPH_NAMES, isGlyphName } from './Glyph';
 export type { GlyphName } from './Glyph';
 export { useConfirm } from './ConfirmDialog';
 export { FormSpread } from './FormSpread';
+export { Panel, usePanelDensity } from './Panel';
+export type { PanelDensity, PanelProps, PanelStatus } from './Panel';
+export {
+  StatusBadge,
+  StatusChip,
+  StatusMark,
+  StatusWord,
+  STATUS_WORD,
+  staleFor,
+  statusEdge,
+} from './Status';
+export type { StatusKind } from './Status';
