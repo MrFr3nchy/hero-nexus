@@ -4,7 +4,12 @@ import { Button, Input, Link, Select, SelectItem } from '@heroui/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { listCharactersAction } from '@/@creator/character/actions';
-import { DiceSpinner, Glyph, Ribbon } from '@/@shared/components/ui';
+import {
+  DiceSpinner,
+  Glyph,
+  Ribbon,
+  useConfirm,
+} from '@/@shared/components/ui';
 import { useCampaignLive } from '@/@shared/hooks/useCampaignLive';
 import { AtTable, useTable } from '@/@shared/table';
 import type { SessionRow } from '@/server/campaign-sessions';
@@ -15,6 +20,8 @@ import {
   SCREEN_COLUMN_COUNTS,
   SCREEN_PANELS,
   SCREEN_PANEL_KEYS,
+  SCREEN_PRESETS,
+  screenPreset,
   type BattleLayout,
   type ScreenLayout,
   type ScreenLayouts,
@@ -579,6 +586,7 @@ export function DmScreen({
 
   const live = useCampaignLive(campaign.id);
   const { preferences } = useTable();
+  const { confirm, dialog } = useConfirm();
   const [layouts, setLayouts] = useState<ScreenLayouts | null>(null);
   const [arranging, setArranging] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -635,11 +643,21 @@ export function DmScreen({
    * Which table this screen is set for: the viewer's pin if they have one,
    * else what the campaign is at, else the table while the first read lands.
    * The arrangement follows it — and so does the shape, because the sand
-   * table is not columns but a board with a shelf.
+   * table is not columns but a board with a shelf. Unless the board is a
+   * real one on a real table: then the fight is columns too, with the order
+   * where the board would be.
    */
   const current: TableKind = layouts.pin ?? live.state?.table ?? 'table';
-  const layout: ScreenLayout =
-    current === 'battle' ? layouts.table : layouts[current];
+  const inPerson = live.state?.rules.board === 'in-person';
+  const arrangementKey: 'desk' | 'table' | 'battleInPerson' =
+    current === 'battle'
+      ? inPerson
+        ? 'battleInPerson'
+        : // The board-and-shelf branch renders below; this is only the
+          // fallback the grid code reads while it is not on screen.
+          'table'
+      : current;
+  const layout: ScreenLayout = layouts[arrangementKey];
 
   const setPin = async (pin: TableKind | null) => {
     const next = { ...layouts, pin };
@@ -692,17 +710,36 @@ export function DmScreen({
 
   const columnCount = layout.columns.length;
   const onScreen = panelsOn(layout);
+  // At a table with a real map there is no board to offer.
   const allowed = SCREEN_PANEL_KEYS.filter(
-    key => isStaff || SCREEN_PANELS[key].players
+    key =>
+      (isStaff || SCREEN_PANELS[key].players) && !(inPerson && key === 'board')
   );
   const spare = allowed.filter(key => !onScreen.includes(key));
 
   const change = (next: ScreenLayout) => {
     // Written into the arrangement for the table the screen is set to, and
-    // never into the battle one, which is a different shape.
-    const key: 'desk' | 'table' = current === 'desk' ? 'desk' : 'table';
-    setLayouts({ ...layouts, [key]: next });
+    // never into the board-and-shelf one, which is a different shape.
+    setLayouts({ ...layouts, [arrangementKey]: next });
     setDirty(true);
+  };
+
+  /**
+   * A preset overwrites every arrangement but the pin. The confirm is the
+   * price of a one-press screen: what it replaces may have been arranged by
+   * hand over a season.
+   */
+  const applyPreset = async (key: string) => {
+    const preset = screenPreset(key);
+    if (!preset) return;
+    const ok = await confirm({
+      title: `${preset.label}?`,
+      body: `${preset.line} This replaces how every table is arranged now.`,
+      confirmLabel: 'Arrange it',
+    });
+    if (!ok) return;
+    setArranging(false);
+    await save({ ...preset.layouts(isStaff), pin: layouts.pin });
   };
 
   /** Which slot in a column the pointer is nearest, by box midpoints. */
@@ -734,6 +771,7 @@ export function DmScreen({
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg">
+      {dialog}
       <AtTable campaignId={campaign.id} />
 
       {/* One bar, not a page header: every row of chrome up here is a row of
@@ -762,7 +800,7 @@ export function DmScreen({
         {error && <span className="text-xs text-danger">{error}</span>}
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {arranging && current !== 'battle' && (
+          {arranging && (current !== 'battle' || inPerson) && (
             <>
               <Select
                 aria-label="How many columns"
@@ -817,16 +855,42 @@ export function DmScreen({
             </>
           )}
 
+          {/* The choice first, the canvas behind it: a DM mid-session wants
+              a sensible screen in one press, and arranging by hand is the
+              escape hatch, not the front door. */}
+          {!arranging && (
+            <Select
+              aria-label="Arrange the screen as"
+              size="sm"
+              className="w-44"
+              classNames={{ trigger: 'h-8 min-h-8' }}
+              placeholder="Arrange as…"
+              selectedKeys={[]}
+              onSelectionChange={keys => {
+                const key = Array.from(keys)[0];
+                if (key) void applyPreset(String(key));
+              }}
+            >
+              {SCREEN_PRESETS.map(p => (
+                <SelectItem key={p.key} textValue={p.label}>
+                  <span className="flex flex-col">
+                    <span>{p.label}</span>
+                    <span className="text-xs text-ink-subtle">{p.line}</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </Select>
+          )}
           <Button
             size="sm"
-            variant={arranging ? 'solid' : 'flat'}
+            variant={arranging ? 'solid' : 'light'}
             color={arranging ? 'primary' : 'default'}
             onPress={async () => {
               if (arranging && dirty) await save(layouts);
               setArranging(!arranging);
             }}
           >
-            {arranging ? (dirty ? 'Save the screen' : 'Done') : 'Arrange'}
+            {arranging ? (dirty ? 'Save the screen' : 'Done') : 'Customise'}
           </Button>
           <Button
             as={Link}
@@ -839,7 +903,7 @@ export function DmScreen({
         </div>
       </header>
 
-      {current === 'battle' && live.state ? (
+      {current === 'battle' && live.state && !inPerson ? (
         <BattleArrangement
           layout={layouts.battle}
           arranging={arranging}
@@ -859,10 +923,10 @@ export function DmScreen({
           renderPanel={key => <Panel id={key} ctx={ctx} />}
         />
       ) : (
-        /* The desk and the table: columns of equal standing, with the fold
-         given a grid column of its own so it always lands in a gutter and
-         never crosses a box. Below `lg` the columns stack and the fold goes:
-         a phone has no middle. */
+        /* The desk, the table, and a fight around a real map: columns of
+         equal standing, with the fold given a grid column of its own so it
+         always lands in a gutter and never crosses a box. Below `lg` the
+         columns stack and the fold goes: a phone has no middle. */
         <div
           className="grid min-h-0 flex-1 gap-2 p-2 max-lg:!grid-cols-1 max-lg:overflow-y-auto"
           style={{
