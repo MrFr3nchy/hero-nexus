@@ -1,5 +1,16 @@
 # 13 — UI redesign
 
+**Status: built** (`feat/improvements-13-ui-redesign`). Departures: the five
+structural items landed as five commits on one branch rather than five branches,
+each verified on its own before the next started. Item 4 needed no migration —
+`campaigns.settings` is a JSON column. Item 5's numbers are in
+`13-live-state-cost.md` and say leave it alone. The visual pass followed on the same
+branch: rule 9 in `docs/design-language.md`, `Status.tsx` and `Panel.tsx` in `ui/`,
+`ModeBar.tsx` replacing `TableRibbon.tsx`, and the status language on the tracker
+and asking rows. The wireframes in `docs/concepts/` cover only the panel chrome and
+the six states; the three state screens and the in-person variant were built from
+those primitives and the existing arrangements, not from a per-screen wireframe.
+
 Five independent pieces of work on `MrFr3nchy/hero-nexus`, all structural, none
 requiring any visual design to land first. They remove a duplicated play surface, turn
 a layout editor into presets, add in-person play as a real table setting, delete the
