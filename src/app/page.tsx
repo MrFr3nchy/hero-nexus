@@ -99,7 +99,7 @@ function HeroRoll() {
         />
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
+      <div className="mt-6 flex items-center gap-3">
         <button
           type="button"
           onClick={roll}
@@ -204,7 +204,7 @@ export default function HomePage() {
               Keep your whole campaign in one place
             </h1>
             <p className="mt-5 max-w-xl text-lg text-ink-muted">
-              Build characters, organise homebrew, and run sessions for your
+              Build characters,organize homebrew, and run sessions for your
               tabletop group — without handing your game to someone else&apos;s
               cloud.
             </p>

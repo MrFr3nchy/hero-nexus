@@ -100,7 +100,7 @@ CREATE TABLE "publication_items" (
   "name"           TEXT NOT NULL DEFAULT '',
   -- The piece, frozen. Items are always snapshots even inside a live-linked
   -- publication: a bundled species has to keep working when the author
-  -- reorganises their own forge.
+  -- reorganizes their own forge.
   "payload"        TEXT NOT NULL DEFAULT '{}',
   -- Its id in the package, so refs between items survive being remapped on the
   -- way into an adopter's account. Not a row id: it is only unique in here.

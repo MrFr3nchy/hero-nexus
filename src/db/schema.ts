@@ -2203,7 +2203,7 @@ export const publications = sqliteTable(
  * A piece a listing carries.
  *
  * Items are always snapshots, even inside a live-linked publication: a species
- * bundled with a hero has to keep working when its author reorganises their own
+ * bundled with a hero has to keep working when its author reorganizes their own
  * forge. `localKey` is how refs between items survive being remapped into an
  * adopter's account — it is unique within the package and means nothing
  * outside it.
