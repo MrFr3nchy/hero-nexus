@@ -42,6 +42,7 @@ import {
   blocksTile,
   emptyTerrain,
   FACINGS,
+  footprintForSize,
   inBounds,
   ITEM_STATES,
   normalizeTerrain,
@@ -328,21 +329,6 @@ export async function getBattleMapState(
     updatedAt: map.updatedAt,
   };
 }
-
-/**
- * Tiles a side, by creature size. Tiny through Medium share a tile; Large is
- * two, Huge three, and Gargantuan is capped at the board's three — the
- * token model's ceiling, and a 20-foot dragon on a 40-foot board is a
- * different problem.
- */
-const FOOTPRINT_BY_SIZE: Record<string, number> = {
-  tiny: 1,
-  small: 1,
-  medium: 1,
-  large: 2,
-  huge: 3,
-  gargantuan: 3,
-};
 
 /** Every board this campaign has authored. Staff only — it is the DM's shelf. */
 export async function listBattleMaps(campaignId: string): Promise<
@@ -785,7 +771,7 @@ function itemFields(input: {
  * deal and by placing one combatant by hand, so the two cannot disagree.
  */
 async function footprintsFor(
-  entries: { id: string; creatureRef: unknown }[]
+  entries: { id: string; creatureRef: unknown; characterId?: string | null }[]
 ): Promise<Map<string, number>> {
   const refs = new Map<string, ContentRef>();
   for (const e of entries) {
@@ -798,13 +784,38 @@ async function footprintsFor(
     for (const [key, entry] of resolved) {
       if (entry.type !== 'creature') continue;
       const d = parseContentData('creature', entry.data) as CreatureData;
-      bySize.set(key, FOOTPRINT_BY_SIZE[d.size] ?? 1);
+      bySize.set(key, footprintForSize(d.size));
+    }
+  }
+  // Heroes off the sheet's size (09): a Small halfling and a Large hero
+  // under Enlarge both read the same table the monsters do.
+  const characterIds = entries
+    .map(e => e.characterId ?? null)
+    .filter((id): id is string => id !== null);
+  const heroSize = new Map<string, number>();
+  if (characterIds.length > 0) {
+    const rows = await db
+      .select({ id: characters.id, sheet: characters.sheet })
+      .from(characters)
+      .where(inArray(characters.id, characterIds));
+    for (const r of rows) {
+      heroSize.set(
+        r.id,
+        footprintForSize((r.sheet as CharacterSheet).identity?.size)
+      );
     }
   }
   const out = new Map<string, number>();
   for (const e of entries) {
     const ref = e.creatureRef as ContentRef | null;
-    out.set(e.id, ref ? (bySize.get(refKey(ref)) ?? 1) : 1);
+    out.set(
+      e.id,
+      ref
+        ? (bySize.get(refKey(ref)) ?? 1)
+        : e.characterId
+          ? (heroSize.get(e.characterId) ?? 1)
+          : 1
+    );
   }
   return out;
 }
@@ -893,7 +904,12 @@ export async function placeToken(
   let footprint = Math.max(1, Math.min(3, Math.trunc(input.footprint ?? 1)));
   if (input.entryId) {
     const entry = await db.query.initiativeEntries.findFirst({
-      columns: { id: true, encounterId: true, creatureRef: true },
+      columns: {
+        id: true,
+        encounterId: true,
+        creatureRef: true,
+        characterId: true,
+      },
       where: eq(initiativeEntries.id, input.entryId),
     });
     if (!entry || entry.encounterId !== map.encounterId) {
@@ -972,6 +988,55 @@ export async function placeToken(
 }
 
 /**
+ * Drop a thing on the board near a tile — a thrown tankard where it landed
+ * (09). Not a door or a chest: a scenery token with a name and nothing to
+ * open, on the first tile that can hold it, ringing outward from `near`. No
+ * role check: the caller has already decided whose throw it was. Returns
+ * the token's id, or null when nothing within two tiles could take it.
+ */
+export async function dropThingNear(
+  mapId: string,
+  near: { x: number; y: number },
+  label: string
+): Promise<string | null> {
+  const map = await db.query.battleMaps.findFirst({
+    where: eq(battleMaps.id, mapId),
+  });
+  if (!map) return null;
+  const doc = normalizeTerrain(map.terrain);
+  const others = await occupantsExcept(mapId, null);
+  const ring: { x: number; y: number }[] = [];
+  for (let r = 0; r <= 2; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        ring.push({ x: near.x + dx, y: near.y + dy });
+      }
+    }
+  }
+  const spot = ring.find(
+    t =>
+      inBounds(doc, t.x, t.y) && canStand(doc, { ...t, footprint: 1 }, others)
+  );
+  if (!spot) return null;
+  const [row] = await db
+    .insert(battleMapTokens)
+    .values({
+      mapId,
+      entryId: null,
+      label: label.trim().slice(0, 60) || 'Something',
+      x: spot.x,
+      y: spot.y,
+      footprint: 1,
+      visibility: 'shared',
+      state: null,
+    })
+    .returning({ id: battleMapTokens.id });
+  bumpVersion(map.campaignId);
+  return row.id;
+}
+
+/**
  * Deal every combatant in the board's encounter onto it, along the top edge,
  * skipping anybody already placed. The board equivalent of
  * `addPartyToEncounter`: pressing it twice is harmless.
@@ -998,6 +1063,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
       id: initiativeEntries.id,
       side: initiativeEntries.side,
       creatureRef: initiativeEntries.creatureRef,
+      characterId: initiativeEntries.characterId,
     })
     .from(initiativeEntries)
     .where(eq(initiativeEntries.encounterId, map.encounterId));

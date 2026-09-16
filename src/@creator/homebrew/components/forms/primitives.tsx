@@ -138,20 +138,27 @@ export function BoolField({
   label,
   value,
   onChange,
+  description,
 }: {
   label: string;
   value: boolean;
   onChange: (v: boolean) => void;
+  description?: string;
 }) {
   return (
-    <Switch
-      size="sm"
-      classNames={{ label: 'ml-2 text-sm text-ink-muted' }}
-      isSelected={value}
-      onValueChange={onChange}
-    >
-      {label}
-    </Switch>
+    <div>
+      <Switch
+        size="sm"
+        classNames={{ label: 'ml-2 text-sm text-ink-muted' }}
+        isSelected={value}
+        onValueChange={onChange}
+      >
+        {label}
+      </Switch>
+      {description && (
+        <p className="mt-0.5 text-xs text-ink-subtle">{description}</p>
+      )}
+    </div>
   );
 }
 

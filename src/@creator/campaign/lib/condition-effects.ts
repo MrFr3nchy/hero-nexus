@@ -111,6 +111,15 @@ export function rollAdvice(
     advantage += 1;
     because.push('Dodging · advantage');
   }
+  // Variant encumbrance (09): heavily laden, anything physical is harder.
+  // An attack is always physical; a check or save only when the ability is.
+  if (
+    turn?.heavilyLaden &&
+    (what === 'attack' || (ability != null && PHYSICAL.has(ability)))
+  ) {
+    disadvantage += 1;
+    because.push('Heavily encumbered · disadvantage');
+  }
 
   // When both sides claimed it the mode is flat and the words stay, so the
   // picker explains a straight roll rather than pretending nothing applied.
@@ -133,7 +142,24 @@ export function rollModeFor(
  */
 export interface TurnFlags {
   dodging?: boolean;
+  /**
+   * Heavily encumbered under the variant rule (09): disadvantage on attacks,
+   * checks and saves that use Strength, Dexterity or Constitution.
+   */
+  heavilyLaden?: boolean;
 }
+
+/** What `speedFor` needs of a load (09). `null` when the table does not weigh. */
+export interface LoadForSpeed {
+  state: 'fine' | 'encumbered' | 'heavily' | 'over';
+  speedPenalty: number;
+}
+
+const PHYSICAL: ReadonlySet<AbilityKey> = new Set<AbilityKey>([
+  'strength',
+  'dexterity',
+  'constitution',
+]);
 
 /** Dodge lapses while incapacitated or at speed 0. */
 export function dodgeHolds(conditions: readonly ConditionKey[]): boolean {
@@ -159,12 +185,17 @@ export function d20PenaltyFor(exhaustion: number): number {
 export function speedFor(
   baseSpeed: number,
   conditions: readonly ConditionKey[],
-  exhaustion = 0
+  exhaustion = 0,
+  load: LoadForSpeed | null = null
 ): number {
   if (conditions.some(k => ROOTED.has(k))) return 0;
+  // Over capacity (09): the book says you cannot move it. Not a penalty
+  // that speed can outrun — a stop.
+  if (load?.state === 'over') return 0;
   let speed = Math.max(0, baseSpeed);
   if (conditions.includes('prone')) speed = Math.floor(speed / 2 / 5) * 5;
   speed -= 5 * Math.max(0, Math.min(6, Math.trunc(exhaustion)));
+  speed -= Math.max(0, load?.speedPenalty ?? 0);
   return Math.max(0, speed);
 }
 
@@ -174,14 +205,21 @@ export function speedFor(
  */
 export function speedReasons(
   conditions: readonly ConditionKey[],
-  exhaustion = 0
+  exhaustion = 0,
+  load: LoadForSpeed | null = null
 ): string[] {
   const out: string[] = [];
   const rooted = conditions.find(k => ROOTED.has(k));
   if (rooted) out.push(`${label(rooted)} · speed 0`);
+  else if (load?.state === 'over') out.push('Over capacity · cannot move');
   else if (conditions.includes('prone')) out.push('Prone · crawling');
   const level = Math.max(0, Math.min(6, Math.trunc(exhaustion)));
   if (level > 0 && !rooted) out.push(`Exhaustion ${level} · −${level * 5} ft`);
+  if (!rooted && load && load.state !== 'over' && load.speedPenalty > 0) {
+    out.push(
+      `${load.state === 'heavily' ? 'Heavily encumbered' : 'Encumbered'} · −${load.speedPenalty} ft`
+    );
+  }
   return out;
 }
 

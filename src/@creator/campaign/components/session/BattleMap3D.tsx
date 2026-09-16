@@ -29,6 +29,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   canStand,
   canStandUnder,
+  jumpLandings,
   reachFor,
   type Occupant,
 } from '@/@creator/campaign/lib/battlemap';
@@ -40,6 +41,7 @@ import {
   outlineArt,
   planksArt,
   reachArt,
+  ringArt,
   strataArt,
 } from '@/@shared/battlemap/art';
 import {
@@ -1156,6 +1158,11 @@ export interface BattleMap3DProps {
   /** Feet of movement for a token, off the sheet or the default. */
   speedOf?: (token: BattleTokenRow) => number;
   /**
+   * How far a token can long-jump, with a run-up and standing (09), or null
+   * for one with no hero behind it. The far side of a gap gets a ring.
+   */
+  jumpOf?: (token: BattleTokenRow) => { long: number; standing: number } | null;
+  /**
    * A token was tapped. The board publishes it the same way the 2D view
    * does, so the shelf's attacks and stat block follow a tap here too — any
    * token, not only one the reader may move, because aiming at a foe is the
@@ -1189,6 +1196,7 @@ export default function BattleMap3D({
   dark,
   onMove,
   speedOf,
+  jumpOf,
   onSelect,
   selectedId = null,
   mode = 'advise',
@@ -1204,6 +1212,7 @@ export default function BattleMap3D({
     entries,
     onMove,
     speedOf,
+    jumpOf,
     onSelect,
     selectedId,
     mode,
@@ -1214,6 +1223,7 @@ export default function BattleMap3D({
     entries,
     onMove,
     speedOf,
+    jumpOf,
     onSelect,
     selectedId,
     mode,
@@ -1550,7 +1560,27 @@ export default function BattleMap3D({
         latest.current.speedOf?.(token) ?? 30
       );
 
-    const lightGhost = (reach: Map<number, number>, opacity: number) => {
+    // Where the token could land by jumping: the same helper the 2D board
+    // rings, so the two views agree about the far side of a gap.
+    const jumpsOf = (token: BattleTokenRow): number[] => {
+      const jump = latest.current.jumpOf?.(token);
+      if (!jump) return [];
+      return jumpLandings(
+        latest.current.terrain,
+        asReach(token),
+        latest.current.tokens
+          .filter(t => t.id !== token.id && t.blocks)
+          .map(asReach),
+        jump.long,
+        jump.standing
+      );
+    };
+
+    const lightGhost = (
+      reach: Map<number, number>,
+      opacity: number,
+      landings: readonly number[] = []
+    ) => {
       const w = world.current;
       if (!w) return;
       darkenGhost();
@@ -1566,17 +1596,29 @@ export default function BattleMap3D({
         opacity,
         depthWrite: false,
       });
-      for (const i of reach.keys()) {
+      const lay = (i: number, m: THREE.Mesh, lift: number) => {
         const x = i % doc.w;
         const z = Math.floor(i / doc.w);
-        const m = new THREE.Mesh(geo, mat);
         m.rotation.x = -Math.PI / 2;
         m.position.set(
           x + 0.5,
-          doc.elevation[i] / FEET_PER_UNIT + 0.02,
+          doc.elevation[i] / FEET_PER_UNIT + lift,
           z + 0.5
         );
         g.add(m);
+      };
+      for (const i of reach.keys()) lay(i, new THREE.Mesh(geo, mat), 0.02);
+      if (landings.length > 0) {
+        const ringTex = new THREE.CanvasTexture(ringArt());
+        ringTex.colorSpace = THREE.SRGBColorSpace;
+        const ringMat = new THREE.MeshBasicMaterial({
+          map: ringTex,
+          color: p.gold,
+          transparent: true,
+          opacity: Math.min(1, opacity + 0.2),
+          depthWrite: false,
+        });
+        for (const i of landings) lay(i, new THREE.Mesh(geo, ringMat), 0.03);
       }
       w.ghost = g;
       scene.add(g);
@@ -1597,7 +1639,7 @@ export default function BattleMap3D({
       const token = id ? latest.current.tokens.find(t => t.id === id) : null;
       if (!token || !token.mine || !latest.current.onMove) return;
       // Gold on pale stone needs more weight than gold on dark.
-      lightGhost(reachOf(token), dark ? 0.55 : 0.9);
+      lightGhost(reachOf(token), dark ? 0.55 : 0.9, jumpsOf(token));
     };
     world.current.relight = relight;
 

@@ -43,6 +43,7 @@ import { SpotlightPanel } from '../session/SpotlightPanel';
 import { SittingCard } from '../session/SittingCard';
 import { ConditionsCard } from './ConditionsCard';
 import { RulesPanel } from './RulesPanel';
+import { ShopPanel } from './ShopPanel';
 import { AttacksPanel } from './AttacksPanel';
 import { CastPanel } from './CastPanel';
 import { FeedPanel } from './FeedPanel';
@@ -360,6 +361,16 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
 
     case 'conditions':
       return <ConditionsCard />;
+
+    case 'shop':
+      return live.state ? (
+        <ShopPanel
+          campaignId={ctx.campaignId}
+          state={live.state}
+          isStaff={ctx.isStaff}
+          onError={ctx.onError}
+        />
+      ) : null;
 
     case 'rules':
       return live.state ? (

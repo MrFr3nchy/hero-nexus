@@ -22,7 +22,11 @@ import {
   type SpellData,
   type SubclassData,
 } from '@/@shared/content';
-import { SPELL_SHAPES, type SpellShape } from '@/@shared/content/schemas';
+import {
+  SPELL_SHAPES,
+  type ItemUse,
+  type SpellShape,
+} from '@/@shared/content/schemas';
 import { CONDITIONS } from '@/@creator/campaign/lib/conditions';
 
 import {
@@ -869,6 +873,110 @@ function ItemForm({ d, onChange }: { d: ItemData; onChange: Patch<ItemData> }) {
           />
         )}
       </FieldGroup>
+
+      {/* What using it does (09): shown for anything drinkable or charged,
+          so a potion rolls its own dice at the table and a wand counts down. */}
+      {(d.kind === 'consumable' || d.charges > 0) && (
+        <FieldGroup title="When used">
+          {(() => {
+            const use: ItemUse = d.use ?? {
+              action: 'action',
+              effect: 'text',
+              dice: '',
+              slot_level: 0,
+              condition: null,
+              cure: [],
+              consumed: d.kind === 'consumable',
+            };
+            const setUse = (patch: Partial<ItemUse>) =>
+              onChange({ ...d, use: { ...use, ...patch } });
+            return (
+              <>
+                <Row>
+                  <PickOne
+                    label="Costs"
+                    value={use.action}
+                    options={[
+                      { value: 'action', label: 'An action' },
+                      { value: 'bonus', label: 'A bonus action' },
+                      { value: 'free', label: 'Nothing' },
+                      { value: 'minute', label: 'A minute' },
+                    ]}
+                    onChange={v =>
+                      setUse({ action: (v ?? 'action') as ItemUse['action'] })
+                    }
+                  />
+                  <PickOne
+                    label="Does"
+                    value={use.effect}
+                    options={[
+                      { value: 'heal', label: 'Heals' },
+                      { value: 'damage', label: 'Damages' },
+                      { value: 'temp-hp', label: 'Temporary hit points' },
+                      { value: 'restore-slot', label: 'Gives a slot back' },
+                      { value: 'condition', label: 'A condition' },
+                      { value: 'text', label: 'What the text says' },
+                    ]}
+                    onChange={v =>
+                      setUse({ effect: (v ?? 'text') as ItemUse['effect'] })
+                    }
+                  />
+                  {(use.effect === 'heal' ||
+                    use.effect === 'damage' ||
+                    use.effect === 'temp-hp') && (
+                    <TextField
+                      label="Dice"
+                      value={use.dice}
+                      onChange={v => setUse({ dice: v })}
+                      placeholder="2d4+2"
+                    />
+                  )}
+                  {use.effect === 'restore-slot' && (
+                    <NumberField
+                      label="Slot level"
+                      value={use.slot_level}
+                      min={1}
+                      max={9}
+                      onChange={v => setUse({ slot_level: v })}
+                    />
+                  )}
+                </Row>
+                <Row>
+                  <PickOne
+                    label="Puts on the user"
+                    value={use.condition}
+                    allowEmpty
+                    emptyLabel="Nothing"
+                    options={CONDITIONS.map(c => ({
+                      value: c.key,
+                      label: c.label,
+                    }))}
+                    onChange={v =>
+                      setUse({ condition: (v as ItemUse['condition']) ?? null })
+                    }
+                  />
+                  <PickMany
+                    label="Ends"
+                    values={use.cure}
+                    options={CONDITIONS.map(c => ({
+                      value: c.key,
+                      label: c.label,
+                    }))}
+                    onChange={v => setUse({ cure: v as ItemUse['cure'] })}
+                    description="An antitoxin ends poisoned."
+                  />
+                </Row>
+                <BoolField
+                  label="Used up"
+                  value={use.consumed}
+                  onChange={v => setUse({ consumed: v })}
+                  description="One fewer in the pack each use. A wand is not used up; it spends a charge."
+                />
+              </>
+            );
+          })()}
+        </FieldGroup>
+      )}
 
       {d.weapon && (
         <FieldGroup title="Weapon">

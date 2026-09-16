@@ -17,6 +17,7 @@ import { PageHeader, PageShell } from '@/@shared/components/ui';
 import { weaponAttacks } from '@/@creator/character/lib/derive';
 import { characterTable } from '@/server/characters';
 import { resolveContentRefs } from '@/server/content';
+import { loadFor } from '@/server/load';
 import { publicationForCharacter } from '@/server/library';
 import {
   listSecrets,
@@ -59,6 +60,8 @@ export default async function CharacterSheetPage({
         .filter((r): r is NonNullable<typeof r> => r !== null)
     )
   );
+  // The pack weighed under the table's rule (09); null where it does not weigh.
+  const load = await loadFor(character.sheet, seat?.campaignId ?? null);
   const [notes, secrets] = table
     ? await Promise.all([listSheetNotes(id), listSecrets(id)])
     : [[], []];
@@ -132,6 +135,7 @@ export default async function CharacterSheetPage({
             sheet={character.sheet}
             slots={slots}
             attacks={attacks}
+            load={load}
           />
 
           {table && (

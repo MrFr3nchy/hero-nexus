@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import { Glyph, Marginalia, Stat } from '@/@shared/components/ui';
 import type { PlayState } from '@/server/play';
+import { WeightChip } from '@/@creator/character/components/WeightChip';
 import { conditionDef } from '../lib/conditions';
 import { effectDetail, effectName, type EffectRow } from '../lib/effects';
 import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
@@ -735,6 +736,31 @@ export function PlayCard({
                   : undefined
               }
             />
+          </div>
+
+          {/* What the pack weighs (09) and how far Strength carries a leap —
+              one quiet line, so a player over the line finds out here and
+              not when the board refuses the move. */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-subtle">
+            {state.weight && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="text-[0.65rem] uppercase tracking-[0.1em]">
+                  Carrying
+                </span>
+                <WeightChip load={state.weight} />
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1.5">
+              <span className="text-[0.65rem] uppercase tracking-[0.1em]">
+                Jump
+              </span>
+              <span className="tabular-nums text-ink-muted">
+                {state.jump.long} ft long · {state.jump.high} ft high
+              </span>
+              <span className="text-ink-subtle">
+                (standing {state.jump.longStanding} / {state.jump.highStanding})
+              </span>
+            </span>
           </div>
 
           {state.slots.length > 0 && (

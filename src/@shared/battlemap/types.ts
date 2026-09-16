@@ -26,6 +26,27 @@ export const BATTLEMAP_VERSION = 1 as const;
 /** Feet per tile. D&D's grid, and the unit every rule below thinks in. */
 export const TILE_FEET = 5;
 
+/**
+ * Tiles a side, by creature size. Tiny through Medium share a tile; Large is
+ * two, Huge three, and Gargantuan is capped at the board's three — the
+ * token model's ceiling, and a 20-foot dragon on a 40-foot board is a
+ * different problem. Here rather than on the server so a hero's sheet, which
+ * spells its size with a capital, can read it too (09).
+ */
+export const FOOTPRINT_BY_SIZE: Record<string, number> = {
+  tiny: 1,
+  small: 1,
+  medium: 1,
+  large: 2,
+  huge: 3,
+  gargantuan: 3,
+};
+
+/** `FOOTPRINT_BY_SIZE` for however the size is spelt; 1 when unknown. */
+export function footprintForSize(size: string | null | undefined): number {
+  return FOOTPRINT_BY_SIZE[(size ?? '').trim().toLowerCase()] ?? 1;
+}
+
 /** Board bounds. Below 4 there is nothing to fight over; above 60 the canvas hurts. */
 export const MIN_SIDE = 4;
 export const MAX_SIDE = 60;

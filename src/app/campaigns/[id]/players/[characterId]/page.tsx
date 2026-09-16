@@ -13,6 +13,7 @@ import {
 import { weaponAttacks } from '@/@creator/character/lib/derive';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import { resolveContentRefs } from '@/server/content';
+import { loadFor } from '@/server/load';
 import {
   PageHeader,
   PageShell,
@@ -81,6 +82,8 @@ export default async function CampaignPlayerSheetPage({
         .filter((r): r is NonNullable<typeof r> => r !== null)
     )
   );
+  // The pack weighed under the table's rule (09); null where it does not weigh.
+  const load = await loadFor(character.sheet, id);
 
   // One comment thread per sheet section, handed to the sheet as slots.
   const slots = Object.fromEntries(
@@ -126,6 +129,7 @@ export default async function CampaignPlayerSheetPage({
             sheet={character.sheet}
             slots={slots}
             attacks={attacks}
+            load={load}
           />
 
           <SecretsLog

@@ -13,6 +13,8 @@ import {
   type CharacterSheet,
   type InventoryItem,
 } from '../../schema';
+import { capacityFor, loadOf, weighPack } from '../../lib/derive';
+import { WeightChip } from '../WeightChip';
 import type { ResolvedContent } from '../useResolvedContent';
 import { ContentPicker } from './ContentPicker';
 
@@ -72,6 +74,21 @@ export function InventorySection({
   const attuned = inventory.filter(i => i.attuned).length;
   const over = attuned > MAX_ATTUNED;
 
+  // The pack against Strength (09), live as rows are added, so a new hero
+  // does not start over the line. The builder knows no table, so it shows
+  // the book's rule; the table's own rule applies once seated.
+  const strength = useWatch({ control, name: 'abilities.strength.score' });
+  const size = useWatch({ control, name: 'identity.size' });
+  const load = useMemo(() => {
+    if (!resolved || resolved.status !== 'ready') return null;
+    return loadOf(
+      weighPack(inventory, resolved.entries),
+      capacityFor(Number(strength) || 10, String(size ?? 'Medium')),
+      Number(strength) || 10,
+      'basic'
+    );
+  }, [inventory, resolved, strength, size]);
+
   const taken = useMemo(
     () => new Set(inventory.filter(i => i.ref).map(i => refKey(i.ref!))),
     [inventory]
@@ -92,7 +109,8 @@ export function InventorySection({
       title="Inventory"
       description="Everything on your person. Tick what you have equipped — worn armour and a held shield set your armour class."
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <WeightChip load={load} />
           <Pill tone={over ? 'warning' : 'default'}>
             {attuned}/{MAX_ATTUNED} attuned
           </Pill>

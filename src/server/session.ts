@@ -71,6 +71,8 @@ import type { EntryForm } from '@/@creator/campaign/lib/casting';
 import { bumpVersion, publish, watchersOf, type Watcher } from './live-hub';
 import { claimedFaces } from './dice-claims';
 import { resolveContentRefs } from './content';
+import { loadsFor } from './load';
+import type { Encumbrance } from '@/@creator/character/lib/derive';
 import { listWhispers, type WhisperRow } from './whispers';
 
 /** How much of the roll log the live view carries. */
@@ -298,6 +300,7 @@ const DEFAULT_SPEED_FEET = 30;
  * at the default — each through `speedFor` for conditions and exhaustion.
  */
 async function speedsFor(
+  campaignId: string,
   rows: (typeof initiativeEntries.$inferSelect)[]
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
@@ -318,14 +321,19 @@ async function speedsFor(
   const refs = rows
     .map(r => r.creatureRef as ContentRef | null)
     .filter((r): r is ContentRef => r !== null);
-  const blocks = refs.length > 0 ? await resolveContentRefs(refs) : new Map();
+  const [blocks, loads] = await Promise.all([
+    refs.length > 0 ? resolveContentRefs(refs) : new Map(),
+    loadsFor(sheets, campaignId),
+  ]);
   for (const r of rows) {
     let base = DEFAULT_SPEED_FEET;
     let exhaustion = 0;
+    let load: Encumbrance | null = null;
     const sheet = r.characterId ? sheets.get(r.characterId) : undefined;
     if (sheet) {
       base = sheet.combat?.speed ?? base;
       exhaustion = sheet.combat?.exhaustion ?? 0;
+      load = loads.get(r.characterId!) ?? null;
     } else if (r.creatureRef) {
       const block = blocks.get(refKey(r.creatureRef as ContentRef));
       if (block) {
@@ -333,7 +341,10 @@ async function speedsFor(
         if (d.speed.walk > 0) base = d.speed.walk;
       }
     }
-    out.set(r.id, speedFor(base, parseConditions(r.conditionKeys), exhaustion));
+    out.set(
+      r.id,
+      speedFor(base, parseConditions(r.conditionKeys), exhaustion, load)
+    );
   }
   return out;
 }
@@ -379,7 +390,7 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
         .from(initiativeEntries)
         .where(eq(initiativeEntries.encounterId, encounter.id))
     : [];
-  const speeds = await speedsFor(entryRows);
+  const speeds = await speedsFor(campaignId, entryRows);
   const rawEntries = orderEntries(
     entryRows.map(
       r =>

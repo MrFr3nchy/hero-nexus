@@ -44,6 +44,7 @@ import { parseTurn } from '@/@creator/campaign/lib/turn';
 import { normalizeTerrain } from '@/@shared/battlemap/types';
 import {
   parseContentData,
+  refKey,
   type ContentEntry,
   type ContentRef,
   type CreatureData,
@@ -70,9 +71,11 @@ import {
 import { requireCampaignRole } from './campaigns';
 import { resolveContentRefs } from './content';
 import { bumpVersion, publish } from './live-hub';
+import { dropThingNear } from './battlemap';
 import { applyHpUnchecked } from './hp';
 import { requireUserId } from './session-user';
 import { effectiveRules, fence } from './table-rules';
+import type { TableRules } from '@/@creator/campaign/lib/table-rules';
 import { claimedFaces } from './dice-claims';
 import { authorizeEntry, takeAction } from './turn';
 
@@ -155,7 +158,70 @@ export type AttackWeapon =
       label: string;
       thrown: boolean;
       damageType?: string | null;
+      /**
+       * A thing from the pack thrown or swung (09). Named off the row; a
+       * heavy one — over `THROWABLE_POUNDS` — is `TOO_HEAVY`, which staff
+       * may rule past. The row stays in the pack: retrieving it is narration.
+       */
+      itemId?: string | null;
     };
+
+/** What a hero can fling without the DM raising an eyebrow, in pounds. */
+export const THROWABLE_POUNDS = 5;
+
+/** A thing in the pack the improvised row may pick (09). */
+export interface Throwable {
+  itemId: string;
+  name: string;
+  weight: number;
+  /** Over the light limit; the DM would have to rule. */
+  heavy: boolean;
+}
+
+/**
+ * The pack as things to throw: every row with a weight the app knows,
+ * lightest first, weapons included — a longsword without Thrown is an
+ * improvised missile. Hand-typed rows weigh nothing known and are left out;
+ * the row's free text still names them.
+ */
+export async function listThrowables(
+  characterId: string,
+  campaignId: string
+): Promise<Throwable[]> {
+  const userId = await requireUserId();
+  const { role } = await requireCampaignRole(campaignId, [
+    'gm',
+    'co-gm',
+    'player',
+  ]);
+  const character = await db.query.characters.findFirst({
+    where: eq(characters.id, characterId),
+  });
+  if (!character) throw new Error('NOT_FOUND');
+  const isStaff = role === 'gm' || role === 'co-gm';
+  if (!isStaff && character.ownerId !== userId) throw new Error('FORBIDDEN');
+  const sheet = character.sheet as CharacterSheet;
+  const refs = sheet.inventory
+    .map(i => i.ref)
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+  const resolved = await resolveContentRefs(refs);
+  const out: Throwable[] = [];
+  for (const row of sheet.inventory) {
+    if (!row.ref || row.quantity <= 0) continue;
+    const entry = resolved.get(refKey(row.ref));
+    if (!entry || entry.type !== 'item') continue;
+    const data = parseContentData('item', entry.data);
+    out.push({
+      itemId: row.id,
+      name: row.name,
+      weight: data.weight,
+      heavy: data.weight > THROWABLE_POUNDS,
+    });
+  }
+  return out.sort(
+    (a, b) => a.weight - b.weight || a.name.localeCompare(b.name)
+  );
+}
 
 export interface AttackInput {
   attackerEntryId: string;
@@ -178,6 +244,13 @@ export interface AttackInput {
    */
   hitFaces?: number[];
   damageFaces?: number[];
+  /**
+   * A thrown thing stays in the pack — picking it back up is narration —
+   * unless the thrower says it is left where it landed (09): then a scenery
+   * token with its name is dropped beside the target, to be picked up with
+   * `operate` later, and the row leaves the pack (its stack shrinks by one).
+   */
+  leaveOnBoard?: boolean;
 }
 
 export interface AttackResult {
@@ -237,7 +310,9 @@ async function sheetOf(entry: Entry): Promise<CharacterSheet | null> {
 async function swingOf(
   attacker: Entry,
   weapon: AttackWeapon,
-  targetFeet: number | null
+  targetFeet: number | null,
+  rules: TableRules,
+  who: { isStaff: boolean; ruling?: boolean }
 ): Promise<Swing> {
   if (weapon.kind === 'creature-action') {
     const block = await blockOf(attacker);
@@ -270,8 +345,24 @@ async function swingOf(
     // 1d4 + STR, or DEX when thrown; no proficiency; 20/60 ft thrown.
     const ability = weapon.thrown ? 'dexterity' : 'strength';
     const mod = abilityMod(sheet, ability);
+    let name = weapon.label.trim().slice(0, 60);
+    if (weapon.itemId) {
+      // A thing from the pack (09): named off the row, weighed off its content.
+      const row = sheet.inventory.find(i => i.id === weapon.itemId);
+      if (!row || row.quantity <= 0) throw new Error('NO_SUCH_ITEM');
+      name = row.name.slice(0, 60);
+      if (row.ref) {
+        const resolved = await resolveContentRefs([row.ref]);
+        const entry = resolved.get(refKey(row.ref));
+        const weight =
+          entry && entry.type === 'item'
+            ? parseContentData('item', entry.data).weight
+            : 0;
+        if (weight > THROWABLE_POUNDS) fence('TOO_HEAVY', rules, who);
+      }
+    }
     return {
-      name: weapon.label.trim().slice(0, 60) || 'Improvised weapon',
+      name: name || 'Improvised weapon',
       attackBonus: mod + penalty,
       damage: `1d4${mod === 0 ? '' : mod > 0 ? `+${mod}` : `${mod}`}`,
       damageType: weapon.damageType?.trim().toLowerCase() || 'bludgeoning',
@@ -380,6 +471,58 @@ async function geometry(
   };
 }
 
+/**
+ * Drop the thrown thing beside its target and take it out of the pack.
+ * Nothing happens when the board has no token for the target — there is
+ * nowhere to drop it — and a typed thing ("a chair") is a marker alone.
+ */
+async function leaveThrownThing(
+  campaignId: string,
+  attacker: Entry,
+  target: Entry,
+  weapon: Extract<AttackWeapon, { kind: 'improvised' }>,
+  name: string
+): Promise<void> {
+  const map = await db.query.battleMaps.findFirst({
+    where: and(
+      eq(battleMaps.campaignId, campaignId),
+      eq(battleMaps.encounterId, attacker.encounterId),
+      eq(battleMaps.isActive, true)
+    ),
+  });
+  if (!map) return;
+  const token = await db.query.battleMapTokens.findFirst({
+    where: and(
+      eq(battleMapTokens.mapId, map.id),
+      eq(battleMapTokens.entryId, target.id)
+    ),
+  });
+  if (!token) return;
+  const dropped = await dropThingNear(map.id, { x: token.x, y: token.y }, name);
+  if (!dropped || !weapon.itemId || !attacker.characterId) return;
+
+  const character = await db.query.characters.findFirst({
+    where: eq(characters.id, attacker.characterId),
+  });
+  if (!character) return;
+  const sheet = character.sheet as CharacterSheet;
+  const row = sheet.inventory.find(i => i.id === weapon.itemId);
+  if (!row) return;
+  const inventory =
+    row.quantity > 1
+      ? sheet.inventory.map(i =>
+          i.id === row.id ? { ...i, quantity: i.quantity - 1 } : i
+        )
+      : sheet.inventory.filter(i => i.id !== row.id);
+  await db
+    .update(characters)
+    .set({
+      sheet: { ...sheet, inventory } satisfies CharacterSheet,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(characters.id, character.id));
+}
+
 function fmt(n: number): string {
   return n === 0 ? '' : n > 0 ? `+${n}` : `${n}`;
 }
@@ -419,7 +562,13 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
   const geo = target
     ? await geometry(campaignId, attacker, target, rules.flanking)
     : null;
-  const swing = await swingOf(attacker, input.weapon, geo?.feet ?? null);
+  const swing = await swingOf(
+    attacker,
+    input.weapon,
+    geo?.feet ?? null,
+    rules,
+    who
+  );
   const because: string[] = [];
 
   // Cover first: a target that cannot be seen at all is refused before
@@ -639,6 +788,22 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
     .update(campaignRolls)
     .set({ outcome })
     .where(eq(campaignRolls.id, hitRow.id));
+
+  // Left where it landed: a marker on the board, and one fewer in the pack.
+  if (
+    input.leaveOnBoard &&
+    input.weapon.kind === 'improvised' &&
+    input.weapon.thrown &&
+    target
+  ) {
+    await leaveThrownThing(
+      campaignId,
+      attacker,
+      target,
+      input.weapon,
+      swing.name
+    );
+  }
 
   bumpVersion(campaignId);
 

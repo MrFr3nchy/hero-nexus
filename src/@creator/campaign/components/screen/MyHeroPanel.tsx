@@ -1,17 +1,130 @@
 'use client';
 
-import { Link } from '@heroui/react';
+import {
+  Button,
+  Link,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@heroui/react';
 import { useEffect, useState } from 'react';
 
 import { LoadoutSection } from '@/@creator/character/components/sections/LoadoutSection';
+import { useDiceTray } from '@/@shared/components/dice';
 import { EmptyState, CandleScene } from '@/@shared/components/ui';
 import type { CharacterRow } from '@/server/characters';
 import type { PlayLoadout, PlayState } from '@/server/play';
 import type { EffectRow } from '@/@creator/campaign/lib/effects';
 import type { EntryRow } from '@/server/session';
 import { TurnStrip } from '../session/TurnStrip';
-import { getPlayLoadoutAction } from '../../play-actions';
+import { consumeItemAction, getPlayLoadoutAction } from '../../play-actions';
 import { PlayCard } from '../PlayCard';
+import { Refused, type RefusedState } from '../Refused';
+
+/**
+ * Use a thing from the pack on your turn (09), beside the action pips: the
+ * potion is in the pack a scroll below, but the moment to drink it is the
+ * turn. One tap; the server pays the turn what the table says a potion
+ * costs, rolls, lands it, and the loadout below refreshes with the row one
+ * lighter. Somebody else's hero is the pack's own *To…* — administering is
+ * a deliberate act, not a quick one.
+ */
+function UseOnTurn({
+  characterId,
+  campaignId,
+  loadout,
+  onLoadout,
+  refresh,
+  onError,
+}: {
+  characterId: string;
+  campaignId: string;
+  loadout: PlayLoadout;
+  onLoadout: (next: PlayLoadout) => void;
+  refresh: () => Promise<void> | void;
+  onError: (message: string) => void;
+}) {
+  const tray = useDiceTray();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [refused, setRefused] = useState<RefusedState | null>(null);
+  const usable = loadout.items.filter(i => i.usable && i.quantity > 0);
+  if (!loadout.canEdit || usable.length === 0) return null;
+
+  const drink = async (itemId: string, ruling = false) => {
+    setBusy(true);
+    const res = await consumeItemAction(characterId, campaignId, {
+      itemId,
+      ruling,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      if (res.overridable) {
+        setRefused({ message: res.error, ruling: () => drink(itemId, true) });
+      } else {
+        onError(res.error);
+      }
+      return;
+    }
+    setRefused(null);
+    setOpen(false);
+    onLoadout(res.data.loadout);
+    if (res.data.roll) {
+      const name = usable.find(i => i.id === itemId)?.name ?? 'Used';
+      void tray.showNotationRoll(res.data.roll, { title: name });
+    }
+    await refresh();
+  };
+
+  return (
+    <>
+      <Popover placement="bottom-start" isOpen={open} onOpenChange={setOpen}>
+        <PopoverTrigger>
+          <Button
+            size="sm"
+            variant="flat"
+            color="primary"
+            className="h-6 min-w-0 px-2 text-xs"
+            isDisabled={busy}
+          >
+            Use…
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72 border border-line bg-surface p-2">
+          <ul className="w-full space-y-1">
+            {usable.map(item => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => drink(item.id)}
+                  className="flex w-full items-baseline gap-2 rounded px-1.5 py-1 text-left text-sm text-ink hover:bg-surface-2 disabled:opacity-60"
+                >
+                  <span className="tabular-nums text-ink-subtle">
+                    {item.quantity}&times;
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    {item.name}
+                    {item.useWords && (
+                      <span className="ml-1.5 text-xs text-ink-subtle">
+                        {item.useWords}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </PopoverContent>
+      </Popover>
+      {refused && (
+        <div className="basis-full">
+          <Refused refusal={refused} onDismiss={() => setRefused(null)} />
+        </div>
+      )}
+    </>
+  );
+}
 
 /**
  * The player's own hero, on the table screen.
@@ -108,13 +221,25 @@ export function MyHeroPanel({
               <p className="mb-1 text-xs text-gold-strong dark:text-gold">
                 Your turn
               </p>
-              <TurnStrip
-                entry={turnEntry}
-                canSpend
-                isStaff={false}
-                refresh={refresh ?? (() => undefined)}
-                onError={onError}
-              />
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <TurnStrip
+                  entry={turnEntry}
+                  canSpend
+                  isStaff={false}
+                  refresh={refresh ?? (() => undefined)}
+                  onError={onError}
+                />
+                {loadout && (
+                  <UseOnTurn
+                    characterId={mine.id}
+                    campaignId={campaignId}
+                    loadout={loadout}
+                    onLoadout={setLoadout}
+                    refresh={refresh ?? (() => undefined)}
+                    onError={onError}
+                  />
+                )}
+              </div>
             </div>
           )}
           <PlayCard

@@ -7,6 +7,7 @@ import {
   regrantInventory,
 } from '../../../lib/migrate-sheet';
 import type { EquipmentOption } from '../../../lib/srd/types';
+import { WeightChip } from '../../WeightChip';
 import { StepHeading } from '../parts';
 import type { StepProps } from '../types';
 
@@ -66,6 +67,7 @@ export function EquipmentStep({
   build,
   catalog,
   classDef,
+  load,
   patchBuild,
   setOverride,
   log,
@@ -114,6 +116,7 @@ export function EquipmentStep({
       <StepHeading
         title="Starting equipment"
         lede="Take a package or take the coin. Whichever you pick lands on the sheet, gold included — and you can edit the list afterwards."
+        aside={<WeightChip load={load} />}
       />
 
       <PackagePicker

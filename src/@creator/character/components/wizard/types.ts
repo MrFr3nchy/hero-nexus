@@ -1,5 +1,6 @@
 import type { Control } from 'react-hook-form';
 
+import type { Encumbrance } from '../../lib/derive';
 import type { ProvenanceInput } from '../../lib/provenance';
 import type { BuildLimits } from '../../lib/validate-build';
 import type {
@@ -17,6 +18,11 @@ export interface StepProps {
   catalog: BuildCatalog;
   /** What the chosen campaign's table rules allow. Steps hide the rest. */
   limits: BuildLimits;
+  /**
+   * What the pack weighs under the table's rule, live as items are picked.
+   * Null with encumbrance off, or before the pack's content has resolved.
+   */
+  load: Encumbrance | null;
   classDef: ClassDef | null;
   loadingClass: boolean;
   control: Control<CharacterSheet>;

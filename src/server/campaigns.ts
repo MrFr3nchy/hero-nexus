@@ -461,6 +461,8 @@ export interface BuilderCampaignRow {
   name: string;
   rules: CampaignRules;
   allowHomebrew: boolean;
+  /** How the table weighs a pack, so the builder's chip matches the sheet's (09). */
+  encumbrance: TableRules['encumbrance'];
   /** The character this member already plays at that table, if any. */
   linkedCharacterId: string | null;
   linkedCharacterName: string | null;
@@ -504,6 +506,7 @@ export async function listBuilderCampaigns(): Promise<BuilderCampaignRow[]> {
       name: r.name,
       rules: settings.rules,
       allowHomebrew: settings.allowHomebrew,
+      encumbrance: settings.table.encumbrance,
       linkedCharacterId: r.characterId,
       linkedCharacterName: r.characterName,
     };

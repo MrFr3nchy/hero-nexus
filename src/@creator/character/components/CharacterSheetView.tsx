@@ -8,11 +8,14 @@ import {
   StatBlock,
 } from '@/@shared/components/ui';
 import { xpStanding } from '../lib/advancement';
+import type { Encumbrance } from '../lib/derive';
+import { WeightChip } from './WeightChip';
 import { AttacksSection } from './sections/AttacksSection';
 import {
   abilityModifier,
   fmtBonus,
   initiative,
+  jumpDistances,
   passivePerception,
   proficiencyBonus,
   savingThrow,
@@ -52,6 +55,27 @@ function Field({ label, value }: { label: string; value: string | number }) {
  * table that levels on story beats is not a table whose sheet should imply
  * they are behind.
  */
+/**
+ * The book's jump distances off Strength (09): a long jump is the score in
+ * feet with a 10 ft run-up, half standing; a high jump 3 + the modifier.
+ * The board caps both by the movement left; the sheet shows the book.
+ */
+function JumpLine({ sheet }: { sheet: CharacterSheet }) {
+  const jump = jumpDistances(sheet);
+  return (
+    <p className="mt-3 text-xs text-ink-subtle">
+      <span className="font-display-alt text-[0.6rem] uppercase tracking-[0.14em]">
+        Jump
+      </span>{' '}
+      <span className="tabular-nums text-ink-muted">
+        {jump.long} ft long · {jump.high} ft high
+      </span>{' '}
+      (standing {jump.longStanding} / {jump.highStanding}; long needs a 10 ft
+      run-up)
+    </p>
+  );
+}
+
 function XpField({ sheet }: { sheet: CharacterSheet }) {
   const xp = sheet.identity.xp;
   const standing = xpStanding(xp, sheet.identity.level);
@@ -113,8 +137,11 @@ export function CharacterSheetView({
   sheet,
   slots,
   attacks = [],
+  load = null,
 }: {
   sheet: CharacterSheet;
+  /** The pack weighed (09), derived by the caller for the same reason. Null hides the chip. */
+  load?: Encumbrance | null;
   slots?: Partial<Record<NoteSection, ReactNode>>;
   /**
    * Derived by the caller, because deriving one needs the sheet's inventory
@@ -175,6 +202,7 @@ export function CharacterSheetView({
             value={`${sheet.combat.hitDiceMax - sheet.combat.hitDiceSpent}/${sheet.combat.hitDiceMax} d${sheet.combat.hitDieSize}`}
           />
         </div>
+        <JumpLine sheet={sheet} />
         {slots?.combat}
       </SectionCard>
 
@@ -296,8 +324,9 @@ export function CharacterSheetView({
           <div className="space-y-3">
             {sheet.inventory.length > 0 && (
               <div>
-                <h3 className="mb-2 font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-gold/80">
+                <h3 className="mb-2 flex flex-wrap items-center gap-2 font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-gold/80">
                   Carried ({sheet.inventory.length})
+                  <WeightChip load={load} />
                 </h3>
                 <ul className="space-y-1">
                   {sheet.inventory.map(item => (

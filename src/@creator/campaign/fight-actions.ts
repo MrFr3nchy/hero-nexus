@@ -11,8 +11,10 @@ import {
   FacesNeeded,
   getEntryCreature,
   getMyAttacks,
+  listThrowables,
   mySeat,
   type AttackResult,
+  type Throwable,
 } from '@/server/fight';
 import { RuleRefusal } from '@/server/table-rules';
 
@@ -22,6 +24,18 @@ export async function getMyAttacksAction(
 ): Promise<WeaponAttack[]> {
   try {
     return await getMyAttacks(characterId, campaignId);
+  } catch {
+    return [];
+  }
+}
+
+/** The pack as things to throw (09), lightest first. */
+export async function listThrowablesAction(
+  characterId: string,
+  campaignId: string
+): Promise<Throwable[]> {
+  try {
+    return await listThrowables(characterId, campaignId);
   } catch {
     return [];
   }
@@ -81,6 +95,9 @@ function fail(err: unknown, fallback: string): Refusal {
     NO_SUCH_ACTION: 'That action is not on the block.',
     NOT_AN_ATTACK: 'That action names no attack roll.',
     NOT_IN_HAND: 'That weapon is not in hand.',
+    NO_SUCH_ITEM: 'That is not in the pack any more.',
+    TOO_HEAVY:
+      'Too heavy to throw — over five pounds. The DM can rule it flies anyway.',
     NO_LINE: 'Total cover — there is no line to them.',
     NO_AMMUNITION: 'Nothing left to shoot.',
     ALREADY_ACTED: 'The action is spent this turn.',
@@ -132,6 +149,7 @@ const weaponSchema = z.discriminatedUnion('kind', [
     label: z.string().max(60),
     thrown: z.boolean(),
     damageType: z.string().max(20).nullable().optional(),
+    itemId: z.string().max(64).nullable().optional(),
   }),
 ]);
 
@@ -143,6 +161,7 @@ const attackSchema = z.object({
   asReaction: z.boolean().optional(),
   damageOnMiss: z.boolean().optional(),
   ruling: z.boolean().optional(),
+  leaveOnBoard: z.boolean().optional(),
   hitFaces: z.array(z.number().int().min(1).max(20)).min(1).max(2).optional(),
   damageFaces: z
     .array(z.number().int().min(1).max(100))

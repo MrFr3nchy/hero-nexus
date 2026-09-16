@@ -44,6 +44,8 @@ export const REFERENCE_CATEGORIES: Record<string, ContentType> = {
   'magic-item': 'item',
   weapon: 'item',
   armor: 'item',
+  /** The equipment chapter (09): gear, tools, potions, and priced weapons and armour. */
+  item: 'item',
   creature: 'creature',
 };
 
@@ -292,6 +294,43 @@ function armorCategory(raw: Record<string, unknown>): string {
  * `armor` objects when it is one; the bare `weapon` and `armor` categories are
  * the mundane gear lists and have no wrapper.
  */
+/**
+ * What a consumable does, read off its prose where the SRD is regular (09):
+ * "regain 2d4 + 2 Hit Points" is a heal, "takes 3d6 Poison damage" damage,
+ * "for 1 hour, you have Resistance" a line to read. Anything else stays a
+ * line to read. Only consumables get a block at all — a longsword is not
+ * used, it is swung.
+ */
+function itemUseFromProse(kind: string, desc: string): unknown {
+  if (kind !== 'consumable') return null;
+  const heal = /regain(?:s)?\s+(\d+d\d+(?:\s*\+\s*\d+)?)\s+hit points/i.exec(
+    desc
+  );
+  if (heal) {
+    return {
+      action: 'bonus',
+      effect: 'heal',
+      dice: heal[1].replace(/\s/g, ''),
+      consumed: true,
+    };
+  }
+  const dmg = /take(?:s)?\s+(\d+d\d+(?:\s*\+\s*\d+)?)\s+(\w+)\s+damage/i.exec(
+    desc
+  );
+  if (dmg) {
+    return {
+      action: 'action',
+      effect: 'damage',
+      dice: dmg[1].replace(/\s/g, ''),
+      consumed: true,
+    };
+  }
+  const cure = /(?:ends|neutralizes|cures)[^.]*\bpoisoned\b/i.test(desc)
+    ? ['poisoned']
+    : [];
+  return { action: 'bonus', effect: 'text', cure, consumed: true };
+}
+
 function itemFromSrd(category: string, raw: Record<string, unknown>): ItemData {
   const weaponRaw =
     category === 'weapon'
@@ -302,16 +341,30 @@ function itemFromSrd(category: string, raw: Record<string, unknown>): ItemData {
       ? raw
       : ((raw.armor as Record<string, unknown> | null) ?? null);
 
+  const desc = str(raw.desc ?? '');
+  const key = str(raw.key ?? '').toLowerCase();
+  // The equipment chapter names its own category — potion, scroll, wand,
+  // wondrous-item, adventuring-gear — where the magic-item list leaves it to
+  // the key.
+  const shelf = keyOf(raw.category);
+  const potion =
+    /potion|elixir|antitoxin|oil of|philter/.test(key) ||
+    shelf === 'potion' ||
+    shelf === 'scroll';
   const kind = weaponRaw
     ? 'weapon'
     : armorRaw
       ? 'armor'
-      : category === 'magic-item'
-        ? 'wondrous'
-        : 'gear';
+      : potion
+        ? 'consumable'
+        : category === 'magic-item' ||
+            ['wand', 'rod', 'staff', 'ring', 'wondrous-item'].includes(shelf)
+          ? 'wondrous'
+          : 'gear';
 
   return parseContentData('item', {
     kind,
+    use: itemUseFromProse(kind, desc),
     rarity: keyOf(raw.rarity) || 'common',
     requires_attunement: Boolean(raw.requires_attunement),
     attunement_detail: str(raw.attunement_detail ?? ''),
