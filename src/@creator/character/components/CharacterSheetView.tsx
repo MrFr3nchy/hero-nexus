@@ -15,6 +15,7 @@ import {
   abilityModifier,
   fmtBonus,
   initiative,
+  jumpDistances,
   passivePerception,
   proficiencyBonus,
   savingThrow,
@@ -54,6 +55,27 @@ function Field({ label, value }: { label: string; value: string | number }) {
  * table that levels on story beats is not a table whose sheet should imply
  * they are behind.
  */
+/**
+ * The book's jump distances off Strength (09): a long jump is the score in
+ * feet with a 10 ft run-up, half standing; a high jump 3 + the modifier.
+ * The board caps both by the movement left; the sheet shows the book.
+ */
+function JumpLine({ sheet }: { sheet: CharacterSheet }) {
+  const jump = jumpDistances(sheet);
+  return (
+    <p className="mt-3 text-xs text-ink-subtle">
+      <span className="font-display-alt text-[0.6rem] uppercase tracking-[0.14em]">
+        Jump
+      </span>{' '}
+      <span className="tabular-nums text-ink-muted">
+        {jump.long} ft long · {jump.high} ft high
+      </span>{' '}
+      (standing {jump.longStanding} / {jump.highStanding}; long needs a 10 ft
+      run-up)
+    </p>
+  );
+}
+
 function XpField({ sheet }: { sheet: CharacterSheet }) {
   const xp = sheet.identity.xp;
   const standing = xpStanding(xp, sheet.identity.level);
@@ -180,6 +202,7 @@ export function CharacterSheetView({
             value={`${sheet.combat.hitDiceMax - sheet.combat.hitDiceSpent}/${sheet.combat.hitDiceMax} d${sheet.combat.hitDieSize}`}
           />
         </div>
+        <JumpLine sheet={sheet} />
         {slots?.combat}
       </SectionCard>
 

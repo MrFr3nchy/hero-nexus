@@ -1755,6 +1755,17 @@ export async function consumeItem(
     target = receiver;
   }
 
+  // Charges before the turn pays: a wand with nothing in it does nothing,
+  // and the refusal should not cost the action.
+  let inventory = sheet.inventory;
+  if (charges > 0) {
+    const left = row.charges ?? charges;
+    if (left <= 0) fence('NO_CHARGES', rules, who);
+    inventory = inventory.map(i =>
+      i.id === row.id ? { ...i, charges: Math.max(0, left - 1) } : i
+    );
+  }
+
   // The turn pays (05), in a fight, on the user's own turn.
   if (campaignId) {
     const enc = await db.query.initiativeEncounters.findFirst({
@@ -1789,16 +1800,6 @@ export async function consumeItem(
         );
       }
     }
-  }
-
-  // Charges before dice: a wand with nothing in it does nothing.
-  let inventory = sheet.inventory;
-  if (charges > 0) {
-    const left = row.charges ?? charges;
-    if (left <= 0) fence('NO_CHARGES', rules, who);
-    inventory = inventory.map(i =>
-      i.id === row.id ? { ...i, charges: Math.max(0, left - 1) } : i
-    );
   }
 
   // The dice.

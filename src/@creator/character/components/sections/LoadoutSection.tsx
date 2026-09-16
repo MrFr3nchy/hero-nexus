@@ -351,7 +351,7 @@ export function LoadoutSection({
                 <span className="min-w-0 flex-1 text-ink">
                   {item.name}
                   {(item.weight > 0 || item.useWords) && (
-                    <span className="ml-2 text-xs text-ink-subtle">
+                    <span className="block text-xs text-ink-subtle">
                       {[
                         item.weight > 0 ? `${item.weight} lb` : '',
                         item.useWords,
