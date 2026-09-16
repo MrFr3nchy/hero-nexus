@@ -364,6 +364,34 @@ function orderEntries(rows: EntryRow[]): EntryRow[] {
  * screen never reaches a player's browser.
  */
 export async function getLiveState(campaignId: string): Promise<LiveState> {
+  if (!MEASURE_LIVE) return assembleLiveState(campaignId);
+  const started = performance.now();
+  const state = await assembleLiveState(campaignId);
+  // Serialised here only to be weighed. The bytes the wire carries are the
+  // action's own encoding of the same object, within a few percent.
+  const bytes = Buffer.byteLength(JSON.stringify(state));
+  console.error(
+    `[live] getLiveState ${campaignId} ${state.role} ${(
+      performance.now() - started
+    ).toFixed(1)}ms ${bytes}B entries=${state.entries.length} effects=${
+      state.effects.length
+    } whispers=${state.whispers.length} tokens=${
+      state.battlemap?.tokens.length ?? 0
+    }`
+  );
+  return state;
+}
+
+/**
+ * `HERO_NEXUS_MEASURE_LIVE=1` logs one line per read: how long it took and
+ * how many bytes it weighs. The stream carries a version number and nothing
+ * else, so every nudge is one of these per connected browser; the numbers
+ * are in `docs/improvements/13-live-state-cost.md`, and this is how to take
+ * them again.
+ */
+const MEASURE_LIVE = process.env.HERO_NEXUS_MEASURE_LIVE === '1';
+
+async function assembleLiveState(campaignId: string): Promise<LiveState> {
   const { role, userId } = await requireCampaignRole(campaignId, [
     'gm',
     'co-gm',
