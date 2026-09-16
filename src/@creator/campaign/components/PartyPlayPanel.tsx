@@ -116,6 +116,7 @@ export function PartyPlayPanel({
           state={p}
           campaignId={campaignId}
           canRollSecret={isStaff}
+          physicalDice={p.physicalDice}
           clocks={clocksFor(p.characterId)}
           onChange={replace}
           onError={onError}
@@ -131,6 +132,7 @@ export function PartyPlayPanel({
               state={p}
               campaignId={campaignId}
               canRollSecret={isStaff}
+              physicalDice={p.physicalDice}
               clocks={clocksFor(p.characterId)}
               compact={!isStaff}
               onChange={replace}

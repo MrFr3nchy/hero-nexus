@@ -70,6 +70,7 @@ export function PlaySurface({
       <PlayCard
         state={state}
         campaignId={campaign?.campaignId ?? null}
+        physicalDice={state.physicalDice}
         onChange={setState}
         onError={setError}
       />

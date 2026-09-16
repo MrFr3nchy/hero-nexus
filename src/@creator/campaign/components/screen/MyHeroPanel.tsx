@@ -120,6 +120,7 @@ export function MyHeroPanel({
           <PlayCard
             state={local}
             campaignId={campaignId}
+            physicalDice={local.physicalDice}
             clocks={clocks}
             onChange={setLocal}
             onError={onError}

@@ -659,6 +659,11 @@ export const campaignRolls = sqliteTable(
       .notNull()
       .default('table'),
     /**
+     * The faces were read off real dice on the table (0048). The modifier
+     * and the total are still the server's; only the die was the player's.
+     */
+    physical: integer('physical', { mode: 'boolean' }).notNull().default(false),
+    /**
      * What an attack decided (0051): target, AC, hit, damage after
      * resistances, and whether it was applied — a `RollOutcome` from
      * `campaign/lib/attack.ts`. Null for every roll that is not an attack.

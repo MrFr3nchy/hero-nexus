@@ -17,6 +17,7 @@ import {
   spendHitDice,
   useItem,
   type DeathSaveResult,
+  type HitDiceResult,
   type UseItemResult,
   type PlayLoadout,
   type PlayState,
@@ -64,6 +65,10 @@ function fail(
     NOTHING_TO_USE: 'That is not something you use — only carry.',
     NO_CHARGES: 'It has no charges left. It recharges at dawn, if it does.',
     INCAPACITATED: 'You cannot act this turn.',
+    PHYSICAL_DICE_OFF:
+      'This table rolls in the app. Ask the DM to allow real dice.',
+    BAD_FACES:
+      'Those faces do not fit the roll — one per die, each within its die.',
     ...overrides,
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
@@ -136,10 +141,17 @@ export async function applyPlayPatchAction(
 export async function spendHitDiceAction(
   characterId: string,
   campaignId: string | null,
-  count: number
-): Promise<Result<PlayState>> {
+  count: number,
+  faces?: unknown
+): Promise<Result<HitDiceResult>> {
+  const claimed = facesSchema.safeParse(faces);
   try {
-    const data = await spendHitDice(characterId, campaignId, count);
+    const data = await spendHitDice(
+      characterId,
+      campaignId,
+      count,
+      claimed.success ? claimed.data : undefined
+    );
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Failed to spend the hit dice.');
@@ -177,9 +189,21 @@ export async function setPlayConditionsAction(
 /** The shape a loadout control sends. Mirrors `LoadoutPatch` on the server. */
 export type LoadoutPatchInput = z.infer<typeof loadoutSchema>;
 
+/**
+ * Faces read off real dice: a short list of small integers, checked here
+ * only for shape. Whether they fit the roll — count, and each within its
+ * die — is the server's check, since it knows the notation.
+ */
+const facesSchema = z
+  .array(z.number().int().min(1).max(1000))
+  .min(1)
+  .max(100)
+  .optional();
+
 const deathSaveSchema = z.object({
   mode: z.enum(['straight', 'advantage', 'disadvantage']).optional(),
   secret: z.boolean().optional(),
+  faces: facesSchema,
 });
 
 const loadoutSchema = z.object({

@@ -12,6 +12,7 @@ import {
 } from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { groupFromNotation, useDiceTray } from '@/@shared/components/dice';
 import { motion } from '@/@shared/components/motion';
 import {
   BattlefieldScene,
@@ -476,6 +477,7 @@ export function InitiativeTracker({
 }) {
   const enc = state.encounter;
   const placement = usePlacement(campaignId);
+  const tray = useDiceTray();
   const [label, setLabel] = useState('');
   const [initiative, setInitiative] = useState(0);
   const [hp, setHp] = useState(0);
@@ -640,7 +642,23 @@ export function InitiativeTracker({
             <Button
               size="sm"
               variant="flat"
-              onPress={() => act(rollInitiativeAction(enc.id))}
+              onPress={async () => {
+                const res = await rollInitiativeAction(enc.id);
+                if (!res.ok) {
+                  onError(res.error ?? 'Could not roll for them.');
+                  return;
+                }
+                await refresh();
+                // The server rolled and the DM caused it: the tray draws
+                // each combatant's die, one group apiece, rather than the
+                // numbers appearing in the order with nothing thrown.
+                if (res.data.length > 0) {
+                  void tray.cast(
+                    res.data.map(r => groupFromNotation(r.roll, r.label)),
+                    { title: 'Initiative', hint: `${res.data.length} rolled` }
+                  );
+                }
+              }}
             >
               Roll for anyone at 0
             </Button>

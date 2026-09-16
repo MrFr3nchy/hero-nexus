@@ -2,6 +2,8 @@
 
 import { z } from 'zod';
 
+import type { NotationRoll } from '@/@shared/lib/dice';
+
 import { ABILITY_KEYS, SKILL_KEYS } from '@/@creator/character/schema';
 import {
   answerCheck,
@@ -25,6 +27,10 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_AUTHENTICATED: 'You are not signed in.',
     SESSION_STALE: 'Your session is out of date. Sign in again.',
     NOT_FOUND: 'That request no longer exists.',
+    PHYSICAL_DICE_OFF:
+      'This table rolls in the app. Ask the DM to allow real dice.',
+    BAD_FACES:
+      'Those faces do not fit the roll — one per die, each within its die.',
     FORBIDDEN: 'Only the DM and co-DMs ask for rolls.',
     NOBODY_TO_ASK: 'Nobody at this table would receive that.',
     NOT_ASKED: 'That was not asked of you.',
@@ -98,12 +104,21 @@ export async function requestCheckAction(
   }
 }
 
+/** Faces off real dice — shape only; the server checks them against the roll. */
+const facesSchema = z.array(z.number().int().min(1).max(100)).min(1).max(2);
+
 export async function answerCheckAction(
   checkId: string,
-  mode: 'straight' | 'advantage' | 'disadvantage'
-): Promise<Result> {
+  mode: 'straight' | 'advantage' | 'disadvantage',
+  faces?: unknown
+): Promise<Result<{ roll: NotationRoll; physical: boolean }>> {
+  const claimed = facesSchema.safeParse(faces);
   try {
-    const answer = await answerCheck(checkId, mode);
+    const answer = await answerCheck(
+      checkId,
+      mode,
+      claimed.success ? claimed.data : undefined
+    );
     // A spell's save (07): the payload comes back here and the spell lands —
     // kept out of `checks.ts` so the Asking does not import the caster.
     if (answer.payload?.kind === 'spell' && answer.passed !== null) {
@@ -114,7 +129,10 @@ export async function answerCheckAction(
         answer.userId
       );
     }
-    return { ok: true };
+    return {
+      ok: true,
+      data: { roll: answer.roll, physical: answer.physical },
+    };
   } catch (err) {
     return fail(err, 'The dice did not land.');
   }
@@ -127,12 +145,21 @@ export async function answerCheckAction(
 export async function answerConsentAction(
   checkId: string,
   answer: unknown,
-  mode: 'straight' | 'advantage' | 'disadvantage' = 'straight'
-): Promise<Result<{ landed: string[] }>> {
+  mode: 'straight' | 'advantage' | 'disadvantage' = 'straight',
+  faces?: unknown
+): Promise<
+  Result<{ landed: string[]; roll: NotationRoll | null; physical: boolean }>
+> {
   const parsed = z.enum(['allow', 'contest', 'refuse']).safeParse(answer);
   if (!parsed.success) return { ok: false, error: 'Allow, contest or refuse.' };
+  const claimed = facesSchema.safeParse(faces);
   try {
-    const res = await answerConsent(checkId, parsed.data, mode);
+    const res = await answerConsent(
+      checkId,
+      parsed.data,
+      mode,
+      claimed.success ? claimed.data : undefined
+    );
     const cast = await resumeCast(
       res.campaignId,
       res.payload,
@@ -146,6 +173,8 @@ export async function answerConsentAction(
       ok: true,
       data: {
         landed: cast.landed.map(l => `${l.targetLabel} · ${l.verdict}`),
+        roll: res.roll,
+        physical: res.physical,
       },
     };
   } catch (err) {

@@ -51,6 +51,9 @@ import {
 } from '@/@shared/content';
 import {
   critToneOf,
+  facesFit,
+  notationSides,
+  parseNotation,
   rollNotation,
   withAdvantage,
   type NotationRoll,
@@ -72,6 +75,7 @@ import { applyHpUnchecked } from './hp';
 import { requireUserId } from './session-user';
 import { effectiveRules, fence } from './table-rules';
 import type { TableRules } from '@/@creator/campaign/lib/table-rules';
+import { claimedFaces } from './dice-claims';
 import { authorizeEntry, takeAction } from './turn';
 
 /**
@@ -213,7 +217,9 @@ export async function listThrowables(
       heavy: data.weight > THROWABLE_POUNDS,
     });
   }
-  return out.sort((a, b) => a.weight - b.weight || a.name.localeCompare(b.name));
+  return out.sort(
+    (a, b) => a.weight - b.weight || a.name.localeCompare(b.name)
+  );
 }
 
 export interface AttackInput {
@@ -227,6 +233,16 @@ export interface AttackInput {
   /** Roll the damage even on a miss — a half-damage-on-miss effect. */
   damageOnMiss?: boolean;
   ruling?: boolean;
+  /**
+   * Faces read off real dice (03): the d20 — two of them when the swing has
+   * advantage or disadvantage once the target's state is folded in — and
+   * the damage dice, doubled on a natural 20 under the table's crit rule.
+   * The server checks the count against the roll it would have made and
+   * says how many it needs (`NEED_HIT_FACES`, `NEED_DAMAGE_FACES`) when
+   * the claim does not fit; the modifier and the sum are never the client's.
+   */
+  hitFaces?: number[];
+  damageFaces?: number[];
 }
 
 export interface AttackResult {
@@ -234,6 +250,19 @@ export interface AttackResult {
   damage: NotationRoll | null;
   outcome: RollOutcome;
   hitRollId: string;
+  physical: boolean;
+}
+
+/** A face count the swing needs, carried on the refusal so the control can ask. */
+export class FacesNeeded extends Error {
+  readonly needed: number;
+  readonly sides: number[];
+  constructor(code: 'NEED_HIT_FACES' | 'NEED_DAMAGE_FACES', sides: number[]) {
+    super(code);
+    this.name = 'FacesNeeded';
+    this.needed = sides.length;
+    this.sides = sides;
+  }
 }
 
 type Entry = typeof initiativeEntries.$inferSelect;
@@ -491,18 +520,6 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
     cover = 'none';
   }
 
-  // Ammunition: one shot, one row down; none left is a refusal under enforce.
-  if (swing.ammunition && attacker.characterId) {
-    ruled =
-      (await spendAmmunition(attacker, swing.ammunition, rules, who)) || ruled;
-  }
-
-  // The turn's slot. `takeAction` fences ALREADY_ACTED and INCAPACITATED
-  // under the table's mode and announces the action.
-  await takeAction(attacker.id, input.asReaction ? 'opportunity' : 'attack', {
-    ruling: input.ruling,
-  });
-
   // The target's state folds into the attacker's mode: prone in melee,
   // dodging, flanking. Advantage and disadvantage cancel, as always.
   let adv = input.mode === 'advantage' ? 1 : 0;
@@ -535,9 +552,57 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
           : 'flat';
 
   const base = `1d20${fmt(swing.attackBonus)}`;
-  const hitRoll = rollNotation(
-    mode === 'flat' ? base : withAdvantage(base, mode)
-  );
+  const hitNotation = mode === 'flat' ? base : withAdvantage(base, mode);
+
+  /*
+   * Real dice (03), checked before anything is spent: a claim that does
+   * not fit the swing — one d20 where the target's state wants two, one
+   * damage die where a natural 20 wants both — comes back as a question,
+   * and a question must not have cost the action. With the d20's face
+   * claimed, whether it is a 20 is already known, so the damage handful
+   * can be asked for now too.
+   */
+  const hitFaces = await claimedFaces(campaignId, isStaff, input.hitFaces);
+  if (hitFaces) {
+    const parsed = parseNotation(hitNotation);
+    if (parsed && !facesFit(parsed, hitFaces)) {
+      throw new FacesNeeded('NEED_HIT_FACES', notationSides(hitNotation) ?? []);
+    }
+  }
+  const physical = hitFaces !== undefined;
+  const damageFaces = physical
+    ? await claimedFaces(campaignId, isStaff, input.damageFaces)
+    : undefined;
+  if (hitFaces && damageFaces && swing.damage) {
+    const claimedFace =
+      mode === 'advantage'
+        ? Math.max(...hitFaces)
+        : mode === 'disadvantage'
+          ? Math.min(...hitFaces)
+          : hitFaces[0];
+    const notation =
+      claimedFace === 20
+        ? criticalDamage(swing.damage, rules.crits).notation
+        : swing.damage;
+    const parsed = parseNotation(notation);
+    if (parsed && !facesFit(parsed, damageFaces)) {
+      throw new FacesNeeded('NEED_DAMAGE_FACES', notationSides(notation) ?? []);
+    }
+  }
+
+  // Ammunition: one shot, one row down; none left is a refusal under enforce.
+  if (swing.ammunition && attacker.characterId) {
+    ruled =
+      (await spendAmmunition(attacker, swing.ammunition, rules, who)) || ruled;
+  }
+
+  // The turn's slot. `takeAction` fences ALREADY_ACTED and INCAPACITATED
+  // under the table's mode and announces the action.
+  await takeAction(attacker.id, input.asReaction ? 'opportunity' : 'attack', {
+    ruling: input.ruling,
+  });
+
+  const hitRoll = rollNotation(hitNotation, hitFaces);
   if (!hitRoll) throw new Error('BAD_NOTATION');
   const face = hitRoll.dice.find((_, i) => !hitRoll.dropped.includes(i)) ?? 0;
   const baseAc = target ? await armorClassOf(target) : null;
@@ -552,7 +617,11 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
     const crit = critical
       ? criticalDamage(swing.damage, rules.crits)
       : { notation: swing.damage, flat: 0 };
-    const rolled = rollNotation(crit.notation);
+    // Real damage dice ride with a real d20 and nothing else: a claimed hit
+    // with the app's damage is half a claim. With the d20 the app's, the
+    // damage faces are ignored rather than refused. The count was checked
+    // above, before the action was spent.
+    const rolled = rollNotation(crit.notation, damageFaces);
     if (rolled) {
       damageRoll = {
         ...rolled,
@@ -610,6 +679,7 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
       total: hitRoll.total,
       visibility: 'table',
       outcome,
+      physical,
     })
     .returning({ id: campaignRolls.id });
 
@@ -635,6 +705,7 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
         modifier: damageRoll.modifier,
         total: damageRoll.total,
         visibility: 'table',
+        physical: physical && input.damageFaces !== undefined,
       })
       .returning({ id: campaignRolls.id });
     damage.rollId = damageRow.id;
@@ -678,6 +749,7 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
     tone:
       critToneOf(hitRoll.notation, hitRoll.dice, hitRoll.dropped) ?? 'plain',
     secret: false,
+    physical,
   });
   if (damageRoll && damage) {
     publish(campaignId, {
@@ -698,7 +770,13 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
     });
   }
 
-  return { hit: hitRoll, damage: damageRoll, outcome, hitRollId: hitRow.id };
+  return {
+    hit: hitRoll,
+    damage: damageRoll,
+    outcome,
+    hitRollId: hitRow.id,
+    physical,
+  };
 }
 
 /**

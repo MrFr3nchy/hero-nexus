@@ -92,8 +92,9 @@ import {
   operateThingAction,
 } from '../../battlemap-actions';
 import { BattleMap3DLazy } from './BattleMap3DLazy';
-import { useDiceTray } from '@/@shared/components/dice';
+import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import { withAdvantage } from '@/@shared/lib/dice';
+import { physicalDiceAllowed } from '@/@creator/campaign/lib/table-rules';
 import { rollAction } from '../../actions';
 import { usePortraits } from '@/@shared/battlemap/portraits';
 import {
@@ -548,6 +549,30 @@ export function BattleBoard({
     if (!res.ok) onError(res.error);
     await refresh();
   };
+  /**
+   * Pick a lock: rolled on the server off the picker's own sheet, and the
+   * tray draws the faces it rolled — the lock used to give or hold with
+   * nothing thrown.
+   */
+  const pick = async (tokenId: string, faces?: number[]) => {
+    const res = await pickLockAction(tokenId, lockMode, faces);
+    if (!res.ok) {
+      onError(res.error);
+      return;
+    }
+    setLockWord(
+      res.data.opened
+        ? `${res.data.total} — the lock gives`
+        : `${res.data.total} — it holds`
+    );
+    void tray.showNotationRoll(res.data.roll, {
+      title: 'Pick the lock',
+      hint: res.data.opened ? 'the lock gives' : 'it holds',
+      physical: res.data.physical,
+    });
+    await refresh();
+  };
+  const physicalDice = physicalDiceAllowed(state.rules, isStaff);
   const hurt = async (tokenId: string, sign: 1 | -1) => {
     const n = Math.abs(Math.trunc(Number(hurtAmount)) || 0);
     if (!n) return;
@@ -2979,26 +3004,19 @@ export function BattleBoard({
                     size="sm"
                     color="primary"
                     className="h-7 min-w-0 px-2.5 text-xs"
-                    onPress={async () => {
-                      const res = await pickLockAction(
-                        selectedToken.id,
-                        lockMode
-                      );
-                      if (!res.ok) {
-                        onError(res.error);
-                        return;
-                      }
-                      setLockWord(
-                        res.data.opened
-                          ? `${res.data.total} — the lock gives`
-                          : `${res.data.total} — it holds`
-                      );
-                      await refresh();
-                    }}
+                    onPress={() => pick(selectedToken.id)}
                   >
                     Pick the lock
                   </Button>
                 </Tooltip>
+                {physicalDice && (
+                  <FaceEntry
+                    compact
+                    sides={lockMode === 'straight' ? [20] : [20, 20]}
+                    label="Pick the lock"
+                    onSubmit={faces => pick(selectedToken.id, faces)}
+                  />
+                )}
                 {lockWord && (
                   <span className="text-xs text-ink-muted">{lockWord}</span>
                 )}

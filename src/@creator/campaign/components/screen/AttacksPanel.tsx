@@ -4,9 +4,11 @@ import { Button, Tooltip } from '@heroui/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useSelectedToken } from '@/@shared/battlemap/selection';
-import { useDiceTray } from '@/@shared/components/dice';
+import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import { Glyph, Marginalia } from '@/@shared/components/ui';
 import { distanceFeet } from '@/@creator/campaign/lib/battlemap';
+import { physicalDiceAllowed } from '@/@creator/campaign/lib/table-rules';
+import { notationSides } from '@/@shared/lib/dice';
 import {
   attackedWith,
   rollAdvice,
@@ -228,7 +230,8 @@ export function AttacksPanel({
           itemId?: string | null;
         },
     title: string,
-    ruling = false
+    ruling = false,
+    real?: { hitFaces: number[]; damageFaces?: number[] }
   ) => {
     if (!myEntry) {
       onError('You are not in this fight yet — ask the DM to add the party.');
@@ -240,12 +243,32 @@ export function AttacksPanel({
       targetEntryId: target?.entryId ?? null,
       mode,
       ruling,
+      ...(real ?? {}),
     });
     if (!res.ok) {
       if (res.overridable) {
         setRefusal({
           message: res.error,
-          ruling: () => swing(weapon, title, true),
+          ruling: () => swing(weapon, title, true, real),
+        });
+      } else if (res.needFaces && real) {
+        // The table's fold changed the handful — two d20s for advantage the
+        // target gave, or doubled damage dice on a natural 20. Ask for
+        // exactly those and send the swing again with them.
+        const which = res.needFaces.which;
+        setFaceAsk({
+          message: res.error,
+          sides: res.needFaces.sides,
+          label: title,
+          submit: faces =>
+            swing(
+              weapon,
+              title,
+              ruling,
+              which === 'hit'
+                ? { ...real, hitFaces: faces }
+                : { ...real, damageFaces: faces }
+            ),
         });
       } else {
         onError(res.error);
@@ -253,7 +276,8 @@ export function AttacksPanel({
       return;
     }
     setRefusal(null);
-    const { hit, damage, outcome } = res.data;
+    setFaceAsk(null);
+    const { hit, damage, outcome, physical } = res.data;
     setLast({
       itemId: weapon.kind === 'item' ? weapon.itemId : 'improvised',
       outcome,
@@ -271,14 +295,32 @@ export function AttacksPanel({
             ? ' · miss'
             : ''
       }`,
+      physical,
     });
     if (damage) {
       await tray.showNotationRoll(damage, {
         title,
         hint: `damage${at}${outcome.damage?.adjusted ? ` · ${outcome.damage.amount} lands` : ''}`,
+        physical: physical && real?.damageFaces !== undefined,
       });
     }
   };
+
+  /** Real dice at this table: the rule, or staff. */
+  const isStaff = state.role === 'gm' || state.role === 'co-gm';
+  const physicalDice = physicalDiceAllowed(state.rules, isStaff);
+  /** The server asked for a different handful; the boxes for it. */
+  const [faceAsk, setFaceAsk] = useState<{
+    message: string;
+    sides: number[];
+    label: string;
+    submit: (faces: number[]) => Promise<void>;
+  } | null>(null);
+  /** The d20s the picker's mode throws, then the weapon's damage dice. */
+  const facesFor = (damage: string | null): number[] => [
+    ...(mode === 'flat' ? [20] : [20, 20]),
+    ...(damage ? (notationSides(damage) ?? []) : []),
+  ];
 
   /* --- rolling ---------------------------------------------------------- */
 
@@ -392,6 +434,18 @@ export function AttacksPanel({
       {refusal && (
         <Refused refusal={refusal} onDismiss={() => setRefusal(null)} />
       )}
+      {faceAsk && (
+        <div className="space-y-1">
+          <p className="text-xs text-ink-muted">{faceAsk.message}</p>
+          <FaceEntry
+            inline
+            sides={faceAsk.sides}
+            label={faceAsk.label}
+            onSubmit={faceAsk.submit}
+            onCancel={() => setFaceAsk(null)}
+          />
+        </div>
+      )}
       {(advice.because.length > 0 || penalty !== 0) && (
         <p className="text-[0.7rem] text-warning">
           {[
@@ -458,6 +512,28 @@ export function AttacksPanel({
                 >
                   Attack
                 </Button>
+                {physicalDice && (
+                  <FaceEntry
+                    compact
+                    sides={facesFor(
+                      two && a.versatileDamage ? a.versatileDamage : a.damage
+                    )}
+                    label={a.name}
+                    onSubmit={faces => {
+                      const d20s = mode === 'flat' ? 1 : 2;
+                      return swing(
+                        { kind: 'item', itemId: a.itemId, twoHanded: two },
+                        a.name,
+                        false,
+                        {
+                          hitFaces: faces.slice(0, d20s),
+                          damageFaces:
+                            faces.length > d20s ? faces.slice(d20s) : undefined,
+                        }
+                      );
+                    }}
+                  />
+                )}
                 <Button
                   size="sm"
                   variant="flat"
