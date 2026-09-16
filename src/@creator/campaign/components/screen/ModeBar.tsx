@@ -79,7 +79,7 @@ export function ModeBar({
         <div
           role="group"
           aria-label="Which table the screen is set for"
-          className="flex overflow-hidden rounded-[5px] border border-line"
+          className="flex max-w-full overflow-x-auto rounded-[5px] border border-line"
         >
           {TABLE_KINDS.map((kind, i) => {
             const meta = TABLE_META[kind];
@@ -99,7 +99,7 @@ export function ModeBar({
                   type="button"
                   aria-pressed={isCurrent}
                   onClick={() => onPin(isPinned || isActual ? null : kind)}
-                  className={`flex items-center gap-1.5 px-2 py-1 text-[0.6rem] uppercase tracking-[0.12em] transition-colors ${
+                  className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-1 text-[0.6rem] uppercase tracking-[0.12em] transition-colors ${
                     i > 0 ? 'border-l border-line' : ''
                   } ${
                     isCurrent

@@ -115,7 +115,9 @@ export function Panel({
           ? 'border border-line border-l-2 border-l-dotted border-l-ink-muted'
           : status === 'homebrew'
             ? 'border border-line border-l-4 border-l-double border-l-arcane'
-            : 'border border-line';
+            : status === 'yours'
+              ? 'border border-line border-l-4 border-l-ink'
+              : 'border border-line';
   const bar = waiting
     ? 'status-hatch-danger'
     : status === 'hidden'

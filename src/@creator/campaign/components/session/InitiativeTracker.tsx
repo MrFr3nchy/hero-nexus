@@ -19,6 +19,9 @@ import {
   EmptyState,
   Marginalia,
   SectionCard,
+  statusEdge,
+  StatusMark,
+  StatusWord,
 } from '@/@shared/components/ui';
 import { formatChallenge } from '@/@shared/content';
 import type { CombatantChoice } from '@/server/content';
@@ -240,6 +243,7 @@ function EntryLine({
   campaignId,
   refresh,
   onError,
+  waiting,
 }: {
   campaignId: string;
   entry: EntryRow;
@@ -259,20 +263,38 @@ function EntryLine({
   /** The board is waiting for a tap for this one. */
   placing: boolean;
   onPlace: () => void;
+  /** Asks put to this combatant that nobody has answered yet. */
+  waiting: number;
 }) {
   const showNumbers = isStaff || entry.side === 'party';
   const hp = entry.hpCurrent;
   const max = entry.hpMax;
+  const homebrew = entry.creatureRef?.source === 'homebrew';
+
+  /*
+   * The row says its state in the status language (rule 9), and the states
+   * use different channels — the left edge for yours, the frame and ground
+   * for waiting, the mark for homebrew — so two can stack on one row
+   * without either being lost. The turn is the fourth channel: the gold
+   * ring, which is not a state of the combatant but of the round.
+   */
+  const edge =
+    waiting > 0 ? statusEdge('waiting') : isYours ? statusEdge('yours') : '';
 
   return (
     <li
-      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md px-2 py-2.5 ${
+      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-transparent px-2 py-2.5 ${edge} ${
         current ? 'bg-surface-2 ring-1 ring-gold/40' : ''
       }`}
     >
-      <span className="w-8 shrink-0 text-center font-display text-lg tabular-nums text-ink">
+      <span
+        className={`w-8 shrink-0 text-center font-display text-lg tabular-nums ${
+          waiting > 0 ? 'text-danger' : 'text-ink'
+        }`}
+      >
         {entry.initiative}
       </span>
+      {homebrew && <StatusMark kind="homebrew" size={8} />}
 
       {/* `data-entry-info` is a hook for the screen, which gives this block a
           floor so the controls wrap under it rather than squeezing the name
@@ -287,15 +309,20 @@ function EntryLine({
           <span
             className={`text-sm ${
               entry.side === 'party' ? 'text-ink' : 'text-ink-muted'
-            } ${hp === 0 ? 'line-through opacity-70' : ''}`}
+            } ${isYours ? 'font-bold' : ''} ${
+              hp === 0 ? 'line-through opacity-70' : ''
+            }`}
           >
             {entry.label}
           </span>
-          {isYours && (
-            <span className="rounded-sm border border-gold/50 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-gold-strong dark:text-gold">
-              You
-            </span>
+          {isYours && <StatusWord kind="yours" />}
+          {waiting > 0 && (
+            <StatusWord
+              kind="waiting"
+              detail={waiting > 1 ? `· ${waiting}` : undefined}
+            />
           )}
+          {homebrew && <StatusWord kind="homebrew" />}
           {entry.concentrating && (
             <Tooltip
               content={
@@ -600,6 +627,19 @@ export function InitiativeTracker({
               !!onBoard &&
               !onBoard.has(e.id) &&
               state.battlemap?.encounterId === enc.id
+            }
+            waiting={
+              e.characterId
+                ? state.checks.filter(
+                    c =>
+                      c.status === 'open' &&
+                      c.targets.some(
+                        t =>
+                          t.characterId === e.characterId &&
+                          t.status === 'waiting'
+                      )
+                  ).length
+                : 0
             }
             placing={placement?.entryId === e.id}
             onPlace={() =>
