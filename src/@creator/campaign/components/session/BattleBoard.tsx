@@ -46,6 +46,7 @@ import {
   distanceFeet,
   distanceSquares,
   floodFill,
+  jumpLandings,
   reachFor,
   rectTiles,
   wallIndex,
@@ -835,6 +836,20 @@ export function BattleBoard({
     [entriesById, state.party]
   );
 
+  /** A hero's long jump, for the sand table to ring the far side of a gap (09). */
+  const jumpOf = useCallback(
+    (t: { entryId: string | null }) => {
+      const entry = t.entryId ? entriesById.get(t.entryId) : undefined;
+      const hero = entry?.characterId
+        ? state.party.find(p => p.characterId === entry.characterId)
+        : undefined;
+      return hero
+        ? { long: hero.jump.long, standing: hero.jump.longStanding }
+        : null;
+    },
+    [entriesById, state.party]
+  );
+
   /** The combatants under the selection, for putting one effect on all of them. */
   const selectedEntries = useMemo<PickerEntry[]>(() => {
     if (!board) return [];
@@ -880,6 +895,32 @@ export function BattleBoard({
       speedOf(selectedToken)
     );
   }, [terrain, selectedToken, board, sideOf, speedOf]);
+
+  /**
+   * Where the selected hero could jump to (09): the far side of a gap in
+   * each direction, within the sheet's long jump. Heroes only — the book's
+   * distance is off a Strength score the tracker does not carry for a
+   * monster. Ringed on the board, not filled, so a landing reads apart
+   * from the walking reach.
+   */
+  const jumps = useMemo(() => {
+    if (!terrain || !selectedToken || !board || !selectedToken.entryId) {
+      return null;
+    }
+    const entry = entriesById.get(selectedToken.entryId);
+    const hero = entry?.characterId
+      ? state.party.find(p => p.characterId === entry.characterId)
+      : undefined;
+    if (!hero) return null;
+    const landings = jumpLandings(
+      terrain,
+      selectedToken,
+      board.tokens.filter(t => t.id !== selectedToken.id && t.blocks),
+      hero.jump.long,
+      hero.jump.longStanding
+    );
+    return { landings, long: hero.jump.long, standing: hero.jump.longStanding };
+  }, [terrain, selectedToken, board, entriesById, state.party]);
 
   /* --- the area ---------------------------------------------------------- */
 
@@ -1650,6 +1691,30 @@ export function BattleBoard({
       ctx.setLineDash([]);
     }
 
+    // Jump landings: a dashed ring on the far side of a gap, nothing
+    // filled — a place you can get to, not a place you can walk to. Round,
+    // where the reach is square, so a landing that is also in walking reach
+    // still reads as a jump.
+    if (jumps && jumps.landings.length > 0) {
+      ctx.strokeStyle = p.gold;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      for (const i of jumps.landings) {
+        const x = i % terrain.w;
+        const y = Math.floor(i / terrain.w);
+        ctx.beginPath();
+        ctx.arc(
+          (x + 0.5) * size,
+          (y + 0.5) * size,
+          size * 0.36,
+          0,
+          Math.PI * 2
+        );
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
     // Props: drawn, never typed.
     for (const pr of terrain.props) {
       const cx = (pr.x + 0.5) * size;
@@ -2167,6 +2232,7 @@ export function BattleBoard({
     selected,
     selectedIds,
     reach,
+    jumps,
     hover,
     tool,
     faceFor,
@@ -2387,6 +2453,7 @@ export function BattleBoard({
           dark={dark}
           fill={Boolean(fitHeight)}
           speedOf={speedOf}
+          jumpOf={jumpOf}
           onSelect={setSelected}
           selectedId={selected}
           mode={isStaff ? 'advise' : state.rules.mode}
@@ -2892,6 +2959,13 @@ export function BattleBoard({
                           : ''
                       }.`
                   : 'Tap a tile to move it.'}
+              {jumps && jumps.landings.length > 0 && (
+                <span className="text-ink-subtle">
+                  {' '}
+                  A ringed tile is a jump — {jumps.long} ft with a run-up,{' '}
+                  {jumps.standing} standing.
+                </span>
+              )}
             </span>
           ) : (
             <span>Not yours to move.</span>

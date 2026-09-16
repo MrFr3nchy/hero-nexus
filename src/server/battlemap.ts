@@ -988,6 +988,55 @@ export async function placeToken(
 }
 
 /**
+ * Drop a thing on the board near a tile — a thrown tankard where it landed
+ * (09). Not a door or a chest: a scenery token with a name and nothing to
+ * open, on the first tile that can hold it, ringing outward from `near`. No
+ * role check: the caller has already decided whose throw it was. Returns
+ * the token's id, or null when nothing within two tiles could take it.
+ */
+export async function dropThingNear(
+  mapId: string,
+  near: { x: number; y: number },
+  label: string
+): Promise<string | null> {
+  const map = await db.query.battleMaps.findFirst({
+    where: eq(battleMaps.id, mapId),
+  });
+  if (!map) return null;
+  const doc = normalizeTerrain(map.terrain);
+  const others = await occupantsExcept(mapId, null);
+  const ring: { x: number; y: number }[] = [];
+  for (let r = 0; r <= 2; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        ring.push({ x: near.x + dx, y: near.y + dy });
+      }
+    }
+  }
+  const spot = ring.find(
+    t =>
+      inBounds(doc, t.x, t.y) && canStand(doc, { ...t, footprint: 1 }, others)
+  );
+  if (!spot) return null;
+  const [row] = await db
+    .insert(battleMapTokens)
+    .values({
+      mapId,
+      entryId: null,
+      label: label.trim().slice(0, 60) || 'Something',
+      x: spot.x,
+      y: spot.y,
+      footprint: 1,
+      visibility: 'shared',
+      state: null,
+    })
+    .returning({ id: battleMapTokens.id });
+  bumpVersion(map.campaignId);
+  return row.id;
+}
+
+/**
  * Deal every combatant in the board's encounter onto it, along the top edge,
  * skipping anybody already placed. The board equivalent of
  * `addPartyToEncounter`: pressing it twice is harmless.

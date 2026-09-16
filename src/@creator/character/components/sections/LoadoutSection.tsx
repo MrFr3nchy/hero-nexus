@@ -17,7 +17,7 @@ import {
   applyLoadoutPatchAction,
   giveCoinAction,
   giveItemAction,
-  useItemAction,
+  consumeItemAction,
   type LoadoutPatchInput,
 } from '@/@creator/campaign/play-actions';
 import { useDiceTray } from '@/@shared/components/dice';
@@ -233,13 +233,13 @@ export function LoadoutSection({
   const [used, setUsed] = useState<{ itemId: string; words: string } | null>(
     null
   );
-  const use = async (
+  const consume = async (
     itemId: string,
     targetCharacterId: string | null = null,
     ruling = false
   ) => {
     setBusy(true);
-    const res = await useItemAction(characterId, campaignId, {
+    const res = await consumeItemAction(characterId, campaignId, {
       itemId,
       targetCharacterId,
       ruling,
@@ -250,7 +250,7 @@ export function LoadoutSection({
         setRefused({
           message: res.error,
           ruling: async () => {
-            await use(itemId, targetCharacterId, true);
+            await consume(itemId, targetCharacterId, true);
           },
         });
       } else {
@@ -377,7 +377,7 @@ export function LoadoutSection({
                       variant="flat"
                       className="h-7 min-w-0 px-2.5 text-xs"
                       isDisabled={locked || item.quantity === 0}
-                      onPress={() => use(item.id)}
+                      onPress={() => consume(item.id)}
                     >
                       {item.consumable ? 'Drink' : 'Use'}
                     </Button>
@@ -388,7 +388,7 @@ export function LoadoutSection({
                         verb="Administer"
                         others={loadout.others}
                         disabled={locked || item.quantity === 0}
-                        onGive={to => use(item.id, to)}
+                        onGive={to => consume(item.id, to)}
                       >
                         <p className="text-xs text-ink-subtle">
                           Administering it to somebody else is an action.

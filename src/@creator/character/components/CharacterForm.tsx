@@ -220,6 +220,7 @@ export function CharacterForm({
       bannedClasses: campaign.rules.bannedClasses,
       allowHomebrew: campaign.allowHomebrew,
       requireBackstory: campaign.rules.requireBackstory,
+      encumbrance: campaign.encumbrance,
     };
   }, [campaign]);
 

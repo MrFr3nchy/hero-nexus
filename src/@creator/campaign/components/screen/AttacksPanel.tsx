@@ -103,6 +103,8 @@ export function AttacksPanel({
     outcome: RollOutcome;
     total: number;
   } | null>(null);
+  /** A thrown thing left where it landed: a marker on the board (09). */
+  const [leaveThrown, setLeaveThrown] = useState(false);
   const [improvised, setImprovised] = useState<{
     label: string;
     thrown: boolean;
@@ -228,6 +230,7 @@ export function AttacksPanel({
           label: string;
           thrown: boolean;
           itemId?: string | null;
+          leaveOnBoard?: boolean;
         },
     title: string,
     ruling = false,
@@ -237,12 +240,17 @@ export function AttacksPanel({
       onError('You are not in this fight yet — ask the DM to add the party.');
       return;
     }
+    const { leaveOnBoard, ...rest } =
+      weapon.kind === 'improvised'
+        ? weapon
+        : { ...weapon, leaveOnBoard: false };
     const res = await attackAction({
       attackerEntryId: myEntry.id,
-      weapon,
+      weapon: rest,
       targetEntryId: target?.entryId ?? null,
       mode,
       ruling,
+      leaveOnBoard,
       ...(real ?? {}),
     });
     if (!res.ok) {
@@ -630,6 +638,21 @@ export function AttacksPanel({
             >
               thrown 20/60
             </button>
+            {improvised.thrown && target && (
+              <Tooltip content="Drop a marker with its name beside the target, so it can be picked up later. A thing from the pack leaves the pack.">
+                <button
+                  type="button"
+                  onClick={() => setLeaveThrown(v => !v)}
+                  className={`rounded border px-1.5 py-0.5 text-[0.65rem] ${
+                    leaveThrown
+                      ? 'border-gold bg-gold/15 text-gold-strong dark:text-gold'
+                      : 'border-line text-ink-subtle'
+                  }`}
+                >
+                  leave it there
+                </button>
+              </Tooltip>
+            )}
             <Button
               size="sm"
               color="primary"
@@ -641,10 +664,10 @@ export function AttacksPanel({
                     label: improvised.label,
                     thrown: improvised.thrown,
                     itemId: improvised.itemId || null,
+                    leaveOnBoard: improvised.thrown && leaveThrown,
                   },
                   (improvised.itemId
-                    ? throwables.find(t => t.itemId === improvised.itemId)
-                        ?.name
+                    ? throwables.find(t => t.itemId === improvised.itemId)?.name
                     : improvised.label.trim()) || 'Improvised'
                 )
               }

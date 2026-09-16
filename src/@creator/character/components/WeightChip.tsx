@@ -1,3 +1,5 @@
+'use client';
+
 import { Tooltip } from '@heroui/react';
 
 import { Pill } from '@/@shared/components/ui';

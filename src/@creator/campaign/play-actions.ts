@@ -15,7 +15,7 @@ import {
   setOwnConditions,
   setPlayConditions,
   spendHitDice,
-  useItem,
+  consumeItem,
   type DeathSaveResult,
   type HitDiceResult,
   type UseItemResult,
@@ -348,7 +348,7 @@ export async function giveCoinAction(
   }
 }
 
-const useItemSchema = z.object({
+const consumeItemSchema = z.object({
   itemId: z.string().min(1),
   targetCharacterId: z.string().min(1).nullable().optional(),
   ruling: z.boolean().optional(),
@@ -359,17 +359,17 @@ const useItemSchema = z.object({
  * spend the wand's charge. In a fight it costs the turn what the table says
  * a potion costs; administering to somebody else is always an action.
  */
-export async function useItemAction(
+export async function consumeItemAction(
   characterId: string,
   campaignId: string | null,
   input: unknown
 ): Promise<Result<UseItemResult>> {
-  const parsed = useItemSchema.safeParse(input);
+  const parsed = consumeItemSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid.' };
   }
   try {
-    const data = await useItem(characterId, campaignId, parsed.data);
+    const data = await consumeItem(characterId, campaignId, parsed.data);
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Failed to use it.', {

@@ -28,6 +28,7 @@ import type { ContentType } from '@/@shared/content';
 
 import { type CharacterSheet } from '../../schema';
 import { COMPOSED_PATHS } from '../../lib/compose';
+import { encumbrance } from '../../lib/derive';
 import type { BuildCatalog } from '../../lib/srd/types';
 import {
   findBuildIssues,
@@ -316,6 +317,21 @@ export function CharacterWizard({
 
   const issuesFor = (id: StepId) => issues.filter(i => i.step === id);
 
+  /**
+   * The pack's weight, live: the same arithmetic the sheet and the play card
+   * use, so the number a player sees while picking is the number they carry
+   * to the table. Nothing while the content behind the pack is still
+   * resolving (an empty map would weigh plate at nothing and say so), and
+   * nothing at all when the table weighs nothing.
+   */
+  const load = useMemo(
+    () =>
+      sheet && content?.status === 'ready' && limits.encumbrance !== 'off'
+        ? encumbrance(sheet, content.entries, limits.encumbrance)
+        : null,
+    [sheet, content, limits.encumbrance]
+  );
+
   const goToStep = useCallback((id: StepId) => {
     setStepId(id);
     setPanelOpen(false);
@@ -327,6 +343,7 @@ export function CharacterWizard({
     build: sheet?.build,
     catalog,
     limits,
+    load,
     classDef,
     loadingClass,
     control,

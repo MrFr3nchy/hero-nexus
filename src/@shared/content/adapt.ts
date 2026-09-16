@@ -303,7 +303,9 @@ function armorCategory(raw: Record<string, unknown>): string {
  */
 function itemUseFromProse(kind: string, desc: string): unknown {
   if (kind !== 'consumable') return null;
-  const heal = /regain(?:s)?\s+(\d+d\d+(?:\s*\+\s*\d+)?)\s+hit points/i.exec(desc);
+  const heal = /regain(?:s)?\s+(\d+d\d+(?:\s*\+\s*\d+)?)\s+hit points/i.exec(
+    desc
+  );
   if (heal) {
     return {
       action: 'bonus',
@@ -312,7 +314,9 @@ function itemUseFromProse(kind: string, desc: string): unknown {
       consumed: true,
     };
   }
-  const dmg = /take(?:s)?\s+(\d+d\d+(?:\s*\+\s*\d+)?)\s+(\w+)\s+damage/i.exec(desc);
+  const dmg = /take(?:s)?\s+(\d+d\d+(?:\s*\+\s*\d+)?)\s+(\w+)\s+damage/i.exec(
+    desc
+  );
   if (dmg) {
     return {
       action: 'action',

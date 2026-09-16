@@ -10,6 +10,8 @@ import type { AbilityMethod, CharacterSheet } from '../schema';
 import { speciesSkillGrant } from './srd/parse';
 import type { BuildRefs } from './compose';
 import { planLevels } from './advancement';
+import type { EncumbranceRule } from './derive';
+import { DEFAULT_TABLE_RULES } from '@/@creator/campaign/lib/table-rules';
 
 export type StepId =
   | 'class'
@@ -43,6 +45,8 @@ export interface BuildLimits {
   bannedClasses: string[];
   allowHomebrew: boolean;
   requireBackstory: boolean;
+  /** The table's weight rule; `off` means the builder shows no chip. */
+  encumbrance: EncumbranceRule;
 }
 
 /** No table picked: everything the SRD offers is on the menu. */
@@ -53,6 +57,7 @@ export const OPEN_LIMITS: BuildLimits = {
   bannedClasses: [],
   allowHomebrew: true,
   requireBackstory: false,
+  encumbrance: DEFAULT_TABLE_RULES.encumbrance,
 };
 
 const METHOD_LABEL: Record<AbilityMethod, string> = {

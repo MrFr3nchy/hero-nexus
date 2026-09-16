@@ -71,6 +71,7 @@ import {
 import { requireCampaignRole } from './campaigns';
 import { resolveContentRefs } from './content';
 import { bumpVersion, publish } from './live-hub';
+import { dropThingNear } from './battlemap';
 import { applyHpUnchecked } from './hp';
 import { requireUserId } from './session-user';
 import { effectiveRules, fence } from './table-rules';
@@ -243,6 +244,13 @@ export interface AttackInput {
    */
   hitFaces?: number[];
   damageFaces?: number[];
+  /**
+   * A thrown thing stays in the pack — picking it back up is narration —
+   * unless the thrower says it is left where it landed (09): then a scenery
+   * token with its name is dropped beside the target, to be picked up with
+   * `operate` later, and the row leaves the pack (its stack shrinks by one).
+   */
+  leaveOnBoard?: boolean;
 }
 
 export interface AttackResult {
@@ -461,6 +469,58 @@ async function geometry(
     cover,
     flanking: flankingRule && flanked(a, b, allies),
   };
+}
+
+/**
+ * Drop the thrown thing beside its target and take it out of the pack.
+ * Nothing happens when the board has no token for the target — there is
+ * nowhere to drop it — and a typed thing ("a chair") is a marker alone.
+ */
+async function leaveThrownThing(
+  campaignId: string,
+  attacker: Entry,
+  target: Entry,
+  weapon: Extract<AttackWeapon, { kind: 'improvised' }>,
+  name: string
+): Promise<void> {
+  const map = await db.query.battleMaps.findFirst({
+    where: and(
+      eq(battleMaps.campaignId, campaignId),
+      eq(battleMaps.encounterId, attacker.encounterId),
+      eq(battleMaps.isActive, true)
+    ),
+  });
+  if (!map) return;
+  const token = await db.query.battleMapTokens.findFirst({
+    where: and(
+      eq(battleMapTokens.mapId, map.id),
+      eq(battleMapTokens.entryId, target.id)
+    ),
+  });
+  if (!token) return;
+  const dropped = await dropThingNear(map.id, { x: token.x, y: token.y }, name);
+  if (!dropped || !weapon.itemId || !attacker.characterId) return;
+
+  const character = await db.query.characters.findFirst({
+    where: eq(characters.id, attacker.characterId),
+  });
+  if (!character) return;
+  const sheet = character.sheet as CharacterSheet;
+  const row = sheet.inventory.find(i => i.id === weapon.itemId);
+  if (!row) return;
+  const inventory =
+    row.quantity > 1
+      ? sheet.inventory.map(i =>
+          i.id === row.id ? { ...i, quantity: i.quantity - 1 } : i
+        )
+      : sheet.inventory.filter(i => i.id !== row.id);
+  await db
+    .update(characters)
+    .set({
+      sheet: { ...sheet, inventory } satisfies CharacterSheet,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(characters.id, character.id));
 }
 
 function fmt(n: number): string {
@@ -728,6 +788,22 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
     .update(campaignRolls)
     .set({ outcome })
     .where(eq(campaignRolls.id, hitRow.id));
+
+  // Left where it landed: a marker on the board, and one fewer in the pack.
+  if (
+    input.leaveOnBoard &&
+    input.weapon.kind === 'improvised' &&
+    input.weapon.thrown &&
+    target
+  ) {
+    await leaveThrownThing(
+      campaignId,
+      attacker,
+      target,
+      input.weapon,
+      swing.name
+    );
+  }
 
   bumpVersion(campaignId);
 

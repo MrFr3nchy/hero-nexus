@@ -346,7 +346,10 @@ export async function spendMovement(
   if (!enc?.isActive) return null;
 
   const turn = parseTurn(entry.turn);
-  const budget = movementBudget(turn, await speedOfEntry(entry, enc.campaignId));
+  const budget = movementBudget(
+    turn,
+    await speedOfEntry(entry, enc.campaignId)
+  );
   let ruling = false;
   if (costFeet > budget) {
     const rules = await effectiveRules(enc.campaignId, entry.encounterId);

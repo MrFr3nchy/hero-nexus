@@ -161,6 +161,7 @@ const attackSchema = z.object({
   asReaction: z.boolean().optional(),
   damageOnMiss: z.boolean().optional(),
   ruling: z.boolean().optional(),
+  leaveOnBoard: z.boolean().optional(),
   hitFaces: z.array(z.number().int().min(1).max(20)).min(1).max(2).optional(),
   damageFaces: z
     .array(z.number().int().min(1).max(100))

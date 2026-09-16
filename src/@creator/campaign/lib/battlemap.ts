@@ -341,6 +341,71 @@ export function floodFill(doc: TerrainDoc, at: Tile): number[] {
   return out;
 }
 
+/* --- jumping ------------------------------------------------------------ */
+
+/**
+ * Where a token could land by jumping (09): the far side of a gap — void,
+ * lava, anything that cannot be stood on — in each of the four directions,
+ * within the jumper's long jump. A 10 ft run-up behind the token (two
+ * standable tiles in the direction it came from) gets the full distance;
+ * without one, the standing half. 2024 PHB: a long jump covers your
+ * Strength score in feet with the run-up, half that from a standstill, and
+ * each foot costs a foot of movement — the board lights what the rules
+ * allow; spending the movement is the table's.
+ *
+ * Returns the landing tiles, so the board can ring them and a tap on one is
+ * the ordinary move.
+ */
+export function jumpLandings(
+  doc: TerrainDoc,
+  jumper: Occupant,
+  others: readonly Occupant[],
+  longFeet: number,
+  standingFeet: number
+): number[] {
+  const out: number[] = [];
+  const gap = (x: number, y: number): boolean =>
+    inBounds(doc, x, y) &&
+    (doc.material[y * doc.w + x] === VOID || materialAt(doc, x, y).impassable);
+  for (const [dx, dy] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const) {
+    // The run-up: the two tiles behind, standable and not a gap.
+    const back1 = {
+      x: jumper.x - dx,
+      y: jumper.y - dy,
+      footprint: jumper.footprint,
+    };
+    const back2 = {
+      x: jumper.x - 2 * dx,
+      y: jumper.y - 2 * dy,
+      footprint: jumper.footprint,
+    };
+    const runUp = canStand(doc, back1, others) && canStand(doc, back2, others);
+    const feet = runUp ? longFeet : standingFeet;
+    const tiles = Math.floor(feet / TILE_FEET);
+    // Walk into the gap from the tile in front; the first standable tile
+    // past the gap is the landing, if it is within reach.
+    let x = jumper.x + dx;
+    let y = jumper.y + dy;
+    let crossed = 0;
+    while (gap(x, y)) {
+      crossed += 1;
+      x += dx;
+      y += dy;
+    }
+    if (crossed === 0) continue;
+    if (crossed + 1 > tiles) continue;
+    const landing = { x, y, footprint: jumper.footprint };
+    if (!inBounds(doc, x, y)) continue;
+    if (canStand(doc, landing, others)) out.push(y * doc.w + x);
+  }
+  return out;
+}
+
 /**
  * Why a footprint cannot stand at a position, or null when it can.
  *

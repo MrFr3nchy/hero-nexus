@@ -1714,7 +1714,7 @@ export interface UseItemResult {
  * `NO_CHARGES` at zero. One history line, one roll in the log, a `gift`
  * event when it was given to somebody else.
  */
-export async function useItem(
+export async function consumeItem(
   characterId: string,
   campaignId: string | null,
   input: { itemId: string; targetCharacterId?: string | null; ruling?: boolean }

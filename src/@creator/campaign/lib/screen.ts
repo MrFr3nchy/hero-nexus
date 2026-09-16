@@ -31,6 +31,7 @@ export const SCREEN_PANEL_KEYS = [
   'handouts',
   'conditions',
   'rules',
+  'shop',
   'timers',
   'ledger',
   'canon',
@@ -188,6 +189,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     label: 'Conditions',
     glyph: 'question',
     description: 'The fifteen conditions, in one line each.',
+    players: true,
+  },
+  shop: {
+    key: 'shop',
+    label: 'The shop',
+    glyph: 'coins',
+    description:
+      'What the merchant has on the shelf, what it costs, and what they will pay.',
     players: true,
   },
   rules: {

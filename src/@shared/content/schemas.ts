@@ -381,7 +381,10 @@ const armorStats = z
 const itemUse = z
   .object({
     /** What it costs in a fight; `minute` is out of a turn's reach. */
-    action: z.enum(['action', 'bonus', 'free', 'minute']).default('action').catch('action'),
+    action: z
+      .enum(['action', 'bonus', 'free', 'minute'])
+      .default('action')
+      .catch('action'),
     effect: z
       .enum(['heal', 'damage', 'temp-hp', 'restore-slot', 'condition', 'text'])
       .default('text')

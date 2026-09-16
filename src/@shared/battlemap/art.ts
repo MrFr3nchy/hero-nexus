@@ -556,6 +556,26 @@ export function reachArt(): HTMLCanvasElement {
 }
 
 /**
+ * A dashed ring, for a jump landing in 3D (09): round where the reach is
+ * square, so a landing that is also in walking reach still reads as a jump.
+ */
+export function ringArt(): HTMLCanvasElement {
+  const key = 'ring';
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const [c, ctx] = canvas();
+  const S = ART_SIZE;
+  ctx.strokeStyle = 'rgba(255,255,255,1)';
+  ctx.lineWidth = 6;
+  ctx.setLineDash([14, 9]);
+  ctx.beginPath();
+  ctx.arc(S / 2, S / 2, S * 0.36, 0, Math.PI * 2);
+  ctx.stroke();
+  cache.set(key, c);
+  return c;
+}
+
+/**
  * A square outline, for the tile under the pointer in 3D. A texture rather
  * than line geometry so it has a width the camera cannot thin to nothing.
  */

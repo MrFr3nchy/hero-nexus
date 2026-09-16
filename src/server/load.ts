@@ -1,9 +1,6 @@
 import 'server-only';
 
-import {
-  encumbrance,
-  type Encumbrance,
-} from '@/@creator/character/lib/derive';
+import { encumbrance, type Encumbrance } from '@/@creator/character/lib/derive';
 import type { CharacterSheet } from '@/@creator/character/schema';
 import type { TableRules } from '@/@creator/campaign/lib/table-rules';
 import { DEFAULT_TABLE_RULES } from '@/@creator/campaign/lib/table-rules';
@@ -24,7 +21,8 @@ export async function loadFor(
   rules?: TableRules
 ): Promise<Encumbrance | null> {
   const r =
-    rules ?? (campaignId ? await effectiveRules(campaignId) : DEFAULT_TABLE_RULES);
+    rules ??
+    (campaignId ? await effectiveRules(campaignId) : DEFAULT_TABLE_RULES);
   if (r.encumbrance === 'off') return null;
   const refs = (sheet.inventory ?? [])
     .map(i => i.ref)
