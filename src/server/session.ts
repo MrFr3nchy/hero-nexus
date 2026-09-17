@@ -76,6 +76,19 @@ import type { Encumbrance } from '@/@creator/character/lib/derive';
 import { listWhispers, type WhisperRow } from './whispers';
 import { readWorldClock, type WorldClock } from './world-time';
 import { openRest, type RestRow } from './rests';
+import {
+  groupLabel,
+  LAIR_LABEL,
+  legendaryFromBlock,
+  legendaryLeft,
+  nextTurn,
+  normalizeLegendary,
+  rechargeFromBlock,
+  turnMembers,
+  type Legendary,
+  type RechargeMap,
+} from '@/@creator/campaign/lib/monsters';
+import { peekUndo, recordUndo } from './undo';
 
 /** How much of the roll log the live view carries. */
 const ROLL_LOG_LIMIT = 40;
@@ -128,6 +141,14 @@ export interface EntryRow {
    * of it on the combatant's own turn, and the strip counts against it.
    */
   speed: number;
+  /** Rows sharing one act on one turn (11). Null acts alone. */
+  groupId: string | null;
+  /**
+   * Legendary actions and resistances left, and whether the lair fights
+   * (11). Staff only — a player is not told how many resistances a lich has
+   * left — so null for them, and for the ordinary.
+   */
+  legendary: Legendary | null;
 }
 
 export interface RollRow {
@@ -272,6 +293,15 @@ export interface LiveState {
   clock: WorldClock;
   /** The rest in progress, or null. Who has answered is on it. */
   rest: RestRow | null;
+  /**
+   * Whose turn it is (11): every entry id sharing the current turn — one
+   * for an ordinary combatant, all of them for a group. Derived from
+   * `turnIndex` over the displayed order, here, so no surface re-derives
+   * the group rule.
+   */
+  turnEntryIds: string[];
+  /** The last thing the DM can take back (11). Staff only; null for a player. */
+  undo: { label: string; recordedAt: string } | null;
 }
 
 /**
@@ -437,15 +467,20 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
           turn: parseTurn(r.turn),
           form: (r.form as EntryForm | null) ?? null,
           speed: speeds.get(r.id) ?? DEFAULT_SPEED_FEET,
+          groupId: r.groupId ?? null,
+          legendary: normalizeLegendary(r.legendary),
         }) as EntryRow
     )
   );
+  const turnEntryIds = encounter
+    ? turnMembers(rawEntries, encounter.turnIndex).map(i => rawEntries[i].id)
+    : [];
 
   const entries = isStaff
     ? rawEntries
     : rawEntries.map(e =>
         e.side === 'party'
-          ? { ...e, creatureRef: null }
+          ? { ...e, creatureRef: null, legendary: null }
           : {
               ...e,
               hpCurrent: null,
@@ -458,6 +493,14 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
               // The block is the DM's. A player knows what an aboleth is from
               // its name; they do not get a key into the bestiary from it.
               creatureRef: null,
+              // Only that the lair fights, never the counters.
+              legendary: e.legendary?.lair
+                ? {
+                    actions: { max: 0, used: 0 },
+                    resistances: { max: 0, used: 0 },
+                    lair: true,
+                  }
+                : null,
             }
       );
 
@@ -675,6 +718,8 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
     effects,
     clock,
     rest,
+    turnEntryIds,
+    undo: isStaff ? peekUndo(campaignId) : null,
   };
 }
 
@@ -844,28 +889,41 @@ export async function advanceTurn(
           turn: parseTurn(r.turn),
           form: (r.form as EntryForm | null) ?? null,
           speed: 0,
+          groupId: r.groupId ?? null,
+          legendary: normalizeLegendary(r.legendary),
         }) as EntryRow
     )
   );
   const count = ordered.length;
   if (count === 0) return;
 
-  let turn = enc.turnIndex + direction;
-  let round = enc.round;
-  if (turn >= count) {
-    turn = 0;
-    round += 1;
-  } else if (turn < 0) {
-    turn = count - 1;
-    round = Math.max(1, round - 1);
-  }
+  // A group is one turn (11): the step lands on the head of the next group
+  // or the next lone row, and a round is counted when it wraps.
+  const step = nextTurn(ordered, enc.turnIndex, direction);
+  const turn = step.turn;
+  const round = step.wrapped
+    ? direction === 1
+      ? enc.round + 1
+      : Math.max(1, enc.round - 1)
+    : enc.round;
   await db
     .update(initiativeEncounters)
     .set({ turnIndex: turn, round })
     .where(eq(initiativeEncounters.id, encounterId));
+  // The DM's undo (11): the order steps back, the effects it expired stay.
+  recordUndo(campaignId, {
+    label: `Turn back to ${ordered[enc.turnIndex]?.label ?? 'the top'}; effects stayed`,
+    inverse: async () => {
+      await db
+        .update(initiativeEncounters)
+        .set({ turnIndex: enc.turnIndex, round: enc.round })
+        .where(eq(initiativeEncounters.id, encounterId));
+    },
+  });
   bumpVersion(campaignId);
 
   const up = ordered[turn];
+  const upMembers = turnMembers(ordered, turn).map(i => ordered[i]);
   publish(campaignId, {
     kind: 'turn',
     id: randomUUID(),
@@ -873,9 +931,43 @@ export async function advanceTurn(
     by: userId,
     encounterName: enc.name,
     round,
-    label: up?.label ?? 'Somebody',
+    label:
+      upMembers.length > 1
+        ? groupLabel(up?.label ?? '')
+        : (up?.label ?? 'Somebody'),
     characterId: up?.characterId ?? null,
   });
+
+  /*
+   * Legendary creatures (11): at the end of every turn that is not theirs,
+   * staff are nudged with what is left — a legendary action is taken at
+   * the end of somebody else's turn, and the DM is the one who forgets.
+   */
+  if (direction === 1) {
+    for (const row of ordered) {
+      if (!row.legendary || row.legendary.actions.max === 0) continue;
+      if (upMembers.some(m => m.id === row.id)) continue;
+      const left = legendaryLeft(row.legendary.actions);
+      if (left === 0) continue;
+      publish(
+        campaignId,
+        {
+          kind: 'action',
+          id: randomUUID(),
+          at: new Date().toISOString(),
+          by: userId,
+          actorLabel: row.label,
+          action: 'Legendary action',
+          cost: 'free',
+          note: `${left} left`,
+          again: false,
+          ruling: false,
+          what: 'legendary',
+        },
+        'staff'
+      );
+    }
+  }
 
   /*
    * The one clock. Everything with rounds on it counts down here — a turn
@@ -887,8 +979,14 @@ export async function advanceTurn(
    */
   if (direction === 1) {
     // The turn that begins is fresh: slots back, Dodge over, reaction
-    // returned — and anyone holding a Ready is nudged to staff.
-    await beginEntryTurn(campaignId, encounterId, up?.id ?? null, userId);
+    // returned — and anyone holding a Ready is nudged to staff. A group
+    // begins together.
+    await beginEntryTurn(
+      campaignId,
+      encounterId,
+      upMembers.map(m => m.id),
+      userId
+    );
     const ended = ordered[Math.min(enc.turnIndex, count - 1)];
     const prompts = await tickEffects(
       campaignId,
@@ -933,6 +1031,11 @@ export interface EntryInput {
   concentrating?: boolean;
   side?: EntrySide;
   creatureRef?: ContentRef | null;
+  /** Acts with these others on one turn (11). */
+  groupId?: string | null;
+  legendary?: Legendary | null;
+  /** Abilities that recharge, all ready — written into `turn` (11). */
+  recharge?: RechargeMap;
 }
 
 /**
@@ -1011,6 +1114,12 @@ export async function addEntry(
       side: input.side ?? (input.characterId ? 'party' : 'foe'),
       sort: nextSort,
       creatureRef: input.creatureRef ?? null,
+      groupId: input.groupId ?? null,
+      legendary: input.legendary ?? null,
+      turn:
+        input.recharge && Object.keys(input.recharge).length > 0
+          ? { recharge: input.recharge }
+          : {},
     })
     .returning({ id: initiativeEntries.id });
   // Coalesced in the hub, so the loops in `addPartyToEncounter` and
@@ -1043,7 +1152,22 @@ export async function updateEntry(
   // Through the one writer, so the sheet behind a seated character follows
   // and a clock behind an unticked condition is dropped with it.
   if (conditionKeys !== undefined) {
+    const before = await db.query.initiativeEntries.findFirst({
+      columns: { label: true, conditionKeys: true },
+      where: eq(initiativeEntries.id, entryId),
+    });
     await writeEntryConditions(entryId, conditionKeys.split(','));
+    // The DM's undo (11): the keys it carried, put back through the same
+    // writer — a clock a row lost stays lost, and the label says so.
+    if (before) {
+      const keys = before.conditionKeys;
+      recordUndo(campaignId, {
+        label: `Conditions on ${before.label} back to ${keys || 'none'}`,
+        inverse: async () => {
+          await writeEntryConditions(entryId, keys ? keys.split(',') : []);
+        },
+      });
+    }
   }
   bumpVersion(campaignId);
 }
@@ -1058,7 +1182,98 @@ export async function updateEntry(
 export async function applyHp(entryId: string, delta: number): Promise<void> {
   const campaignId = await entryCampaign(entryId);
   await staff(campaignId);
+  const before = await snapshotHp(entryId);
   await applyHpUnchecked(entryId, campaignId, delta);
+  // The DM's undo (11): what was there, put back — not the opposite delta.
+  if (before) {
+    recordUndo(campaignId, {
+      label: `${delta < 0 ? 'Damage' : 'Heal'} ${before.label} ${
+        delta < 0 ? '−' : '+'
+      }${Math.abs(Math.trunc(delta))}`,
+      inverse: () => restoreHp(before),
+    });
+  }
+}
+
+/**
+ * The numbers an HP write can change, read before it — the row, and the
+ * sheet behind a seated character — so an undo restores values rather than
+ * re-applying a delta somebody else's heal may have moved since.
+ */
+export interface HpSnapshot {
+  entryId: string;
+  label: string;
+  hpCurrent: number | null;
+  hpTemp: number;
+  form: EntryForm | null;
+  characterId: string | null;
+  combat: Pick<
+    CharacterSheet['combat'],
+    | 'hitPointsCurrent'
+    | 'hitPointsTemp'
+    | 'deathSaveSuccesses'
+    | 'deathSaveFailures'
+    | 'stable'
+  > | null;
+}
+
+export async function snapshotHp(entryId: string): Promise<HpSnapshot | null> {
+  const entry = await db.query.initiativeEntries.findFirst({
+    where: eq(initiativeEntries.id, entryId),
+  });
+  if (!entry) return null;
+  let combat: HpSnapshot['combat'] = null;
+  if (entry.characterId) {
+    const c = await db.query.characters.findFirst({
+      columns: { sheet: true },
+      where: eq(characters.id, entry.characterId),
+    });
+    const sheet = c?.sheet as CharacterSheet | undefined;
+    if (sheet) {
+      combat = {
+        hitPointsCurrent: sheet.combat.hitPointsCurrent,
+        hitPointsTemp: sheet.combat.hitPointsTemp,
+        deathSaveSuccesses: sheet.combat.deathSaveSuccesses,
+        deathSaveFailures: sheet.combat.deathSaveFailures,
+        stable: sheet.combat.stable,
+      };
+    }
+  }
+  return {
+    entryId,
+    label: entry.label,
+    hpCurrent: entry.hpCurrent,
+    hpTemp: entry.hpTemp,
+    form: (entry.form as EntryForm | null) ?? null,
+    characterId: entry.characterId,
+    combat,
+  };
+}
+
+export async function restoreHp(before: HpSnapshot): Promise<void> {
+  await db
+    .update(initiativeEntries)
+    .set({
+      hpCurrent: before.hpCurrent,
+      hpTemp: before.hpTemp,
+      form: before.form,
+    })
+    .where(eq(initiativeEntries.id, before.entryId));
+  if (before.characterId && before.combat) {
+    const c = await db.query.characters.findFirst({
+      where: eq(characters.id, before.characterId),
+    });
+    if (c) {
+      const sheet = c.sheet as CharacterSheet;
+      await db
+        .update(characters)
+        .set({
+          sheet: { ...sheet, combat: { ...sheet.combat, ...before.combat } },
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(characters.id, before.characterId));
+    }
+  }
 }
 
 export { applyHpUnchecked };
@@ -1066,7 +1281,21 @@ export { applyHpUnchecked };
 export async function removeEntry(entryId: string): Promise<void> {
   const campaignId = await entryCampaign(entryId);
   await staff(campaignId);
+  const row = await db.query.initiativeEntries.findFirst({
+    where: eq(initiativeEntries.id, entryId),
+  });
   await db.delete(initiativeEntries).where(eq(initiativeEntries.id, entryId));
+  // The room goes with the dragon (11).
+  if (row && normalizeLegendary(row.legendary)?.lair && row.label !== LAIR_LABEL) {
+    await db
+      .delete(initiativeEntries)
+      .where(
+        and(
+          eq(initiativeEntries.encounterId, row.encounterId),
+          eq(initiativeEntries.label, LAIR_LABEL)
+        )
+      );
+  }
   bumpVersion(campaignId);
 }
 
@@ -1143,7 +1372,8 @@ export async function addPartyToEncounter(encounterId: string): Promise<void> {
 export async function addCreaturesToEncounter(
   encounterId: string,
   ref: ContentRef,
-  copies: number
+  copies: number,
+  opts: { group?: boolean } = {}
 ): Promise<string[]> {
   await staff(await encounterCampaign(encounterId));
   if (ref.type !== 'creature') throw new Error('NOT_A_CREATURE');
@@ -1161,17 +1391,27 @@ export async function addCreaturesToEncounter(
     Math.min(MAX_CREATURE_COPIES, Math.trunc(copies) || 1)
   );
 
+  // Six of a thing roll as one by default; one of a thing acts alone (11).
+  const grouped = opts.group ?? count > 1;
+  const groupId = grouped ? randomUUID() : null;
+  const groupRoll = rollDie(20) + d.initiative_bonus;
+  const legendary = legendaryFromBlock(d);
+  const recharge = rechargeFromBlock(d);
+
   const ids: string[] = [];
   for (let i = 0; i < count; i++) {
     ids.push(
       await addEntry(encounterId, {
         label: entry.name,
-        initiative: rollDie(20) + d.initiative_bonus,
+        initiative: grouped ? groupRoll : rollDie(20) + d.initiative_bonus,
         hpCurrent: d.hit_points,
         hpMax: d.hit_points,
         armorClass: d.armor_class,
         side: 'foe',
         creatureRef: ref,
+        groupId,
+        legendary,
+        recharge,
       })
     );
   }
@@ -1201,9 +1441,14 @@ export async function rollInitiative(
     .where(eq(initiativeEntries.encounterId, encounterId));
 
   const rolled: InitiativeRoll[] = [];
+  // One die per group (11): the second goblin takes the first one's face.
+  const groupFaces = new Map<string, number>();
   for (const row of rows) {
     if (row.initiative !== 0) continue;
-    const face = rollDie(20);
+    const face = row.groupId
+      ? (groupFaces.get(row.groupId) ?? rollDie(20))
+      : rollDie(20);
+    if (row.groupId) groupFaces.set(row.groupId, face);
     await db
       .update(initiativeEntries)
       .set({ initiative: face })

@@ -64,6 +64,10 @@ import { requireCampaignRole } from './campaigns';
 import { writeEntryConditions } from './conditions';
 import { resolveContentRefs } from './content';
 import { bumpVersion, publish, type Audience } from './live-hub';
+import {
+  legendaryLeft,
+  normalizeLegendary,
+} from '@/@creator/campaign/lib/monsters';
 
 type Row = typeof encounterEffects.$inferSelect;
 type Entry = typeof initiativeEntries.$inferSelect;
@@ -568,8 +572,38 @@ async function rollFoeSave(
     'staff'
   );
 
-  if (total >= dc)
+  if (total >= dc) {
     await settleEffectSave(effect.id, true, entry.label, byUserId);
+    return;
+  }
+  /*
+   * Legendary Resistance (11): a failed save on a creature with one left is
+   * offered to staff rather than swallowed — the pip on the card spends it,
+   * and the effect is then ended from the card. The rounds keep counting
+   * until the DM says.
+   */
+  const legendary = normalizeLegendary(entry.legendary);
+  if (legendary && legendaryLeft(legendary.resistances) > 0) {
+    publish(
+      campaignId,
+      {
+        kind: 'action',
+        id: randomUUID(),
+        at: new Date().toISOString(),
+        by: byUserId,
+        actorLabel: entry.label,
+        action: 'Legendary Resistance',
+        cost: 'free',
+        note: `failed ${label} · ${legendaryLeft(legendary.resistances)} resistance${
+          legendaryLeft(legendary.resistances) === 1 ? '' : 's'
+        } left — use one?`,
+        again: false,
+        ruling: false,
+        what: 'legendary',
+      },
+      'staff'
+    );
+  }
 }
 
 /**

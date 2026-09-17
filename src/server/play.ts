@@ -65,6 +65,7 @@ import { effectiveRules, fence } from './table-rules';
 import { claimedFaces } from './dice-claims';
 import { physicalDiceAllowed } from '@/@creator/campaign/lib/table-rules';
 import { regainsInspirationOnLongRest } from '@/@creator/campaign/lib/rests';
+import { readyAllRecharges } from './monsters';
 import { xpStanding } from '@/@creator/character/lib/advancement';
 import { spendWeaponSwap, takeActionUnchecked } from './turn';
 import { DEFAULT_TABLE_RULES } from '@/@creator/campaign/lib/table-rules';
@@ -1698,6 +1699,8 @@ export async function applyRestUnchecked(
       rows.map(r => r.character.id)
     );
   }
+  // A rest readies every recharge on the other side too (11).
+  await readyAllRecharges(campaignId);
 
   bumpVersion(campaignId);
   return { rested, characterIds: rows.map(r => r.character.id) };

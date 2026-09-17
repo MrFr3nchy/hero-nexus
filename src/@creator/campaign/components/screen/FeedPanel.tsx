@@ -44,6 +44,7 @@ const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
   time: 'The clock',
   rest: 'Rests',
   levelup: 'Levels',
+  undo: 'Undo',
 };
 
 /**

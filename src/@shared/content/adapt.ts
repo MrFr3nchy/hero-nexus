@@ -414,13 +414,51 @@ function itemFromSrd(category: string, raw: Record<string, unknown>): ItemData {
 function creatureActions(
   raw: Record<string, unknown>,
   wanted: string
-): { name: string; desc: string }[] {
+): { name: string; desc: string; cost?: number; recharge?: number }[] {
   const rows = Array.isArray(raw.actions)
     ? (raw.actions as Record<string, unknown>[])
     : [];
   return rows
     .filter(a => (str(a.action_type) || 'action').toLowerCase() === wanted)
-    .map(a => ({ name: str(a.name), desc: str(a.desc) }));
+    .map(a => {
+      const out: { name: string; desc: string; cost?: number; recharge?: number } =
+        { name: str(a.name), desc: str(a.desc) };
+      // The structured fields Open5e carries (11): what a legendary action
+      // costs, and the d6 face that recharges an ability. The name is the
+      // fallback — "(Costs 2 Actions)", "(Recharge 5–6)" — for a hand-typed
+      // block.
+      const cost =
+        wanted === 'legendary_action'
+          ? typeof a.legendary_action_cost === 'number'
+            ? a.legendary_action_cost
+            : parseLegendaryCost(str(a.name))
+          : undefined;
+      if (cost && cost >= 1) out.cost = Math.trunc(cost);
+      const limits =
+        a.usage_limits && typeof a.usage_limits === 'object'
+          ? (a.usage_limits as Record<string, unknown>)
+          : null;
+      const recharge =
+        limits && str(limits.type).toUpperCase() === 'RECHARGE_ON_ROLL'
+          ? Number(limits.param)
+          : parseRecharge(str(a.name));
+      if (recharge && recharge >= 2 && recharge <= 6) {
+        out.recharge = Math.trunc(recharge);
+      }
+      return out;
+    });
+}
+
+/** "(Recharge 5–6)" / "(Recharge 6)" → the lowest face that readies it. */
+export function parseRecharge(name: string): number | undefined {
+  const m = /\(Recharge (\d)(?:[–-]\d)?\)/i.exec(name);
+  return m ? Number(m[1]) : undefined;
+}
+
+/** "(Costs 2 Actions)" → 2. Absent is one. */
+export function parseLegendaryCost(name: string): number | undefined {
+  const m = /\(Costs (\d) Actions?\)/i.exec(name);
+  return m ? Number(m[1]) : undefined;
 }
 
 /** `[{ name: 'Acid', key: 'acid' }]` -> `['acid']`. */

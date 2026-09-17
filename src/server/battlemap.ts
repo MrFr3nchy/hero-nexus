@@ -80,6 +80,7 @@ import {
 import { getCampaignImage, imageUrl } from './campaign-images';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
+import { recordUndo } from './undo';
 import { resolveContentRefs } from './content';
 import { effectiveRules, fence } from './table-rules';
 import { claimedFaces } from './dice-claims';
@@ -1323,6 +1324,26 @@ export async function moveToken(
     .set({ x: to.x, y: to.y, updatedAt: new Date().toISOString() })
     .where(eq(battleMapTokens.id, tokenId));
   bumpVersion(map.campaignId);
+  // The DM's undo (11): the square it stood on, and the feet it spent.
+  if (isStaffRole(role) && (token.x !== to.x || token.y !== to.y)) {
+    const from = { x: token.x, y: token.y };
+    const turnBefore = entry?.turn ?? null;
+    recordUndo(map.campaignId, {
+      label: `Move ${entry?.label ?? token.label ?? 'a token'} back to ${from.x},${from.y}`,
+      inverse: async () => {
+        await db
+          .update(battleMapTokens)
+          .set({ x: from.x, y: from.y, updatedAt: new Date().toISOString() })
+          .where(eq(battleMapTokens.id, tokenId));
+        if (entry && turnBefore !== null) {
+          await db
+            .update(initiativeEntries)
+            .set({ turn: turnBefore })
+            .where(eq(initiativeEntries.id, entry.id));
+        }
+      },
+    });
+  }
 
   if (entry && spent && !parseTurn(entry.turn).disengaged) {
     await offerOpportunityAttacks(

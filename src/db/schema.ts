@@ -557,6 +557,18 @@ export const initiativeEntries = sqliteTable(
      * `campaign/lib/casting.ts`. Null when the combatant is itself.
      */
     form: text('form', { mode: 'json' }),
+    /**
+     * Rows sharing one act on one turn (0059): six goblins rolled as a
+     * group. Null acts alone. `nextTurn` in `campaign/lib/monsters.ts` is
+     * the step that honours it.
+     */
+    groupId: text('group_id'),
+    /**
+     * A `Legendary` from `campaign/lib/monsters.ts` (0059): legendary
+     * actions and resistances left, and whether the lair fights. Null for
+     * the ordinary. Recharge lives inside `turn`.
+     */
+    legendary: text('legendary', { mode: 'json' }),
   },
   t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
 );

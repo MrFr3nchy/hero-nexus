@@ -469,9 +469,15 @@ export async function addPartyAction(encounterId: string): Promise<Result> {
 export async function addCreaturesAction(
   encounterId: string,
   ref: ContentRef,
-  copies: number
+  copies: number,
+  /** Roll initiative as a group (11). Absent: six of a thing do, one does not. */
+  group?: boolean
 ): Promise<Result> {
-  return sessionAction(() => addCreaturesToEncounter(encounterId, ref, copies));
+  return sessionAction(() =>
+    addCreaturesToEncounter(encounterId, ref, copies, {
+      group: group === undefined ? undefined : group === true,
+    })
+  );
 }
 export async function updateEntryAction(
   entryId: string,
