@@ -15,9 +15,17 @@
  * lock, a chest — are rows and not terrain, so they go to the server as
  * they are placed, the way the board on the screen places them.
  */
-import { Button, Input } from '@heroui/react';
+import {
+  Button,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+  Input,
+} from '@heroui/react';
 import Link from 'next/link';
 import { useTheme } from 'next-themes';
+import { useRouter } from 'next/navigation';
 import {
   useCallback,
   useEffect,
@@ -82,12 +90,14 @@ import type { WorkshopBoard } from '@/server/battlemap';
 import type { EntryRow } from '@/server/session';
 import {
   getWorkshopBoardAction,
+  listBattleMapsAction,
   placeTokenAction,
   removeTokenAction,
   resetFogAction,
   revealRoomsAroundAction,
   revealTilesAction,
   saveTerrainAction,
+  setBattleMapActiveAction,
   setBattleMapVisibilityAction,
   updateTokenAction,
 } from '../../battlemap-actions';
@@ -173,6 +183,18 @@ export function Workshop({
   const [bench, setBench] = useState<WorkshopBoard | null>(null);
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  /**
+   * The rest of the shelf, for hopping to another board without going
+   * back out through the index. Read when the menu opens, not before: the
+   * bench is what this page is about and the shelf is a door off it.
+   */
+  const [shelf, setShelf] = useState<
+    Awaited<ReturnType<typeof listBattleMapsAction>>
+  >([]);
+  const readShelf = useCallback(async () => {
+    setShelf(await listBattleMapsAction(campaignId));
+  }, [campaignId]);
 
   /*
    * The document, and its past and future. Edits land here; a debounced
@@ -1239,6 +1261,52 @@ export function Workshop({
             {bench.name || campaignName}
           </span>
         </div>
+        {/* The other boards on the shelf, and the shelf itself. */}
+        <Dropdown onOpenChange={open => open && readShelf()}>
+          <DropdownTrigger>
+            <Button
+              size="sm"
+              variant="light"
+              className="text-ink-muted"
+              startContent={<Glyph name="floors" size={14} />}
+            >
+              Other boards
+            </Button>
+          </DropdownTrigger>
+          <DropdownMenu
+            aria-label="Another board from the shelf"
+            disabledKeys={[bench.id]}
+            onAction={key => {
+              if (key === 'shelf') {
+                router.push(`/campaigns/${campaignId}/workshop`);
+                return;
+              }
+              router.push(`/campaigns/${campaignId}/workshop/${String(key)}`);
+            }}
+          >
+            {[
+              ...shelf.map(b => (
+                <DropdownItem
+                  key={b.id}
+                  description={
+                    b.id === bench.id
+                      ? 'On the bench now'
+                      : `${b.w} × ${b.h} · ${b.levels} ${b.levels === 1 ? 'floor' : 'floors'}${b.isActive ? ' · on the table' : ''}`
+                  }
+                >
+                  {b.name || 'The sand table'}
+                </DropdownItem>
+              )),
+              <DropdownItem
+                key="shelf"
+                className="text-ink-muted"
+                startContent={<Glyph name="hammer" size={13} />}
+              >
+                The whole shelf, and a new board
+              </DropdownItem>,
+            ]}
+          </DropdownMenu>
+        </Dropdown>
         <div className="grow" />
         <nav
           aria-label="View"
@@ -1317,6 +1385,20 @@ export function Workshop({
           }}
         >
           {bench.visibility === 'shared' ? 'Take it back' : 'Show the party'}
+        </Button>
+        <Button
+          size="sm"
+          variant={bench.isActive ? 'flat' : 'bordered'}
+          onPress={async () => {
+            const res = await setBattleMapActiveAction(
+              bench.id,
+              !bench.isActive
+            );
+            if (!res.ok) setError(res.error);
+            await load();
+          }}
+        >
+          {bench.isActive ? 'Take it off the table' : 'Put it on the table'}
         </Button>
       </header>
 

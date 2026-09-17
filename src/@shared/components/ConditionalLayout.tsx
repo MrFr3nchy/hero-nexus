@@ -68,11 +68,17 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
     /^\/campaigns\/[^/]+\/screen$/.test(pathname) ||
     /^\/campaigns\/[^/]+\/workshop\/[^/]+$/.test(pathname);
 
+  // The workshop is a bench, not a page of the app: the DM is building a
+  // board, and the spine's shelves of heroes and spells are a hand's width
+  // of nothing they want while doing it. The workshop's own header carries
+  // the ways out — the campaign, the table, the shelf of boards.
+  const inTheWorkshop = /^\/campaigns\/[^/]+\/workshop(\/|$)/.test(pathname);
+
   // If user is logged in and on a private route, show side navigation
   if (currentUser && isPrivateRoute) {
     return (
       <div className={fillsTheWindow ? 'flex h-dvh' : 'flex min-h-screen'}>
-        <SideNavigation />
+        {!inTheWorkshop && <SideNavigation />}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Above the page, not inside it: a table that has sat down is the
               app's business, not this route's. It is also what puts the

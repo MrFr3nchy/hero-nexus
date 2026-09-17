@@ -22,6 +22,10 @@
 import {
   Button,
   Checkbox,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
   Input,
   Popover,
   PopoverContent,
@@ -90,6 +94,7 @@ import {
   createBattleMapAction,
   damageThingAction,
   dealEncounterInAction,
+  listBattleMapsAction,
   moveTokenAction,
   pickLockAction,
   placeTokenAction,
@@ -814,6 +819,30 @@ export function BattleBoard({
   const [newH, setNewH] = useState('15');
   /** What every tile of a new board starts as. Void, unless the DM says. */
   const [newFloor, setNewFloor] = useState(String(VOID));
+  /**
+   * The shelf: every board the campaign has, so the DM can put a different
+   * one on the table without leaving the screen. Read when the table is
+   * bare and again each time the swap menu opens — the list is short and a
+   * board laid out in another tab should be in it.
+   */
+  const [shelf, setShelf] = useState<
+    Awaited<ReturnType<typeof listBattleMapsAction>>
+  >([]);
+  const [shelfPick, setShelfPick] = useState<string>('');
+  const readShelf = useCallback(async () => {
+    if (!isStaff) return;
+    setShelf(await listBattleMapsAction(campaignId));
+  }, [campaignId, isStaff]);
+  useEffect(() => {
+    if (!board) readShelf();
+  }, [board, readShelf]);
+  const putOnTable = async (id: string) => {
+    setBusy(true);
+    const res = await setBattleMapActiveAction(id, true);
+    if (!res.ok) onError(res.error);
+    setBusy(false);
+    await refresh();
+  };
   /**
    * The 3D view is a *view*: the 2D board stays the authoring surface and the
    * thing a phone renders. Off by default so a laptop with a dead GPU is not
@@ -1579,67 +1608,105 @@ export function BattleBoard({
           <EmptyState
             scene={<BattlefieldScene />}
             title="No board on the table"
-            description="Lay one out, paint the room, and deal the fight onto it."
+            description={
+              shelf.length > 0
+                ? 'Put one from the shelf on it, or lay a new one out.'
+                : 'Lay one out, paint the room, and deal the fight onto it.'
+            }
             action={
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="flex flex-col text-xs text-ink-muted">
-                  Wide
-                  <input
-                    type="number"
-                    min={MIN_SIDE}
-                    max={MAX_SIDE}
-                    value={newW}
-                    onChange={e => setNewW(e.target.value)}
-                    className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
-                  />
-                </label>
-                <label className="flex flex-col text-xs text-ink-muted">
-                  Tall
-                  <input
-                    type="number"
-                    min={MIN_SIDE}
-                    max={MAX_SIDE}
-                    value={newH}
-                    onChange={e => setNewH(e.target.value)}
-                    className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
-                  />
-                </label>
-                <label className="flex flex-col text-xs text-ink-muted">
-                  Floor
-                  <select
-                    value={newFloor}
-                    onChange={e => setNewFloor(e.target.value)}
-                    className="h-[30px] rounded-md border border-line bg-surface px-2 text-sm text-ink"
+              <div className="flex flex-col gap-3">
+                {shelf.length > 0 && (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <Select
+                      size="sm"
+                      label="From the shelf"
+                      aria-label="A board from the shelf"
+                      className="w-56"
+                      selectedKeys={shelfPick ? [shelfPick] : []}
+                      onSelectionChange={keys => {
+                        setShelfPick(String(Array.from(keys)[0] ?? ''));
+                      }}
+                    >
+                      {shelf.map(b => (
+                        <SelectItem
+                          key={b.id}
+                          textValue={b.name || 'The sand table'}
+                        >
+                          {b.name || 'The sand table'}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                    <Button
+                      size="sm"
+                      color="primary"
+                      isDisabled={busy || !shelfPick}
+                      onPress={() => putOnTable(shelfPick)}
+                    >
+                      Put it on the table
+                    </Button>
+                    <span className="pb-2 text-xs text-ink-muted">or</span>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="flex flex-col text-xs text-ink-muted">
+                    Wide
+                    <input
+                      type="number"
+                      min={MIN_SIDE}
+                      max={MAX_SIDE}
+                      value={newW}
+                      onChange={e => setNewW(e.target.value)}
+                      className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
+                    />
+                  </label>
+                  <label className="flex flex-col text-xs text-ink-muted">
+                    Tall
+                    <input
+                      type="number"
+                      min={MIN_SIDE}
+                      max={MAX_SIDE}
+                      value={newH}
+                      onChange={e => setNewH(e.target.value)}
+                      className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
+                    />
+                  </label>
+                  <label className="flex flex-col text-xs text-ink-muted">
+                    Floor
+                    <select
+                      value={newFloor}
+                      onChange={e => setNewFloor(e.target.value)}
+                      className="h-[30px] rounded-md border border-line bg-surface px-2 text-sm text-ink"
+                    >
+                      {MATERIALS.map((m, i) => (
+                        <option key={m.key} value={i}>
+                          {i === VOID ? 'Nothing yet' : m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button
+                    size="sm"
+                    color="primary"
+                    isDisabled={busy}
+                    onPress={async () => {
+                      setBusy(true);
+                      const res = await createBattleMapAction(campaignId, {
+                        w: Number(newW),
+                        h: Number(newH),
+                        material: Number(newFloor),
+                      });
+                      if (res.ok) {
+                        await setBattleMapActiveAction(res.data.id, true);
+                      } else {
+                        onError(res.error);
+                      }
+                      setBusy(false);
+                      await refresh();
+                    }}
                   >
-                    {MATERIALS.map((m, i) => (
-                      <option key={m.key} value={i}>
-                        {i === VOID ? 'Nothing yet' : m.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <Button
-                  size="sm"
-                  color="primary"
-                  isDisabled={busy}
-                  onPress={async () => {
-                    setBusy(true);
-                    const res = await createBattleMapAction(campaignId, {
-                      w: Number(newW),
-                      h: Number(newH),
-                      material: Number(newFloor),
-                    });
-                    if (res.ok) {
-                      await setBattleMapActiveAction(res.data.id, true);
-                    } else {
-                      onError(res.error);
-                    }
-                    setBusy(false);
-                    await refresh();
-                  }}
-                >
-                  Lay it out
-                </Button>
+                    Lay it out
+                  </Button>
+                </div>
               </div>
             }
           />
@@ -1706,6 +1773,33 @@ export function BattleBoard({
             >
               Open the workshop
             </Button>
+          )}
+          {isStaff && (
+            <Dropdown onOpenChange={open => open && readShelf()}>
+              <DropdownTrigger>
+                <Button size="sm" variant="flat" isDisabled={busy}>
+                  Swap board
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Put another board on the table"
+                disabledKeys={[board.id]}
+                onAction={key => putOnTable(String(key))}
+              >
+                {shelf.map(b => (
+                  <DropdownItem
+                    key={b.id}
+                    description={
+                      b.id === board.id
+                        ? 'On the table now'
+                        : `${b.w} × ${b.h} · ${b.levels} ${b.levels === 1 ? 'floor' : 'floors'}`
+                    }
+                  >
+                    {b.name || 'The sand table'}
+                  </DropdownItem>
+                ))}
+              </DropdownMenu>
+            </Dropdown>
           )}
           <Tooltip
             isDisabled={canStand}
