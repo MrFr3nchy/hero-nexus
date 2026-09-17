@@ -421,8 +421,12 @@ function creatureActions(
   return rows
     .filter(a => (str(a.action_type) || 'action').toLowerCase() === wanted)
     .map(a => {
-      const out: { name: string; desc: string; cost?: number; recharge?: number } =
-        { name: str(a.name), desc: str(a.desc) };
+      const out: {
+        name: string;
+        desc: string;
+        cost?: number;
+        recharge?: number;
+      } = { name: str(a.name), desc: str(a.desc) };
       // The structured fields Open5e carries (11): what a legendary action
       // costs, and the d6 face that recharges an ability. The name is the
       // fallback — "(Costs 2 Actions)", "(Recharge 5–6)" — for a hand-typed

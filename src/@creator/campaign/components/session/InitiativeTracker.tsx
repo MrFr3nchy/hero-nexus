@@ -50,6 +50,7 @@ import {
   type PickerEntry,
 } from './EffectPicker';
 import { FightRules } from './FightRules';
+import { GroupControl, LegendaryControls } from './LegendaryControls';
 import { TurnStrip } from './TurnStrip';
 
 type Act = (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
@@ -77,6 +78,9 @@ function BestiaryPicker({
   const [choices, setChoices] = useState<CombatantChoice[] | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [copies, setCopies] = useState(1);
+  // Roll as a group (11): on for six of a thing, off for one, unless said.
+  const [group, setGroup] = useState<boolean | null>(null);
+  const grouped = group ?? copies > 1;
 
   const load = useCallback(async () => {
     setChoices(
@@ -130,15 +134,36 @@ function BestiaryPicker({
         value={copies}
         onValueChange={v => setCopies(Number(v) || 1)}
       />
+      {copies > 1 && (
+        <Tooltip
+          content={
+            grouped
+              ? 'One initiative, one turn for the lot. Tap to roll each on its own.'
+              : 'Each rolls and acts on its own. Tap to roll them as a group.'
+          }
+        >
+          <Button
+            size="sm"
+            variant={grouped ? 'flat' : 'light'}
+            className={`min-w-0 px-2 text-xs ${
+              grouped ? 'text-arcane' : 'text-ink-subtle'
+            }`}
+            onPress={() => setGroup(!grouped)}
+          >
+            {grouped ? 'As a group' : 'Each alone'}
+          </Button>
+        </Tooltip>
+      )}
       <Button
         size="sm"
         variant="flat"
         isDisabled={!chosen}
         onPress={() => {
           if (!chosen) return;
-          act(addCreaturesAction(encounterId, chosen.ref, copies));
+          act(addCreaturesAction(encounterId, chosen.ref, copies, grouped));
           setPicked(null);
           setCopies(1);
+          setGroup(null);
         }}
       >
         Send them in
@@ -244,10 +269,13 @@ function EntryLine({
   refresh,
   onError,
   waiting,
+  groupKin = [],
 }: {
   campaignId: string;
   entry: EntryRow;
   current: boolean;
+  /** Everybody in the order with their group, for the group control (11). */
+  groupKin?: { id: string; label: string; groupId: string | null }[];
   isStaff: boolean;
   isYours: boolean;
   act: Act;
@@ -295,6 +323,13 @@ function EntryLine({
         {entry.initiative}
       </span>
       {homebrew && <StatusMark kind="homebrew" size={8} />}
+      {entry.groupId && (
+        <Tooltip content="Acts with its group, on one turn.">
+          <span className="text-[0.55rem] uppercase tracking-[0.1em] text-arcane">
+            grp
+          </span>
+        </Tooltip>
+      )}
 
       {/* `data-entry-info` is a hook for the screen, which gives this block a
           floor so the controls wrap under it rather than squeezing the name
@@ -418,6 +453,11 @@ function EntryLine({
             />
           </div>
         )}
+        {/* What the other side has left (11): legendary pips, recharge
+            dots, the lair. Staff only — the counters are the DM's. */}
+        {isStaff && (
+          <LegendaryControls entry={entry} act={act} onError={onError} />
+        )}
       </div>
 
       {isStaff && (
@@ -453,8 +493,12 @@ function EntryLine({
             ]}
             others={everyone.filter(e => e.id !== entry.id)}
             act={act}
+            keyboardEntryId={entry.id}
           />
           <ShapePicker campaignId={campaignId} entry={entry} act={act} />
+          {entry.side !== 'party' && (
+            <GroupControl entry={entry} everyone={groupKin} act={act} />
+          )}
           <Button
             size="sm"
             variant={entry.concentrating ? 'flat' : 'light'}
@@ -606,11 +650,11 @@ export function InitiativeTracker({
     >
       <ol className="divide-y divide-line">
         <CountdownRows effects={state.effects} isStaff={isStaff} act={act} />
-        {state.entries.map((e, i) => (
+        {state.entries.map(e => (
           <EntryLine
             key={e.id}
             entry={e}
-            current={i === enc.turnIndex}
+            current={state.turnEntryIds.includes(e.id)}
             isStaff={isStaff}
             isYours={
               e.characterId != null && e.characterId === state.viewerCharacterId
@@ -618,6 +662,11 @@ export function InitiativeTracker({
             act={act}
             effects={state.effects}
             everyone={everyone}
+            groupKin={state.entries.map(x => ({
+              id: x.id,
+              label: x.label,
+              groupId: x.groupId,
+            }))}
             encounterId={enc.id}
             campaignId={campaignId}
             refresh={refresh}

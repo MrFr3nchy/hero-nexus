@@ -508,6 +508,18 @@ export function BattleBoard({
   }, [board]);
 
   const [tool, setTool] = useState<Tool>({ kind: 'select' });
+  // The DM's keyboard (11): a digit names a mode, F the fog. The board's
+  // tool state is its own, so it listens rather than being handed a prop.
+  useEffect(() => {
+    if (!isStaff) return;
+    const onMode = (e: Event) => {
+      const wanted = (e as CustomEvent<{ mode: Mode }>).detail?.mode;
+      const m = MODES.find(x => x.mode === wanted);
+      if (m) setTool(m.tool);
+    };
+    window.addEventListener('hero-nexus:board', onMode);
+    return () => window.removeEventListener('hero-nexus:board', onMode);
+  }, [isStaff]);
   // Doing something to a thing: the picker's mode and last word, and the DM's
   // amount for breaking one.
   const [lockMode, setLockMode] = useState<
@@ -790,6 +802,11 @@ export function BattleBoard({
     if (!state.encounter) return null;
     return state.entries[state.encounter.turnIndex]?.id ?? null;
   }, [state.encounter, state.entries]);
+  // A group shares the turn (11): every member's reach lights on it.
+  const currentEntryIds = useMemo(
+    () => new Set(state.turnEntryIds),
+    [state.turnEntryIds]
+  );
 
   const selectedToken = board?.tokens.find(t => t.id === selected) ?? null;
   const selectedEntry = selectedToken?.entryId
@@ -813,11 +830,11 @@ export function BattleBoard({
       // the server priced (conditions, exhaustion, the block) less what the
       // turn has already walked, doubled by Dash. Off their turn, the whole
       // speed — the DM planning where the ogre goes next.
-      return entry.id === currentEntryId
+      return currentEntryIds.has(entry.id)
         ? movementBudget(entry.turn, entry.speed)
         : entry.speed;
     },
-    [entriesById, currentEntryId]
+    [entriesById, currentEntryIds]
   );
 
   /** Why the reach is what it is — "Grappled · speed 0". Empty when unremarkable. */
@@ -2012,7 +2029,7 @@ export function BattleBoard({
       }
 
       // The one animated thing: whose turn it is.
-      if (entry && entry.id === currentEntryId) {
+      if (entry && currentEntryIds.has(entry.id)) {
         ctx.strokeStyle = p.gold;
         ctx.lineWidth = Math.max(2, size * 0.06);
         ctx.setLineDash([size * 0.12, size * 0.08]);
@@ -2036,7 +2053,7 @@ export function BattleBoard({
       // action, bonus, reaction, movement — filled when spent. The same
       // data the card's strip shows; drawn here so the board answers "has
       // it acted" on its own.
-      if (t.id === selected && entry && entry.id === currentEntryId) {
+      if (t.id === selected && entry && currentEntryIds.has(entry.id)) {
         const pr = Math.max(2, size * 0.07);
         const gap = pr * 2.6;
         const py = cy + r + Math.max(8, size * 0.26) + pr * 2.2;
@@ -2229,6 +2246,7 @@ export function BattleBoard({
     isStaff,
     entriesById,
     currentEntryId,
+    currentEntryIds,
     selected,
     selectedIds,
     reach,
@@ -2953,7 +2971,7 @@ export function BattleBoard({
                     ? 'Cannot move this turn.'
                     : `Tap a lit tile to move there. ${speedOf(selectedToken)} ft${
                         selectedEntry &&
-                        selectedEntry.id === currentEntryId &&
+                        currentEntryIds.has(selectedEntry.id) &&
                         selectedEntry.turn.movedFeet > 0
                           ? ' left'
                           : ''
@@ -2972,7 +2990,7 @@ export function BattleBoard({
           )}
           {/* The turn under the token: the same pips the card shows, so the
               board answers "has it acted" without a glance at the tracker. */}
-          {selectedEntry && selectedEntry.id === currentEntryId && (
+          {selectedEntry && currentEntryIds.has(selectedEntry.id) && (
             <TurnStrip
               entry={selectedEntry}
               canSpend={isStaff || selectedToken.mine}

@@ -1286,7 +1286,11 @@ export async function removeEntry(entryId: string): Promise<void> {
   });
   await db.delete(initiativeEntries).where(eq(initiativeEntries.id, entryId));
   // The room goes with the dragon (11).
-  if (row && normalizeLegendary(row.legendary)?.lair && row.label !== LAIR_LABEL) {
+  if (
+    row &&
+    normalizeLegendary(row.legendary)?.lair &&
+    row.label !== LAIR_LABEL
+  ) {
     await db
       .delete(initiativeEntries)
       .where(

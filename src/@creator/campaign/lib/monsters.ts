@@ -74,7 +74,8 @@ export function parseLegendaryResistance(traitName: string): number | null {
  * things.
  */
 export function legendaryFromBlock(d: CreatureData): Legendary | null {
-  const actions = d.legendary_actions.length > 0 ? DEFAULT_LEGENDARY_ACTIONS : 0;
+  const actions =
+    d.legendary_actions.length > 0 ? DEFAULT_LEGENDARY_ACTIONS : 0;
   let resistances = 0;
   for (const t of d.traits) {
     const n = parseLegendaryResistance(t.name);
@@ -137,7 +138,10 @@ export function normalizeRecharge(raw: unknown): RechargeMap {
 export function rollRecharges(
   map: RechargeMap,
   faces: number[]
-): { map: RechargeMap; verdicts: { name: string; face: number; ready: boolean }[] } {
+): {
+  map: RechargeMap;
+  verdicts: { name: string; face: number; ready: boolean }[];
+} {
   const next: RechargeMap = { ...map };
   const verdicts: { name: string; face: number; ready: boolean }[] = [];
   let i = 0;
@@ -227,7 +231,7 @@ export function turnMembers(
 export function groupLabel(memberLabel: string): string {
   const base = memberLabel.replace(/\s+\d+$/, '').trim();
   if (!base) return 'The group';
-  const lower = base.charAt(0).toLowerCase() + base.slice(1);
+  const lower = base.toLowerCase();
   const plural = /s$/i.test(lower) ? lower : `${lower}s`;
   return `The ${plural}`;
 }

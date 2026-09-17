@@ -336,8 +336,9 @@ export async function beginEntryTurn(
        * are written onto the turn.
        */
       if (fresh.recharge && rechargesOwed(fresh.recharge) > 0) {
-        const faces = Array.from({ length: rechargesOwed(fresh.recharge) }, () =>
-          rollDie(6)
+        const faces = Array.from(
+          { length: rechargesOwed(fresh.recharge) },
+          () => rollDie(6)
         );
         const rolled = rollRecharges(fresh.recharge, faces);
         fresh = { ...fresh, recharge: rolled.map };

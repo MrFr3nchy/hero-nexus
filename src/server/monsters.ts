@@ -49,7 +49,11 @@ export async function setEntryGroup(
   grouped: boolean
 ): Promise<void> {
   if (entryIds.length === 0) return;
-  const { entry: first, campaignId, encounterId } = await staffEntry(entryIds[0]);
+  const {
+    entry: first,
+    campaignId,
+    encounterId,
+  } = await staffEntry(entryIds[0]);
   const rows = await db
     .select()
     .from(initiativeEntries)
@@ -90,8 +94,8 @@ export async function setLegendary(
       ? null
       : normalizeLegendary({
           actions: patch.actions ?? current?.actions ?? { max: 0, used: 0 },
-          resistances:
-            patch.resistances ?? current?.resistances ?? { max: 0, used: 0 },
+          resistances: patch.resistances ??
+            current?.resistances ?? { max: 0, used: 0 },
           lair: patch.lair ?? current?.lair ?? false,
         });
   await db
@@ -113,7 +117,8 @@ export async function spendLegendaryAction(
 ): Promise<{ left: number; ruling: boolean }> {
   const { entry, campaignId, encounterId, userId } = await staffEntry(entryId);
   const legendary = normalizeLegendary(entry.legendary);
-  if (!legendary || legendary.actions.max === 0) throw new Error('NOT_LEGENDARY');
+  if (!legendary || legendary.actions.max === 0)
+    throw new Error('NOT_LEGENDARY');
   const c = Math.max(1, Math.min(5, Math.trunc(cost) || 1));
   const rules = await effectiveRules(campaignId, encounterId);
   const left = legendaryLeft(legendary.actions);
@@ -127,7 +132,9 @@ export async function spendLegendaryAction(
   const used = Math.min(legendary.actions.max, legendary.actions.used + c);
   await db
     .update(initiativeEntries)
-    .set({ legendary: { ...legendary, actions: { ...legendary.actions, used } } })
+    .set({
+      legendary: { ...legendary, actions: { ...legendary.actions, used } },
+    })
     .where(eq(initiativeEntries.id, entryId));
   bumpVersion(campaignId);
   publish(campaignId, {
@@ -162,7 +169,10 @@ export async function spendLegendaryResistance(
   await db
     .update(initiativeEntries)
     .set({
-      legendary: { ...legendary, resistances: { ...legendary.resistances, used } },
+      legendary: {
+        ...legendary,
+        resistances: { ...legendary.resistances, used },
+      },
     })
     .where(eq(initiativeEntries.id, entryId));
   bumpVersion(campaignId);
@@ -218,10 +228,16 @@ export async function setLair(entryId: string, lair: boolean): Promise<void> {
       initiative: LAIR_INITIATIVE,
       side: 'other',
       sort,
-      legendary: { actions: { max: 0, used: 0 }, resistances: { max: 0, used: 0 }, lair: true },
+      legendary: {
+        actions: { max: 0, used: 0 },
+        resistances: { max: 0, used: 0 },
+        lair: true,
+      },
     });
   } else if (!lair && existing) {
-    await db.delete(initiativeEntries).where(eq(initiativeEntries.id, existing.id));
+    await db
+      .delete(initiativeEntries)
+      .where(eq(initiativeEntries.id, existing.id));
   }
   bumpVersion(campaignId);
 }
@@ -234,7 +250,7 @@ export async function setLair(entryId: string, lair: boolean): Promise<void> {
  * way it is spent, and the d6 at the start of the creature's next turn is
  * what brings it back.
  */
-export async function useRechargeFeature(
+export async function spendRechargeFeature(
   entryId: string,
   name: string,
   opts: { ruling?: boolean } = {}

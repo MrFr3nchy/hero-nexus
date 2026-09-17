@@ -8,7 +8,7 @@ import {
   setLegendary,
   spendLegendaryAction,
   spendLegendaryResistance,
-  useRechargeFeature,
+  spendRechargeFeature,
 } from '@/server/monsters';
 import { RuleRefusal } from '@/server/table-rules';
 import { undoLast } from '@/server/undo';
@@ -120,7 +120,7 @@ export async function setLairAction(
   }
 }
 
-export async function useRechargeFeatureAction(
+export async function spendRechargeFeatureAction(
   entryId: string,
   name: unknown,
   opts: { ruling?: boolean } = {}
@@ -128,7 +128,7 @@ export async function useRechargeFeatureAction(
   const n = z.string().min(1).max(120).safeParse(name);
   if (!n.success) return { ok: false, error: 'Which ability?' };
   try {
-    const data = await useRechargeFeature(entryId, n.data, {
+    const data = await spendRechargeFeature(entryId, n.data, {
       ruling: opts.ruling === true,
     });
     return { ok: true, data };

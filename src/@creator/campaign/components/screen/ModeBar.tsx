@@ -9,7 +9,9 @@ import { TABLE_KINDS, TABLE_META, type TableKind } from '../../lib/screen';
 import { createEncounterAction, endEncounterAction } from '../../actions';
 import { closeSittingAction, openSittingAction } from '../../chronicle-actions';
 import { setTableModeAction } from '../../rules-actions';
+import { undoLastAction } from '../../monster-actions';
 import { WorldClockControl } from './WorldClockControl';
+import { SHORTCUTS, type Typing } from './useDmShortcuts';
 
 /**
  * The mode bar: the three tables in a row, the one the campaign is at lit,
@@ -44,6 +46,8 @@ export function ModeBar({
   onPin,
   refresh,
   onError,
+  typing = null,
+  onHelp,
 }: {
   campaignId: string;
   state: LiveState;
@@ -54,6 +58,10 @@ export function ModeBar({
   onPin: (pin: TableKind | null) => void | Promise<void>;
   refresh: () => void | Promise<void>;
   onError: (message: string) => void;
+  /** A D/H number being typed (11), shown so nothing is applied blind. */
+  typing?: Typing | null;
+  /** Opens the `?` list. */
+  onHelp?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const { confirm, dialog } = useConfirm();
@@ -171,6 +179,54 @@ export function ModeBar({
             >
               <Glyph name="gavel" size={11} />
               {state.rules.mode === 'enforce' ? 'Enforcing' : 'Advising'}
+            </button>
+          </Tooltip>
+        )}
+
+        {/* Undo (11): the last thing the DM can take back, with its label.
+            The stack lives in the server's memory; five minutes, ten deep. */}
+        {isStaff && state.undo && (
+          <Tooltip
+            content={`Undo: ${state.undo.label}. Ctrl/⌘ Z does the same.`}
+          >
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => act(undoLastAction(campaignId))}
+              className="inline-flex max-w-[16rem] items-center gap-1 rounded-[5px] border border-line px-2 py-1 text-[0.6rem] uppercase tracking-[0.12em] text-ink-subtle transition-colors hover:border-gold/50 hover:text-ink disabled:opacity-60"
+            >
+              <Glyph name="gavel" size={11} />
+              <span className="truncate normal-case tracking-normal">
+                Undo · {state.undo.label}
+              </span>
+            </button>
+          </Tooltip>
+        )}
+        {isStaff && typing && (
+          <span className="inline-flex items-center gap-1 rounded-[5px] border border-gold/50 bg-gold/10 px-2 py-1 font-mono text-xs text-ink">
+            {typing.verb === 'D' ? 'Damage' : 'Heal'} {typing.digits || '…'}
+            <span className="text-ink-subtle">· Enter</span>
+          </span>
+        )}
+        {isStaff && onHelp && (
+          <Tooltip
+            content={
+              <ul className="space-y-0.5 p-1 text-xs">
+                {SHORTCUTS.map(s => (
+                  <li key={s.keys}>
+                    <span className="font-mono">{s.keys}</span> · {s.does}
+                  </li>
+                ))}
+              </ul>
+            }
+          >
+            <button
+              type="button"
+              onClick={onHelp}
+              aria-label="Keyboard shortcuts"
+              className="rounded-[5px] border border-line px-2 py-1 text-[0.6rem] text-ink-subtle hover:text-ink"
+            >
+              ?
             </button>
           </Tooltip>
         )}

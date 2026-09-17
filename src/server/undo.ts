@@ -67,7 +67,9 @@ export function recordUndo(
 }
 
 /** What the ribbon shows: the newest label, or null. No role check: a label is not a secret from staff, and only staff are shown it. */
-export function peekUndo(campaignId: string): { label: string; recordedAt: string } | null {
+export function peekUndo(
+  campaignId: string
+): { label: string; recordedAt: string } | null {
   const s = stackFor(campaignId);
   const top = s[s.length - 1];
   return top

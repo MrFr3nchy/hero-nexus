@@ -18,6 +18,11 @@ import {
 import { withAdvantage } from '@/@shared/lib/dice';
 import type { LiveState } from '@/server/session';
 import { rollAction } from '../../actions';
+import { legendaryLeft } from '../../lib/monsters';
+import {
+  spendLegendaryActionAction,
+  spendRechargeFeatureAction,
+} from '../../monster-actions';
 import { attackAction } from '../../fight-actions';
 import { outcomeWords, type RollOutcome } from '@/@creator/campaign/lib/attack';
 import { Refused, type RefusedState } from '../Refused';
@@ -203,12 +208,57 @@ export function StatBlockPanel({
   }
 
   const data = parseContentData('creature', entry.data) as CreatureData;
-  const groups: { title: string; items: { name: string; desc: string }[] }[] = [
+  const groups: {
+    title: string;
+    legendary?: boolean;
+    items: { name: string; desc: string; cost?: number; recharge?: number }[];
+  }[] = [
     { title: 'Actions', items: data.actions },
     { title: 'Bonus actions', items: data.bonus_actions },
     { title: 'Reactions', items: data.reactions },
-    { title: 'Legendary', items: data.legendary_actions },
+    { title: 'Legendary', items: data.legendary_actions, legendary: true },
   ].filter(g => g.items.length > 0);
+  const legendaryLeftNow = combatant.legendary
+    ? legendaryLeft(combatant.legendary.actions)
+    : 0;
+  const recharge = combatant.turn.recharge ?? {};
+
+  // Take a legendary action (11): spends the creature's uses, never the
+  // action slot. Use a recharge ability: spends the die.
+  const takeLegendary = async (name: string, cost: number, ruling = false) => {
+    const res = await spendLegendaryActionAction(combatant.id, cost, {
+      ruling,
+    });
+    if (!res.ok) {
+      if (res.overridable) {
+        setRefusal({
+          message: res.error,
+          ruling: () => takeLegendary(name, cost, true),
+        });
+      } else {
+        onError(res.error);
+      }
+      return;
+    }
+    setRefusal(null);
+  };
+  const spendRecharge = async (name: string, ruling = false) => {
+    const res = await spendRechargeFeatureAction(combatant.id, name, {
+      ruling,
+    });
+    if (!res.ok) {
+      if (res.overridable) {
+        setRefusal({
+          message: res.error,
+          ruling: () => spendRecharge(name, true),
+        });
+      } else {
+        onError(res.error);
+      }
+      return;
+    }
+    setRefusal(null);
+  };
 
   return (
     <div className="space-y-2">
@@ -268,6 +318,37 @@ export function StatBlockPanel({
                 <li key={a.name} className="py-1">
                   <p className="text-xs text-ink">
                     <span className="font-medium">{a.name}.</span>{' '}
+                    {g.legendary && combatant.legendary && (
+                      <button
+                        type="button"
+                        onClick={() => takeLegendary(a.name, a.cost ?? 1)}
+                        className={`mr-1 rounded-sm border px-1 py-0.5 text-[0.6rem] uppercase tracking-[0.08em] ${
+                          legendaryLeftNow >= (a.cost ?? 1)
+                            ? 'border-arcane/50 text-arcane hover:bg-arcane/10'
+                            : 'border-line text-ink-subtle'
+                        }`}
+                      >
+                        {a.cost && a.cost > 1 ? `costs ${a.cost}` : 'take'} ·{' '}
+                        {legendaryLeftNow} left
+                      </button>
+                    )}
+                    {recharge[a.name] && (
+                      <button
+                        type="button"
+                        onClick={() => spendRecharge(a.name)}
+                        className={`mr-1 rounded-sm border px-1 py-0.5 text-[0.6rem] uppercase tracking-[0.08em] ${
+                          recharge[a.name].ready
+                            ? 'border-danger/50 text-danger hover:bg-danger/10'
+                            : 'border-line text-ink-subtle'
+                        }`}
+                      >
+                        {recharge[a.name].ready
+                          ? `ready · recharge ${recharge[a.name].min}${
+                              recharge[a.name].min < 6 ? '–6' : ''
+                            }`
+                          : 'spent — a d6 at its turn'}
+                      </button>
+                    )}
                     <span className="text-ink-muted">{a.desc}</span>
                   </p>
                   {last?.name === a.name && (

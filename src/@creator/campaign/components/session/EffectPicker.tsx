@@ -12,7 +12,7 @@ import {
   Switch,
   Tooltip,
 } from '@heroui/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import {
   ABILITY_KEYS,
@@ -190,6 +190,7 @@ export function EffectPicker({
   others,
   act,
   triggerLabel,
+  keyboardEntryId,
 }: {
   encounterId: string;
   /** Who it goes on. Several for a selection on the board. */
@@ -199,7 +200,22 @@ export function EffectPicker({
   act: Act;
   /** Override the trigger's words. Default names the count. */
   triggerLabel?: string;
+  /**
+   * Opens when the DM's keyboard asks for it (11): the `C` key names an
+   * entry id, and the picker on that entry's row opens itself.
+   */
+  keyboardEntryId?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!keyboardEntryId) return;
+    const onOpen = (e: Event) => {
+      const id = (e as CustomEvent<{ entryId: string }>).detail?.entryId;
+      if (id === keyboardEntryId) setOpen(true);
+    };
+    window.addEventListener('hero-nexus:conditions', onOpen);
+    return () => window.removeEventListener('hero-nexus:conditions', onOpen);
+  }, [keyboardEntryId]);
   const [face, setFace] = useState<'condition' | 'effect'>('condition');
   const [rounds, setRounds] = useState(0);
   const [endsOn, setEndsOn] = useState<EndsOn>('end');
@@ -279,7 +295,7 @@ export function EffectPicker({
         : 'Conditions');
 
   return (
-    <Popover placement="bottom-end">
+    <Popover placement="bottom-end" isOpen={open} onOpenChange={setOpen}>
       <PopoverTrigger>
         <Button size="sm" variant="flat" className="min-w-0 px-2">
           {trigger}
