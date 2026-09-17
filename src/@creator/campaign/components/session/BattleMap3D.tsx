@@ -1352,6 +1352,12 @@ export interface BattleMap3DProps {
     }[];
     stairs: { link: LevelLink; fromY: number; toY: number; opacity: number }[];
   };
+  /**
+   * The browser could not give the table a WebGL context. Called once, on
+   * mount, so the caller can fall back to the flat board rather than show
+   * a blank box.
+   */
+  onUnavailable?: () => void;
   /** The workshop's camera bar drives the orbit through this. */
   cameraRef?: MutableRefObject<{
     turn: (deg: number) => void;
@@ -1379,6 +1385,7 @@ export default function BattleMap3D({
   fill = false,
   stack,
   cameraRef,
+  onUnavailable,
 }: BattleMap3DProps) {
   const mount = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
@@ -1395,6 +1402,7 @@ export default function BattleMap3D({
     selectedId,
     mode,
     stack,
+    onUnavailable,
   });
   latest.current = {
     terrain,
@@ -1407,6 +1415,7 @@ export default function BattleMap3D({
     selectedId,
     mode,
     stack,
+    onUnavailable,
   };
 
   // Long-lived pieces, created once per mount.
@@ -1447,10 +1456,19 @@ export default function BattleMap3D({
     if (!el) return;
 
     const p = readPalette(dark);
-    const renderer = new THREE.WebGLRenderer({
-      antialias: QUALITY.antialias,
-      alpha: false,
-    });
+    // No WebGL — a box without a GPU, a locked-down browser — is a flat
+    // board, not a crashed page. Three throws on construction; the surface
+    // on top is told and turns back to the board it came from.
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: QUALITY.antialias,
+        alpha: false,
+      });
+    } catch {
+      latest.current.onUnavailable?.();
+      return;
+    }
     renderer.setPixelRatio(
       Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatioCap)
     );

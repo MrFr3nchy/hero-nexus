@@ -826,6 +826,8 @@ export function BattleBoard({
       // No storage: the board it is.
     }
   }, []);
+  /** Why the 3D view could not open, shown in its place. */
+  const [flatOnly, setFlatOnly] = useState<string | null>(null);
   const toggleDimensional = () => {
     const next = !dimensional;
     setDimensional(next);
@@ -1794,7 +1796,30 @@ export function BattleBoard({
             await refresh();
             return ok;
           }}
+          onUnavailable={() => {
+            setDimensional(false);
+            setFlatOnly(
+              'This browser cannot stand the table up — it has no WebGL. The board stays flat.'
+            );
+            try {
+              localStorage.setItem('hero-nexus.sand-table.3d', '0');
+            } catch {
+              // Held for this page only.
+            }
+          }}
         />
+      )}
+      {flatOnly && (
+        <div className="flex items-center gap-2 text-xs text-warning">
+          <span>{flatOnly}</span>
+          <button
+            type="button"
+            className="text-ink-subtle hover:text-ink"
+            onClick={() => setFlatOnly(null)}
+          >
+            Dismiss
+          </button>
+        </div>
       )}
 
       {refused && (

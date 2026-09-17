@@ -68,6 +68,7 @@ import {
   type LevelDoc,
   type LevelLink,
 } from '@/@shared/battlemap/types';
+import { setLitArea } from '@/@shared/battlemap/area';
 import { usePortraits } from '@/@shared/battlemap/portraits';
 import {
   DiceSpinner,
@@ -355,6 +356,8 @@ export function Workshop({
   const [painting, setPainting] = useState(false);
   const gathered = useRef(new Set<number>());
   const [gatheredCount, setGatheredCount] = useState(0);
+  /** Tiles the height brush has already touched this stroke. */
+  const touched = useRef(new Set<number>());
   /** The room just drawn, waiting for a name. */
   const [naming, setNaming] = useState<{
     x: number;
@@ -424,12 +427,16 @@ export function Workshop({
         if (tiles.every(i => terrain.material[i] === settings.mat)) return;
         putLevel(paintTiles(terrain, tiles, settings.mat), true);
       } else if (tool === 'height') {
+        // Once per tile per stroke: a slow drag is not a taller hill.
+        const fresh = tiles.filter(i => !touched.current.has(i));
+        if (fresh.length === 0) return;
+        for (const i of fresh) touched.current.add(i);
         const by =
           settings.heightMode === 'lower' ? -settings.step : settings.step;
         putLevel(
           settings.heightMode === 'set'
-            ? setHeight(terrain, tiles, settings.step)
-            : raiseTiles(terrain, tiles, by),
+            ? setHeight(terrain, fresh, settings.step)
+            : raiseTiles(terrain, fresh, by),
           true
         );
       } else if (tool === 'scatter' || tool === 'fog') {
@@ -536,7 +543,7 @@ export function Workshop({
 
   const placeRoom = (a: Tile, b: Tile) => {
     if (!terrain) return;
-    let next = roomEdits(terrain, a, b, settings.roomMat, {
+    const next = roomEdits(terrain, a, b, settings.roomMat, {
       door: settings.roomDoor,
       merge: settings.roomMerge,
     });
@@ -546,11 +553,7 @@ export function Workshop({
       w: Math.abs(b.x - a.x) + 1,
       h: Math.abs(b.y - a.y) + 1,
     };
-    if (settings.roomName) {
-      const n = (next.rooms?.length ?? 0) + 1;
-      next = nameRoom(next, { ...box, name: `Room ${n}` });
-      setNaming(box);
-    }
+    if (settings.roomName) setNaming(box);
     putLevel(next);
   };
 
@@ -672,6 +675,7 @@ export function Workshop({
       }
       case 'height':
         beginStroke();
+        touched.current.clear();
         setPainting(true);
         brushAt(t);
         return;
@@ -797,6 +801,32 @@ export function Workshop({
         : null,
     [selection]
   );
+  // A grabbed box is what a thing's effect is aimed over, the way the Area
+  // tool's light is on the screen: the editor in the rail reads it.
+  useEffect(() => {
+    if (!terrain || !box) {
+      setLitArea(campaignId, null);
+      return;
+    }
+    setLitArea(campaignId, {
+      area: {
+        shape: 'cube',
+        level: terrain.id,
+        origin: { x: box.x, y: box.y },
+        direction: { x: box.x + box.w, y: box.y + box.h },
+        size: Math.max(box.w, box.h) * TILE_FEET,
+      },
+      entryIds: [],
+      labels: [],
+      tiles: rectTiles(
+        terrain,
+        { x: box.x, y: box.y },
+        { x: box.x + box.w - 1, y: box.y + box.h - 1 }
+      ),
+    });
+    return () => setLitArea(campaignId, null);
+  }, [campaignId, terrain, box]);
+
   const copyToFloor = (targetId: string, move: boolean) => {
     if (!doc || !terrain || selection?.kind !== 'box') return;
     const frag = cutRegion(terrain, selection.a, selection.b);
@@ -1290,6 +1320,12 @@ export function Workshop({
           imageUrlFor={imageUrlFor}
           dark={dark}
           onFlat={() => setStood(false)}
+          onUnavailable={() => {
+            setStood(false);
+            setError(
+              'This browser cannot stand the board up — it has no WebGL.'
+            );
+          }}
         />
       ) : (
         <div className="flex min-h-0 grow">
@@ -1374,7 +1410,7 @@ export function Workshop({
                   onClick={() => above && setLevelId(above.id)}
                   className="flex h-[22px] w-7 items-center justify-center rounded-[5px] border border-line bg-surface text-ink-muted disabled:opacity-40"
                 >
-                  <Glyph name="stairs" size={12} />
+                  <Glyph name="chevron-up" size={12} />
                 </button>
                 <button
                   type="button"
@@ -1383,7 +1419,7 @@ export function Workshop({
                   onClick={() => below && setLevelId(below.id)}
                   className="flex h-[22px] w-7 items-center justify-center rounded-[5px] border border-line bg-surface text-ink-muted disabled:opacity-40"
                 >
-                  <Glyph name="ladder" size={12} />
+                  <Glyph name="chevron-down" size={12} />
                 </button>
               </div>
               <div className="flex flex-col gap-0.5">
@@ -1410,7 +1446,9 @@ export function Workshop({
                 allTokens={tokens}
                 entriesById={entriesById}
                 currentEntryIds={new Set()}
-                revealed={bench.revealed[terrain.id] ?? []}
+                revealed={
+                  tool === 'fog' ? (bench.revealed[terrain.id] ?? []) : null
+                }
                 isStaff
                 dark={dark}
                 zoom={px}

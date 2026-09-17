@@ -47,6 +47,7 @@ export function WorkshopStage({
   imageUrlFor,
   dark,
   onFlat,
+  onUnavailable,
 }: {
   campaignId: string;
   doc: BoardDoc;
@@ -58,6 +59,8 @@ export function WorkshopStage({
   imageUrlFor: (imageId: string) => string;
   dark: boolean;
   onFlat: () => void;
+  /** No WebGL here: back to the flat board, with a word about why. */
+  onUnavailable: () => void;
 }) {
   const [mode, setMode] = useState<StandMode>('cutaway');
   const [low, setLow] = useState(true);
@@ -289,6 +292,7 @@ export function WorkshopStage({
             fill
             stack={stack}
             cameraRef={camera}
+            onUnavailable={onUnavailable}
           />
         </div>
         {/* The elevator */}

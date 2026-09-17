@@ -486,8 +486,8 @@ export function BoardCanvas({
     // revealed tiles gold instead, and since most of a board is revealed
     // most of the time, the DM's whole room went mustard. The hidden part
     // is the smaller set and the one the DM is actually deciding about.
-    if (isStaff) {
-      const shown = new Set(revealed ?? []);
+    if (isStaff && revealed) {
+      const shown = new Set(revealed);
       ctx.save();
       ctx.beginPath();
       let any = false;

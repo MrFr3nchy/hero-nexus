@@ -311,7 +311,8 @@ export function ThingEffectEditor({
           <ul className="divide-y divide-line rounded-md border border-line">
             {draft.changes.length === 0 && (
               <li className="px-2 py-1.5 text-xs text-ink-subtle">
-                Nothing yet. Light tiles with the Area tool, then add a change.
+                Nothing yet. Light tiles with the Area tool — or grab a box with
+                Select in the workshop — then add a change.
               </li>
             )}
             {draft.changes.map((c, i) => (
@@ -334,7 +335,8 @@ export function ThingEffectEditor({
           <div className="text-xs text-ink-subtle">
             {needTiles ? (
               <Marginalia dash>
-                light tiles with the Area tool to aim a change
+                light tiles with the Area tool, or grab a box in the workshop,
+                to aim a change
               </Marginalia>
             ) : (
               `${tiles.length} lit tiles`
