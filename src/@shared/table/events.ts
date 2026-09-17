@@ -44,6 +44,7 @@ export const TABLE_EVENT_KINDS = [
   'rest',
   'levelup',
   'undo',
+  'ambience',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -338,6 +339,16 @@ export interface UndoEvent extends BaseEvent {
   label: string;
 }
 
+/**
+ * The DM put a track on, or took it off (12). Everyone hears the moment;
+ * whether they hear the track is their own preference.
+ */
+export interface AmbienceEvent extends BaseEvent {
+  kind: 'ambience';
+  state: 'playing' | 'stopped';
+  title: string;
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -360,7 +371,8 @@ export type TableEvent =
   | TimeEvent
   | RestEvent
   | LevelUpEvent
-  | UndoEvent;
+  | UndoEvent
+  | AmbienceEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -414,6 +426,7 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   rest: 'tankard',
   levelup: 'star',
   undo: 'gavel',
+  ambience: 'candle',
 };
 
 /**
@@ -756,6 +769,20 @@ export function describe(
         tone: event.state === 'done' ? 'success' : 'danger',
       };
     }
+
+    case 'ambience':
+      return {
+        glyph,
+        title:
+          event.state === 'playing'
+            ? `The DM puts on ${event.title || 'something'}`
+            : 'The room falls quiet',
+        detail:
+          event.state === 'playing'
+            ? 'Turn it on from the mode bar to hear it.'
+            : undefined,
+        tone: 'gold',
+      };
 
     case 'undo':
       return {

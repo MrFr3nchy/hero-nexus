@@ -1,6 +1,7 @@
 import { FlatCompat } from '@eslint/eslintrc';
 import prettier from 'eslint-plugin-prettier';
 import unusedImports from 'eslint-plugin-unused-imports';
+import heroNexus from './eslint-rules/index.mjs';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -17,9 +18,12 @@ const eslintConfig = [
     plugins: {
       prettier,
       'unused-imports': unusedImports,
+      'hero-nexus': heroNexus,
     },
     rules: {
       'prettier/prettier': 'error',
+      // Design-language rule 10: controls on one row share one size.
+      'hero-nexus/one-size-per-row': 'error',
       'arrow-body-style': 'off',
       'prefer-arrow-callback': 'off',
       // Unused variables and imports

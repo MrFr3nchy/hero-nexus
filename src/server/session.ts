@@ -89,6 +89,7 @@ import {
   type RechargeMap,
 } from '@/@creator/campaign/lib/monsters';
 import { peekUndo, recordUndo } from './undo';
+import { readAmbience, setAmbience, type Ambience } from './audio';
 
 /** How much of the roll log the live view carries. */
 const ROLL_LOG_LIMIT = 40;
@@ -302,6 +303,8 @@ export interface LiveState {
   turnEntryIds: string[];
   /** The last thing the DM can take back (11). Staff only; null for a player. */
   undo: { label: string; recordedAt: string } | null;
+  /** What is playing for the table (12), or null. Listening is the reader's own. */
+  ambience: Ambience | null;
 }
 
 /**
@@ -640,6 +643,7 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
     effects,
     clock,
     rest,
+    ambience,
   ] = await Promise.all([
     listChecks(campaignId),
     listPartyPlayState(campaignId),
@@ -654,6 +658,7 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
     encounter ? listEffects(encounter.id, isStaff) : Promise.resolve([]),
     readWorldClock(campaignId),
     openRest(campaignId),
+    readAmbience(campaignId),
   ]);
   const portraits: Record<string, string> = {};
   for (const [id, row] of portraitRows) portraits[id] = row.url;
@@ -720,6 +725,7 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
     rest,
     turnEntryIds,
     undo: isStaff ? peekUndo(campaignId) : null,
+    ambience,
   };
 }
 
@@ -841,6 +847,10 @@ export async function endEncounter(encounterId: string): Promise<void> {
     .update(initiativeEncounters)
     .set({ isActive: false })
     .where(eq(initiativeEncounters.id, encounterId));
+  // A track the board started goes with the fight (12); one the DM chose
+  // by hand stays on.
+  const playing = await readAmbience(campaignId);
+  if (playing?.fromBoard) await setAmbience(campaignId, null);
   bumpVersion(campaignId);
   publish(campaignId, {
     kind: 'encounter',

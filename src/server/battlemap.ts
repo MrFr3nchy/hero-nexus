@@ -81,6 +81,7 @@ import { getCampaignImage, imageUrl } from './campaign-images';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
 import { recordUndo } from './undo';
+import { setAmbience } from './audio';
 import { resolveContentRefs } from './content';
 import { effectiveRules, fence } from './table-rules';
 import { claimedFaces } from './dice-claims';
@@ -573,6 +574,15 @@ export async function setBattleMapActive(
       .set({ isActive: true, updatedAt: new Date().toISOString() })
       .where(eq(battleMaps.id, mapId));
     if (fight) await bindBoardToFight(mapId, fight.id);
+    // A board with a track starts it when lit (12); the fight ending stops
+    // it again, unless the DM keeps it.
+    if (map.audioId) {
+      await setAmbience(
+        map.campaignId,
+        { audioId: map.audioId },
+        { fromBoard: true }
+      ).catch(() => {});
+    }
   }
 
   bumpVersion(map.campaignId);

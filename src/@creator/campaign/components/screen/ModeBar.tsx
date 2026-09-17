@@ -11,6 +11,7 @@ import { closeSittingAction, openSittingAction } from '../../chronicle-actions';
 import { setTableModeAction } from '../../rules-actions';
 import { undoLastAction } from '../../monster-actions';
 import { WorldClockControl } from './WorldClockControl';
+import { AmbienceControl } from './AmbienceControl';
 import { SHORTCUTS, type Typing } from './useDmShortcuts';
 
 /**
@@ -182,6 +183,15 @@ export function ModeBar({
             </button>
           </Tooltip>
         )}
+
+        {/* Ambient sound (12): lit when the room is playing something. */}
+        <AmbienceControl
+          campaignId={campaignId}
+          ambience={state.ambience}
+          isStaff={isStaff}
+          refresh={refresh}
+          onError={onError}
+        />
 
         {/* Undo (11): the last thing the DM can take back, with its label.
             The stack lives in the server's memory; five minutes, ten deep. */}

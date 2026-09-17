@@ -90,6 +90,7 @@ export const CARRIED = [
  * decides.
  */
 export const NEVER_CARRIED = [
+  'campaign_audio',
   'campaign_members',
   'campaign_invites',
   'campaigns.join_code',
