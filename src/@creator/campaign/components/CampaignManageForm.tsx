@@ -24,6 +24,8 @@ import {
 } from '@/@creator/campaign/lib/table-rules';
 import { SectionCard, useConfirm } from '@/@shared/components/ui';
 import { ImagePicker } from './ImagePicker';
+import { CalendarEditor } from './CalendarEditor';
+import type { CalendarDef } from '@/@creator/campaign/lib/calendar';
 import type { CampaignRow } from '@/server/campaigns';
 import {
   deleteCampaignAction,
@@ -70,6 +72,7 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
     bannedClasses: settings.rules.bannedClasses.join(', '),
     // what the app does about the rules at the table
     table: settings.table as TableRules,
+    calendar: settings.calendar as CalendarDef,
   });
   const [status, setStatus] = useState(campaign.status);
   const [saving, setSaving] = useState(false);
@@ -111,6 +114,7 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
             bannedClasses: parseList(form.bannedClasses),
           },
           table: form.table,
+          calendar: form.calendar,
         },
       });
       setBanner(
@@ -336,6 +340,16 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
               );
             })}
           </div>
+        </SectionCard>
+
+        <SectionCard
+          title="The world's calendar"
+          description="What the clock on the screen counts in. Where it stands is set from the screen; this is the year it stands in."
+        >
+          <CalendarEditor
+            value={form.calendar}
+            onChange={v => set('calendar', v)}
+          />
         </SectionCard>
 
         <SectionCard title="Homebrew">

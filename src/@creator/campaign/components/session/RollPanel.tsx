@@ -13,6 +13,7 @@ import type { CharacterRow } from '@/server/characters';
 import type { LiveState, RollRow } from '@/server/session';
 import { clearRollsAction, rollAction } from '../../actions';
 import { applyDamageAction } from '../../fight-actions';
+import { rerollWithInspirationAction } from '../../time-actions';
 import { outcomeWords } from '@/@creator/campaign/lib/attack';
 
 /** The dice a table reaches for without typing anything. */
@@ -40,11 +41,16 @@ function critTone(roll: RollRow): 'crit' | 'fumble' | null {
 function RollLine({
   roll,
   canApply,
+  canReroll,
   onApply,
+  onReroll,
 }: {
   roll: RollRow;
   canApply: boolean;
+  /** Heroic Inspiration (10): this is the viewer's newest d20, and they hold one. */
+  canReroll: boolean;
   onApply: (rollId: string) => Promise<void>;
+  onReroll: (rollId: string) => Promise<void>;
 }) {
   const tone = critTone(roll);
   const totalClass =
@@ -99,6 +105,16 @@ function RollLine({
             ` ${roll.modifier > 0 ? '+' : '−'} ${Math.abs(roll.modifier)}`}
           {tone === 'crit' && ' · natural 20'}
           {tone === 'fumble' && ' · natural 1'}
+          {canReroll && (
+            <Button
+              size="sm"
+              variant="flat"
+              className="ml-2 h-5 min-w-0 px-1.5 text-[0.65rem] text-gold-strong dark:text-gold"
+              onPress={() => onReroll(roll.id)}
+            >
+              Reroll · Heroic Inspiration
+            </Button>
+          )}
         </p>
         {o && (o.hit !== null || o.damage) && (
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
@@ -381,10 +397,40 @@ export function RollPanel({
             <Marginalia dash>no one has touched the dice yet</Marginalia>
           ) : (
             <ol key={spin} className="divide-y divide-line">
-              {state.rolls.map(r => (
+              {state.rolls.map((r, i) => (
                 <RollLine
                   key={r.id}
                   roll={r}
+                  canReroll={
+                    // The newest d20 the viewer's own hero rolled, while they
+                    // hold Heroic Inspiration — the test in front of them.
+                    r.characterId !== null &&
+                    r.characterId === state.viewerCharacterId &&
+                    /d20(?!\d)/i.test(r.notation) &&
+                    !/Heroic Inspiration/.test(r.label) &&
+                    state.rolls.findIndex(
+                      x => x.characterId === state.viewerCharacterId
+                    ) === i &&
+                    (state.party.find(
+                      p => p.characterId === state.viewerCharacterId
+                    )?.heroicInspiration ??
+                      false)
+                  }
+                  onReroll={async id => {
+                    const res = await rerollWithInspirationAction(
+                      campaignId,
+                      id
+                    );
+                    if (!res.ok) {
+                      onError(res.error);
+                      return;
+                    }
+                    void tray.showNotationRoll(res.data, {
+                      title: 'Heroic Inspiration',
+                      hint: 'The d20, rolled again',
+                    });
+                    await refresh();
+                  }}
                   canApply={
                     isStaff ||
                     (state.rules.playersApplyDamage !== 'never' &&

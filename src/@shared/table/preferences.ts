@@ -41,6 +41,17 @@ export interface TablePreferences {
    * The badge on the folded shelf reads this; the panel writes it.
    */
   whispersReadAt: Record<string, string>;
+  /**
+   * A browser notification when the tab is hidden (12). `addressed` is the
+   * things aimed at this reader — their turn, an ask, a whisper; `all` is
+   * every slip. Off by default, for the reason `sound` gives, and it needs
+   * the browser's permission, asked for from the control and never on load.
+   */
+  notify: 'off' | 'addressed' | 'all';
+  /** Whether to hear the DM's ambience at all (12). Off by default. */
+  ambience: boolean;
+  /** 0..1, this device's own. */
+  ambienceVolume: number;
 }
 
 /**
@@ -58,7 +69,14 @@ export function defaultPreferences(): TablePreferences {
   const announce = Object.fromEntries(
     TABLE_EVENT_KINDS.map(k => [k, k !== 'turn' && k !== 'action'])
   ) as Record<TableEventKind, boolean>;
-  return { announce, sound: false, whispersReadAt: {} };
+  return {
+    announce,
+    sound: false,
+    whispersReadAt: {},
+    notify: 'off',
+    ambience: false,
+    ambienceVolume: 0.6,
+  };
 }
 
 export function readPreferences(): TablePreferences {
@@ -76,6 +94,16 @@ export function readPreferences(): TablePreferences {
         stored.whispersReadAt && typeof stored.whispersReadAt === 'object'
           ? { ...stored.whispersReadAt }
           : {},
+      notify:
+        stored.notify === 'addressed' || stored.notify === 'all'
+          ? stored.notify
+          : 'off',
+      ambience: stored.ambience === true,
+      ambienceVolume:
+        typeof stored.ambienceVolume === 'number' &&
+        Number.isFinite(stored.ambienceVolume)
+          ? Math.max(0, Math.min(1, stored.ambienceVolume))
+          : base.ambienceVolume,
     };
   } catch {
     return base;
@@ -99,7 +127,7 @@ export function writePreferences(next: TablePreferences): void {
  * absent in some browsers and refused in others until the reader has
  * interacted with the page, and a silent failure is exactly right for a chime.
  */
-export function chime(): void {
+export function chime(tone: 'plain' | 'addressed' = 'plain'): void {
   try {
     const Ctor =
       window.AudioContext ??
@@ -113,10 +141,21 @@ export function chime(): void {
     gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
     gain.connect(ctx.destination);
 
-    for (const [freq, at] of [
-      [587.33, 0],
-      [880, 0.08],
-    ] as const) {
+    // A fifth for the room's noise; three rising notes for something aimed
+    // at you (12), so a DM's laptop can tell an answer arriving from a
+    // whisper without looking up.
+    const notes: readonly (readonly [number, number])[] =
+      tone === 'addressed'
+        ? [
+            [523.25, 0],
+            [659.25, 0.09],
+            [783.99, 0.18],
+          ]
+        : [
+            [587.33, 0],
+            [880, 0.08],
+          ];
+    for (const [freq, at] of notes) {
       const osc = ctx.createOscillator();
       osc.type = 'triangle';
       osc.frequency.value = freq;

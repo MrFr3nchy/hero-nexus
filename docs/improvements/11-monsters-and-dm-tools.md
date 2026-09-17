@@ -1,5 +1,21 @@
 # 11 — Running the other side: groups, legendary things, recharge, undo
 
+**Status: built** (`feat/improvements-11-monsters-and-dm-tools`, on top of 10).
+Departures: the legendary count and the recharge face are read off the
+structured Open5e fields (`legendary_action_cost`, `usage_limits`) the adapter
+now keeps, with the name-parenthetical as the fallback for a hand-typed block;
+a block with legendary actions gets three uses, since no SRD row carries a
+count line. Legendary Resistance is a counter the DM spends from the card:
+a foe failing a repeated save with one left nudges staff ("failed — use one?")
+rather than holding the verdict, and the spell path applies as before — the
+"presented, not applied" verdict was not built. `lair` is a switch on the
+card, never read off a block; the Lair row carries no text. The `C` key opens
+the row's condition picker through a window event, and the board's mode keys
+the same, because both hold their own state. Undo covers staff HP writes,
+staff token moves, condition writes and the turn step; `applyPlayPatch` from
+a player's own card is not undoable. The turn event for a group reads
+"The goblin warriors".
+
 Covers from `improvements.txt`: _group initiative_, _legendary / lair actions_,
 _legendary resistance_, _recharge abilities_, _undo for staff_, _keyboard for
 the DM_.

@@ -26,7 +26,7 @@ new page.
 **Show the artifact.** Every page leads with the thing itself — a character sheet, a
 spell block, a stack of party cards, a review queue — not a description of the thing.
 
-Nine rules, each phrased so a reviewer can point at a diff and say it's violated.
+Ten rules, each phrased so a reviewer can point at a diff and say it's violated.
 
 ### 1. The object is the hero
 
@@ -215,6 +215,25 @@ On an operating surface:
 - **Don't** — the same box on the Chronicle tab; a `Ledger` line for hit points; a
   panel whose border pulses when a whisper lands; a green background meaning "live"
   with no dot.
+
+### 10. Controls on one row share one size
+
+A row of HeroUI controls — a Select, an Input, a Button, a Switch — is one height,
+because it is one row. Panels use `sm`; forms use `md`; nothing mixes inside a row.
+A HeroUI control with no `size` is `md`, so an unsized Select beside `size="sm"`
+inputs is the mixed row this rule is about, and the usual cause of the extra
+height is a Select's label placed inside: a row's labels go `outside-left`, a
+stacked form's go `outside`.
+
+Checkable: `hero-nexus/one-size-per-row` in `eslint-rules/` fails the build on a
+flex row whose direct children carry two different sizes. `ControlRow` in `ui/` is
+the primitive that sets one size on every child, and the escape from thinking
+about it.
+
+- **Do** — `<ControlRow size="sm">` around the asking's Select, two Inputs and the
+  button; a manage form whose every control is `md` and stacked.
+- **Don't** — `<Input size="sm" />` beside `<Select>` in one `flex`; a row where the
+  button is `sm` so it "fits" and the inputs are not.
 
 ---
 
@@ -437,6 +456,7 @@ Fonts (aliases in the `@theme inline` block):
 | `DiceTray`      | every roll in the app. `useDiceTray().rollNotation('2d6+3')` / `.rollSpec()` / `.showNotationRoll()` — awaited, so callers act when the dice land. |
 | `DieGlyph`      | one die at rest, in the same drawing the tray throws. d4 / d6 / d8 / d10 / d12 / d20 / d100.                                                       |
 | `Announcements` | the table's word reaching you, wherever you are standing (rule 4's second exception). Mounted once at the root; fed by `useTable()`.               |
+| `ControlRow`    | one row of controls at one size (rule 10). `size` + `align`; hands the size to every HeroUI child that does not set its own.                       |
 
 ---
 

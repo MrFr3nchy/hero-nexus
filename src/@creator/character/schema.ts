@@ -550,7 +550,29 @@ export const characterSheetSchema = z.object({
       .max(20)
       .default([])
       .catch([]),
+    /**
+     * Heroic Inspiration (improvements 10). One at a time, which is why it
+     * is a flag and not a count: the DM hands it over, the tray spends it on
+     * a reroll, and 2024's human gets it back at the end of a long rest.
+     */
+    heroicInspiration: z.boolean().default(false).catch(false),
   }),
+
+  /**
+   * The road's tally (improvements 10): how many days without food or
+   * water, and how long since the last long rest. Counted by the day tick
+   * only while the table's `survival` rules are on; the fields exist either
+   * way so a DM can turn them on mid-campaign without a migration. A long
+   * rest zeroes the hours; a meal or a mark from the DM zeroes the days.
+   */
+  survival: z
+    .object({
+      daysWithoutFood: z.number().int().min(0).max(999).default(0).catch(0),
+      daysWithoutWater: z.number().int().min(0).max(999).default(0).catch(0),
+      hoursAwake: z.number().int().min(0).max(9999).default(0).catch(0),
+    })
+    .default({ daysWithoutFood: 0, daysWithoutWater: 0, hoursAwake: 0 })
+    .catch({ daysWithoutFood: 0, daysWithoutWater: 0, hoursAwake: 0 }),
 
   abilities,
   skills,
@@ -709,7 +731,9 @@ export function makeEmptySheet(): CharacterSheet {
       damageResistances: [],
       damageImmunities: [],
       damageVulnerabilities: [],
+      heroicInspiration: false,
     },
+    survival: { daysWithoutFood: 0, daysWithoutWater: 0, hoursAwake: 0 },
     abilities: {
       strength: { score: 10, proficientSave: false },
       dexterity: { score: 10, proficientSave: false },

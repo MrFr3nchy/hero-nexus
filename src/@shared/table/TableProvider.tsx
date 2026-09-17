@@ -148,6 +148,31 @@ export function TableProvider({ children }: { children: ReactNode }) {
 
   const refs = useRef(new Map<string, number>());
   const seen = useRef(new Set<string>());
+  /*
+   * The tab title while hidden (12): "⚔ (2) Hero Nexus" until the reader
+   * comes back, then the plain title again. The count is what arrived aimed
+   * at them; a roll does not move it.
+   */
+  const unseen = useRef(0);
+  const baseTitle = useRef<string | null>(null);
+  const setTitle = (count: number) => {
+    if (typeof document === 'undefined') return;
+    if (baseTitle.current === null) baseTitle.current = document.title;
+    document.title =
+      count > 0 ? `⚔ (${count}) ${baseTitle.current}` : baseTitle.current;
+  };
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.hidden) return;
+      unseen.current = 0;
+      if (baseTitle.current !== null) {
+        document.title = baseTitle.current;
+        baseTitle.current = null;
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   // Read inside `onEvent` without making it a dependency: re-creating the
   // callback on every seat change would tear down and re-open the listener.
@@ -232,7 +257,45 @@ export function TableProvider({ children }: { children: ReactNode }) {
       setHistory(list => [announcement, ...list].slice(0, HISTORY_LIMIT));
       if (event.by && event.by === currentUser?.id) return;
       if (!reading.asks && !prefsRef.current.announce[event.kind]) return;
-      if (prefsRef.current.sound) chime();
+
+      /*
+       * Aimed at this reader (12): their turn, an ask, a whisper to them —
+       * the things `describe` marks as asking, and a whisper, which asks
+       * nothing but is still theirs. These get the rising chime, the tab
+       * title while the tab is hidden, and a browser notification when the
+       * reader has turned those on.
+       */
+      const addressed =
+        reading.asks ||
+        (event.kind === 'whisper' &&
+          event.toUserIds.includes(currentUser?.id ?? ''));
+      if (prefsRef.current.sound) chime(addressed ? 'addressed' : 'plain');
+      if (typeof document !== 'undefined' && document.hidden) {
+        if (addressed) {
+          unseen.current += 1;
+          setTitle(unseen.current);
+        }
+        const wants = prefsRef.current.notify;
+        if (
+          wants !== 'off' &&
+          (wants === 'all' || addressed) &&
+          typeof Notification !== 'undefined' &&
+          Notification.permission === 'granted'
+        ) {
+          try {
+            const n = new Notification(reading.title, {
+              body: reading.detail,
+              tag: event.id,
+            });
+            n.onclick = () => {
+              window.focus();
+              n.close();
+            };
+          } catch {
+            // A browser that refuses is a browser that refuses.
+          }
+        }
+      }
 
       setAnnouncements(list => {
         const next = [...list, announcement];

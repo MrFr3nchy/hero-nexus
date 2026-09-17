@@ -242,6 +242,7 @@ export function CampaignDetail({
             campaignId={campaign.id}
             viewerId={viewerId}
             viewerRole={campaign.role}
+            calendar={campaign.settings.calendar}
           />
 
           {/* Awards belong beside the sittings they were earned at, not on
