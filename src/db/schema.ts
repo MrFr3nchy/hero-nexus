@@ -2520,3 +2520,158 @@ export const campaignAudio = sqliteTable(
   },
   t => [index('campaign_audio_campaign_idx').on(t.campaignId)]
 );
+
+/* --- Scheduling and session feedback (0061) ----------------------------- */
+
+/**
+ * A player's standing answer, per calendar day, to "could you play?". A day
+ * with no row is unknown — silence is not a no. `note` is the hours, in the
+ * player's own words ("after 7"), because a time picker per day is more
+ * furniture than the question deserves.
+ */
+export const campaignAvailability = sqliteTable(
+  'campaign_availability',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** Bare calendar day, `YYYY-MM-DD`. */
+    day: text('day').notNull(),
+    status: text('status', { enum: ['yes', 'maybe', 'no'] }).notNull(),
+    note: text('note').notNull().default(''),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('campaign_availability_user_day_idx').on(
+      t.campaignId,
+      t.userId,
+      t.day
+    ),
+    index('campaign_availability_campaign_day_idx').on(t.campaignId, t.day),
+  ]
+);
+
+/**
+ * Candidate dates for one planned sitting, put to the table. At most one
+ * open poll per sitting (partial unique index in `0061`). Settling copies the
+ * winning day onto `campaign_sessions.scheduled_for`; the time of day stays
+ * here, on the option, so `scheduled_for` remains the bare date every reader
+ * of it expects.
+ */
+export const sessionPolls = sqliteTable(
+  'session_polls',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => campaignSessions.id, { onDelete: 'cascade' }),
+    status: text('status', { enum: ['open', 'settled', 'withdrawn'] })
+      .notNull()
+      .default('open'),
+    chosenOptionId: text('chosen_option_id'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    closedAt: text('closed_at'),
+  },
+  t => [index('session_polls_session_idx').on(t.sessionId)]
+);
+
+export const sessionPollOptions = sqliteTable(
+  'session_poll_options',
+  {
+    id: uuid(),
+    pollId: text('poll_id')
+      .notNull()
+      .references(() => sessionPolls.id, { onDelete: 'cascade' }),
+    /** Bare calendar day, `YYYY-MM-DD`. */
+    day: text('day').notNull(),
+    /** `HH:MM`, or empty for "sometime that day". */
+    time: text('time').notNull().default(''),
+    sort: integer('sort').notNull().default(0),
+  },
+  t => [index('session_poll_options_poll_idx').on(t.pollId)]
+);
+
+export const sessionPollVotes = sqliteTable(
+  'session_poll_votes',
+  {
+    id: uuid(),
+    optionId: text('option_id')
+      .notNull()
+      .references(() => sessionPollOptions.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    vote: text('vote', { enum: ['yes', 'maybe', 'no'] }).notNull(),
+    votedAt: text('voted_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('session_poll_votes_option_user_idx').on(t.optionId, t.userId),
+  ]
+);
+
+/**
+ * The DM's questionnaire for a played sitting — one per session. Questions
+ * are JSON (`FeedbackQuestion[]` in `server/session-feedback.ts`) so the
+ * shape of a form can change without a migration.
+ */
+export const sessionFeedbackForms = sqliteTable(
+  'session_feedback_forms',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    sessionId: text('session_id')
+      .notNull()
+      .unique()
+      .references(() => campaignSessions.id, { onDelete: 'cascade' }),
+    questions: text('questions', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
+    status: text('status', { enum: ['open', 'closed'] })
+      .notNull()
+      .default('open'),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('session_feedback_forms_campaign_idx').on(t.campaignId)]
+);
+
+/** One player's answers to a form. Read by staff and by its author only. */
+export const sessionFeedbackResponses = sqliteTable(
+  'session_feedback_responses',
+  {
+    id: uuid(),
+    formId: text('form_id')
+      .notNull()
+      .references(() => sessionFeedbackForms.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** JSON `{ [questionId]: string | number }`. */
+    answers: text('answers', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
+    submittedAt: text('submitted_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [
+    uniqueIndex('session_feedback_responses_form_user_idx').on(
+      t.formId,
+      t.userId
+    ),
+  ]
+);
