@@ -320,6 +320,11 @@ export const campaigns = sqliteTable('campaigns', {
    * `server/world-time.ts` is the only writer (improvements 10).
    */
   worldTime: text('world_time', { mode: 'json' }),
+  /**
+   * What is playing for the table (0060): `{ audioId, startedAt, loop,
+   * volume }` JSON, or null for silence. `server/audio.ts` writes it.
+   */
+  ambience: text('ambience', { mode: 'json' }),
   createdAt: text('created_at').default(nowIso).notNull(),
   updatedAt: text('updated_at').default(nowIso).notNull(),
 });
@@ -557,6 +562,18 @@ export const initiativeEntries = sqliteTable(
      * `campaign/lib/casting.ts`. Null when the combatant is itself.
      */
     form: text('form', { mode: 'json' }),
+    /**
+     * Rows sharing one act on one turn (0059): six goblins rolled as a
+     * group. Null acts alone. `nextTurn` in `campaign/lib/monsters.ts` is
+     * the step that honours it.
+     */
+    groupId: text('group_id'),
+    /**
+     * A `Legendary` from `campaign/lib/monsters.ts` (0059): legendary
+     * actions and resistances left, and whether the lair fights. Null for
+     * the ordinary. Recharge lives inside `turn`.
+     */
+    legendary: text('legendary', { mode: 'json' }),
   },
   t => [index('initiative_entries_encounter_idx').on(t.encounterId)]
 );
@@ -2062,6 +2079,8 @@ export const battleMaps = sqliteTable(
     }),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
+    /** A track to start when this board is lit (0060). Null for none. */
+    audioId: text('audio_id'),
   },
   t => [index('battle_maps_campaign_idx').on(t.campaignId)]
 );
@@ -2474,4 +2493,30 @@ export const campaignRests = sqliteTable(
     resolvedAt: text('resolved_at'),
   },
   t => [index('campaign_rests_campaign_idx').on(t.campaignId)]
+);
+
+/* --- Ambient sound (0060) ----------------------------------------------- */
+
+/**
+ * A track the DM uploaded for the table (improvements 12). Served behind
+ * `requireCampaignRole` like an image; never carried in a package.
+ */
+export const campaignAudio = sqliteTable(
+  'campaign_audio',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    filePath: text('file_path').notNull(),
+    mime: text('mime').notNull(),
+    bytes: integer('bytes').notNull(),
+    durationSeconds: integer('duration_seconds'),
+    uploadedBy: text('uploaded_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_audio_campaign_idx').on(t.campaignId)]
 );

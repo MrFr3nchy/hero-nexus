@@ -43,6 +43,8 @@ export const TABLE_EVENT_KINDS = [
   'time',
   'rest',
   'levelup',
+  'undo',
+  'ambience',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -254,7 +256,11 @@ export interface ActionEvent extends BaseEvent {
   note: string;
   again: boolean;
   ruling: boolean;
-  what: 'took' | 'holding';
+  /**
+   * `legendary` (11) is the staff-only nudge after somebody else's turn:
+   * "Ancient red dragon · 2 legendary actions left".
+   */
+  what: 'took' | 'holding' | 'legendary';
 }
 
 /**
@@ -326,6 +332,23 @@ export interface LevelUpEvent extends BaseEvent {
   level: number;
 }
 
+/** The DM put something back (11). Everyone hears: the 12 came back. */
+export interface UndoEvent extends BaseEvent {
+  kind: 'undo';
+  /** What was undone, as the stack labelled it — "Damage Goblin 2 −12". */
+  label: string;
+}
+
+/**
+ * The DM put a track on, or took it off (12). Everyone hears the moment;
+ * whether they hear the track is their own preference.
+ */
+export interface AmbienceEvent extends BaseEvent {
+  kind: 'ambience';
+  state: 'playing' | 'stopped';
+  title: string;
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -347,7 +370,9 @@ export type TableEvent =
   | CastEvent
   | TimeEvent
   | RestEvent
-  | LevelUpEvent;
+  | LevelUpEvent
+  | UndoEvent
+  | AmbienceEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -400,6 +425,8 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   time: 'hourglass',
   rest: 'tankard',
   levelup: 'star',
+  undo: 'gavel',
+  ambience: 'candle',
 };
 
 /**
@@ -636,6 +663,15 @@ export function describe(
     }
 
     case 'action': {
+      if (event.what === 'legendary') {
+        return {
+          glyph,
+          title: `${event.actorLabel} · ${event.note} legendary`,
+          detail: 'Taken at the end of another creature’s turn.',
+          tone: 'arcane',
+          asks: true,
+        };
+      }
       if (event.what === 'holding') {
         const held = event.note.includes('→')
           ? event.note
@@ -733,6 +769,27 @@ export function describe(
         tone: event.state === 'done' ? 'success' : 'danger',
       };
     }
+
+    case 'ambience':
+      return {
+        glyph,
+        title:
+          event.state === 'playing'
+            ? `The DM puts on ${event.title || 'something'}`
+            : 'The room falls quiet',
+        detail:
+          event.state === 'playing'
+            ? 'Turn it on from the mode bar to hear it.'
+            : undefined,
+        tone: 'gold',
+      };
+
+    case 'undo':
+      return {
+        glyph,
+        title: `The DM takes it back — ${event.label}`,
+        tone: 'gold',
+      };
 
     case 'levelup': {
       const yours = event.characterId === viewer.characterId;

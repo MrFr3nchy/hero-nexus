@@ -17,14 +17,15 @@ import {
   SKILL_LABELS,
 } from '@/@creator/character/schema';
 import {
+  ControlRow,
   EmptyState,
   Glyph,
   Marginalia,
   QuestScene,
   SectionCard,
+  statusEdge,
   StatusMark,
   StatusWord,
-  statusEdge,
 } from '@/@shared/components/ui';
 import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import type { CampaignMemberRow } from '@/server/campaigns';
@@ -470,10 +471,9 @@ function AskForm({
   };
 
   return (
-    <div className="flex flex-wrap items-end gap-2 border-t border-line pt-3">
+    <ControlRow size="sm" className="border-t border-line pt-3">
       <Select
         aria-label="What to roll"
-        size="sm"
         className="w-52"
         selectedKeys={[what]}
         onSelectionChange={keys => {
@@ -499,7 +499,6 @@ function AskForm({
       </Select>
 
       <Input
-        size="sm"
         type="number"
         label="DC"
         placeholder="15"
@@ -509,7 +508,6 @@ function AskForm({
       />
 
       <Input
-        size="sm"
         label="Against what"
         placeholder="past the dogs"
         value={prompt}
@@ -519,7 +517,6 @@ function AskForm({
 
       <Select
         aria-label="Who is asked"
-        size="sm"
         selectionMode="multiple"
         className="w-44"
         placeholder="Everyone"
@@ -536,7 +533,7 @@ function AskForm({
         ))}
       </Select>
 
-      <Button size="sm" color="primary" isDisabled={busy} onPress={ask}>
+      <Button color="primary" isDisabled={busy} onPress={ask}>
         Ask
       </Button>
 
@@ -547,7 +544,7 @@ function AskForm({
           </Switch>
         </div>
       </Tooltip>
-    </div>
+    </ControlRow>
   );
 }
 

@@ -451,6 +451,14 @@ const CREATURE_SIZES = [
 const creatureFeature = z.object({
   name: text(120),
   desc: text(4000),
+  /**
+   * Legendary actions: how many of the creature's uses this one costs (11).
+   * Recharge: the lowest d6 face that readies it again — "Recharge 5–6" is
+   * 5. Both optional: an ordinary action has neither, and a row written
+   * before they existed reads as one.
+   */
+  cost: z.number().int().min(1).max(5).optional().catch(undefined),
+  recharge: z.number().int().min(2).max(6).optional().catch(undefined),
 });
 
 /**

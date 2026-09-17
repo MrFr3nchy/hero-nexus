@@ -1,5 +1,18 @@
 # 12 — The screen itself: control heights, being reached, sound
 
+**Status: built** (`feat/improvements-12-screen-polish`, on top of 11).
+Departures: the sizing rule is rule **10** — 13's visual pass had already added
+rule 9 — and the audit found the rows the spec lists already at one size, so the
+deliverable is the rule, the lint (`hero-nexus/one-size-per-row`, which also
+counts an unsized HeroUI control as `md`) and `ControlRow`, used on the asking's
+row. Nothing in the app fails the lint. The `<audio>` lives in the mode bar's
+`AmbienceControl` on the screen rather than in `TableProvider`: what is playing
+is on `LiveState`, which only the screen reads, and the screen is where a table
+sits. The audio route honours `Range`, because a browser seeking into a loop
+asks for one. A board's track starts when the board is lit and stops with the
+fight unless the DM chose it by hand (`fromBoard`); the "keep playing" flag is
+that distinction, not a control. Duration is not read on upload.
+
 Covers from `improvements.txt`: _dropdown, number input and text input on one
 line are not the same height_, _"it's your turn" reaching a player on another
 tab_, _ambient sound_. (Phone landscape is in 02; keyboard shortcuts in 11.)

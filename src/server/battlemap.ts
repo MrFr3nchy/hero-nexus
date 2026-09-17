@@ -80,6 +80,8 @@ import {
 import { getCampaignImage, imageUrl } from './campaign-images';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
+import { recordUndo } from './undo';
+import { setAmbience } from './audio';
 import { resolveContentRefs } from './content';
 import { effectiveRules, fence } from './table-rules';
 import { claimedFaces } from './dice-claims';
@@ -572,6 +574,15 @@ export async function setBattleMapActive(
       .set({ isActive: true, updatedAt: new Date().toISOString() })
       .where(eq(battleMaps.id, mapId));
     if (fight) await bindBoardToFight(mapId, fight.id);
+    // A board with a track starts it when lit (12); the fight ending stops
+    // it again, unless the DM keeps it.
+    if (map.audioId) {
+      await setAmbience(
+        map.campaignId,
+        { audioId: map.audioId },
+        { fromBoard: true }
+      ).catch(() => {});
+    }
   }
 
   bumpVersion(map.campaignId);
@@ -1323,6 +1334,26 @@ export async function moveToken(
     .set({ x: to.x, y: to.y, updatedAt: new Date().toISOString() })
     .where(eq(battleMapTokens.id, tokenId));
   bumpVersion(map.campaignId);
+  // The DM's undo (11): the square it stood on, and the feet it spent.
+  if (isStaffRole(role) && (token.x !== to.x || token.y !== to.y)) {
+    const from = { x: token.x, y: token.y };
+    const turnBefore = entry?.turn ?? null;
+    recordUndo(map.campaignId, {
+      label: `Move ${entry?.label ?? token.label ?? 'a token'} back to ${from.x},${from.y}`,
+      inverse: async () => {
+        await db
+          .update(battleMapTokens)
+          .set({ x: from.x, y: from.y, updatedAt: new Date().toISOString() })
+          .where(eq(battleMapTokens.id, tokenId));
+        if (entry && turnBefore !== null) {
+          await db
+            .update(initiativeEntries)
+            .set({ turn: turnBefore })
+            .where(eq(initiativeEntries.id, entry.id));
+        }
+      },
+    });
+  }
 
   if (entry && spent && !parseTurn(entry.turn).disengaged) {
     await offerOpportunityAttacks(

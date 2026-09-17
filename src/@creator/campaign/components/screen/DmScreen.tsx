@@ -4,6 +4,7 @@ import { Button, Input, Link, Select, SelectItem } from '@heroui/react';
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -38,7 +39,15 @@ import {
 } from '../../lib/screen';
 import { BattleArrangement } from './BattleArrangement';
 import { ModeBar } from './ModeBar';
-import { createEncounterAction } from '../../actions';
+import {
+  advanceTurnAction,
+  applyHpAction,
+  createEncounterAction,
+} from '../../actions';
+import { undoLastAction } from '../../monster-actions';
+import { useSelectedToken } from '@/@shared/battlemap/selection';
+import { SHORTCUTS, useDmShortcuts } from './useDmShortcuts';
+import { YourTurnBanner } from './YourTurnBanner';
 import {
   fileUnderSessionAction,
   listSessionsAction,
@@ -296,7 +305,7 @@ function PanelContents({
       const myTurn =
         !!ownEntry &&
         !!enc?.isActive &&
-        live.state?.entries[enc.turnIndex]?.id === ownEntry.id;
+        (live.state?.turnEntryIds.includes(ownEntry.id) ?? false);
       return (
         <MyHeroPanel
           campaignId={ctx.campaignId}
@@ -727,6 +736,62 @@ export function DmScreen({
     [campaign.id]
   );
 
+  /*
+   * Keyboard for the DM (11). "Highlighted" is the tracker's selected token
+   * — the same selection the stat block reads — else whoever's turn it is.
+   * The handlers are memoised on the live state so the hook rebinds once
+   * per read, not once per render.
+   */
+  const selectedTokenId = useSelectedToken(campaign.id);
+  const shortcutHandlers = useMemo(() => {
+    const st = live.state;
+    const enc = st?.encounter;
+    const highlighted = (() => {
+      if (!st) return null;
+      const token = st.battlemap?.tokens.find(t => t.id === selectedTokenId);
+      if (token?.entryId) return token.entryId;
+      return st.turnEntryIds[0] ?? null;
+    })();
+    const run = async (p: Promise<{ ok: boolean; error?: string }>) => {
+      const res = await p;
+      if (!res.ok) setError(res.error ?? 'That did not take.');
+      await live.refresh();
+    };
+    return {
+      nextTurn: () => {
+        if (enc?.isActive) void run(advanceTurnAction(enc.id, 1));
+      },
+      previousTurn: () => {
+        if (enc?.isActive) void run(advanceTurnAction(enc.id, -1));
+      },
+      hp: (delta: number) => {
+        if (highlighted) void run(applyHpAction(highlighted, delta));
+      },
+      conditions: () => {
+        if (highlighted) {
+          window.dispatchEvent(
+            new CustomEvent('hero-nexus:conditions', {
+              detail: { entryId: highlighted },
+            })
+          );
+        }
+      },
+      toggleShelf: () => {
+        if (!layouts) return;
+        const merged = {
+          ...layouts,
+          battle: { ...layouts.battle, shelfOpen: !layouts.battle.shelfOpen },
+        };
+        setLayouts(merged);
+        void save(merged);
+      },
+      undo: () => {
+        void run(undoLastAction(campaign.id));
+      },
+    };
+  }, [live.state, live.refresh, selectedTokenId, layouts, campaign.id, save]);
+  const shortcuts = useDmShortcuts(isStaff, shortcutHandlers);
+
   if (!layouts) {
     return (
       <div className="flex h-full items-center justify-center bg-bg">
@@ -889,7 +954,27 @@ export function DmScreen({
             onPin={setPin}
             refresh={live.refresh}
             onError={setError}
+            typing={shortcuts.typing}
+            onHelp={() => shortcuts.setHelp(!shortcuts.help)}
           />
+        )}
+        {shortcuts.help && (
+          <div
+            role="dialog"
+            aria-label="Keyboard shortcuts"
+            className="basis-full rounded-md border border-line bg-surface-2 px-3 py-2"
+          >
+            <ul className="grid gap-x-6 gap-y-0.5 text-xs sm:grid-cols-2">
+              {SHORTCUTS.map(sc => (
+                <li key={sc.keys} className="flex gap-2">
+                  <span className="w-32 shrink-0 font-mono text-ink">
+                    {sc.keys}
+                  </span>
+                  <span className="text-ink-muted">{sc.does}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {live.error && (
@@ -1000,6 +1085,14 @@ export function DmScreen({
           </Button>
         </div>
       </header>
+      {/* The reader's own turn, across the top until it is over (12). */}
+      {live.state && !isStaff && (
+        <YourTurnBanner
+          state={live.state}
+          refresh={live.refresh}
+          onError={setError}
+        />
+      )}
 
       {current === 'battle' && live.state && !inPerson ? (
         <BattleArrangement
