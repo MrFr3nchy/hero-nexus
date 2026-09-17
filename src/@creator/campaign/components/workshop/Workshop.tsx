@@ -442,9 +442,6 @@ export function Workshop({
     [doc, terrain, commit]
   );
 
-  const brushed = (at: Tile) =>
-    terrain ? brushTiles(terrain, at, settings.brush) : [];
-
   /** A brush tool's touch at a tile, mid-stroke. */
   const brushAt = useCallback(
     (at: Tile) => {
