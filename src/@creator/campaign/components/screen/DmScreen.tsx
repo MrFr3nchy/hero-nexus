@@ -1073,7 +1073,7 @@ export function DmScreen({
               setArranging(!arranging);
             }}
           >
-            {arranging ? (dirty ? 'Save the screen' : 'Done') : 'Customise'}
+            {arranging ? (dirty ? 'Save the screen' : 'Done') : 'Customize'}
           </Button>
           <Button
             as={Link}
