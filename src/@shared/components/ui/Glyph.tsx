@@ -81,7 +81,10 @@ export type GlyphName =
   | 'sun'
   | 'moon'
   | 'eye'
-  | 'eye-off';
+  | 'eye-off'
+  // ambient sound (12): a speaker, on and off
+  | 'speaker'
+  | 'speaker-off';
 
 /** Every glyph's artwork, drawn inside a 24×24 box. */
 const PATHS: Record<GlyphName, React.ReactNode> = {
@@ -422,6 +425,19 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
     </>
   ),
   moon: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />,
+  // A horn with two sound lines; the off state crosses it out instead.
+  speaker: (
+    <>
+      <path d="M4 9.5h3.5L13 5v14l-5.5-4.5H4z" />
+      <path d="M16.5 9a4.2 4.2 0 0 1 0 6M19 6.5a7.8 7.8 0 0 1 0 11" />
+    </>
+  ),
+  'speaker-off': (
+    <>
+      <path d="M4 9.5h3.5L13 5v14l-5.5-4.5H4z" />
+      <path d="M16 9.5l5 5M21 9.5l-5 5" />
+    </>
+  ),
   // Reveal and hide a password. The struck-through eye is the one in use
   // when the field is showing its text.
   eye: (

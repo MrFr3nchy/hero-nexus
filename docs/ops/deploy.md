@@ -61,8 +61,10 @@ process supervision. See `security-decisions.md` for why it's shaped this way.
    mirror. **Then do the restore drill in that doc before launch.**
 
 10. **Disk alerting.** SQLite + uploads + logs share one volume; a full disk is
-    a total outage. Enable the DigitalOcean disk-usage alert on the droplet and
-    the volume at 80%. Send Caddy and journald logs somewhere with rotation
+    a total outage. Uploads now include ambient-sound tracks (`campaign_audio`,
+    up to 20 MB each, under `uploads/<campaign>/audio/`), which is the DM's disk
+    and grows faster than pictures. Enable the DigitalOcean disk-usage alert on
+    the droplet and the volume at 80%. Send Caddy and journald logs somewhere with rotation
     (`journalctl` is capped by `SystemMaxUse`; set it in
     `/etc/systemd/journald.conf`).
 

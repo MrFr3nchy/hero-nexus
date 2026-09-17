@@ -45,6 +45,7 @@ const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
   rest: 'Rests',
   levelup: 'Levels',
   undo: 'Undo',
+  ambience: 'Music',
 };
 
 /**
