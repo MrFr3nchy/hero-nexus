@@ -203,7 +203,10 @@ export interface ThingEvent extends BaseEvent {
     /** A hidden thing was found. */
     | 'spotted'
     /** Staff only: a hero stands beside something they have not found. */
-    | 'near';
+    | 'near'
+    /** Took the stairs to another floor; `detail` names the floor. */
+    | 'climbed'
+    | 'descended';
   /** The line the thing makes, or the nudge's words. */
   detail?: string;
 }
@@ -601,6 +604,8 @@ export function describe(
           : `${event.name} goes off`,
         spotted: `${event.actorName} spots ${event.name}`,
         near: `${event.actorName} is beside ${event.name}`,
+        climbed: `${event.actorName} climbs ${event.name}`,
+        descended: `${event.actorName} goes down ${event.name}`,
       };
       return {
         glyph,

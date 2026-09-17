@@ -82,6 +82,10 @@ export type GlyphName =
   | 'moon'
   | 'eye'
   | 'eye-off'
+  // the sand table's floors
+  | 'stairs'
+  | 'ladder'
+  | 'floors'
   // ambient sound (12): a speaker, on and off
   | 'speaker'
   | 'speaker-off';
@@ -451,6 +455,17 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
       <path d="M4 4l16 16" />
       <path d="M9.9 6c.7-.3 1.4-.5 2.1-.5 6 0 9.5 6.5 9.5 6.5s-1 1.9-2.9 3.6M14.6 17.6c-.8.3-1.7.4-2.6.4-6 0-9.5-6-9.5-6s1.3-2.5 3.7-4.3" />
       <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+    </>
+  ),
+  // A flight of four steps, seen from the side.
+  stairs: <path d="M3 20h4v-4h4v-4h4V8h4V4M3 20V4" />,
+  // Two rails and three rungs.
+  ladder: <path d="M8 3v18M16 3v18M8 8h8M8 13h8M8 18h8" />,
+  // Three floors stacked, the middle one picked out.
+  floors: (
+    <>
+      <path d="M3 8l9-4 9 4-9 4z" />
+      <path d="M3 12l9 4 9-4M3 16l9 4 9-4" />
     </>
   ),
 };

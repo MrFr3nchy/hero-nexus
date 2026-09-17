@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&amp;family=Cinzel:wght@500;600&amp;family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=Inter:wght@400;500;600&amp;display=swap">
+  <style>
+    body { margin: 0; background: #0d0b08; color: #ede7da; font-family: Inter, ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #d9b061; text-decoration: none; } a:hover { color: #e8c988; }
+    button { font-family: inherit; cursor: pointer; }
+    button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid #e8c988; outline-offset: 2px; }
+  </style>
+</helmet>
+<div style="position: relative; width: 1040px; height: 800px; box-sizing: border-box; padding: 40px; background-color: #0d0b08; background-image: radial-gradient(#231d15 1px, transparent 1px); background-size: 26px 26px;">
+  <div role="dialog" aria-labelledby="nl-title" style="height: 720px; box-sizing: border-box; display: flex; border: 1px solid #3d3226; border-radius: 16px; background: #1e1a14; box-shadow: 0 30px 80px -20px rgba(0,0,0,0.9); overflow: hidden;">
+
+    <div style="width: 580px; flex-shrink: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; padding: 28px 32px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-family: Cinzel, serif; font-size: 10px; font-weight: 600; letter-spacing: 0.18em; color: #d9b061;">BLACKWOOD MANOR</span>
+        <h1 id="nl-title" style="margin: 0; font-family: Fraunces, Georgia, serif; font-size: 30px; font-weight: 550; letter-spacing: -0.01em;">Add a floor</h1>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;">
+        <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #c9bfad;">
+          <span>Called</span>
+          <input type="text" value="Upper floor" style="height: 42px; padding: 0 12px; border: 1px solid #3d3226; border-radius: 8px; background: #16130f; color: #ede7da; font-family: inherit; font-size: 14px;">
+        </label>
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #c9bfad;">
+          <span>Sits</span>
+          <button type="button" style="height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border: 1px solid #3d3226; border-radius: 8px; background: #16130f; color: #ede7da; font-size: 14px;">
+            <span>Above the Ground floor</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a89f8d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span style="font-size: 13px; color: #c9bfad;">Floor to floor</span>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px;">
+            <sc-for list="{{heights}}" as="h" hint-placeholder-count="4">
+              <button type="button" onClick="{{h.pick}}" style="height: 40px; border: 1px solid {{h.bd}}; border-radius: 8px; background: {{h.bg}}; color: {{h.fg}}; font-size: 13px; font-weight: 500;">{{h.label}}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span style="font-size: 13px; color: #c9bfad;">Its light</span>
+          <div style="display: flex; padding: 3px; gap: 2px; border: 1px solid #3d3226; border-radius: 8px; background: #16130f;">
+            <sc-for list="{{lights}}" as="d" hint-placeholder-count="3">
+              <button type="button" onClick="{{d.pick}}" style="flex-grow: 1; height: 32px; border: 0; border-radius: 6px; background: {{d.bg}}; color: {{d.fg}}; font-size: 13px; font-weight: 500;">{{d.label}}</button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <span style="font-size: 13px; color: #c9bfad;">Start it with</span>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;">
+          <sc-for list="{{starts}}" as="o" hint-placeholder-count="3">
+            <button type="button" onClick="{{o.pick}}" aria-pressed="{{o.on}}" style="display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid {{o.bd}}; border-radius: 10px; background: {{o.bg}}; color: #ede7da; text-align: left;">
+              <span style="position: relative; height: 72px; border-radius: 6px; background-color: #16130f; background-image: radial-gradient(#3d3226 1px, transparent 1px); background-size: 8px 8px;">
+                <sc-for list="{{o.lines}}" as="ln" hint-placeholder-count="0">
+                  <span style="position: absolute; left: {{ln.l}}px; top: {{ln.t}}px; width: {{ln.w}}px; height: {{ln.h}}px; background: {{ln.c}};"></span>
+                </sc-for>
+              </span>
+              <span style="display: flex; flex-direction: column; gap: 2px;">
+                <span style="font-size: 14px; font-weight: 600; color: {{o.fg}};">{{o.label}}</span>
+                <span style="font-size: 12px; line-height: 1.35; color: #a89f8d;">{{o.sub}}</span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <span style="font-size: 13px; color: #c9bfad;">Stairs that already lead up here</span>
+        <button type="button" onClick="{{toggleStair}}" aria-pressed="{{stairOn}}" style="display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 12px; border: 1px solid #3d3226; border-radius: 8px; background: #16130f; color: #ede7da; text-align: left;">
+          <span style="width: 20px; height: 20px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border-radius: 5px; border: 1.5px solid {{stairBox}}; background: {{stairFill}};">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#16130f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg>
+          </span>
+          <span style="flex-grow: 1; font-size: 14px;">Grand stair <span style="color: #a89f8d;">· Foyer · 2 × 3</span></span>
+          <span style="font-size: 12px; color: #a89f8d;">cuts a stairwell here</span>
+        </button>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-size: 13px; color: #c9bfad;">The party sees it</span>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px;">
+          <sc-for list="{{seens}}" as="v" hint-placeholder-count="3">
+            <button type="button" onClick="{{v.pick}}" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px; border: 1px solid {{v.bd}}; border-radius: 8px; background: {{v.bg}}; color: #ede7da; font-size: 13px; text-align: left;">
+              <span style="width: 14px; height: 14px; flex-shrink: 0; box-sizing: border-box; border-radius: 7px; border: 1.5px solid {{v.ring}}; background: {{v.dot}};"></span>
+              <span>{{v.label}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <a href="Main.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 18px; border: 1px solid #3d3226; border-radius: 10px; color: #ede7da; font-size: 14px;">Never mind</a>
+        <a href="Main.dc.html" style="display: flex; align-items: center; height: 44px; padding: 0 20px; border-radius: 10px; background: {{accent}}; color: #16130f; font-size: 14px; font-weight: 600;">Add the floor</a>
+      </div>
+    </div>
+
+    <!-- elevation preview -->
+    <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 14px; padding: 30px 28px; border-left: 1px solid #33291d; background: #16130f;">
+      <h2 style="margin: 0; font-family: Fraunces, Georgia, serif; font-size: 18px; font-weight: 550;">How the house stacks</h2>
+      <div style="position: relative; height: 400px; border-radius: 10px; background: #110e0b; overflow: hidden;">
+        <!-- earth -->
+        <div style="position: absolute; left: 0; right: 0; top: 250px; bottom: 0; background: repeating-linear-gradient(135deg, #1f1810 0 6px, #19140e 6px 12px);"></div>
+        <div style="position: absolute; left: 0; right: 0; top: 248px; height: 3px; background: #3b4a2e;"></div>
+        <!-- floors -->
+        <sc-for list="{{stack}}" as="f" hint-placeholder-count="3">
+          <div style="position: absolute; left: 44px; top: {{f.top}}px; width: 220px; height: {{f.h}}px; box-sizing: border-box; border: {{f.border}}; border-bottom: 5px solid {{f.slab}}; background: {{f.fill}};"></div>
+          <div style="position: absolute; left: 52px; top: {{f.labelTop}}px; font-size: 12px; font-weight: 500; color: {{f.fg}};">{{f.name}}</div>
+          <div style="position: absolute; left: 4px; top: {{f.ftTop}}px; width: 36px; text-align: right; font-size: 10px; font-variant-numeric: tabular-nums; color: #a89f8d;">{{f.ft}}</div>
+        </sc-for>
+        <!-- stair -->
+        <sc-if value="{{stairOn}}" hint-placeholder-val="{{ true }}">
+          <div style="position: absolute; left: 196px; top: 248px; width: {{stairLen}}px; height: 0; border-top: 3px dotted {{accent}}; transform-origin: 0 0; transform: rotate({{stairAng}}deg);"></div>
+        </sc-if>
+        <!-- dimension -->
+        <div style="position: absolute; left: 280px; top: {{dimTop}}px; width: 1px; height: {{dimH}}px; background: #a89f8d;"></div>
+        <div style="position: absolute; left: 275px; top: {{dimTop}}px; width: 11px; height: 1px; background: #a89f8d;"></div>
+        <div style="position: absolute; left: 275px; top: 248px; width: 11px; height: 1px; background: #a89f8d;"></div>
+        <div style="position: absolute; left: 290px; top: {{dimMid}}px; font-size: 12px; font-weight: 600; color: #ede7da;">{{heightLabel}}</div>
+      </div>
+      <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #a89f8d;">{{summary}}</p>
+      <p style="margin: 0; font-family: Caveat, cursive; font-size: 19px; color: #a89f8d;">— a mansion is just a few of these, stacked</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#d9b061","options":["#d9b061","#a988cf","#6bbf8a","#8aa4bd"]},"$preview":{"width":1040,"height":800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { height: 12, start: 'outer', seen: 'hero', light: 'Bright', stair: true };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const accent = this.props.accent ?? '#d9b061';
+    const set = (patch) => () => this.setState(patch);
+    const chip = (on) => (on ? { bg: accent, fg: '#16130f', bd: accent } : { bg: 'transparent', fg: '#c9bfad', bd: '#3d3226' });
+    const card = (on) => (on ? { bg: 'rgba(217,176,97,0.10)', fg: accent, bd: accent } : { bg: '#16130f', fg: '#ede7da', bd: '#3d3226' });
+
+    // footprint thumbnails, 146 x 72 box
+    const W = '#d8ccb4';
+    const outline = [
+      { l: 30, t: 12, w: 86, h: 2, c: W }, { l: 30, t: 58, w: 86, h: 2, c: W },
+      { l: 30, t: 12, w: 2, h: 48, c: W }, { l: 114, t: 12, w: 2, h: 48, c: W },
+    ];
+    const inner = [
+      { l: 58, t: 12, w: 2, h: 48, c: W }, { l: 86, t: 12, w: 2, h: 48, c: W }, { l: 30, t: 35, w: 86, h: 2, c: W },
+      { l: 32, t: 14, w: 82, h: 44, c: 'rgba(90,67,40,0.55)' },
+    ];
+    const hole = [{ l: 94, t: 38, w: 12, h: 18, c: accent }];
+    const STARTS = [
+      { id: 'void', label: 'Nothing', sub: 'Open air. Paint it in yourself.', lines: [] },
+      { id: 'outer', label: 'Outside walls', sub: 'The ground floor’s shell, empty inside.', lines: outline.concat(hole) },
+      { id: 'copy', label: 'A full copy', sub: 'Rooms, walls and doors. No furniture.', lines: inner.concat(outline, hole) },
+    ];
+    const starts = STARTS.map((o) => Object.assign({}, o, { on: o.id === s.start, pick: set({ start: o.id }) }, card(o.id === s.start)));
+
+    const heights = [10, 12, 15, 20].map((h) => Object.assign({ label: h + ' ft', pick: set({ height: h }) }, chip(h === s.height)));
+    const seens = [
+      { id: 'hero', label: 'When a hero’s there' },
+      { id: 'always', label: 'Always' },
+      { id: 'reveal', label: 'Only what I reveal' },
+    ].map((v) => {
+      const on = v.id === s.seen;
+      return { label: v.label, pick: set({ seen: v.id }), bg: on ? 'rgba(217,176,97,0.10)' : '#16130f', bd: on ? accent : '#3d3226', ring: on ? accent : '#5a4a33', dot: on ? accent : 'transparent' };
+    });
+    const lights = ['Bright', 'Dim', 'Dark'].map((v) => Object.assign({ label: v, pick: set({ light: v }) }, chip(v === s.light)));
+
+    // elevation, 8 px per foot, ground floor line at y = 250
+    const PX = 8, G = 250, WALL = 10 * PX;
+    const newTop = G - s.height * PX;
+    const stack = [
+      { name: 'Upper floor · new', ft: '+' + s.height + ' ft', top: newTop - WALL, h: WALL + 2, border: '2px dashed ' + accent, slab: accent, fill: 'rgba(217,176,97,0.08)', fg: accent },
+      { name: 'Ground floor', ft: '0 ft', top: G - WALL, h: WALL + 2, border: '2px solid #a8987a', slab: '#a8987a', fill: 'rgba(90,67,40,0.35)', fg: '#ede7da' },
+      { name: 'Cellar', ft: '−10 ft', top: G + 10 * PX - WALL + 2, h: WALL, border: '2px solid #6e6658', slab: '#6e6658', fill: 'rgba(58,52,43,0.6)', fg: '#c9bfad' },
+    ].map((f) => Object.assign({}, f, { labelTop: f.top + 8, ftTop: f.top + f.h - 12 }));
+    const dx = 50, dy = newTop - G;
+    const summary = {
+      void: 'A floor with nothing on it, ' + s.height + ' ft above the ground floor.',
+      outer: 'Copies the ground floor’s 48 outside wall edges. The grand stair cuts a 2 × 3 hole to climb through.',
+      copy: 'Copies 6 rooms, their walls and 8 doors. The grand stair cuts a 2 × 3 hole to climb through.',
+    }[s.start];
+
+    return {
+      accent: accent,
+      starts: starts,
+      heights: heights,
+      seens: seens,
+      lights: lights,
+      stairOn: s.stair,
+      toggleStair: set({ stair: !s.stair }),
+      stairBox: s.stair ? accent : '#5a4a33',
+      stairFill: s.stair ? accent : 'transparent',
+      stack: stack,
+      stairLen: Math.round(Math.sqrt(dx * dx + dy * dy)),
+      stairAng: Math.round(Math.atan2(dy, dx) * 1800 / Math.PI) / 10,
+      dimTop: newTop,
+      dimH: G - newTop,
+      dimMid: Math.round((newTop + G) / 2) - 8,
+      heightLabel: s.height + ' ft',
+      summary: summary,
+    };
+  }
+}
+</script>
+</body>
+</html>

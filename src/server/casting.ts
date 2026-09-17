@@ -60,7 +60,7 @@ import {
   type AbilityKey,
   type CharacterSheet,
 } from '@/@creator/character/schema';
-import { normalizeTerrain } from '@/@shared/battlemap/types';
+import { levelOf, normalizeBoard } from '@/@shared/battlemap/types';
 import {
   parseContentData,
   refKey,
@@ -245,7 +245,8 @@ async function entriesInArea(
     ),
   });
   if (!map) throw new Error('NO_BOARD');
-  const doc = normalizeTerrain(map.terrain);
+  const board = normalizeBoard(map.terrain);
+  const doc = levelOf(board, area.level);
   const lit = areaTiles(doc, area);
   const tokens = await db
     .select()
@@ -253,6 +254,8 @@ async function entriesInArea(
     .where(eq(battleMapTokens.mapId, map.id));
   const inside = tokens.filter(t => {
     if (!t.entryId) return false;
+    // The area is on one floor; a fireball in the hall singes nobody upstairs.
+    if (levelOf(board, t.level).id !== doc.id) return false;
     for (let dy = 0; dy < t.footprint; dy++) {
       for (let dx = 0; dx < t.footprint; dx++) {
         if (lit.has((t.y + dy) * doc.w + (t.x + dx))) return true;

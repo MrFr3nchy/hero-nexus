@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&amp;family=Cinzel:wght@500;600&amp;family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=Inter:wght@400;500;600&amp;display=swap">
+  <style>
+    body { margin: 0; background: #16130f; color: #ede7da; font-family: Inter, ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #d9b061; text-decoration: none; } a:hover { color: #e8c988; }
+    button { font-family: inherit; cursor: pointer; }
+    button:focus-visible, a:focus-visible { outline: 2px solid #e8c988; outline-offset: 2px; }
+  </style>
+</helmet>
+<div style="width: 1600px; height: 960px; display: flex; flex-direction: column; background: #16130f; overflow: hidden;">
+
+  <header style="height: 60px; flex-shrink: 0; display: flex; align-items: center; gap: 20px; padding: 0 20px; border-bottom: 1px solid #33291d; background: #1e1a14;">
+    <a href="Table.dc.html" style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #a89f8d;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg>
+      <span>Back to the table</span>
+    </a>
+    <div style="width: 1px; height: 28px; background: #33291d;"></div>
+    <div style="display: flex; flex-direction: column; gap: 1px;">
+      <span style="font-family: Cinzel, serif; font-size: 10px; font-weight: 600; letter-spacing: 0.18em; color: #d9b061;">THE WORKSHOP</span>
+      <span style="font-family: Fraunces, Georgia, serif; font-size: 19px; font-weight: 550; letter-spacing: -0.01em;">Blackwood Manor</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <nav aria-label="View" style="display: flex; padding: 3px; gap: 2px; border: 1px solid #33291d; border-radius: 8px; background: #262019;">
+      <a href="Main.dc.html" style="display: flex; align-items: center; padding: 6px 14px; border-radius: 6px; color: #c9bfad; font-size: 13px;">Flat board</a>
+      <span style="display: flex; align-items: center; padding: 6px 14px; border-radius: 6px; background: {{accent}}; color: #16130f; font-size: 13px; font-weight: 600;">Stand it up</span>
+    </nav>
+    <div style="flex-grow: 1;"></div>
+    <span style="font-size: 12px; color: #a89f8d;">Saved a moment ago</span>
+    <button type="button" style="height: 36px; padding: 0 16px; border: 0; border-radius: 8px; background: {{accent}}; color: #16130f; font-size: 13px; font-weight: 600;">Show the party</button>
+  </header>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+    <aside style="width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 24px; padding: 22px 20px; border-right: 1px solid #33291d; background: #1a1612;">
+      <section style="display: flex; flex-direction: column; gap: 10px;">
+        <h2 style="margin: 0; font-family: Fraunces, Georgia, serif; font-size: 20px; font-weight: 550;">Floors</h2>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <sc-for list="{{levels}}" as="lv" hint-placeholder-count="4">
+            <button type="button" onClick="{{lv.pick}}" aria-pressed="{{lv.on}}" style="display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 12px; border: 1px solid {{lv.bd}}; border-radius: 10px; background: {{lv.bg}}; color: #ede7da; text-align: left;">
+              <span style="width: 44px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; color: {{lv.ftColor}};">{{lv.ft}}</span>
+              <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px;">
+                <span style="font-size: 14px; font-weight: 500;">{{lv.name}}</span>
+                <span style="font-size: 11px; color: #a89f8d;">{{lv.sub}}</span>
+              </span>
+              <span style="display: flex; gap: 3px;">
+                <sc-for list="{{lv.pips}}" as="pp" hint-placeholder-count="2">
+                  <span style="width: 8px; height: 8px; border-radius: 4px; background: {{pp}};"></span>
+                </sc-for>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </section>
+
+      <section style="display: flex; flex-direction: column; gap: 10px;">
+        <h2 style="margin: 0; font-family: Fraunces, Georgia, serif; font-size: 20px; font-weight: 550;">How it stands</h2>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <sc-for list="{{modes}}" as="m" hint-placeholder-count="3">
+            <button type="button" onClick="{{m.pick}}" aria-pressed="{{m.on}}" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid {{m.bd}}; border-radius: 10px; background: {{m.bg}}; color: #ede7da; text-align: left;">
+              <svg width="30" height="30" viewBox="0 0 30 30" fill="none" stroke="{{m.fg}}" stroke-width="1.5" stroke-linejoin="round"><path d="{{m.d}}"></path></svg>
+              <span style="display: flex; flex-direction: column; gap: 2px;">
+                <span style="font-size: 14px; font-weight: 600; color: {{m.fg}};">{{m.label}}</span>
+                <span style="font-size: 12px; line-height: 1.35; color: #a89f8d;">{{m.sub}}</span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </section>
+
+      <section style="display: flex; flex-direction: column; gap: 2px;">
+        <sc-for list="{{flags}}" as="f" hint-placeholder-count="3">
+          <button type="button" onClick="{{f.pick}}" aria-pressed="{{f.on}}" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 38px; padding: 0; border: 0; background: transparent; color: #ede7da; font-size: 13px; text-align: left;">
+            <span>{{f.label}}</span>
+            <span style="position: relative; width: 34px; height: 20px; flex-shrink: 0; border-radius: 10px; background: {{f.track}};"><span style="position: absolute; top: 3px; left: {{f.knob}}px; width: 14px; height: 14px; border-radius: 7px; background: #ede7da;"></span></span>
+          </button>
+        </sc-for>
+      </section>
+
+      <div style="flex-grow: 1;"></div>
+      <a href="Main.dc.html" style="display: flex; align-items: center; justify-content: center; height: 42px; border: 1px solid #33291d; border-radius: 10px; color: #ede7da; font-size: 13px; font-weight: 500;">Edit the {{levelName}} flat</a>
+    </aside>
+
+    <main style="position: relative; flex-grow: 1; min-width: 0; overflow: hidden; background: radial-gradient(90% 70% at 50% 35%, #2a2219 0%, #16130f 70%);">
+      <div style="position: absolute; left: 28px; top: 22px; display: flex; flex-direction: column; gap: 2px; z-index: 2;">
+        <h1 style="margin: 0; font-family: Fraunces, Georgia, serif; font-size: 30px; font-weight: 550; letter-spacing: -0.01em; text-shadow: 0 0 18px rgba(217,176,97,0.2);">{{levelName}}</h1>
+        <span style="font-size: 13px; color: #a89f8d;">{{levelFt}} · {{modeLine}}</span>
+      </div>
+
+      <!-- stage -->
+      <div style="position: absolute; left: 0; top: 0; right: 0; bottom: 0; perspective: 3200px; perspective-origin: 50% 40%;">
+        <div style="position: absolute; left: 50%; top: 50%; width: 680px; height: 480px; margin-left: -340px; margin-top: -240px; transform-style: preserve-3d; transform: translateY({{shiftY}}px) scale({{zoom}}) rotateX({{tilt}}deg) rotateZ({{spin}}deg) translateZ({{centerZ}}px); transition: transform 700ms cubic-bezier(.2,.7,.2,1);">
+          <sc-for list="{{planes}}" as="p" hint-placeholder-count="40">
+            <div style="position: absolute; left: {{p.l}}px; top: {{p.t}}px; width: {{p.w}}px; height: {{p.h}}px; box-sizing: border-box; background: {{p.bg}}; border: {{p.bd}}; border-radius: {{p.r}}; opacity: {{p.o}}; transform-origin: {{p.origin}}; transform: {{p.tf}};"></div>
+          </sc-for>
+          <sc-for list="{{trees}}" as="t" hint-placeholder-count="10">
+            <div style="position: absolute; left: {{t.l}}px; top: {{t.t}}px; width: {{t.w}}px; height: {{t.h}}px; opacity: {{t.o}}; transform-origin: 50% 100%; transform: {{t.tf}};">
+              <svg width="100%" height="100%" viewBox="0 0 34 56" preserveAspectRatio="none"><path d="M15 28h4v28h-4z" fill="#4a3d2c"></path><path d="M17 2c9 0 15 7 15 16 0 9-6 15-15 15S2 27 2 18C2 9 8 2 17 2z" fill="#5f7d43" stroke="#2a3d1e" stroke-width="1.2"></path><path d="M11 10c2-3 5-4 8-3" stroke="#8aa56a" stroke-width="1.5" fill="none" stroke-linecap="round"></path></svg>
+            </div>
+          </sc-for>
+          <sc-for list="{{tokens}}" as="k" hint-placeholder-count="4">
+            <div style="position: absolute; left: {{k.bl}}px; top: {{k.bt}}px; width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: 2px solid {{k.ring}}; background: #1e1a14; opacity: {{k.o}}; transform: {{k.btf}};"></div>
+            <div style="position: absolute; left: {{k.l}}px; top: {{k.t}}px; width: 14px; height: 22px; box-sizing: border-box; border-radius: 2px; background: #ede7da; border-bottom: 3px solid {{k.ring}}; opacity: {{k.o}}; transform-origin: 50% 100%; transform: {{k.tf}}; display: flex; align-items: center; justify-content: center; font-size: 6px; font-weight: 700; color: #2b2620;">{{k.n}}</div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- elevator -->
+      <nav aria-label="Floors" style="position: absolute; right: 28px; top: 50%; margin-top: -120px; display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid #33291d; border-radius: 12px; background: rgba(30,26,20,0.92); z-index: 2;">
+        <sc-for list="{{levels}}" as="lv" hint-placeholder-count="4">
+          <button type="button" onClick="{{lv.pick}}" aria-label="{{lv.name}}" style="width: 64px; height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 0; border-radius: 8px; background: {{lv.elBg}}; color: {{lv.elFg}};">
+            <span style="font-size: 12px; font-weight: 600;">{{lv.short}}</span>
+            <span style="font-size: 10px; opacity: 0.8;">{{lv.ft}}</span>
+          </button>
+        </sc-for>
+      </nav>
+
+      <!-- camera -->
+      <div style="position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px; border: 1px solid #33291d; border-radius: 12px; background: rgba(30,26,20,0.92); z-index: 2;">
+        <button type="button" onClick="{{turnLeft}}" aria-label="Turn left" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: #262019; color: #ede7da;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v5h5"></path></svg>
+        </button>
+        <button type="button" onClick="{{turnRight}}" aria-label="Turn right" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: #262019; color: #ede7da;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"></path></svg>
+        </button>
+        <div style="width: 1px; height: 28px; background: #33291d;"></div>
+        <div style="display: flex; gap: 2px;">
+          <sc-for list="{{tilts}}" as="c" hint-placeholder-count="3">
+            <button type="button" onClick="{{c.pick}}" style="height: 44px; padding: 0 14px; border: 0; border-radius: 8px; background: {{c.bg}}; color: {{c.fg}}; font-size: 13px; font-weight: 500;">{{c.label}}</button>
+          </sc-for>
+        </div>
+        <div style="width: 1px; height: 28px; background: #33291d;"></div>
+        <button type="button" onClick="{{zoomOut}}" aria-label="Zoom out" style="width: 44px; height: 44px; border: 0; border-radius: 8px; background: #262019; color: #ede7da; font-size: 18px;">−</button>
+        <button type="button" onClick="{{zoomIn}}" aria-label="Zoom in" style="width: 44px; height: 44px; border: 0; border-radius: 8px; background: #262019; color: #ede7da; font-size: 18px;">+</button>
+      </div>
+      <p style="position: absolute; left: 28px; bottom: 30px; margin: 0; font-family: Caveat, cursive; font-size: 18px; color: #a89f8d; z-index: 2;">— drag to walk around it</p>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#d9b061","options":["#d9b061","#a988cf","#6bbf8a","#8aa4bd"]},"$preview":{"width":1600,"height":960}}'>
+const MATS = { void: '#16130f', stone: '#3a342b', dirt: '#4a3d2c', grass: '#3b4a2e', wood: '#5a4328', water: '#2c3f52', rubble: '#4d4237', lava: '#6b2f22' };
+const LEVELS = [
+  { id: 'cellar', name: 'Cellar', short: 'Cellar', feet: -10 },
+  { id: 'ground', name: 'Ground floor', short: 'Ground', feet: 0 },
+  { id: 'upper', name: 'Upper floor', short: 'Upper', feet: 12 },
+  { id: 'attic', name: 'Attic', short: 'Attic', feet: 24 },
+];
+const H = (x0, x1, y) => { const a = []; for (let x = x0; x <= x1; x++) a.push('h:' + x + ':' + y); return a; };
+const V = (x, y0, y1) => { const a = []; for (let y = y0; y <= y1; y++) a.push('v:' + x + ':' + y); return a; };
+const B = (x, y) => ({ kind: 'barrel', x: x, y: y, w: 1, h: 1 });
+const DEFS = {
+  ground: {
+    base: [{ x: 15, y: 20, w: 4, h: 4, mat: 'dirt' }],
+    rooms: [
+      { x: 5, y: 4, w: 8, h: 8, mat: 'wood', name: 'Great hall' },
+      { x: 13, y: 4, w: 8, h: 8, mat: 'wood', name: 'Dining room' },
+      { x: 21, y: 4, w: 8, h: 8, mat: 'stone', name: 'Kitchen' },
+      { x: 5, y: 12, w: 8, h: 8, mat: 'wood', name: 'Library' },
+      { x: 13, y: 12, w: 8, h: 8, mat: 'stone', name: 'Foyer' },
+      { x: 21, y: 12, w: 8, h: 8, mat: 'wood', name: 'Parlor' },
+    ],
+    doors: [].concat(H(16, 17, 20), H(16, 17, 12), V(13, 15, 16), V(21, 15, 16), V(13, 7, 7), V(21, 7, 7), H(8, 8, 12), V(29, 9, 9)),
+    windows: [].concat(H(7, 7, 4), H(10, 10, 4), H(15, 15, 4), H(18, 18, 4), H(23, 23, 4), H(26, 26, 4), V(5, 7, 7), V(5, 16, 16), H(23, 23, 20), H(26, 26, 20), V(29, 15, 15)),
+    props: [
+      { kind: 'table', x: 14, y: 7, w: 6, h: 2 }, { kind: 'hearth', x: 7, y: 4, w: 3, h: 1 }, { kind: 'hearth', x: 22, y: 4, w: 3, h: 1 },
+      { kind: 'table', x: 22, y: 7, w: 3, h: 2 }, { kind: 'shelf', x: 5, y: 13, w: 1, h: 3 }, { kind: 'shelf', x: 7, y: 19, w: 5, h: 1 },
+      { kind: 'table', x: 8, y: 15, w: 2, h: 2 }, { kind: 'table', x: 24, y: 15, w: 2, h: 2 }, B(27, 10), B(28, 10),
+    ],
+    trees: [[1, 1, 1], [3, 2, 0.8], [8, 1, 1.1], [12, 2, 0.9], [20, 1, 1], [25, 2, 0.8], [30, 1, 1.1], [32, 3, 0.9], [1, 4, 0.9], [2, 14, 1], [1, 17, 0.8], [3, 19, 1], [31, 11, 0.9], [32, 13, 1], [31, 16, 0.8], [2, 21, 1.1], [4, 22, 0.8], [1, 23, 0.9], [7, 22, 1], [10, 21, 0.9], [12, 23, 0.8], [22, 23, 0.9], [20, 21, 0.8]],
+    tokens: [{ x: 15, y: 16, n: 'WR', party: true }, { x: 16, y: 17, n: 'TO', party: true }, { x: 15, y: 18, n: 'MA', party: true }, { x: 17, y: 16, n: 'KE', party: true }],
+  },
+  upper: {
+    base: [],
+    rooms: [
+      { x: 5, y: 4, w: 8, h: 8, mat: 'wood', name: 'Master bedroom' },
+      { x: 13, y: 4, w: 8, h: 8, mat: 'wood', name: 'Gallery' },
+      { x: 21, y: 4, w: 8, h: 8, mat: 'wood', name: 'Guest room' },
+      { x: 5, y: 12, w: 8, h: 8, mat: 'wood', name: 'Study' },
+      { x: 13, y: 12, w: 8, h: 8, mat: 'wood', name: 'Landing' },
+      { x: 21, y: 12, w: 8, h: 8, mat: 'wood', name: 'Nursery' },
+      { x: 13, y: 20, w: 8, h: 2, mat: 'stone', name: 'Balcony', wall: 'rail' },
+    ],
+    holes: [{ x: 18, y: 13, w: 2, h: 3 }],
+    doors: [].concat(H(16, 17, 12), V(13, 15, 15), V(21, 15, 15), V(13, 7, 7), V(21, 7, 7), H(16, 17, 20)),
+    windows: [].concat(H(7, 7, 4), H(10, 10, 4), H(23, 23, 4), H(26, 26, 4), V(5, 7, 7), V(5, 16, 16), V(29, 7, 7), V(29, 15, 15)),
+    props: [
+      { kind: 'bed', x: 6, y: 5, w: 2, h: 3 }, { kind: 'bed', x: 26, y: 5, w: 2, h: 3 }, { kind: 'bed', x: 26, y: 16, w: 2, h: 2 },
+      { kind: 'table', x: 6, y: 17, w: 3, h: 1 }, { kind: 'shelf', x: 12, y: 16, w: 1, h: 3 },
+      { kind: 'statue', x: 14, y: 5, w: 1, h: 1 }, { kind: 'statue', x: 19, y: 5, w: 1, h: 1 },
+    ],
+    trees: [],
+    tokens: [{ x: 15, y: 7, n: 'G1' }, { x: 18, y: 8, n: 'G2' }],
+  },
+  cellar: {
+    base: [],
+    rooms: [
+      { x: 13, y: 4, w: 8, h: 8, mat: 'dirt', name: 'Storeroom' },
+      { x: 21, y: 4, w: 8, h: 8, mat: 'stone', name: 'Wine cellar' },
+      { x: 9, y: 12, w: 12, h: 6, mat: 'stone', name: 'Old crypt' },
+    ],
+    patches: [{ x: 10, y: 15, w: 3, h: 2, mat: 'rubble' }, { x: 16, y: 5, w: 3, h: 2, mat: 'water' }],
+    doors: [].concat(V(21, 8, 8), H(16, 16, 12)),
+    windows: [],
+    props: [B(22, 5), B(22, 6), B(22, 7), B(22, 9), B(24, 10), B(25, 10), { kind: 'altar', x: 15, y: 14, w: 2, h: 1 }, { kind: 'altar', x: 18, y: 14, w: 2, h: 1 }],
+    trees: [],
+    tokens: [{ x: 12, y: 14, n: 'WI' }],
+  },
+  attic: {
+    base: [],
+    rooms: [
+      { x: 9, y: 6, w: 16, h: 10, mat: 'wood', name: 'Attic' },
+      { x: 19, y: 6, w: 6, h: 4, mat: 'wood', name: 'Hidden room' },
+    ],
+    patches: [{ x: 11, y: 8, w: 3, h: 2, mat: 'rubble' }],
+    doors: V(19, 8, 8),
+    windows: [].concat(V(9, 10, 10), V(25, 12, 12)),
+    props: [{ kind: 'chest', x: 22, y: 7, w: 1, h: 1 }, B(14, 13), B(15, 13), B(14, 14)],
+    trees: [],
+    tokens: [],
+  },
+};
+// Stairs belong to the floor they start on and rise to the next one.
+const STAIRS = [
+  { from: 'cellar', to: 'ground', x: 27, y: 5, w: 2, h: 3 },
+  { from: 'ground', to: 'upper', x: 18, y: 13, w: 2, h: 3 },
+  { from: 'upper', to: 'attic', x: 10, y: 13, w: 1, h: 2 },
+];
+
+function edgesOf(def) {
+  const m = new Map();
+  for (const r of def.rooms) {
+    const kind = r.wall || 'solid';
+    const put = (k) => { if (!m.has(k)) m.set(k, kind); };
+    for (let i = 0; i < r.w; i++) { put('h:' + (r.x + i) + ':' + r.y); put('h:' + (r.x + i) + ':' + (r.y + r.h)); }
+    for (let j = 0; j < r.h; j++) { put('v:' + r.x + ':' + (r.y + j)); put('v:' + (r.x + r.w) + ':' + (r.y + j)); }
+  }
+  for (const k of def.doors || []) m.set(k, 'door');
+  for (const k of def.windows || []) m.set(k, 'window');
+  const groups = {};
+  for (const [k, kind] of m) {
+    const parts = k.split(':');
+    const e = { o: parts[0], x: +parts[1], y: +parts[2], kind: kind };
+    const g = e.o === 'h' ? 'h' + e.y : 'v' + e.x;
+    (groups[g] = groups[g] || []).push(e);
+  }
+  const runs = [];
+  for (const g in groups) {
+    const arr = groups[g];
+    const at = (e) => (e.o === 'h' ? e.x : e.y);
+    arr.sort((p, q) => at(p) - at(q));
+    let cur = null;
+    for (const e of arr) {
+      if (cur && cur.kind === e.kind && at(e) === cur.start + cur.len) cur.len++;
+      else { cur = { o: e.o, x: e.x, y: e.y, kind: e.kind, start: at(e), len: 1 }; runs.push(cur); }
+    }
+  }
+  return runs;
+}
+
+const LIFT = { table: { z: 10, bg: '#7a5c3a', r: '2px', ins: 3 }, hearth: { z: 3, bg: '#b5543f', r: '1px', ins: 1 }, shelf: { z: 28, bg: '#2e2216', r: '1px', ins: 2 }, bed: { z: 8, bg: '#4a3f5c', r: '3px', ins: 3 }, barrel: { z: 12, bg: '#6b5132', r: '50%', ins: 4 }, statue: { z: 22, bg: '#8a8272', r: '50%', ins: 5 }, altar: { z: 12, bg: '#6e6658', r: '1px', ins: 3 }, chest: { z: 8, bg: '#7a5c2e', r: '1px', ins: 5 } };
+const GRID = 'linear-gradient(rgba(0,0,0,0.22) 1px, transparent 1px) 0 0 / 20px 20px, linear-gradient(90deg, rgba(0,0,0,0.22) 1px, transparent 1px) 0 0 / 20px 20px, ';
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { level: 'upper', mode: 'cutaway', spin: -32, tilt: 58, zoom: 1.15, flags: { low: true, garden: true, tokens: true } };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const T = 20;
+    const accent = this.props.accent ?? '#d9b061';
+    const set = (patch) => () => this.setState(patch);
+    const ai = LEVELS.findIndex((l) => l.id === s.level);
+    const exploded = s.mode === 'exploded';
+    const GAP = 180;
+    const zOf = (i) => LEVELS[i].feet * 4 + (exploded ? (i - 1) * GAP : 0);
+    const ftLabel = (f) => (f > 0 ? '+' + f + ' ft' : f < 0 ? '−' + Math.abs(f) + ' ft' : '0 ft');
+
+    const planes = [];
+    const trees = [];
+    const tokens = [];
+    const tf = (z, rest) => 'translateZ(' + z + 'px)' + (rest ? ' ' + rest : '');
+    const stand = (z) => 'translateZ(' + z + 'px) rotateZ(' + -s.spin + 'deg) rotateX(-90deg)';
+
+    const drawLevel = (i, o, opts) => {
+      const id = LEVELS[i].id;
+      const def = DEFS[id];
+      const z = zOf(i);
+      if (id === 'ground' && opts.garden) {
+        planes.push({ l: 0, t: 0, w: 680, h: 480, bg: GRID + MATS.grass, bd: '0', r: '0', o: o, origin: '0 0', tf: tf(z) });
+        const side = '#2a2118';
+        planes.push({ l: 0, t: 480, w: 680, h: 16, bg: side, bd: '0', r: '0', o: o, origin: '0 0', tf: tf(z, 'rotateX(-90deg)') });
+        planes.push({ l: 0, t: 0, w: 680, h: 16, bg: side, bd: '0', r: '0', o: o, origin: '0 0', tf: tf(z, 'rotateX(-90deg)') });
+        planes.push({ l: 680, t: 0, w: 16, h: 480, bg: '#221a12', bd: '0', r: '0', o: o, origin: '0 0', tf: tf(z, 'rotateY(90deg)') });
+        planes.push({ l: 0, t: 0, w: 16, h: 480, bg: '#221a12', bd: '0', r: '0', o: o, origin: '0 0', tf: tf(z, 'rotateY(90deg)') });
+      }
+      if (opts.ghostOnly) return;
+      for (const r of [].concat(def.base || [], def.rooms, def.patches || [])) {
+        planes.push({ l: r.x * T, t: r.y * T, w: r.w * T, h: r.h * T, bg: GRID + MATS[r.mat], bd: '0', r: '0', o: o, origin: '0 0', tf: tf(z + 0.5) });
+      }
+      for (const hle of def.holes || []) {
+        planes.push({ l: hle.x * T, t: hle.y * T, w: hle.w * T, h: hle.h * T, bg: '#0d0b08', bd: '1px solid ' + accent, r: '0', o: o, origin: '0 0', tf: tf(z + 1) });
+      }
+      const low = opts.low;
+      for (const w of edgesOf(def)) {
+        let hgt = 40, bg = w.o === 'h' ? '#cbbd9e' : '#a8987a', bd = '0';
+        if (w.kind === 'door') { hgt = 32; bg = '#7a5c2e'; bd = '1px solid ' + accent; }
+        if (w.kind === 'window') { bg = 'rgba(138,164,189,0.35)'; bd = '1px solid #8aa4bd'; }
+        if (w.kind === 'rail') { hgt = 12; bg = 'repeating-linear-gradient(90deg, #a89f8d 0 2px, transparent 2px 7px)'; }
+        if (low && w.kind !== 'rail') hgt = 12;
+        if (w.o === 'h') {
+          planes.push({ l: w.x * T, t: w.y * T, w: w.len * T, h: hgt, bg: bg, bd: bd, r: '0', o: o, origin: '0 0', tf: tf(z, 'rotateX(90deg)') });
+        } else {
+          planes.push({ l: w.x * T, t: w.y * T, w: hgt, h: w.len * T, bg: bg, bd: bd, r: '0', o: o, origin: '0 0', tf: tf(z, 'rotateY(-90deg)') });
+        }
+      }
+      for (const p of def.props) {
+        const st = LIFT[p.kind];
+        planes.push({ l: p.x * T + st.ins, t: p.y * T + st.ins, w: p.w * T - 2 * st.ins, h: p.h * T - 2 * st.ins, bg: st.bg, bd: '1px solid rgba(0,0,0,0.5)', r: st.r, o: o, origin: '0 0', tf: tf(z + st.z) });
+      }
+      if (opts.trees) {
+        for (const t of def.trees) {
+          const w = Math.round(30 * t[2]), h = Math.round(52 * t[2]);
+          trees.push({ l: (t[0] + 0.5) * T - w / 2, t: (t[1] + 0.5) * T - h, w: w, h: h, o: o, tf: stand(z) });
+        }
+      }
+      if (opts.tokens) {
+        for (const k of def.tokens) {
+          const ring = k.party ? accent : '#d9756c';
+          tokens.push({ bl: k.x * T + 2, bt: k.y * T + 2, btf: tf(z + 1), l: k.x * T + 3, t: k.y * T + 10 - 22, n: k.n, ring: ring, o: o, tf: stand(z + 1) });
+        }
+      }
+    };
+
+    const drawStairs = (st, o) => {
+      const fi = LEVELS.findIndex((l) => l.id === st.from);
+      const ti = LEVELS.findIndex((l) => l.id === st.to);
+      const z0 = zOf(fi), rise = zOf(ti) - z0;
+      const run = st.h * T;
+      const len = Math.sqrt(run * run + rise * rise);
+      const ang = Math.atan(rise / run) * 180 / Math.PI;
+      planes.push({
+        l: st.x * T, t: (st.y + st.h) * T - len, w: st.w * T, h: len,
+        bg: exploded ? 'repeating-linear-gradient(0deg, rgba(217,176,97,0.55) 0 4px, rgba(217,176,97,0.12) 4px 10px)' : 'repeating-linear-gradient(0deg, #b09a72 0 4px, #5c4f3a 4px 10px)',
+        bd: '1px solid ' + accent, r: '0', o: o, origin: '50% 100%', tf: tf(z0 + 0.5, 'rotateX(' + -ang + 'deg)'),
+      });
+    };
+
+    const vis = {};
+    LEVELS.forEach((l, i) => {
+      let o = 0, show = false;
+      if (s.mode === 'cutaway') { show = i <= ai && (i === ai || l.id !== 'cellar'); o = 1; }
+      else if (s.mode === 'stacked') { show = l.id !== 'cellar' || ai === 0; o = i > ai ? 0.12 : 1; }
+      else { show = true; o = i === ai ? 1 : 0.5; }
+      vis[l.id] = { show: show, o: o };
+      if (show) {
+        drawLevel(i, o, {
+          garden: s.flags.garden,
+          low: s.flags.low && s.mode === 'cutaway' && i === ai,
+          trees: s.flags.garden,
+          tokens: s.flags.tokens,
+        });
+      }
+    });
+    if (s.mode === 'cutaway' && ai === 0) drawLevel(1, 0.1, { garden: true, ghostOnly: true });
+    for (const st of STAIRS) {
+      if (vis[st.from].show) drawStairs(st, vis[st.from].o);
+    }
+
+    const levels = LEVELS.slice().reverse().map((l) => {
+      const on = l.id === s.level;
+      const d = DEFS[l.id];
+      const party = d.tokens.filter((t) => t.party).length;
+      const foes = d.tokens.length - party;
+      const pips = [];
+      for (let i = 0; i < party; i++) pips.push(accent);
+      for (let i = 0; i < foes; i++) pips.push('#d9756c');
+      const bits = [d.rooms.length + (d.rooms.length === 1 ? ' room' : ' rooms')];
+      if (party) bits.push(party + ' heroes');
+      if (foes) bits.push(foes + (foes === 1 ? ' foe' : ' foes'));
+      return {
+        name: l.name, short: l.short, ft: ftLabel(l.feet), sub: bits.join(' · '), pips: pips, on: on, pick: set({ level: l.id }),
+        bg: on ? 'rgba(217,176,97,0.12)' : '#1e1a14', bd: on ? accent : '#33291d', ftColor: on ? accent : '#a89f8d',
+        elBg: on ? accent : 'transparent', elFg: on ? '#16130f' : '#c9bfad',
+      };
+    });
+
+    const MODES = [
+      { id: 'cutaway', label: 'Cutaway', sub: 'Everything above this floor lifts off. Its walls drop to knee height.', d: 'M4 18l11 6 11-6-11-6zM4 18v-4M26 18v-4M15 24v-4M8 12l7-4 7 4' },
+      { id: 'stacked', label: 'Stacked', sub: 'The whole house. Floors above turn to glass.', d: 'M4 22l11 6 11-6-11-6zM4 15l11 6 11-6-11-6zM4 8l11 6 11-6-11-6z' },
+      { id: 'exploded', label: 'Pulled apart', sub: 'Floors spread out, stairs drawn between them.', d: 'M4 25l11 4 11-4-11-4zM4 15l11 4 11-4-11-4zM4 5l11 4 11-4L15 1zM15 9v2M15 19v2' },
+    ];
+    const modes = MODES.map((m) => {
+      const on = m.id === s.mode;
+      return Object.assign({}, m, { on: on, pick: set({ mode: m.id }), bg: on ? 'rgba(217,176,97,0.12)' : '#1e1a14', bd: on ? accent : '#33291d', fg: on ? accent : '#ede7da' });
+    });
+    const flag = (key, label) => {
+      const on = !!s.flags[key];
+      return { label: label, on: on, track: on ? accent : '#3d3226', knob: on ? 17 : 3, pick: () => this.setState({ flags: Object.assign({}, s.flags, { [key]: !on }) }) };
+    };
+    const tiltNow = exploded ? 72 : s.tilt;
+    const tilts = [['From above', 30], ['Tilted', 58], ['Low', 70]].map((c) => {
+      const on = !exploded && c[1] === s.tilt;
+      return { label: c[0], pick: set({ tilt: c[1] }), bg: on ? accent : 'transparent', fg: on ? '#16130f' : '#c9bfad' };
+    });
+    const L = LEVELS[ai];
+    const modeLine = { cutaway: 'cut away above', stacked: 'the whole house', exploded: 'floors pulled apart' }[s.mode];
+    const centerZ = exploded ? -130 : s.mode === 'stacked' ? -30 : -Math.max(0, zOf(ai)) / 2;
+
+    return {
+      accent: accent,
+      levels: levels,
+      modes: modes,
+      flags: [flag('low', 'Knee-high walls on this floor'), flag('garden', 'Show the garden'), flag('tokens', 'Show everyone on the board')],
+      tilts: tilts,
+      levelName: L.name,
+      levelFt: ftLabel(L.feet),
+      modeLine: modeLine,
+      planes: planes,
+      trees: trees,
+      tokens: tokens,
+      spin: s.spin,
+      tilt: tiltNow,
+      zoom: exploded ? s.zoom * 0.62 : s.zoom,
+      shiftY: exploded ? 40 : 30,
+      centerZ: centerZ,
+      turnLeft: set({ spin: s.spin - 45 }),
+      turnRight: set({ spin: s.spin + 45 }),
+      zoomIn: set({ zoom: Math.min(1.8, s.zoom + 0.15) }),
+      zoomOut: set({ zoom: Math.max(0.6, s.zoom - 0.15) }),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -47,21 +47,34 @@ import {
   distanceSquares,
   floodFill,
   jumpLandings,
+  linkCostFeet,
+  linksUnder,
   reachFor,
   rectTiles,
+  roomEdits,
   wallIndex,
 } from '@/@creator/campaign/lib/battlemap';
 import { floorArt, shade } from '@/@shared/battlemap/art';
 import {
   edgeKey,
   FACINGS,
+  feetLabel,
   inBounds,
+  levelOf,
+  linkOtherEnd,
+  linkTiles,
   MATERIALS,
   MAX_SIDE,
   MIN_SIDE,
+  shortId,
   VOID,
+  withLevel,
+  type BoardDoc,
   type Facing,
   type ItemState,
+  type LevelDoc,
+  type LevelLink,
+  type LinkKind,
   type PropKind,
   type Side,
   type TerrainDoc,
@@ -89,9 +102,11 @@ import {
   saveTerrainAction,
   setBattleMapActiveAction,
   setBattleMapVisibilityAction,
+  takeLinkAction,
   updateTokenAction,
   operateThingAction,
 } from '../../battlemap-actions';
+import { FloorRail } from './FloorRail';
 import { BattleMap3DLazy } from './BattleMap3DLazy';
 import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import { withAdvantage } from '@/@shared/lib/dice';
@@ -144,6 +159,17 @@ type Tool =
   | { kind: 'rect'; apply: 'material' | 'elevation' | 'reveal'; value: number }
   /** Tap a tile: every connected tile of the same floor takes this one. */
   | { kind: 'fill'; material: number }
+  /**
+   * A room in one drag (floors): the floor painted, walls round it, a door
+   * where it meets a room already there.
+   */
+  | { kind: 'room'; material: number; door: boolean }
+  /**
+   * Stairs or a ladder in one drag (floors): the box is the footprint on
+   * this floor and on `to`, and a token that ends its move on it is
+   * offered the other floor.
+   */
+  | { kind: 'link'; link: LinkKind; to: string }
   /** Two taps, feet between them. Anybody's, not only staff's. */
   | { kind: 'ruler' }
   /**
@@ -173,6 +199,7 @@ type Mode =
   | 'select'
   | 'ruler'
   | 'area'
+  | 'rooms'
   | 'paint'
   | 'shape'
   | 'build'
@@ -187,6 +214,8 @@ function modeOf(tool: Tool): Mode {
       return 'ruler';
     case 'area':
       return 'area';
+    case 'room':
+      return 'rooms';
     case 'paint':
     case 'fill':
       return 'paint';
@@ -237,6 +266,12 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
     hint: 'tap the origin, then where it points · the shelf casts on who is inside',
   },
   {
+    mode: 'rooms',
+    label: 'Rooms',
+    tool: { kind: 'room', material: 4, door: true },
+    hint: 'drag a box — floor, walls and a door in one go',
+  },
+  {
     mode: 'paint',
     label: 'Floor',
     tool: { kind: 'paint', material: 1 },
@@ -252,7 +287,7 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
     mode: 'build',
     label: 'Build',
     tool: { kind: 'wall', wall: 'solid' },
-    hint: 'tap an edge for a wall, a tile for the rest',
+    hint: 'tap an edge for a wall, a tile for the rest · drag a box for stairs',
   },
   {
     mode: 'things',
@@ -300,6 +335,23 @@ const WALLS: { kind: WallKind; label: string; height: number }[] = [
   { kind: 'window', label: 'Window', height: 10 },
   { kind: 'rail', label: 'Rail', height: 3 },
 ];
+
+const LINK_LABEL: Record<LinkKind, string> = {
+  stairs: 'Stairs',
+  ladder: 'Ladder',
+};
+
+/** "the grand stair", "the ladder" — what a link is called in a sentence. */
+function linkName(link: LevelLink): string {
+  return (
+    link.name?.trim() || (link.kind === 'ladder' ? 'the ladder' : 'the stairs')
+  );
+}
+
+/** A floor's name, or a word for one the reader has not been shown. */
+function levelName(board: BoardDoc, id: string): string {
+  return board.levels.find(l => l.id === id)?.name || 'somewhere unseen';
+}
 
 /** How far a token may be shown to reach. The rules module prices it. */
 const DEFAULT_SPEED_FEET = 30;
@@ -494,18 +546,73 @@ export function BattleBoard({
    * incoming document is ignored, or the paint stroke in progress would be
    * snapped back to its start by the previous stroke's echo.
    */
-  const [terrain, setTerrain] = useState<TerrainDoc | null>(
-    board?.terrain ?? null
-  );
+  const [doc, setDoc] = useState<BoardDoc | null>(board?.terrain ?? null);
   const dirty = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!board) {
-      setTerrain(null);
+      setDoc(null);
       return;
     }
-    if (!dirty.current) setTerrain(board.terrain);
+    if (!dirty.current) setDoc(board.terrain);
   }, [board]);
+
+  // A group shares the turn (11): every member's reach lights on it.
+  const currentEntryIds = useMemo(
+    () => new Set(state.turnEntryIds),
+    [state.turnEntryIds]
+  );
+
+  /*
+   * Which floor is in front (floors). The board follows somebody by
+   * default — the DM's follows whoever's turn it is, a player's follows
+   * their own hero — and a tab picked by hand stops the following until
+   * it is switched back on. What is drawn, hit and painted below is one
+   * floor: `terrain` is that floor's document and `here` the tokens on it.
+   */
+  const [pickedLevel, setPickedLevel] = useState<string | null>(null);
+  const [follow, setFollow] = useState(true);
+  const followed = useMemo(() => {
+    if (!board) return null;
+    const t = isStaff
+      ? board.tokens.find(t => t.entryId && currentEntryIds.has(t.entryId))
+      : board.tokens.find(t => t.mine && t.entryId);
+    return t?.level ?? null;
+  }, [board, isStaff, currentEntryIds]);
+  const terrain: LevelDoc | null = doc
+    ? levelOf(doc, follow && followed ? followed : pickedLevel)
+    : null;
+  const levelId = terrain?.id ?? null;
+  const pickLevel = useCallback((id: string) => {
+    setPickedLevel(id);
+    setFollow(false);
+  }, []);
+  const here = useMemo(
+    () => (board ? board.tokens.filter(t => t.level === levelId) : []),
+    [board, levelId]
+  );
+  // Page Up / Page Down walk the floors, for anybody at the table.
+  useEffect(() => {
+    if (!doc || !levelId) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== 'PageUp' && ev.key !== 'PageDown') return;
+      const tag = (ev.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const i = doc.levels.findIndex(l => l.id === levelId);
+      const next = doc.levels[i + (ev.key === 'PageUp' ? 1 : -1)];
+      if (!next) return;
+      ev.preventDefault();
+      pickLevel(next.id);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [doc, levelId, pickLevel]);
+  /** The stairs under the selection, and whether the offer was declined. */
+  const [declinedLink, setDeclinedLink] = useState<string | null>(null);
+  /** Stairs picked in select mode, for the DM to name, hide or remove. */
+  const [selectedLink, setSelectedLink] = useState<string | null>(null);
+  /** Draw the floor below in dashed outline, so a stairwell lands on a stair. */
+  const [onion, setOnion] = useState(true);
 
   const [tool, setTool] = useState<Tool>({ kind: 'select' });
   // The DM's keyboard (11): a digit names a mode, F the fog. The board's
@@ -735,10 +842,14 @@ export function BattleBoard({
     const indices = [...pendingReveal.current];
     pendingReveal.current.clear();
     setPendingCount(0);
-    const res = await revealTilesAction(board.id, indices);
+    const res = await revealTilesAction(
+      board.id,
+      indices,
+      levelId ?? undefined
+    );
     if (!res.ok) onError(res.error);
     await refresh();
-  }, [board, onError, refresh]);
+  }, [board, levelId, onError, refresh]);
   const [busy, setBusy] = useState(false);
   const [newW, setNewW] = useState('20');
   const [newH, setNewH] = useState('15');
@@ -802,11 +913,6 @@ export function BattleBoard({
     if (!state.encounter) return null;
     return state.entries[state.encounter.turnIndex]?.id ?? null;
   }, [state.encounter, state.entries]);
-  // A group shares the turn (11): every member's reach lights on it.
-  const currentEntryIds = useMemo(
-    () => new Set(state.turnEntryIds),
-    [state.turnEntryIds]
-  );
 
   const selectedToken = board?.tokens.find(t => t.id === selected) ?? null;
   const selectedEntry = selectedToken?.entryId
@@ -903,15 +1009,17 @@ export function BattleBoard({
       footprint: t.footprint,
       side: sideOf(t),
     });
+    // On another floor, nothing on this one is in reach.
+    if (selectedToken.level !== terrain.id) return null;
     return reachFor(
       terrain,
       asReach(selectedToken),
       // An open door and a smashed chest are walked through — the server
       // applies the same rule when it checks the drop.
-      board.tokens.filter(t => t.blocks).map(asReach),
+      here.filter(t => t.blocks).map(asReach),
       speedOf(selectedToken)
     );
-  }, [terrain, selectedToken, board, sideOf, speedOf]);
+  }, [terrain, selectedToken, board, here, sideOf, speedOf]);
 
   /**
    * Where the selected hero could jump to (09): the far side of a gap in
@@ -924,6 +1032,7 @@ export function BattleBoard({
     if (!terrain || !selectedToken || !board || !selectedToken.entryId) {
       return null;
     }
+    if (selectedToken.level !== terrain.id) return null;
     const entry = entriesById.get(selectedToken.entryId);
     const hero = entry?.characterId
       ? state.party.find(p => p.characterId === entry.characterId)
@@ -932,12 +1041,68 @@ export function BattleBoard({
     const landings = jumpLandings(
       terrain,
       selectedToken,
-      board.tokens.filter(t => t.id !== selectedToken.id && t.blocks),
+      here.filter(t => t.id !== selectedToken.id && t.blocks),
       hero.jump.long,
       hero.jump.longStanding
     );
     return { landings, long: hero.jump.long, standing: hero.jump.longStanding };
-  }, [terrain, selectedToken, board, entriesById, state.party]);
+  }, [terrain, selectedToken, board, here, entriesById, state.party]);
+
+  /**
+   * The stairs the selected token is standing on (floors): what the board
+   * offers when a move ends on them. Hidden stairs are not offered to a
+   * player — the server has already left them out of a player's board —
+   * and staff see them dashed.
+   */
+  const stairsUnder = useMemo(() => {
+    if (!doc || !terrain || !selectedToken || !selectedToken.entryId) {
+      return null;
+    }
+    if (selectedToken.level !== terrain.id || !selectedToken.mine) return null;
+    const links = linksUnder(doc, terrain.id, selectedToken).filter(
+      l => !l.hidden || isStaff
+    );
+    const link = links[0];
+    if (!link) return null;
+    const otherId = linkOtherEnd(link, terrain.id);
+    if (!otherId) return null;
+    const other = doc.levels.find(l => l.id === otherId);
+    return {
+      link,
+      otherId,
+      otherName: levelName(doc, otherId),
+      up: (other?.feet ?? terrain.feet + 1) > terrain.feet,
+      feet: linkCostFeet(doc, link, terrain.id),
+    };
+  }, [doc, terrain, selectedToken, isStaff]);
+  useEffect(() => {
+    setDeclinedLink(null);
+  }, [selected]);
+  const climb = async (ruling = false) => {
+    if (!selectedToken || !stairsUnder) return;
+    const res = await takeLinkAction(selectedToken.id, stairsUnder.link.id, {
+      ruling,
+    });
+    if (!res.ok) {
+      if (res.overridable) {
+        setRefused({
+          message: res.error,
+          ruling: async () => {
+            await climb(true);
+            await refresh();
+          },
+        });
+      } else {
+        onError(res.error);
+      }
+    } else {
+      setRefused(null);
+      // Go with them: the board turns to the floor they landed on, unless
+      // it is already following them there.
+      if (!follow) setPickedLevel(res.data.level);
+    }
+    await refresh();
+  };
 
   /* --- the area ---------------------------------------------------------- */
 
@@ -945,12 +1110,13 @@ export function BattleBoard({
     if (!terrain || !board || tool.kind !== 'area' || !areaPick) return null;
     const area = {
       shape: tool.shape,
+      level: terrain.id,
       origin: areaPick.from,
       direction: areaPick.to ?? undefined,
       size: tool.size,
     };
     const tiles = areaTiles(terrain, area);
-    const inside = board.tokens.filter(t => {
+    const inside = here.filter(t => {
       if (!t.entryId) return false;
       for (let dy = 0; dy < t.footprint; dy++) {
         for (let dx = 0; dx < t.footprint; dx++) {
@@ -966,7 +1132,7 @@ export function BattleBoard({
       entryIds,
       labels: entryIds.map(id => entriesById.get(id)?.label ?? 'Something'),
     };
-  }, [terrain, board, tool, areaPick, entriesById]);
+  }, [terrain, board, here, tool, areaPick, entriesById]);
 
   useEffect(() => {
     setLitArea(
@@ -985,10 +1151,10 @@ export function BattleBoard({
   /* --- saving ---------------------------------------------------------- */
 
   const scheduleSave = useCallback(
-    (next: TerrainDoc) => {
+    (next: BoardDoc) => {
       if (!board) return;
       dirty.current = true;
-      setTerrain(next);
+      setDoc(next);
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
         saveTimer.current = null;
@@ -999,6 +1165,21 @@ export function BattleBoard({
       }, SAVE_MS);
     },
     [board, onError, refresh]
+  );
+  /** One floor edited; the whole board written. */
+  const saveLevel = useCallback(
+    (next: TerrainDoc) => {
+      if (!doc || !terrain) return;
+      scheduleSave(
+        withLevel(doc, {
+          ...next,
+          id: terrain.id,
+          name: terrain.name,
+          feet: terrain.feet,
+        })
+      );
+    },
+    [doc, terrain, scheduleSave]
   );
 
   useEffect(() => {
@@ -1109,15 +1290,39 @@ export function BattleBoard({
         default:
           return;
       }
-      scheduleSave(next);
+      saveLevel(next);
     },
-    [terrain, isStaff, tool, brush, scheduleSave]
+    [terrain, isStaff, tool, brush, saveLevel]
   );
 
   /** The rectangle tool's one write, on pointer-up. */
   const applyRect = useCallback(
     (from: { x: number; y: number }, to: { x: number; y: number }) => {
-      if (!terrain || !isStaff || tool.kind !== 'rect') return;
+      if (!terrain || !doc || !isStaff) return;
+      if (tool.kind === 'room') {
+        saveLevel(
+          roomEdits(terrain, from, to, tool.material, { door: tool.door })
+        );
+        return;
+      }
+      if (tool.kind === 'link') {
+        const to2 = doc.levels.find(l => l.id === tool.to);
+        if (!to2 || to2.id === terrain.id) return;
+        const link: LevelLink = {
+          id: shortId(),
+          kind: tool.link,
+          x: Math.min(from.x, to.x),
+          y: Math.min(from.y, to.y),
+          w: Math.min(6, Math.abs(to.x - from.x) + 1),
+          h: Math.min(6, Math.abs(to.y - from.y) + 1),
+          from: to2.feet < terrain.feet ? to2.id : terrain.id,
+          to: to2.feet < terrain.feet ? terrain.id : to2.id,
+        };
+        scheduleSave({ ...doc, links: [...doc.links, link] });
+        setSelectedLink(link.id);
+        return;
+      }
+      if (tool.kind !== 'rect') return;
       const tiles = rectTiles(terrain, from, to);
       if (tool.apply === 'reveal') {
         revealTilesPending(tiles);
@@ -1138,9 +1343,18 @@ export function BattleBoard({
           );
         }
       }
-      scheduleSave(next);
+      saveLevel(next);
     },
-    [terrain, isStaff, tool, revealTilesPending, flushReveal, scheduleSave]
+    [
+      terrain,
+      doc,
+      isStaff,
+      tool,
+      revealTilesPending,
+      flushReveal,
+      saveLevel,
+      scheduleSave,
+    ]
   );
 
   const toggleDoor = useCallback(
@@ -1153,9 +1367,9 @@ export function BattleBoard({
       if (idx < 0) return;
       const walls = [...terrain.walls];
       walls[idx] = { ...walls[idx], open: !walls[idx].open };
-      scheduleSave({ ...terrain, walls });
+      saveLevel({ ...terrain, walls });
     },
-    [terrain, isStaff, scheduleSave]
+    [terrain, isStaff, saveLevel]
   );
 
   /* --- pointer --------------------------------------------------------- */
@@ -1203,6 +1417,7 @@ export function BattleBoard({
         entryId: placing.entryId,
         x: at.x,
         y: at.y,
+        level: terrain.id,
         visibility: 'dm',
       });
       if (!res.ok) onError(res.error);
@@ -1214,7 +1429,11 @@ export function BattleBoard({
     // Staff with a building tool: paint. Everything else is selection and
     // movement, which players and staff share.
     if (isStaff && tool.kind !== 'select' && tool.kind !== 'scenery') {
-      if (tool.kind === 'rect') {
+      if (
+        tool.kind === 'rect' ||
+        tool.kind === 'room' ||
+        tool.kind === 'link'
+      ) {
         setMarquee({ from: at, to: at });
         return;
       }
@@ -1233,6 +1452,7 @@ export function BattleBoard({
         const res = await placeTokenAction(board.id, {
           x: at.x,
           y: at.y,
+          level: terrain.id,
           label: tool.label.trim() || 'Something',
           visibility: 'shared',
           imageId: tool.imageId,
@@ -1276,7 +1496,7 @@ export function BattleBoard({
       }
     }
 
-    const hit = board.tokens.find(
+    const hit = here.find(
       t =>
         at.x >= t.x &&
         at.x < t.x + t.footprint &&
@@ -1287,6 +1507,7 @@ export function BattleBoard({
     if (hit) {
       // Shift adds to the selection, so a group can be picked up together;
       // a plain tap on the selected token lets it go.
+      setSelectedLink(null);
       if (ev.shiftKey) toggleSelectedToken(campaignId, hit.id);
       else
         setSelected(
@@ -1295,15 +1516,33 @@ export function BattleBoard({
       return;
     }
 
+    // The stairs themselves, for the DM to name, hide or take away — when
+    // nobody is picked up, so a token on the stairs still walks.
+    if (isStaff && doc && !(selectedToken && selectedToken.mine)) {
+      const i = at.y * terrain.w + at.x;
+      const stair = doc.links.find(
+        l =>
+          (l.from === terrain.id || l.to === terrain.id) &&
+          linkTiles(doc, l).includes(i)
+      );
+      if (stair) {
+        setSelectedLink(stair.id === selectedLink ? null : stair.id);
+        setSelected(null);
+        return;
+      }
+    }
+
     // An empty tile with a token selected: move it there, if it may be.
     // Under advise the tile may be lava and the move still goes: the board
     // has said so in red, and saying is all advising does. Staff are never
     // stopped here at all — the server refuses them with a way past it, and
     // a refusal swallowed in the browser has no "Do it anyway".
-    if (selectedToken && selectedToken.mine) {
-      const others = board.tokens.filter(
-        t => t.id !== selectedToken.id && t.blocks
-      );
+    if (
+      selectedToken &&
+      selectedToken.mine &&
+      selectedToken.level === terrain.id
+    ) {
+      const others = here.filter(t => t.id !== selectedToken.id && t.blocks);
       if (
         !canStandUnder(
           terrain,
@@ -1319,7 +1558,7 @@ export function BattleBoard({
       // its own claim, and the server refuses each on its own.
       const dx = at.x - selectedToken.x;
       const dy = at.y - selectedToken.y;
-      const group = board.tokens.filter(
+      const group = here.filter(
         t => selectedIds.includes(t.id) && t.id !== selectedToken.id && t.mine
       );
       await move(selectedToken.id, { x: at.x, y: at.y });
@@ -1332,12 +1571,13 @@ export function BattleBoard({
     }
 
     setSelected(null);
+    setSelectedLink(null);
   };
 
   const hoverToken = useMemo(() => {
     if (!hover || !board) return null;
     return (
-      board.tokens.find(
+      here.find(
         t =>
           hover.x >= t.x &&
           hover.x < t.x + t.footprint &&
@@ -1345,7 +1585,7 @@ export function BattleBoard({
           hover.y < t.y + t.footprint
       ) ?? null
     );
-  }, [hover, board]);
+  }, [hover, board, here]);
 
   const onPointerMove = (ev: ReactPointerEvent<HTMLCanvasElement>) => {
     const at = tileAt(ev);
@@ -1475,6 +1715,71 @@ export function BattleBoard({
     ctx.stroke();
     ctx.globalAlpha = 1;
 
+    // The floor below, ghosted (floors): the outline of its rooms and its
+    // walls in dashes, so a stairwell is cut where the stair comes up and a
+    // bedroom sits over a hall rather than over the garden. Staff only —
+    // a player has not necessarily seen the floor below.
+    const belowIdx = doc ? doc.levels.findIndex(l => l.id === terrain.id) : -1;
+    const below =
+      isStaff && onion && doc && belowIdx > 0 ? doc.levels[belowIdx - 1] : null;
+    if (below) {
+      ctx.save();
+      ctx.strokeStyle = p.ink;
+      ctx.globalAlpha = dark ? 0.35 : 0.3;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      const floorBelow = (x: number, y: number) =>
+        inBounds(below, x, y) && below.material[y * below.w + x] !== VOID;
+      for (let y = 0; y < below.h; y++) {
+        for (let x = 0; x < below.w; x++) {
+          if (!floorBelow(x, y)) continue;
+          const px = x * size;
+          const py = y * size;
+          if (!floorBelow(x, y - 1)) {
+            ctx.moveTo(px, py);
+            ctx.lineTo(px + size, py);
+          }
+          if (!floorBelow(x, y + 1)) {
+            ctx.moveTo(px, py + size);
+            ctx.lineTo(px + size, py + size);
+          }
+          if (!floorBelow(x - 1, y)) {
+            ctx.moveTo(px, py);
+            ctx.lineTo(px, py + size);
+          }
+          if (!floorBelow(x + 1, y)) {
+            ctx.moveTo(px + size, py);
+            ctx.lineTo(px + size, py + size);
+          }
+        }
+      }
+      for (const w of below.walls) {
+        const x0 = w.x * size;
+        const y0 = w.y * size;
+        switch (w.side) {
+          case 'n':
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x0 + size, y0);
+            break;
+          case 's':
+            ctx.moveTo(x0, y0 + size);
+            ctx.lineTo(x0 + size, y0 + size);
+            break;
+          case 'w':
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x0, y0 + size);
+            break;
+          case 'e':
+            ctx.moveTo(x0 + size, y0);
+            ctx.lineTo(x0 + size, y0 + size);
+            break;
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Ledges: where a tile stands higher than its neighbour, the lower side
     // gets a shadow along the shared edge and the higher a thin lit lip. A
     // drop reads as a drop without a number on it — the number stays, small,
@@ -1559,7 +1864,7 @@ export function BattleBoard({
     // most of the time, the DM's whole room went mustard. The hidden part
     // is the smaller set and the one the DM is actually deciding about.
     if (isStaff) {
-      const shown = new Set(board.revealed);
+      const shown = new Set(board.revealed[terrain.id] ?? []);
       ctx.save();
       ctx.beginPath();
       let any = false;
@@ -1621,7 +1926,7 @@ export function BattleBoard({
     // A dark board (08): what nobody lights sits under a cool grey, so the
     // party can tell "we have seen this" from "we can see this now". Torches
     // carried by tokens light their pool the way a brazier does.
-    const torches = (board?.tokens ?? [])
+    const torches = here
       .filter(t => t.lightFeet && t.lightFeet > 0)
       .map(t => ({ x: t.x, y: t.y, radiusFeet: t.lightFeet as number }));
     if (terrain.ambient === 'dark') {
@@ -1808,6 +2113,80 @@ export function BattleBoard({
       ctx.stroke();
     }
 
+    // Stairs and ladders (floors): treads across the footprint, a gold
+    // edge, and a tag saying which way they go. They stand on both floors,
+    // so the same drawing is on the floor above, tagged the other way. A
+    // hidden stair is dashed, and only staff are drawing it at all.
+    const stairsHere = doc
+      ? doc.links.filter(l => l.from === terrain.id || l.to === terrain.id)
+      : [];
+    for (const l of stairsHere) {
+      const x0 = l.x * size;
+      const y0 = l.y * size;
+      const w = l.w * size;
+      const h = l.h * size;
+      const up = l.from === terrain.id;
+      const tall = l.h >= l.w;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, y0, w, h);
+      ctx.clip();
+      ctx.fillStyle = dark ? '#2a231a' : '#e9dfc9';
+      ctx.fillRect(x0, y0, w, h);
+      const treadFill = dark ? '#9c8763' : '#a8905e';
+      const treadGap = Math.max(4, size * (l.kind === 'ladder' ? 0.45 : 0.3));
+      ctx.fillStyle = treadFill;
+      if (l.kind === 'ladder') {
+        // Two rails and rungs between them.
+        const rail = Math.max(2, size * 0.1);
+        const inset = Math.max(3, size * 0.2);
+        if (tall) {
+          ctx.fillRect(x0 + inset, y0, rail, h);
+          ctx.fillRect(x0 + w - inset - rail, y0, rail, h);
+          for (let y = y0 + treadGap / 2; y < y0 + h; y += treadGap)
+            ctx.fillRect(x0 + inset, y, w - inset * 2, rail);
+        } else {
+          ctx.fillRect(x0, y0 + inset, w, rail);
+          ctx.fillRect(x0, y0 + h - inset - rail, w, rail);
+          for (let x = x0 + treadGap / 2; x < x0 + w; x += treadGap)
+            ctx.fillRect(x, y0 + inset, rail, h - inset * 2);
+        }
+      } else {
+        const tread = Math.max(2, treadGap * 0.45);
+        if (tall) {
+          for (let y = y0; y < y0 + h; y += treadGap)
+            ctx.fillRect(x0, y, w, tread);
+        } else {
+          for (let x = x0; x < x0 + w; x += treadGap)
+            ctx.fillRect(x, y0, tread, h);
+        }
+      }
+      ctx.restore();
+      ctx.strokeStyle = p.gold;
+      ctx.lineWidth = 2;
+      ctx.setLineDash(l.hidden ? [4, 4] : []);
+      ctx.strokeRect(x0 + 1, y0 + 1, w - 2, h - 2);
+      ctx.setLineDash([]);
+      if (l.id === selectedLink) {
+        ctx.strokeStyle = p.ink;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x0 - 3, y0 - 3, w + 6, h + 6);
+      }
+      if (size >= 14) {
+        const tag = up ? 'UP' : 'DOWN';
+        ctx.font = `700 ${Math.max(8, size * 0.28)}px Inter, system-ui, sans-serif`;
+        const tw = ctx.measureText(tag).width + 6;
+        const th = Math.max(10, size * 0.4);
+        ctx.fillStyle = p.gold;
+        ctx.fillRect(x0 + 2, y0 + 2, tw, th);
+        ctx.fillStyle = dark ? '#16130f' : '#ffffff';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(tag, x0 + 5, y0 + 2 + th / 2 + 0.5);
+        ctx.textBaseline = 'alphabetic';
+      }
+    }
+
     // Walls on edges, drawn with a little depth: masonry as a dark band
     // with a lit coping, a door as its plank leaf — swung open into the
     // room, with the arc it swept — a window as stone with the arcane pane
@@ -1962,7 +2341,7 @@ export function BattleBoard({
     // ring of the side's colour on the floor, a pewter base with the side's
     // colour as its rim, the face inside, and the hit points as an arc round
     // the outside — not a counter painted in the side's colour edge to edge.
-    for (const t of board.tokens) {
+    for (const t of here) {
       const entry = t.entryId ? entriesById.get(t.entryId) : undefined;
       const label = entry?.label ?? t.label ?? '';
       const cx = (t.x + t.footprint / 2) * size;
@@ -2137,6 +2516,48 @@ export function BattleBoard({
       }
     }
 
+    // Who is at the other end of the stairs (floors): a small tag beside
+    // each, counting the heroes and foes on the floor it leads to — the
+    // ones this reader may see, which for a player is the ones the party
+    // has. The board answers "is anybody up there" without a tab switch.
+    if (doc && size >= 12) {
+      for (const l of stairsHere) {
+        const otherId = linkOtherEnd(l, terrain.id);
+        if (!otherId) continue;
+        let heroes = 0;
+        let foes = 0;
+        for (const t of board.tokens) {
+          if (t.level !== otherId || !t.entryId) continue;
+          const side = entriesById.get(t.entryId)?.side;
+          if (side === 'party') heroes += 1;
+          else if (side === 'foe') foes += 1;
+        }
+        if (heroes === 0 && foes === 0) continue;
+        const bits: string[] = [];
+        if (heroes) bits.push(`${heroes} ${heroes === 1 ? 'hero' : 'heroes'}`);
+        if (foes) bits.push(`${foes} ${foes === 1 ? 'foe' : 'foes'}`);
+        const up = l.from === terrain.id;
+        const text = `${up ? '↑' : '↓'} ${bits.join(', ')} ${up ? 'upstairs' : 'below'}`;
+        ctx.font = `600 ${Math.max(10, size * 0.34)}px Inter, system-ui, sans-serif`;
+        const tw = ctx.measureText(text).width + 10;
+        const th = Math.max(16, size * 0.5);
+        const bx = Math.min(W - tw - 2, (l.x + l.w) * size + 4);
+        const by = Math.max(2, l.y * size + 2);
+        ctx.fillStyle = p.surface;
+        ctx.globalAlpha = 0.94;
+        ctx.fillRect(bx, by, tw, th);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = p.gold;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, by + 0.5, tw - 1, th - 1);
+        ctx.fillStyle = p.ink;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, bx + 5, by + th / 2 + 0.5);
+        ctx.textBaseline = 'alphabetic';
+      }
+    }
+
     // Hover.
     if (hover && isStaff && tool.kind !== 'select') {
       ctx.strokeStyle = p.gold;
@@ -2164,7 +2585,12 @@ export function BattleBoard({
             break;
         }
         ctx.stroke();
-      } else if (tool.kind !== 'rect' && tool.kind !== 'ruler') {
+      } else if (
+        tool.kind !== 'rect' &&
+        tool.kind !== 'room' &&
+        tool.kind !== 'link' &&
+        tool.kind !== 'ruler'
+      ) {
         const brushed =
           tool.kind === 'reveal' ||
           tool.kind === 'paint' ||
@@ -2264,6 +2690,10 @@ export function BattleBoard({
     ruler,
     litArea,
     state.rules.diagonals,
+    doc,
+    here,
+    onion,
+    selectedLink,
   ]);
 
   // Redraw on resize: the canvas is sized off its container.
@@ -2395,7 +2825,7 @@ export function BattleBoard({
       title={board.name || 'The sand table'}
       description={
         isStaff
-          ? `${terrain.w}×${terrain.h} · ${board.tokens.length} on the board · ${board.revealed.length} tiles shown`
+          ? `${terrain.w}×${terrain.h} · ${doc && doc.levels.length > 1 ? `${doc.levels.length} floors · ` : ''}${board.tokens.length} on the board · ${(board.revealed[terrain.id] ?? []).length} tiles shown on the ${terrain.name.toLowerCase()}`
           : 'Tap your token, then tap where it goes.'
       }
       actions={
@@ -2459,10 +2889,34 @@ export function BattleBoard({
       }
       bodyClassName="space-y-3"
     >
+      {doc && (
+        <FloorRail
+          board={doc}
+          tokens={board.tokens}
+          entriesById={entriesById}
+          levelId={terrain.id}
+          isStaff={isStaff}
+          follow={follow}
+          onPick={pickLevel}
+          onFollow={() => setFollow(true)}
+          onion={onion}
+          onOnion={setOnion}
+          onChange={next => {
+            scheduleSave(next);
+          }}
+          onAdded={id => {
+            pickLevel(id);
+            // A new floor is open air: the DM is about to build on it.
+            setTool({ kind: 'room', material: 4, door: true });
+          }}
+          onError={onError}
+        />
+      )}
+
       {dimensional && (
         <BattleMap3DLazy
           terrain={terrain}
-          tokens={board.tokens}
+          tokens={here}
           entries={state.entries}
           currentEntryId={currentEntryId}
           portraits={state.portraits}
@@ -2561,6 +3015,42 @@ export function BattleBoard({
 
           {tool.kind === 'area' && (
             <AreaControls tool={tool} onChange={setTool} />
+          )}
+
+          {mode === 'rooms' && tool.kind === 'room' && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {MATERIALS.filter((_, i) => i !== VOID).map((m, i) => {
+                const idx = i + 1;
+                const chosen = tool.material === idx;
+                return (
+                  <Button
+                    key={m.key}
+                    size="sm"
+                    variant={chosen ? 'solid' : 'flat'}
+                    color={chosen ? 'primary' : 'default'}
+                    className="min-w-0 gap-1.5 px-2"
+                    onPress={() => setTool({ ...tool, material: idx })}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-3 w-3 rounded-sm border border-line"
+                      style={{ background: dark ? m.swatchDark : m.swatch }}
+                    />
+                    {m.name}
+                  </Button>
+                );
+              })}
+              <span className="mx-1 h-5 w-px bg-line" />
+              <Checkbox
+                size="sm"
+                isSelected={tool.door}
+                onValueChange={door => setTool({ ...tool, door })}
+              >
+                <span className="text-sm text-ink-muted">
+                  Put a door where it meets a room
+                </span>
+              </Checkbox>
+            </div>
           )}
 
           {mode === 'paint' && (
@@ -2681,6 +3171,58 @@ export function BattleBoard({
                 tool.kind === 'picture'
               )}
               {toolButton('Brazier', { kind: 'light' }, tool.kind === 'light')}
+              {doc && doc.levels.length > 1 && (
+                <>
+                  <span className="mx-1 h-5 w-px bg-line" />
+                  {(['stairs', 'ladder'] as const).map(kind =>
+                    toolButton(
+                      LINK_LABEL[kind],
+                      {
+                        kind: 'link',
+                        link: kind,
+                        to:
+                          tool.kind === 'link'
+                            ? tool.to
+                            : (doc.levels[
+                                doc.levels.findIndex(l => l.id === terrain.id) +
+                                  1
+                              ]?.id ??
+                              doc.levels[
+                                doc.levels.findIndex(l => l.id === terrain.id) -
+                                  1
+                              ]?.id ??
+                              terrain.id),
+                      },
+                      tool.kind === 'link' && tool.link === kind
+                    )
+                  )}
+                  {tool.kind === 'link' && (
+                    <Select
+                      aria-label="Which floor it leads to"
+                      size="sm"
+                      className="w-44"
+                      selectedKeys={[tool.to]}
+                      onSelectionChange={keys => {
+                        const key = String(Array.from(keys)[0] ?? '');
+                        if (key) setTool({ ...tool, to: key });
+                      }}
+                    >
+                      {[...doc.levels]
+                        .reverse()
+                        .filter(l => l.id !== terrain.id)
+                        .map(l => (
+                          <SelectItem key={l.id} textValue={l.name}>
+                            {l.feet > terrain.feet ? 'Up to ' : 'Down to '}
+                            {l.name.toLowerCase()} · {feetLabel(l.feet)}
+                          </SelectItem>
+                        ))}
+                    </Select>
+                  )}
+                </>
+              )}
+              {doc && doc.levels.length === 1 && (
+                <Marginalia dash>add a floor to draw stairs</Marginalia>
+              )}
             </div>
           )}
 
@@ -2698,13 +3240,29 @@ export function BattleBoard({
                 variant="light"
                 className="text-ink-subtle"
                 onPress={async () => {
-                  const res = await resetFogAction(board.id);
+                  const res = await resetFogAction(board.id, terrain.id);
                   if (!res.ok) onError(res.error);
                   await refresh();
                 }}
               >
-                Fog it all
+                {doc && doc.levels.length > 1
+                  ? 'Hide this floor again'
+                  : 'Fog it all'}
               </Button>
+              {doc && doc.levels.length > 1 && (
+                <Button
+                  size="sm"
+                  variant="light"
+                  className="text-ink-subtle"
+                  onPress={async () => {
+                    const res = await resetFogAction(board.id);
+                    if (!res.ok) onError(res.error);
+                    await refresh();
+                  }}
+                >
+                  Fog every floor
+                </Button>
+              )}
               {/* The light everywhere nothing else lights (08). Dark, and
                   "Reveal from the party" reads torches and darkvision. */}
               {terrain && (
@@ -2713,7 +3271,7 @@ export function BattleBoard({
                     <button
                       key={a}
                       type="button"
-                      onClick={() => scheduleSave({ ...terrain, ambient: a })}
+                      onClick={() => saveLevel({ ...terrain, ambient: a })}
                       className={`rounded px-2 py-0.5 text-xs capitalize transition-colors ${
                         terrain.ambient === a
                           ? 'bg-gold font-medium text-bg'
@@ -2911,6 +3469,116 @@ export function BattleBoard({
           }}
         />
       </div>
+
+      {/* The offer (floors): a token that ends its move on the stairs is
+          asked whether it takes them. The climb is priced beside the
+          answer; "stay" keeps the offer away until something else is
+          picked up. */}
+      {stairsUnder && declinedLink !== stairsUnder.link.id && selectedToken && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-gold/40 bg-gold/10 px-3 py-2 text-sm text-ink">
+          <Glyph name="stairs" size={14} className="text-gold" />
+          <span>
+            {(selectedToken.entryId &&
+              entriesById.get(selectedToken.entryId)?.label) ||
+              selectedToken.label ||
+              'Somebody'}{' '}
+            is on {linkName(stairsUnder.link)}.
+          </span>
+          <span className="text-ink-muted">
+            {stairsUnder.up ? 'It climbs' : 'It drops'} {stairsUnder.feet} ft of
+            movement to the {stairsUnder.otherName.toLowerCase()}.
+          </span>
+          <Button
+            size="sm"
+            color="primary"
+            className="h-7 min-w-0 px-2.5 text-xs"
+            isDisabled={busy}
+            onPress={() => climb()}
+          >
+            {stairsUnder.up ? 'Go up' : 'Go down'} to the{' '}
+            {stairsUnder.otherName.toLowerCase()}
+          </Button>
+          <Button
+            size="sm"
+            variant="light"
+            className="h-7 min-w-0 px-2.5 text-xs text-ink-subtle"
+            onPress={() => setDeclinedLink(stairsUnder.link.id)}
+          >
+            Stay here
+          </Button>
+        </div>
+      )}
+
+      {/* The stairs picked (floors): what they are called, where they go,
+          and whether the party has found them yet. Staff only. */}
+      {isStaff &&
+        doc &&
+        selectedLink &&
+        (() => {
+          const link = doc.links.find(l => l.id === selectedLink);
+          if (!link) return null;
+          const lower = doc.levels.find(l => l.id === link.from);
+          const upper = doc.levels.find(l => l.id === link.to);
+          const write = (next: Partial<LevelLink>) =>
+            scheduleSave({
+              ...doc,
+              links: doc.links.map(l =>
+                l.id === link.id ? { ...l, ...next } : l
+              ),
+            });
+          return (
+            <div className="flex flex-wrap items-center gap-3 text-sm text-ink-muted">
+              <Glyph name="stairs" size={13} className="text-gold" />
+              <Input
+                size="sm"
+                aria-label="What the stairs are called"
+                placeholder={
+                  link.kind === 'ladder' ? 'The ladder' : 'The stairs'
+                }
+                className="w-40"
+                classNames={{ inputWrapper: 'h-7 min-h-7' }}
+                defaultValue={link.name ?? ''}
+                onBlur={e => {
+                  const v = e.currentTarget.value.trim();
+                  if (v !== (link.name ?? '')) write({ name: v });
+                }}
+              />
+              <span>
+                {LINK_LABEL[link.kind]} · {link.w} × {link.h} tiles ·{' '}
+                {lower?.name.toLowerCase() ?? '?'} (
+                {feetLabel(lower?.feet ?? 0)}) to{' '}
+                {upper?.name.toLowerCase() ?? '?'} (
+                {feetLabel(upper?.feet ?? 0)})
+              </span>
+              <Marginalia dash>
+                it stands on both floors; a token that ends its move on it is
+                offered the other one
+              </Marginalia>
+              <Button
+                size="sm"
+                variant="flat"
+                className="ml-auto h-7 min-w-0 px-2.5 text-xs"
+                onPress={() => write({ hidden: !link.hidden })}
+              >
+                {link.hidden ? 'Let them find it' : 'Hide until found'}
+              </Button>
+              <Button
+                size="sm"
+                variant="light"
+                className="h-7 min-w-0 px-2.5 text-xs text-ink-subtle"
+                onPress={() => {
+                  setSelectedLink(null);
+                  scheduleSave({
+                    ...doc,
+                    links: doc.links.filter(l => l.id !== link.id),
+                  });
+                }}
+              >
+                Remove it
+              </Button>
+            </div>
+          );
+        })()}
 
       {litArea && (
         <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
@@ -3173,7 +3841,7 @@ export function BattleBoard({
             <ThingEffectEditor
               campaignId={campaignId}
               token={selectedToken}
-              terrain={terrain}
+              terrain={doc ? levelOf(doc, selectedToken.level) : terrain}
               onDone={refresh}
             />
           )}
@@ -3312,6 +3980,25 @@ export function BattleBoard({
                   </div>
                 </PopoverContent>
               </Popover>
+              {doc && doc.levels.length > 1 && (
+                <Select
+                  aria-label="Which floor it stands on"
+                  size="sm"
+                  className="w-40"
+                  selectedKeys={[selectedToken.level]}
+                  onSelectionChange={keys => {
+                    const key = String(Array.from(keys)[0] ?? '');
+                    if (!key || key === selectedToken.level) return;
+                    void describe(selectedToken.id, { level: key });
+                  }}
+                >
+                  {[...doc.levels].reverse().map(l => (
+                    <SelectItem key={l.id} textValue={l.name}>
+                      {l.name} · {feetLabel(l.feet)}
+                    </SelectItem>
+                  ))}
+                </Select>
+              )}
               <Button
                 size="sm"
                 variant="flat"
@@ -3345,6 +4032,94 @@ export function BattleBoard({
           )}
         </div>
       )}
+
+      {/* Elsewhere in the house (floors): everybody in the fight who is
+          not on this floor, and the ways off it. One line each, so the
+          board says where the wight is without a tab switch. */}
+      {doc &&
+        doc.levels.length > 1 &&
+        (() => {
+          const elsewhere = board.tokens.filter(
+            t => t.level !== terrain.id && t.entryId
+          );
+          const exits = doc.links.filter(
+            l =>
+              (l.from === terrain.id || l.to === terrain.id) &&
+              (!l.hidden || isStaff)
+          );
+          if (elsewhere.length === 0 && exits.length === 0) return null;
+          return (
+            <div className="flex flex-col gap-1 text-xs text-ink-muted">
+              {elsewhere.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-ink-subtle">
+                    Elsewhere in the house
+                  </span>
+                  {elsewhere.map(t => {
+                    const entry = t.entryId
+                      ? entriesById.get(t.entryId)
+                      : undefined;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          pickLevel(t.level);
+                          setSelected(t.id);
+                        }}
+                        className="inline-flex items-center gap-1 hover:text-ink"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`inline-block h-2 w-2 rounded-full ${
+                            entry?.side === 'foe'
+                              ? 'bg-danger'
+                              : entry?.side === 'party'
+                                ? 'bg-gold'
+                                : 'bg-ink-muted'
+                          }`}
+                        />
+                        <span className="text-ink">
+                          {entry?.label || t.label || 'Something'}
+                        </span>
+                        <span>· {levelName(doc, t.level).toLowerCase()}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {exits.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-ink-subtle">Ways off this floor</span>
+                  {exits.map(l => {
+                    const otherId = linkOtherEnd(l, terrain.id)!;
+                    const up = l.from === terrain.id;
+                    return (
+                      <span
+                        key={l.id}
+                        className="inline-flex items-center gap-1"
+                      >
+                        <Glyph
+                          name={l.kind === 'ladder' ? 'ladder' : 'stairs'}
+                          size={12}
+                          className="text-gold"
+                        />
+                        <span className="text-ink">
+                          {l.name?.trim() || LINK_LABEL[l.kind]}
+                        </span>
+                        <span>
+                          · {up ? 'up' : 'down'} to the{' '}
+                          {levelName(doc, otherId).toLowerCase()}
+                          {l.hidden ? ' · hidden' : ''}
+                        </span>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
       {isStaff && (
         <Marginalia dash>

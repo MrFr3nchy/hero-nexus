@@ -15,9 +15,17 @@ import {
   across,
   edgeKey,
   inBounds,
+  levelGapFeet,
+  levelOf,
+  linkTiles,
   materialAt,
+  shortId,
   TILE_FEET,
   VOID,
+  type Ambient,
+  type BoardDoc,
+  type LevelDoc,
+  type LevelLink,
   type Side,
   type TerrainDoc,
   type Wall,
@@ -769,6 +777,8 @@ export type AreaShape =
 
 export interface Area {
   shape: AreaShape;
+  /** The floor it is on. Absent on a one-floor board: the ground floor. */
+  level?: string;
   /** The tile the effect springs from — the point of origin, or the caster. */
   origin: Tile;
   /** Cone and line: the tile the shape points at. Cube: the corner it grows toward. */
@@ -946,6 +956,41 @@ export function fogged(
   };
 }
 
+/**
+ * The board a player is allowed to have: each floor through `fogged` with
+ * its own revealed set, and only the floors that have anything revealed
+ * or a party member standing on them (`trodden`). Hidden stairs are left
+ * out; the rest are kept where either end is a floor the player has. A
+ * board with nothing shown still carries the ground floor, fogged whole,
+ * so there is always a floor to draw.
+ */
+export function foggedBoard(
+  board: BoardDoc,
+  revealed: ReadonlyMap<string, ReadonlySet<number>>,
+  trodden: ReadonlySet<string> = new Set()
+): BoardDoc {
+  const kept = board.levels.filter(
+    l => (revealed.get(l.id)?.size ?? 0) > 0 || trodden.has(l.id)
+  );
+  const levels = (kept.length > 0 ? kept : [levelOf(board, null)]).map(l => ({
+    ...fogged(l, revealed.get(l.id) ?? new Set()),
+    id: l.id,
+    name: l.name,
+    feet: l.feet,
+  }));
+  const ids = new Set(levels.map(l => l.id));
+  return {
+    format: board.format,
+    version: board.version,
+    w: board.w,
+    h: board.h,
+    levels,
+    links: board.links.filter(
+      k => !k.hidden && (ids.has(k.from) || ids.has(k.to))
+    ),
+  };
+}
+
 /* --- what the boards share ---------------------------------------------- */
 
 /** The least a board needs to know about a token to price its movement. */
@@ -982,4 +1027,213 @@ export function reachFor(
     }
   }
   return reachable(doc, { x: me.x, y: me.y }, speedFeet, blocked, passable);
+}
+
+/* --- floors ---------------------------------------------------------------- */
+
+/**
+ * What taking a link costs, in feet of movement, from this floor to the
+ * other. The token has already walked onto the stair; this is the climb.
+ * Stairs are ordinary movement: the rise, in 5-foot steps. A ladder is a
+ * climb — 2024 PHB, "Climbing": each foot costs one extra — so the rise is
+ * paid twice. A DM ruling past a short turn is the fence's business, not
+ * this function's.
+ */
+export function linkCostFeet(
+  board: BoardDoc,
+  link: LevelLink,
+  fromLevelId: string
+): number {
+  const other = link.from === fromLevelId ? link.to : link.from;
+  const rise = levelGapFeet(board, fromLevelId, other);
+  const feet = link.kind === 'ladder' ? rise * 2 : rise;
+  return Math.max(TILE_FEET, Math.ceil(feet / TILE_FEET) * TILE_FEET);
+}
+
+/** The links on this floor that an occupant's footprint is standing on. */
+export function linksUnder(
+  board: BoardDoc,
+  levelId: string,
+  o: Occupant
+): LevelLink[] {
+  const level = levelOf(board, levelId);
+  const mine = new Set(footprintTiles(level, o));
+  if (mine.size === 0) return [];
+  return board.links.filter(
+    l =>
+      (l.from === levelId || l.to === levelId) &&
+      linkTiles(board, l).some(i => mine.has(i))
+  );
+}
+
+/**
+ * Where a token lands on the far floor: the same tile if it can stand
+ * there, else the first tile of the link's footprint that can, else null —
+ * a stairwell with a bookcase pushed across the top of it.
+ */
+export function landingFor(
+  doc: TerrainDoc,
+  link: LevelLink,
+  mover: Occupant,
+  others: readonly Occupant[]
+): Tile | null {
+  const same = { x: mover.x, y: mover.y, footprint: mover.footprint };
+  if (canStand(doc, same, others)) return { x: same.x, y: same.y };
+  for (const i of linkTiles(doc, link)) {
+    const t = { x: i % doc.w, y: Math.floor(i / doc.w) };
+    if (canStand(doc, { ...t, footprint: mover.footprint }, others)) return t;
+  }
+  return null;
+}
+
+/**
+ * A room in one drag: the floor painted inside the box, a solid wall on
+ * every edge of its perimeter that has none, and — where the box abuts
+ * floor that is already there — a door in the middle of the shared run,
+ * because a room you cannot get into is a very safe room. Walls already on
+ * the perimeter stay as they are, so two rooms drawn side by side share
+ * one wall rather than two.
+ */
+export function roomEdits(
+  doc: TerrainDoc,
+  a: Tile,
+  b: Tile,
+  material: number,
+  opts: { door: boolean } = { door: true }
+): TerrainDoc {
+  const x0 = Math.max(0, Math.min(a.x, b.x));
+  const x1 = Math.min(doc.w - 1, Math.max(a.x, b.x));
+  const y0 = Math.max(0, Math.min(a.y, b.y));
+  const y1 = Math.min(doc.h - 1, Math.max(a.y, b.y));
+  const inside = (x: number, y: number) =>
+    x >= x0 && x <= x1 && y >= y0 && y <= y1;
+  const wasFloor = (x: number, y: number) =>
+    inBounds(doc, x, y) && (doc.material[y * doc.w + x] ?? VOID) !== VOID;
+  const next: TerrainDoc = {
+    ...doc,
+    material: [...doc.material],
+    walls: doc.walls.map(w => ({ ...w })),
+  };
+  for (const i of rectTiles(doc, a, b)) next.material[i] = material;
+  const walls = wallIndex(next);
+  // Each side of the perimeter is one run; a door goes in the middle of
+  // the stretch that meets existing floor, one per side.
+  const sides: { side: Side; edges: Tile[]; across: (t: Tile) => Tile }[] = [
+    {
+      side: 'n',
+      edges: [],
+      across: t => ({ x: t.x, y: t.y - 1 }),
+    },
+    {
+      side: 's',
+      edges: [],
+      across: t => ({ x: t.x, y: t.y + 1 }),
+    },
+    {
+      side: 'w',
+      edges: [],
+      across: t => ({ x: t.x - 1, y: t.y }),
+    },
+    {
+      side: 'e',
+      edges: [],
+      across: t => ({ x: t.x + 1, y: t.y }),
+    },
+  ];
+  for (let x = x0; x <= x1; x++) {
+    sides[0].edges.push({ x, y: y0 });
+    sides[1].edges.push({ x, y: y1 });
+  }
+  for (let y = y0; y <= y1; y++) {
+    sides[2].edges.push({ x: x0, y });
+    sides[3].edges.push({ x: x1, y });
+  }
+  for (const s of sides) {
+    const meets = s.edges.filter(t => {
+      const o = s.across(t);
+      return !inside(o.x, o.y) && wasFloor(o.x, o.y);
+    });
+    const doorAt =
+      opts.door && meets.length > 0
+        ? meets[Math.floor(meets.length / 2)]
+        : null;
+    for (const t of s.edges) {
+      const key = edgeKey(t.x, t.y, s.side);
+      if (walls.has(key)) continue;
+      const door = doorAt && doorAt.x === t.x && doorAt.y === t.y;
+      const wall: Wall = door
+        ? {
+            x: t.x,
+            y: t.y,
+            side: s.side,
+            kind: 'door',
+            height: 10,
+            open: false,
+          }
+        : { x: t.x, y: t.y, side: s.side, kind: 'solid', height: 10 };
+      next.walls.push(wall);
+      walls.set(key, wall);
+    }
+  }
+  return next;
+}
+
+export type LevelStart = 'void' | 'outer' | 'copy';
+
+/**
+ * A new floor, from the one it sits above or below. `void` is open air to
+ * paint in; `outer` copies the source's shell — its footprint as one
+ * material, and only the walls that face the outside — empty inside;
+ * `copy` copies rooms, walls and doors, and never furniture or lights.
+ * Nothing on the new floor points at the old: it is a floor, not a mirror.
+ */
+export function newLevelFrom(
+  board: BoardDoc,
+  source: LevelDoc,
+  opts: {
+    name: string;
+    feet: number;
+    ambient: Ambient;
+    start: LevelStart;
+    material?: number;
+  }
+): LevelDoc {
+  const n = board.w * board.h;
+  const level: LevelDoc = {
+    format: source.format,
+    version: source.version,
+    w: board.w,
+    h: board.h,
+    id: shortId(),
+    name: opts.name.trim().slice(0, 60) || 'A floor',
+    feet: opts.feet,
+    ambient: opts.ambient,
+    elevation: new Array(n).fill(0),
+    material: new Array(n).fill(VOID),
+    walls: [],
+    props: [],
+    lights: [],
+  };
+  if (opts.start === 'void') return level;
+  const material = opts.material ?? 4;
+  if (opts.start === 'copy') {
+    level.material = [...source.material];
+    level.elevation = [...source.elevation];
+    level.walls = source.walls.map(w => ({ ...w }));
+    return level;
+  }
+  for (let i = 0; i < n; i++) {
+    if ((source.material[i] ?? VOID) !== VOID) level.material[i] = material;
+  }
+  level.walls = source.walls
+    .filter(w => {
+      const [ax, ay] = across(w.x, w.y, w.side);
+      const here = (source.material[w.y * source.w + w.x] ?? VOID) !== VOID;
+      const there =
+        inBounds(source, ax, ay) &&
+        (source.material[ay * source.w + ax] ?? VOID) !== VOID;
+      return here !== there;
+    })
+    .map(w => ({ x: w.x, y: w.y, side: w.side, kind: 'solid', height: 10 }));
+  return level;
 }

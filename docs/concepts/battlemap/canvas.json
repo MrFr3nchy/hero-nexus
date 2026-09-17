@@ -1,0 +1,21 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-09-17T15:00:00Z" },
+  "title": "Sand Table Workshop",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1600, "h": 960, "title": "Workshop · flat board", "is_interactive": true },
+    "Workshop3D.dc.html": { "x": 1680, "y": 0, "w": 1600, "h": 960, "title": "Workshop · stood up", "is_interactive": true },
+    "NewLevel.dc.html": { "x": 0, "y": 1080, "w": 1040, "h": 800, "title": "Add a floor", "is_interactive": true },
+    "Table.dc.html": { "x": 1120, "y": 1080, "w": 1280, "h": 860, "title": "At the table · switching floors", "is_interactive": true },
+    "BattleDM.dc.html": { "x": 0, "y": 2340, "w": 1600, "h": 960, "title": "In battle · the DM", "is_interactive": true },
+    "BattlePlayer.dc.html": { "x": 1680, "y": 2340, "w": 1600, "h": 960, "title": "In battle · a player (Wren)", "is_interactive": true }
+  },
+  "order": ["Main.dc.html", "Workshop3D.dc.html", "NewLevel.dc.html", "Table.dc.html", "BattleDM.dc.html", "BattlePlayer.dc.html"],
+  "notes": {
+    "title": { "x": 0, "y": -260, "text": "The sand table, with room to build", "kind": "title1", "maxW": 3280 },
+    "battle": { "x": 0, "y": 2060, "text": "In battle, across floors", "kind": "title1", "maxW": 3280 }
+  },
+  "designSystems": []
+}

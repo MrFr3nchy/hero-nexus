@@ -11,7 +11,14 @@ import {
 import { useTheme } from 'next-themes';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { MATERIALS, VOID, type TerrainDoc } from '@/@shared/battlemap/types';
+import {
+  defaultLevelId,
+  feetLabel,
+  levelOf,
+  MATERIALS,
+  VOID,
+  type TerrainDoc,
+} from '@/@shared/battlemap/types';
 import { Glyph, Marginalia } from '@/@shared/components/ui';
 import type { PlanSpot } from '@/server/encounter-plans';
 import {
@@ -55,6 +62,10 @@ export function PlanSpots({
   );
   const [board, setBoard] = useState<BoardTerrain | null>(null);
   const [open, setOpen] = useState(false);
+  /** The floor being placed on; a plan may put the archers upstairs. */
+  const [levelId, setLevelId] = useState<string | null>(
+    spots[0]?.level ?? null
+  );
 
   useEffect(() => {
     if (!open || boards) return;
@@ -81,6 +92,10 @@ export function PlanSpots({
   }, [boardId]);
 
   const here = spots.filter(s => s.mapId === boardId);
+  const level = board ? levelOf(board.terrain, levelId) : null;
+  const onThisFloor = here.filter(
+    s => board && levelOf(board.terrain, s.level).id === level?.id
+  );
 
   const write = async (next: PlanSpot[]) => {
     const res = await setPlanLineSpotsAction(lineId, next);
@@ -88,14 +103,21 @@ export function PlanSpots({
   };
 
   const tap = (x: number, y: number) => {
-    if (!boardId) return;
-    const at = here.findIndex(s => s.x === x && s.y === y);
+    if (!boardId || !board || !level) return;
+    const at = here.findIndex(
+      s =>
+        s.x === x &&
+        s.y === y &&
+        levelOf(board.terrain, s.level).id === level.id
+    );
     if (at >= 0) {
       void write(here.filter((_, i) => i !== at));
       return;
     }
     if (here.length >= count) return;
-    void write([...here, { mapId: boardId, x, y }]);
+    const spot: PlanSpot = { mapId: boardId, x, y };
+    if (level.id !== defaultLevelId(board.terrain)) spot.level = level.id;
+    void write([...here, spot]);
   };
 
   const placed = spots.length;
@@ -148,11 +170,29 @@ export function PlanSpots({
           ) : (
             <p className="text-xs text-ink-subtle">Finding the boards…</p>
           )}
-          {board && (
+          {board && level && board.terrain.levels.length > 1 && (
+            <Select
+              size="sm"
+              aria-label="Which floor"
+              selectedKeys={[level.id]}
+              onSelectionChange={keys => {
+                const key = String(Array.from(keys)[0] ?? '');
+                if (key) setLevelId(key);
+              }}
+              classNames={{ trigger: 'h-9 min-h-9' }}
+            >
+              {[...board.terrain.levels].reverse().map(l => (
+                <SelectItem key={l.id} textValue={l.name}>
+                  {l.name} · {feetLabel(l.feet)}
+                </SelectItem>
+              ))}
+            </Select>
+          )}
+          {board && level && (
             <MiniBoard
-              terrain={board.terrain}
-              taken={board.taken}
-              spots={here}
+              terrain={level}
+              taken={board.taken.filter(t => t.level === level.id)}
+              spots={onThisFloor}
               onTap={tap}
             />
           )}

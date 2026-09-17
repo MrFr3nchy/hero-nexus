@@ -31,6 +31,7 @@ import {
   type RollOutcome,
 } from '@/@creator/campaign/lib/attack';
 import { coverBetween, flanked } from '@/@creator/campaign/lib/battlemap';
+import { levelOf } from '@/@shared/battlemap/types';
 import { Refused, type RefusedState } from '../Refused';
 
 type Mode = 'flat' | 'advantage' | 'disadvantage';
@@ -178,12 +179,20 @@ export function AttacksPanel({
       : undefined;
     // Cover and flanking off the board the viewer sees, so the aim line can
     // say "half cover +2" before the swing. The server prices them again
-    // off the whole board; a player's fogged copy can only under-count.
+    // off the whole board; a player's fogged copy can only under-count. On
+    // another floor the target is behind a whole floor: total cover.
     const others = board.tokens.filter(
-      t => t.id !== token.id && t.id !== myToken?.id
+      t => t.id !== token.id && t.id !== myToken?.id && t.level === token.level
     );
     const cover = myToken
-      ? coverBetween(board.terrain, myToken, token, others)
+      ? myToken.level === token.level
+        ? coverBetween(
+            levelOf(board.terrain, token.level),
+            myToken,
+            token,
+            others
+          )
+        : 'total'
       : 'none';
     const mySide = state.entries.find(e => e.characterId === characterId)?.side;
     const allies = others.filter(t => {
