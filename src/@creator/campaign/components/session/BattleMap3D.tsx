@@ -54,6 +54,7 @@ import {
   type TerrainDoc,
 } from '@/@shared/battlemap/types';
 import { useReducedMotion } from '@/@shared/components/motion';
+import { webglAvailable } from '@/@shared/battlemap/webgl';
 import type { BattleTokenRow } from '@/server/battlemap';
 import type { EntryRow } from '@/server/session';
 
@@ -1459,6 +1460,10 @@ export default function BattleMap3D({
     // No WebGL — a box without a GPU, a locked-down browser — is a flat
     // board, not a crashed page. Three throws on construction; the surface
     // on top is told and turns back to the board it came from.
+    if (!webglAvailable()) {
+      latest.current.onUnavailable?.();
+      return;
+    }
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({

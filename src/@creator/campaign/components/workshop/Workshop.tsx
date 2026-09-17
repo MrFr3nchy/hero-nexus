@@ -69,6 +69,7 @@ import {
   type LevelLink,
 } from '@/@shared/battlemap/types';
 import { setLitArea } from '@/@shared/battlemap/area';
+import { webglAvailable } from '@/@shared/battlemap/webgl';
 import { usePortraits } from '@/@shared/battlemap/portraits';
 import {
   DiceSpinner,
@@ -289,6 +290,10 @@ export function Workshop({
     doc && terrain ? doc.levels.findIndex(l => l.id === terrain.id) : -1;
   const [onion, setOnion] = useState(true);
   const [stood, setStood] = useState(false);
+  const [canStand, setCanStand] = useState(true);
+  useEffect(() => {
+    setCanStand(webglAvailable());
+  }, []);
   const tokens = useMemo(() => bench?.tokens ?? [], [bench]);
   const here = useMemo(
     () => tokens.filter(t => t.level === terrain?.id),
@@ -1241,13 +1246,20 @@ export function Workshop({
         >
           {(['flat', 'stood'] as const).map(v => {
             const on = stood === (v === 'stood');
+            const off = v === 'stood' && !canStand;
             return (
               <button
                 key={v}
                 type="button"
                 aria-pressed={on}
+                disabled={off}
+                title={
+                  off
+                    ? 'This browser has no WebGL, so the board cannot be stood up here.'
+                    : undefined
+                }
                 onClick={() => setStood(v === 'stood')}
-                className={`rounded-md px-3.5 py-1.5 text-[13px] transition-colors ${
+                className={`rounded-md px-3.5 py-1.5 text-[13px] transition-colors disabled:opacity-40 ${
                   on
                     ? 'bg-gold font-semibold text-bg'
                     : 'text-ink-muted hover:text-ink'

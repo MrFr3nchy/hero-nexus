@@ -118,6 +118,7 @@ import {
   useSelectedTokens,
 } from '@/@shared/battlemap/selection';
 import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
+import { webglAvailable } from '@/@shared/battlemap/webgl';
 import { ImagePicker } from '../ImagePicker';
 import { Refused, type RefusedState } from '../Refused';
 import { EffectPicker, type PickerEntry } from './EffectPicker';
@@ -819,7 +820,12 @@ export function BattleBoard({
    * handed a renderer it did not ask for, and remembered per device.
    */
   const [dimensional, setDimensional] = useState(false);
+  /** Whether this browser can stand the table up at all. */
+  const [canStand, setCanStand] = useState(true);
   useEffect(() => {
+    const able = webglAvailable();
+    setCanStand(able);
+    if (!able) return;
     try {
       setDimensional(localStorage.getItem('hero-nexus.sand-table.3d') === '1');
     } catch {
@@ -1701,14 +1707,22 @@ export function BattleBoard({
               Open the workshop
             </Button>
           )}
-          <Button
-            size="sm"
-            variant={dimensional ? 'solid' : 'flat'}
-            color={dimensional ? 'primary' : 'default'}
-            onPress={toggleDimensional}
+          <Tooltip
+            isDisabled={canStand}
+            content="This browser has no WebGL, so the table cannot be stood up here."
           >
-            {dimensional ? 'Back to the board' : 'Stand it up'}
-          </Button>
+            <span>
+              <Button
+                size="sm"
+                variant={dimensional ? 'solid' : 'flat'}
+                color={dimensional ? 'primary' : 'default'}
+                isDisabled={!canStand}
+                onPress={toggleDimensional}
+              >
+                {dimensional ? 'Back to the board' : 'Stand it up'}
+              </Button>
+            </span>
+          </Tooltip>
           {isStaff && (
             <>
               <Tooltip content="Reveal what the party's tokens can see, forty feet around each.">
