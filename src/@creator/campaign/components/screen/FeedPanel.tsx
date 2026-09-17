@@ -48,6 +48,23 @@ const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
 };
 
 /**
+ * The browser's permission for notifications, asked for on a press. False
+ * when the browser has none to give, or the reader said no — then the
+ * preference stays where it was, because a notification that cannot fire
+ * is not a preference worth recording.
+ */
+async function askNotificationPermission(): Promise<boolean> {
+  if (typeof Notification === 'undefined') return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  try {
+    return (await Notification.requestPermission()) === 'granted';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The evening's traffic, standing still.
  *
  * The same moments the corner announces, kept as a list — for a DM who wants
@@ -123,8 +140,8 @@ export function FeedPanel({ campaignId }: { campaignId: string }) {
               </Switch>
             ))}
           </div>
-          <div className="border-t border-line pt-2">
-            <Tooltip content="One short tone. Off unless you ask for it.">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line pt-2">
+            <Tooltip content="One short tone. Off unless you ask for it. Something aimed at you rings three notes.">
               <div className="inline-block">
                 <Switch
                   size="sm"
@@ -137,6 +154,41 @@ export function FeedPanel({ campaignId }: { campaignId: string }) {
                 </Switch>
               </div>
             </Tooltip>
+            {/* Reaching you on another tab (12): the browser's own
+                notification, asked for here on a press and never on load. */}
+            <div className="inline-flex items-center gap-1.5">
+              <span className="text-xs text-ink-muted">
+                When this tab is hidden
+              </span>
+              <div className="inline-flex rounded-md border border-line bg-surface p-0.5">
+                {(
+                  [
+                    ['off', 'nothing'],
+                    ['addressed', 'aimed at me'],
+                    ['all', 'everything'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={async () => {
+                      if (value !== 'off') {
+                        const ok = await askNotificationPermission();
+                        if (!ok) return;
+                      }
+                      setPreferences({ ...preferences, notify: value });
+                    }}
+                    className={`rounded px-1.5 py-0.5 text-[0.65rem] ${
+                      preferences.notify === value
+                        ? 'bg-gold font-medium text-bg'
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <Marginalia dash>
             a question always gets through, muted or not

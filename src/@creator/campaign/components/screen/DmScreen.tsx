@@ -47,6 +47,7 @@ import {
 import { undoLastAction } from '../../monster-actions';
 import { useSelectedToken } from '@/@shared/battlemap/selection';
 import { SHORTCUTS, useDmShortcuts } from './useDmShortcuts';
+import { YourTurnBanner } from './YourTurnBanner';
 import {
   fileUnderSessionAction,
   listSessionsAction,
@@ -1084,6 +1085,14 @@ export function DmScreen({
           </Button>
         </div>
       </header>
+      {/* The reader's own turn, across the top until it is over (12). */}
+      {live.state && !isStaff && (
+        <YourTurnBanner
+          state={live.state}
+          refresh={live.refresh}
+          onError={setError}
+        />
+      )}
 
       {current === 'battle' && live.state && !inPerson ? (
         <BattleArrangement
