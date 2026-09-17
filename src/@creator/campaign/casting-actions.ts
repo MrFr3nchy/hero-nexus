@@ -70,6 +70,7 @@ const targetsSchema = z.union([
         'cylinder',
         'emanation',
       ]),
+      level: z.string().min(1).max(32).optional(),
       origin: tile,
       direction: tile.optional(),
       size: z.number().int().min(5).max(1000),

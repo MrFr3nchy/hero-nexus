@@ -41,7 +41,11 @@ import {
 } from '@/@creator/campaign/lib/condition-effects';
 import { parseConditions } from '@/@creator/campaign/lib/conditions';
 import { parseTurn } from '@/@creator/campaign/lib/turn';
-import { normalizeTerrain } from '@/@shared/battlemap/types';
+import {
+  levelGapFeet,
+  levelOf,
+  normalizeBoard,
+} from '@/@shared/battlemap/types';
 import {
   parseContentData,
   refKey,
@@ -443,7 +447,20 @@ async function geometry(
   const a = tokens.find(t => t.entryId === attacker.id);
   const b = tokens.find(t => t.entryId === target.id);
   if (!a || !b) return null;
-  const doc = normalizeTerrain(map.terrain);
+  const board = normalizeBoard(map.terrain);
+  const doc = levelOf(board, a.level);
+  /*
+   * On different floors: the distance is the climb plus the walk, and the
+   * floor between is total cover — the DM overrules it for a shot down the
+   * stairwell, which is the one case, and knows it when they see it.
+   */
+  if (levelOf(board, b.level).id !== doc.id) {
+    return {
+      feet: Math.max(distanceFeet(a, b), levelGapFeet(board, a.level, b.level)),
+      cover: 'total',
+      flanking: false,
+    };
+  }
 
   const entryIds = tokens
     .map(t => t.entryId)
@@ -459,7 +476,9 @@ async function geometry(
       .map(e => [e.id, e.side])
   );
 
-  const others = tokens.filter(t => t.id !== a.id && t.id !== b.id);
+  const others = tokens.filter(
+    t => t.id !== a.id && t.id !== b.id && levelOf(board, t.level).id === doc.id
+  );
   const cover = coverBetween(doc, a, b, others);
   const allies = others.filter(
     t => t.entryId && sides.get(t.entryId) === attacker.side
@@ -498,7 +517,11 @@ async function leaveThrownThing(
     ),
   });
   if (!token) return;
-  const dropped = await dropThingNear(map.id, { x: token.x, y: token.y }, name);
+  const dropped = await dropThingNear(
+    map.id,
+    { x: token.x, y: token.y, level: token.level },
+    name
+  );
   if (!dropped || !weapon.itemId || !attacker.characterId) return;
 
   const character = await db.query.characters.findFirst({

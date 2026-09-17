@@ -22,6 +22,10 @@
 import {
   Button,
   Checkbox,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
   Input,
   Popover,
   PopoverContent,
@@ -30,6 +34,7 @@ import {
   SelectItem,
   Tooltip,
 } from '@heroui/react';
+import Link from 'next/link';
 import { useTheme } from 'next-themes';
 import {
   useCallback,
@@ -44,24 +49,34 @@ import {
   brushTiles,
   canStandUnder,
   distanceFeet,
-  distanceSquares,
   floodFill,
   jumpLandings,
+  linkCostFeet,
+  linksUnder,
   reachFor,
   rectTiles,
-  wallIndex,
+  roomEdits,
 } from '@/@creator/campaign/lib/battlemap';
-import { floorArt, shade } from '@/@shared/battlemap/art';
 import {
   edgeKey,
   FACINGS,
+  feetLabel,
   inBounds,
+  levelOf,
+  linkOtherEnd,
+  linkTiles,
   MATERIALS,
   MAX_SIDE,
   MIN_SIDE,
+  shortId,
   VOID,
+  withLevel,
+  type BoardDoc,
   type Facing,
   type ItemState,
+  type LevelDoc,
+  type LevelLink,
+  type LinkKind,
   type PropKind,
   type Side,
   type TerrainDoc,
@@ -79,6 +94,7 @@ import {
   createBattleMapAction,
   damageThingAction,
   dealEncounterInAction,
+  listBattleMapsAction,
   moveTokenAction,
   pickLockAction,
   placeTokenAction,
@@ -89,9 +105,12 @@ import {
   saveTerrainAction,
   setBattleMapActiveAction,
   setBattleMapVisibilityAction,
+  takeLinkAction,
   updateTokenAction,
   operateThingAction,
 } from '../../battlemap-actions';
+import { FloorRail } from './FloorRail';
+import { BoardCanvas, tileAt as tileUnder } from './BoardCanvas';
 import { BattleMap3DLazy } from './BattleMap3DLazy';
 import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import { withAdvantage } from '@/@shared/lib/dice';
@@ -104,6 +123,7 @@ import {
   useSelectedTokens,
 } from '@/@shared/battlemap/selection';
 import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
+import { webglAvailable } from '@/@shared/battlemap/webgl';
 import { ImagePicker } from '../ImagePicker';
 import { Refused, type RefusedState } from '../Refused';
 import { EffectPicker, type PickerEntry } from './EffectPicker';
@@ -113,7 +133,6 @@ import { movementBudget } from '@/@creator/campaign/lib/turn';
 import { TurnStrip } from './TurnStrip';
 import { areaTiles, type AreaShape } from '@/@creator/campaign/lib/battlemap';
 import { setLitArea } from '@/@shared/battlemap/area';
-import { litAt } from '@/@creator/campaign/lib/things';
 import { ThingEffectEditor } from './ThingEffectEditor';
 import { SightControls } from './SightControls';
 
@@ -144,6 +163,17 @@ type Tool =
   | { kind: 'rect'; apply: 'material' | 'elevation' | 'reveal'; value: number }
   /** Tap a tile: every connected tile of the same floor takes this one. */
   | { kind: 'fill'; material: number }
+  /**
+   * A room in one drag (floors): the floor painted, walls round it, a door
+   * where it meets a room already there.
+   */
+  | { kind: 'room'; material: number; door: boolean }
+  /**
+   * Stairs or a ladder in one drag (floors): the box is the footprint on
+   * this floor and on `to`, and a token that ends its move on it is
+   * offered the other floor.
+   */
+  | { kind: 'link'; link: LinkKind; to: string }
   /** Two taps, feet between them. Anybody's, not only staff's. */
   | { kind: 'ruler' }
   /**
@@ -173,6 +203,7 @@ type Mode =
   | 'select'
   | 'ruler'
   | 'area'
+  | 'rooms'
   | 'paint'
   | 'shape'
   | 'build'
@@ -187,6 +218,8 @@ function modeOf(tool: Tool): Mode {
       return 'ruler';
     case 'area':
       return 'area';
+    case 'room':
+      return 'rooms';
     case 'paint':
     case 'fill':
       return 'paint';
@@ -237,6 +270,12 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
     hint: 'tap the origin, then where it points · the shelf casts on who is inside',
   },
   {
+    mode: 'rooms',
+    label: 'Rooms',
+    tool: { kind: 'room', material: 4, door: true },
+    hint: 'drag a box — floor, walls and a door in one go',
+  },
+  {
     mode: 'paint',
     label: 'Floor',
     tool: { kind: 'paint', material: 1 },
@@ -252,7 +291,7 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
     mode: 'build',
     label: 'Build',
     tool: { kind: 'wall', wall: 'solid' },
-    hint: 'tap an edge for a wall, a tile for the rest',
+    hint: 'tap an edge for a wall, a tile for the rest · drag a box for stairs',
   },
   {
     mode: 'things',
@@ -300,6 +339,36 @@ const WALLS: { kind: WallKind; label: string; height: number }[] = [
   { kind: 'window', label: 'Window', height: 10 },
   { kind: 'rail', label: 'Rail', height: 3 },
 ];
+
+const LINK_LABEL: Record<LinkKind, string> = {
+  stairs: 'Stairs',
+  ladder: 'Ladder',
+};
+
+/** "the grand stair", "the ladder" — what a link is called in a sentence. */
+function linkName(link: LevelLink): string {
+  return (
+    link.name?.trim() || (link.kind === 'ladder' ? 'the ladder' : 'the stairs')
+  );
+}
+
+/**
+ * A floor in a sentence: "the upper floor", or "a floor unseen" for one
+ * the reader has not been shown — a player's board carries the stairs
+ * before it carries where they lead.
+ */
+function levelPhrase(board: BoardDoc, id: string): string {
+  const name = board.levels.find(l => l.id === id)?.name;
+  return name ? `the ${name.toLowerCase()}` : 'a floor unseen';
+}
+
+/**
+ * The modes the table keeps. Building — rooms, floor, height, walls,
+ * things — lives in the workshop, off the fight's screen; the sand table
+ * on the screen is for playing on. The board still knows the other tools
+ * (the DM's keyboard names them), it just does not offer them here.
+ */
+const TABLE_MODES: readonly Mode[] = ['select', 'ruler', 'area', 'fog'];
 
 /** How far a token may be shown to reach. The rules module prices it. */
 const DEFAULT_SPEED_FEET = 30;
@@ -389,68 +458,6 @@ function BrushPicker({
   );
 }
 
-/* --- drawing helpers --------------------------------------------------- */
-
-interface Palette {
-  line: string;
-  ink: string;
-  inkMuted: string;
-  gold: string;
-  danger: string;
-  success: string;
-  warning: string;
-  arcane: string;
-  surface: string;
-  dark: boolean;
-}
-
-function readPalette(dark: boolean): Palette {
-  const css = getComputedStyle(document.documentElement);
-  const v = (name: string, fallback: string) =>
-    css.getPropertyValue(name).trim() || fallback;
-  return {
-    line: v('--line', dark ? '#33291d' : '#e4dccb'),
-    ink: v('--ink', dark ? '#ede7da' : '#2b2620'),
-    inkMuted: v('--ink-muted', dark ? '#a89f8d' : '#6b6459'),
-    gold: v('--gold', dark ? '#d9b061' : '#b4894a'),
-    danger: v('--danger', dark ? '#d9756c' : '#a23b34'),
-    success: v('--success', dark ? '#6bbf8a' : '#3f7d55'),
-    warning: v('--warning', dark ? '#d6a253' : '#b07d33'),
-    arcane: v('--arcane', dark ? '#a988cf' : '#6b4d8a'),
-    surface: v('--surface', dark ? '#1e1a14' : '#ffffff'),
-    dark,
-  };
-}
-
-/** The HP ring colour, by the ratio rule `HeroCard` already uses. */
-function hpTone(entry: EntryRow | undefined, p: Palette): string | null {
-  if (!entry || entry.hpCurrent === null || !entry.hpMax) return null;
-  const ratio = entry.hpCurrent / entry.hpMax;
-  if (ratio > 0.5) return p.success;
-  if (ratio > 0.25) return p.warning;
-  return p.danger;
-}
-
-function initials(label: string): string {
-  const words = label.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return '?';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
-}
-
-/**
- * Which edge of a tile a pointer is nearest, if it is near one at all.
- * Within ~22% of the tile size from an edge counts; the middle is the tile.
- */
-function nearestEdge(fx: number, fy: number): Side | null {
-  const m = 0.22;
-  const d = { n: fy, s: 1 - fy, w: fx, e: 1 - fx };
-  const [side, dist] = (Object.entries(d) as [Side, number][]).sort(
-    (a, b) => a[1] - b[1]
-  )[0];
-  return dist < m ? side : null;
-}
-
 /* --- the board --------------------------------------------------------- */
 
 export function BattleBoard({
@@ -494,18 +501,73 @@ export function BattleBoard({
    * incoming document is ignored, or the paint stroke in progress would be
    * snapped back to its start by the previous stroke's echo.
    */
-  const [terrain, setTerrain] = useState<TerrainDoc | null>(
-    board?.terrain ?? null
-  );
+  const [doc, setDoc] = useState<BoardDoc | null>(board?.terrain ?? null);
   const dirty = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!board) {
-      setTerrain(null);
+      setDoc(null);
       return;
     }
-    if (!dirty.current) setTerrain(board.terrain);
+    if (!dirty.current) setDoc(board.terrain);
   }, [board]);
+
+  // A group shares the turn (11): every member's reach lights on it.
+  const currentEntryIds = useMemo(
+    () => new Set(state.turnEntryIds),
+    [state.turnEntryIds]
+  );
+
+  /*
+   * Which floor is in front (floors). The board follows somebody by
+   * default — the DM's follows whoever's turn it is, a player's follows
+   * their own hero — and a tab picked by hand stops the following until
+   * it is switched back on. What is drawn, hit and painted below is one
+   * floor: `terrain` is that floor's document and `here` the tokens on it.
+   */
+  const [pickedLevel, setPickedLevel] = useState<string | null>(null);
+  const [follow, setFollow] = useState(true);
+  const followed = useMemo(() => {
+    if (!board) return null;
+    const t = isStaff
+      ? board.tokens.find(t => t.entryId && currentEntryIds.has(t.entryId))
+      : board.tokens.find(t => t.mine && t.entryId);
+    return t?.level ?? null;
+  }, [board, isStaff, currentEntryIds]);
+  const terrain: LevelDoc | null = doc
+    ? levelOf(doc, follow && followed ? followed : pickedLevel)
+    : null;
+  const levelId = terrain?.id ?? null;
+  const pickLevel = useCallback((id: string) => {
+    setPickedLevel(id);
+    setFollow(false);
+  }, []);
+  const here = useMemo(
+    () => (board ? board.tokens.filter(t => t.level === levelId) : []),
+    [board, levelId]
+  );
+  // Page Up / Page Down walk the floors, for anybody at the table.
+  useEffect(() => {
+    if (!doc || !levelId) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== 'PageUp' && ev.key !== 'PageDown') return;
+      const tag = (ev.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const i = doc.levels.findIndex(l => l.id === levelId);
+      const next = doc.levels[i + (ev.key === 'PageUp' ? 1 : -1)];
+      if (!next) return;
+      ev.preventDefault();
+      pickLevel(next.id);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [doc, levelId, pickLevel]);
+  /** The stairs under the selection, and whether the offer was declined. */
+  const [declinedLink, setDeclinedLink] = useState<string | null>(null);
+  /** Stairs picked in select mode, for the DM to name, hide or remove. */
+  const [selectedLink, setSelectedLink] = useState<string | null>(null);
+  /** Draw the floor below in dashed outline, so a stairwell lands on a stair. */
+  const [onion, setOnion] = useState(true);
 
   const [tool, setTool] = useState<Tool>({ kind: 'select' });
   // The DM's keyboard (11): a digit names a mode, F the fog. The board's
@@ -520,6 +582,15 @@ export function BattleBoard({
     window.addEventListener('hero-nexus:board', onMode);
     return () => window.removeEventListener('hero-nexus:board', onMode);
   }, [isStaff]);
+  // The stairs tool points at a neighbouring floor; when the floor in
+  // front changes under it, it points at that floor's neighbour instead.
+  useEffect(() => {
+    if (!doc || !levelId || tool.kind !== 'link') return;
+    if (tool.to !== levelId && doc.levels.some(l => l.id === tool.to)) return;
+    const i = doc.levels.findIndex(l => l.id === levelId);
+    const next = doc.levels[i + 1] ?? doc.levels[i - 1];
+    if (next) setTool({ ...tool, to: next.id });
+  }, [doc, levelId, tool]);
   // Doing something to a thing: the picker's mode and last word, and the DM's
   // amount for breaking one.
   const [lockMode, setLockMode] = useState<
@@ -735,28 +806,63 @@ export function BattleBoard({
     const indices = [...pendingReveal.current];
     pendingReveal.current.clear();
     setPendingCount(0);
-    const res = await revealTilesAction(board.id, indices);
+    const res = await revealTilesAction(
+      board.id,
+      indices,
+      levelId ?? undefined
+    );
     if (!res.ok) onError(res.error);
     await refresh();
-  }, [board, onError, refresh]);
+  }, [board, levelId, onError, refresh]);
   const [busy, setBusy] = useState(false);
   const [newW, setNewW] = useState('20');
   const [newH, setNewH] = useState('15');
   /** What every tile of a new board starts as. Void, unless the DM says. */
   const [newFloor, setNewFloor] = useState(String(VOID));
   /**
+   * The shelf: every board the campaign has, so the DM can put a different
+   * one on the table without leaving the screen. Read when the table is
+   * bare and again each time the swap menu opens — the list is short and a
+   * board laid out in another tab should be in it.
+   */
+  const [shelf, setShelf] = useState<
+    Awaited<ReturnType<typeof listBattleMapsAction>>
+  >([]);
+  const [shelfPick, setShelfPick] = useState<string>('');
+  const readShelf = useCallback(async () => {
+    if (!isStaff) return;
+    setShelf(await listBattleMapsAction(campaignId));
+  }, [campaignId, isStaff]);
+  useEffect(() => {
+    if (!board) readShelf();
+  }, [board, readShelf]);
+  const putOnTable = async (id: string) => {
+    setBusy(true);
+    const res = await setBattleMapActiveAction(id, true);
+    if (!res.ok) onError(res.error);
+    setBusy(false);
+    await refresh();
+  };
+  /**
    * The 3D view is a *view*: the 2D board stays the authoring surface and the
    * thing a phone renders. Off by default so a laptop with a dead GPU is not
    * handed a renderer it did not ask for, and remembered per device.
    */
   const [dimensional, setDimensional] = useState(false);
+  /** Whether this browser can stand the table up at all. */
+  const [canStand, setCanStand] = useState(true);
   useEffect(() => {
+    const able = webglAvailable();
+    setCanStand(able);
+    if (!able) return;
     try {
       setDimensional(localStorage.getItem('hero-nexus.sand-table.3d') === '1');
     } catch {
       // No storage: the board it is.
     }
   }, []);
+  /** Why the 3D view could not open, shown in its place. */
+  const [flatOnly, setFlatOnly] = useState<string | null>(null);
   const toggleDimensional = () => {
     const next = !dimensional;
     setDimensional(next);
@@ -802,11 +908,6 @@ export function BattleBoard({
     if (!state.encounter) return null;
     return state.entries[state.encounter.turnIndex]?.id ?? null;
   }, [state.encounter, state.entries]);
-  // A group shares the turn (11): every member's reach lights on it.
-  const currentEntryIds = useMemo(
-    () => new Set(state.turnEntryIds),
-    [state.turnEntryIds]
-  );
 
   const selectedToken = board?.tokens.find(t => t.id === selected) ?? null;
   const selectedEntry = selectedToken?.entryId
@@ -903,15 +1004,17 @@ export function BattleBoard({
       footprint: t.footprint,
       side: sideOf(t),
     });
+    // On another floor, nothing on this one is in reach.
+    if (selectedToken.level !== terrain.id) return null;
     return reachFor(
       terrain,
       asReach(selectedToken),
       // An open door and a smashed chest are walked through — the server
       // applies the same rule when it checks the drop.
-      board.tokens.filter(t => t.blocks).map(asReach),
+      here.filter(t => t.blocks).map(asReach),
       speedOf(selectedToken)
     );
-  }, [terrain, selectedToken, board, sideOf, speedOf]);
+  }, [terrain, selectedToken, board, here, sideOf, speedOf]);
 
   /**
    * Where the selected hero could jump to (09): the far side of a gap in
@@ -924,6 +1027,7 @@ export function BattleBoard({
     if (!terrain || !selectedToken || !board || !selectedToken.entryId) {
       return null;
     }
+    if (selectedToken.level !== terrain.id) return null;
     const entry = entriesById.get(selectedToken.entryId);
     const hero = entry?.characterId
       ? state.party.find(p => p.characterId === entry.characterId)
@@ -932,12 +1036,68 @@ export function BattleBoard({
     const landings = jumpLandings(
       terrain,
       selectedToken,
-      board.tokens.filter(t => t.id !== selectedToken.id && t.blocks),
+      here.filter(t => t.id !== selectedToken.id && t.blocks),
       hero.jump.long,
       hero.jump.longStanding
     );
     return { landings, long: hero.jump.long, standing: hero.jump.longStanding };
-  }, [terrain, selectedToken, board, entriesById, state.party]);
+  }, [terrain, selectedToken, board, here, entriesById, state.party]);
+
+  /**
+   * The stairs the selected token is standing on (floors): what the board
+   * offers when a move ends on them. Hidden stairs are not offered to a
+   * player — the server has already left them out of a player's board —
+   * and staff see them dashed.
+   */
+  const stairsUnder = useMemo(() => {
+    if (!doc || !terrain || !selectedToken || !selectedToken.entryId) {
+      return null;
+    }
+    if (selectedToken.level !== terrain.id || !selectedToken.mine) return null;
+    const links = linksUnder(doc, terrain.id, selectedToken).filter(
+      l => !l.hidden || isStaff
+    );
+    const link = links[0];
+    if (!link) return null;
+    const otherId = linkOtherEnd(link, terrain.id);
+    if (!otherId) return null;
+    const other = doc.levels.find(l => l.id === otherId);
+    return {
+      link,
+      otherId,
+      otherPhrase: levelPhrase(doc, otherId),
+      up: (other?.feet ?? terrain.feet + 1) > terrain.feet,
+      feet: linkCostFeet(doc, link, terrain.id),
+    };
+  }, [doc, terrain, selectedToken, isStaff]);
+  useEffect(() => {
+    setDeclinedLink(null);
+  }, [selected]);
+  const climb = async (ruling = false) => {
+    if (!selectedToken || !stairsUnder) return;
+    const res = await takeLinkAction(selectedToken.id, stairsUnder.link.id, {
+      ruling,
+    });
+    if (!res.ok) {
+      if (res.overridable) {
+        setRefused({
+          message: res.error,
+          ruling: async () => {
+            await climb(true);
+            await refresh();
+          },
+        });
+      } else {
+        onError(res.error);
+      }
+    } else {
+      setRefused(null);
+      // Go with them: the board turns to the floor they landed on, unless
+      // it is already following them there.
+      if (!follow) setPickedLevel(res.data.level);
+    }
+    await refresh();
+  };
 
   /* --- the area ---------------------------------------------------------- */
 
@@ -945,12 +1105,13 @@ export function BattleBoard({
     if (!terrain || !board || tool.kind !== 'area' || !areaPick) return null;
     const area = {
       shape: tool.shape,
+      level: terrain.id,
       origin: areaPick.from,
       direction: areaPick.to ?? undefined,
       size: tool.size,
     };
     const tiles = areaTiles(terrain, area);
-    const inside = board.tokens.filter(t => {
+    const inside = here.filter(t => {
       if (!t.entryId) return false;
       for (let dy = 0; dy < t.footprint; dy++) {
         for (let dx = 0; dx < t.footprint; dx++) {
@@ -966,7 +1127,7 @@ export function BattleBoard({
       entryIds,
       labels: entryIds.map(id => entriesById.get(id)?.label ?? 'Something'),
     };
-  }, [terrain, board, tool, areaPick, entriesById]);
+  }, [terrain, board, here, tool, areaPick, entriesById]);
 
   useEffect(() => {
     setLitArea(
@@ -985,10 +1146,10 @@ export function BattleBoard({
   /* --- saving ---------------------------------------------------------- */
 
   const scheduleSave = useCallback(
-    (next: TerrainDoc) => {
+    (next: BoardDoc) => {
       if (!board) return;
       dirty.current = true;
-      setTerrain(next);
+      setDoc(next);
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
         saveTimer.current = null;
@@ -999,6 +1160,21 @@ export function BattleBoard({
       }, SAVE_MS);
     },
     [board, onError, refresh]
+  );
+  /** One floor edited; the whole board written. */
+  const saveLevel = useCallback(
+    (next: TerrainDoc) => {
+      if (!doc || !terrain) return;
+      scheduleSave(
+        withLevel(doc, {
+          ...next,
+          id: terrain.id,
+          name: terrain.name,
+          feet: terrain.feet,
+        })
+      );
+    },
+    [doc, terrain, scheduleSave]
   );
 
   useEffect(() => {
@@ -1109,15 +1285,39 @@ export function BattleBoard({
         default:
           return;
       }
-      scheduleSave(next);
+      saveLevel(next);
     },
-    [terrain, isStaff, tool, brush, scheduleSave]
+    [terrain, isStaff, tool, brush, saveLevel]
   );
 
   /** The rectangle tool's one write, on pointer-up. */
   const applyRect = useCallback(
     (from: { x: number; y: number }, to: { x: number; y: number }) => {
-      if (!terrain || !isStaff || tool.kind !== 'rect') return;
+      if (!terrain || !doc || !isStaff) return;
+      if (tool.kind === 'room') {
+        saveLevel(
+          roomEdits(terrain, from, to, tool.material, { door: tool.door })
+        );
+        return;
+      }
+      if (tool.kind === 'link') {
+        const to2 = doc.levels.find(l => l.id === tool.to);
+        if (!to2 || to2.id === terrain.id) return;
+        const link: LevelLink = {
+          id: shortId(),
+          kind: tool.link,
+          x: Math.min(from.x, to.x),
+          y: Math.min(from.y, to.y),
+          w: Math.min(6, Math.abs(to.x - from.x) + 1),
+          h: Math.min(6, Math.abs(to.y - from.y) + 1),
+          from: to2.feet < terrain.feet ? to2.id : terrain.id,
+          to: to2.feet < terrain.feet ? terrain.id : to2.id,
+        };
+        scheduleSave({ ...doc, links: [...doc.links, link] });
+        setSelectedLink(link.id);
+        return;
+      }
+      if (tool.kind !== 'rect') return;
       const tiles = rectTiles(terrain, from, to);
       if (tool.apply === 'reveal') {
         revealTilesPending(tiles);
@@ -1138,9 +1338,18 @@ export function BattleBoard({
           );
         }
       }
-      scheduleSave(next);
+      saveLevel(next);
     },
-    [terrain, isStaff, tool, revealTilesPending, flushReveal, scheduleSave]
+    [
+      terrain,
+      doc,
+      isStaff,
+      tool,
+      revealTilesPending,
+      flushReveal,
+      saveLevel,
+      scheduleSave,
+    ]
   );
 
   const toggleDoor = useCallback(
@@ -1153,9 +1362,9 @@ export function BattleBoard({
       if (idx < 0) return;
       const walls = [...terrain.walls];
       walls[idx] = { ...walls[idx], open: !walls[idx].open };
-      scheduleSave({ ...terrain, walls });
+      saveLevel({ ...terrain, walls });
     },
-    [terrain, isStaff, scheduleSave]
+    [terrain, isStaff, saveLevel]
   );
 
   /* --- pointer --------------------------------------------------------- */
@@ -1163,16 +1372,7 @@ export function BattleBoard({
   const tileAt = (ev: ReactPointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas || !terrain) return null;
-    const rect = canvas.getBoundingClientRect();
-    const size = rect.width / terrain.w;
-    const px = ev.clientX - rect.left;
-    const py = ev.clientY - rect.top;
-    const x = Math.floor(px / size);
-    const y = Math.floor(py / size);
-    if (!inBounds(terrain, x, y)) return null;
-    const fx = px / size - x;
-    const fy = py / size - y;
-    return { x, y, side: nearestEdge(fx, fy) };
+    return tileUnder(canvas, terrain, ev);
   };
 
   const onPointerDown = async (ev: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -1203,6 +1403,7 @@ export function BattleBoard({
         entryId: placing.entryId,
         x: at.x,
         y: at.y,
+        level: terrain.id,
         visibility: 'dm',
       });
       if (!res.ok) onError(res.error);
@@ -1214,7 +1415,11 @@ export function BattleBoard({
     // Staff with a building tool: paint. Everything else is selection and
     // movement, which players and staff share.
     if (isStaff && tool.kind !== 'select' && tool.kind !== 'scenery') {
-      if (tool.kind === 'rect') {
+      if (
+        tool.kind === 'rect' ||
+        tool.kind === 'room' ||
+        tool.kind === 'link'
+      ) {
         setMarquee({ from: at, to: at });
         return;
       }
@@ -1233,6 +1438,7 @@ export function BattleBoard({
         const res = await placeTokenAction(board.id, {
           x: at.x,
           y: at.y,
+          level: terrain.id,
           label: tool.label.trim() || 'Something',
           visibility: 'shared',
           imageId: tool.imageId,
@@ -1276,7 +1482,7 @@ export function BattleBoard({
       }
     }
 
-    const hit = board.tokens.find(
+    const hit = here.find(
       t =>
         at.x >= t.x &&
         at.x < t.x + t.footprint &&
@@ -1287,6 +1493,7 @@ export function BattleBoard({
     if (hit) {
       // Shift adds to the selection, so a group can be picked up together;
       // a plain tap on the selected token lets it go.
+      setSelectedLink(null);
       if (ev.shiftKey) toggleSelectedToken(campaignId, hit.id);
       else
         setSelected(
@@ -1295,15 +1502,33 @@ export function BattleBoard({
       return;
     }
 
+    // The stairs themselves, for the DM to name, hide or take away — when
+    // nobody is picked up, so a token on the stairs still walks.
+    if (isStaff && doc && !(selectedToken && selectedToken.mine)) {
+      const i = at.y * terrain.w + at.x;
+      const stair = doc.links.find(
+        l =>
+          (l.from === terrain.id || l.to === terrain.id) &&
+          linkTiles(doc, l).includes(i)
+      );
+      if (stair) {
+        setSelectedLink(stair.id === selectedLink ? null : stair.id);
+        setSelected(null);
+        return;
+      }
+    }
+
     // An empty tile with a token selected: move it there, if it may be.
     // Under advise the tile may be lava and the move still goes: the board
     // has said so in red, and saying is all advising does. Staff are never
     // stopped here at all — the server refuses them with a way past it, and
     // a refusal swallowed in the browser has no "Do it anyway".
-    if (selectedToken && selectedToken.mine) {
-      const others = board.tokens.filter(
-        t => t.id !== selectedToken.id && t.blocks
-      );
+    if (
+      selectedToken &&
+      selectedToken.mine &&
+      selectedToken.level === terrain.id
+    ) {
+      const others = here.filter(t => t.id !== selectedToken.id && t.blocks);
       if (
         !canStandUnder(
           terrain,
@@ -1319,7 +1544,7 @@ export function BattleBoard({
       // its own claim, and the server refuses each on its own.
       const dx = at.x - selectedToken.x;
       const dy = at.y - selectedToken.y;
-      const group = board.tokens.filter(
+      const group = here.filter(
         t => selectedIds.includes(t.id) && t.id !== selectedToken.id && t.mine
       );
       await move(selectedToken.id, { x: at.x, y: at.y });
@@ -1332,12 +1557,13 @@ export function BattleBoard({
     }
 
     setSelected(null);
+    setSelectedLink(null);
   };
 
   const hoverToken = useMemo(() => {
     if (!hover || !board) return null;
     return (
-      board.tokens.find(
+      here.find(
         t =>
           hover.x >= t.x &&
           hover.x < t.x + t.footprint &&
@@ -1345,7 +1571,7 @@ export function BattleBoard({
           hover.y < t.y + t.footprint
       ) ?? null
     );
-  }, [hover, board]);
+  }, [hover, board, here]);
 
   const onPointerMove = (ev: ReactPointerEvent<HTMLCanvasElement>) => {
     const at = tileAt(ev);
@@ -1373,907 +1599,6 @@ export function BattleBoard({
     setPainting(false);
   };
 
-  /* --- drawing --------------------------------------------------------- */
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const wrap = wrapRef.current;
-    if (!canvas || !wrap || !terrain || !board) return;
-
-    // Hidden behind the 3D view the wrapper has no width, and a zero-size
-    // tile makes every radius below negative — `arc` throws on that and the
-    // whole page went down with it. Found in a browser, not by a typecheck.
-    if (dimensional) return;
-    const p = readPalette(dark);
-    const width = wrap.clientWidth;
-    let size = Math.floor(width / terrain.w);
-    if (fitHeight) {
-      // Whatever sits above the canvas inside the region — the title bar, the
-      // tools — is measured rather than guessed, so a DM's two tool rows and
-      // a player's none both leave the board exactly filling what is left.
-      const region = wrap.closest('[data-board-region]');
-      const above = region
-        ? wrap.getBoundingClientRect().top - region.getBoundingClientRect().top
-        : 0;
-      const room = fitHeight - above - 48;
-      size = Math.max(2, Math.min(size, Math.floor(room / terrain.h)));
-    }
-    // Below this a token's rim is wider than its face and `arc` throws on
-    // the negative radius, taking the page down — a phone held sideways
-    // with a region measured before it had a height found it. Draw nothing
-    // and wait for the next measurement rather than draw a crash.
-    if (size < 6) return;
-    const W = size * terrain.w;
-    const H = size * terrain.h;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    canvas.style.width = `${W}px`;
-    canvas.style.height = `${H}px`;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-
-    // Tiles: the same drawn surfaces the 3D view wraps onto its boxes —
-    // flagstones, planks, grass — so the board is a floor and not a swatch
-    // chart. A little seeded variation per tile keeps a room from reading as
-    // wallpaper. Void is absent, not dark: the fog filter has already
-    // removed anything a player may not see, and drawing "unknown" as a
-    // shade would leak the shape of a room the server declined to describe.
-    const elevationAt = (x: number, y: number): number | null => {
-      if (!inBounds(terrain, x, y)) return null;
-      const i = y * terrain.w + x;
-      return terrain.material[i] === VOID ? null : terrain.elevation[i];
-    };
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    for (let y = 0; y < terrain.h; y++) {
-      for (let x = 0; x < terrain.w; x++) {
-        const i = y * terrain.w + x;
-        const m = MATERIALS[terrain.material[i]] ?? MATERIALS[VOID];
-        const px = x * size;
-        const py = y * size;
-        if (terrain.material[i] === VOID) continue;
-        const art = floorArt(m.key, dark);
-        if (art) ctx.drawImage(art, px, py, size, size);
-        else {
-          ctx.fillStyle = dark ? m.swatchDark : m.swatch;
-          ctx.fillRect(px, py, size, size);
-        }
-        const v = ((i * 2654435761) % 1000) / 1000;
-        ctx.fillStyle = v < 0.5 ? '#000000' : '#ffffff';
-        ctx.globalAlpha = Math.abs(v - 0.5) * 0.14;
-        ctx.fillRect(px, py, size, size);
-        ctx.globalAlpha = 1;
-
-        // Higher ground is lit, lower ground is in shadow — a wash by
-        // height, so a stair of ledges reads as a stair.
-        const e = terrain.elevation[i];
-        if (e !== 0) {
-          ctx.fillStyle = e > 0 ? '#ffffff' : '#000000';
-          ctx.globalAlpha = Math.min(0.2, Math.abs(e) / 100);
-          ctx.fillRect(px, py, size, size);
-          ctx.globalAlpha = 1;
-        }
-      }
-    }
-
-    // Grid. Faint: the tiles' own edges already carry most of it.
-    ctx.strokeStyle = p.line;
-    ctx.globalAlpha = dark ? 0.55 : 0.7;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 0; x <= terrain.w; x++) {
-      ctx.moveTo(x * size + 0.5, 0);
-      ctx.lineTo(x * size + 0.5, H);
-    }
-    for (let y = 0; y <= terrain.h; y++) {
-      ctx.moveTo(0, y * size + 0.5);
-      ctx.lineTo(W, y * size + 0.5);
-    }
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    // Ledges: where a tile stands higher than its neighbour, the lower side
-    // gets a shadow along the shared edge and the higher a thin lit lip. A
-    // drop reads as a drop without a number on it — the number stays, small,
-    // for anybody who wants the feet.
-    for (let y = 0; y < terrain.h; y++) {
-      for (let x = 0; x < terrain.w; x++) {
-        const here = elevationAt(x, y);
-        if (here === null) continue;
-        const px = x * size;
-        const py = y * size;
-        const lip = Math.max(2, size * 0.1);
-        const drop = Math.max(3, size * 0.22);
-        const sides: [Side, number | null][] = [
-          ['n', elevationAt(x, y - 1)],
-          ['s', elevationAt(x, y + 1)],
-          ['w', elevationAt(x - 1, y)],
-          ['e', elevationAt(x + 1, y)],
-        ];
-        for (const [side, there] of sides) {
-          if (there === null || there >= here) continue;
-          // This tile is higher: shade the low tile's edge, light this one's.
-          const depth = Math.min(1, (here - there) / 20);
-          const x0 = side === 'e' ? px + size : px;
-          const y0 = side === 's' ? py + size : py;
-          const x1 =
-            side === 'w' ? px - drop : side === 'e' ? px + size + drop : x0;
-          const y1 =
-            side === 'n' ? py - drop : side === 's' ? py + size + drop : y0;
-          const shadow = ctx.createLinearGradient(x0, y0, x1, y1);
-          shadow.addColorStop(0, `rgba(0,0,0,${0.22 + depth * 0.3})`);
-          shadow.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = shadow;
-          switch (side) {
-            case 'n':
-              ctx.fillRect(px, py - drop, size, drop);
-              break;
-            case 's':
-              ctx.fillRect(px, py + size, size, drop);
-              break;
-            case 'w':
-              ctx.fillRect(px - drop, py, drop, size);
-              break;
-            case 'e':
-              ctx.fillRect(px + size, py, drop, size);
-              break;
-          }
-          ctx.fillStyle = 'rgba(255,255,255,0.35)';
-          switch (side) {
-            case 'n':
-              ctx.fillRect(px, py, size, lip);
-              break;
-            case 's':
-              ctx.fillRect(px, py + size - lip, size, lip);
-              break;
-            case 'w':
-              ctx.fillRect(px, py, lip, size);
-              break;
-            case 'e':
-              ctx.fillRect(px + size - lip, py, lip, size);
-              break;
-          }
-        }
-        if (here !== 0 && size >= 18) {
-          ctx.fillStyle = p.ink;
-          ctx.globalAlpha = 0.7;
-          ctx.font = `600 ${Math.max(8, size * 0.24)}px ui-sans-serif, system-ui`;
-          ctx.textAlign = 'right';
-          ctx.textBaseline = 'bottom';
-          ctx.fillText(
-            `${here > 0 ? '+' : ''}${here}`,
-            px + size - 3,
-            py + size - 2
-          );
-          ctx.globalAlpha = 1;
-        }
-      }
-    }
-
-    // Fog, for staff: what the party has *not* been shown is hatched over,
-    // and the stroke in progress is lit in gold. The first cut washed the
-    // revealed tiles gold instead, and since most of a board is revealed
-    // most of the time, the DM's whole room went mustard. The hidden part
-    // is the smaller set and the one the DM is actually deciding about.
-    if (isStaff) {
-      const shown = new Set(board.revealed);
-      ctx.save();
-      ctx.beginPath();
-      let any = false;
-      for (let i = 0; i < terrain.w * terrain.h; i++) {
-        if (terrain.material[i] === VOID || shown.has(i)) continue;
-        ctx.rect(
-          (i % terrain.w) * size,
-          Math.floor(i / terrain.w) * size,
-          size,
-          size
-        );
-        any = true;
-      }
-      if (any) {
-        ctx.clip();
-        ctx.fillStyle = dark ? 'rgba(0,0,0,0.45)' : 'rgba(43,38,32,0.28)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.strokeStyle = dark ? 'rgba(0,0,0,0.5)' : 'rgba(43,38,32,0.3)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        const step = Math.max(6, size * 0.3);
-        for (let d = -H; d < W; d += step) {
-          ctx.moveTo(d, 0);
-          ctx.lineTo(d + H, H);
-        }
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-    // The area a spell would cover, in the arcane hue.
-    if (litArea) {
-      ctx.fillStyle = p.arcane;
-      ctx.globalAlpha = 0.35;
-      for (const i of litArea.tiles) {
-        const x = i % terrain.w;
-        const y = Math.floor(i / terrain.w);
-        ctx.fillRect(x * size, y * size, size, size);
-      }
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = p.arcane;
-      ctx.lineWidth = 2;
-      const ox = (litArea.area.origin.x + 0.5) * size;
-      const oy = (litArea.area.origin.y + 0.5) * size;
-      ctx.beginPath();
-      ctx.arc(ox, oy, size * 0.2, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    if (isStaff && pendingReveal.current.size > 0) {
-      ctx.fillStyle = p.gold;
-      ctx.globalAlpha = 0.32;
-      for (const i of pendingReveal.current) {
-        const x = i % terrain.w;
-        const y = Math.floor(i / terrain.w);
-        ctx.fillRect(x * size, y * size, size, size);
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    // A dark board (08): what nobody lights sits under a cool grey, so the
-    // party can tell "we have seen this" from "we can see this now". Torches
-    // carried by tokens light their pool the way a brazier does.
-    const torches = (board?.tokens ?? [])
-      .filter(t => t.lightFeet && t.lightFeet > 0)
-      .map(t => ({ x: t.x, y: t.y, radiusFeet: t.lightFeet as number }));
-    if (terrain.ambient === 'dark') {
-      ctx.fillStyle = dark ? 'rgba(60,70,90,0.45)' : 'rgba(70,80,100,0.35)';
-      for (let y = 0; y < terrain.h; y++) {
-        for (let x = 0; x < terrain.w; x++) {
-          const i = y * terrain.w + x;
-          if (terrain.material[i] === VOID) continue;
-          if (litAt(terrain, { x, y }, torches)) continue;
-          ctx.fillRect(x * size, y * size, size, size);
-        }
-      }
-    }
-    for (const t of torches) {
-      const cx = (t.x + 0.5) * size;
-      const cy = (t.y + 0.5) * size;
-      const r = (t.radiusFeet / 5) * size;
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      g.addColorStop(
-        0,
-        dark ? 'rgba(255,196,110,0.4)' : 'rgba(217,160,70,0.3)'
-      );
-      g.addColorStop(1, 'rgba(217,176,97,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-    }
-
-    // Lights: a warm pool on the floor and a brazier standing in it.
-    // Candlelight is the palette; lean into it.
-    for (const l of terrain.lights) {
-      const cx = (l.x + 0.5) * size;
-      const cy = (l.y + 0.5) * size;
-      const r = (l.radius / 5) * size;
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      g.addColorStop(
-        0,
-        dark ? 'rgba(255,196,110,0.5)' : 'rgba(217,160,70,0.4)'
-      );
-      g.addColorStop(
-        0.5,
-        dark ? 'rgba(255,180,90,0.18)' : 'rgba(217,160,70,0.14)'
-      );
-      g.addColorStop(1, 'rgba(217,176,97,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-      const bowl = Math.max(3, size * 0.16);
-      ctx.fillStyle = dark ? '#2a2622' : '#3a3530';
-      ctx.beginPath();
-      ctx.arc(cx, cy, bowl, 0, Math.PI * 2);
-      ctx.fill();
-      const flame = ctx.createRadialGradient(cx, cy, 0, cx, cy, bowl * 0.8);
-      flame.addColorStop(0, '#fff2c0');
-      flame.addColorStop(0.5, '#ffb050');
-      flame.addColorStop(1, 'rgba(230,100,30,0)');
-      ctx.fillStyle = flame;
-      ctx.beginPath();
-      ctx.arc(cx, cy, bowl * 0.8, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Reach, for the selected token: a faint gold fill and an inset outline
-    // per tile — the lit squares a game shows when a piece is picked up.
-    // Nothing else on the board is a gold fill now that the fog is a hatch
-    // over the hidden part, so the two cannot be mistaken for each other.
-    if (reach) {
-      const inset = Math.max(3, size * 0.14);
-      for (const i of reach.keys()) {
-        const x = i % terrain.w;
-        const y = Math.floor(i / terrain.w);
-        ctx.fillStyle = p.gold;
-        ctx.globalAlpha = 0.16;
-        ctx.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = p.gold;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([3, 3]);
-        ctx.strokeRect(
-          x * size + inset,
-          y * size + inset,
-          size - inset * 2,
-          size - inset * 2
-        );
-      }
-      ctx.setLineDash([]);
-    }
-
-    // Jump landings: a dashed ring on the far side of a gap, nothing
-    // filled — a place you can get to, not a place you can walk to. Round,
-    // where the reach is square, so a landing that is also in walking reach
-    // still reads as a jump.
-    if (jumps && jumps.landings.length > 0) {
-      ctx.strokeStyle = p.gold;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 4]);
-      for (const i of jumps.landings) {
-        const x = i % terrain.w;
-        const y = Math.floor(i / terrain.w);
-        ctx.beginPath();
-        ctx.arc(
-          (x + 0.5) * size,
-          (y + 0.5) * size,
-          size * 0.36,
-          0,
-          Math.PI * 2
-        );
-        ctx.stroke();
-      }
-      ctx.setLineDash([]);
-    }
-
-    // Props: drawn, never typed.
-    for (const pr of terrain.props) {
-      const cx = (pr.x + 0.5) * size;
-      const cy = (pr.y + 0.5) * size;
-      const s = size * 0.3;
-      if (pr.kind === 'image') {
-        // The picture itself, fitted inside the tile, so the top-down board
-        // shows the tree the DM stood up rather than a mark for it. A
-        // dashed square while it loads.
-        const img = pr.imageId ? faces.get(imageUrlFor(pr.imageId)) : null;
-        const box = size * 0.9;
-        if (img) {
-          const scale = Math.min(
-            box / img.naturalWidth,
-            box / img.naturalHeight
-          );
-          const dw = img.naturalWidth * scale;
-          const dh = img.naturalHeight * scale;
-          ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
-        } else {
-          ctx.strokeStyle = p.inkMuted;
-          ctx.setLineDash([3, 3]);
-          ctx.strokeRect(cx - box / 2, cy - box / 2, box, box);
-          ctx.setLineDash([]);
-        }
-        continue;
-      }
-      // Stone things in stone, wooden things in wood, a tree in leaf — the
-      // colours the 3D view builds them from, with a shadow underneath.
-      const stoneFill = dark ? '#5a5248' : '#a1968a';
-      const woodFill = dark ? MATERIALS[4].swatchDark : MATERIALS[4].swatch;
-      const leafFill = dark ? '#3f5a2e' : '#7ea35e';
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath();
-      ctx.arc(cx + size * 0.04, cy + size * 0.06, s * 1.05, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = dark ? '#1c1814' : '#3a3530';
-      ctx.fillStyle =
-        pr.kind === 'tree'
-          ? leafFill
-          : pr.kind === 'table' || pr.kind === 'chest' || pr.kind === 'barrel'
-            ? woodFill
-            : stoneFill;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      switch (pr.kind) {
-        case 'barrel':
-        case 'pillar':
-          ctx.arc(cx, cy, s, 0, Math.PI * 2);
-          break;
-        case 'tree':
-          ctx.moveTo(cx, cy - s);
-          ctx.lineTo(cx + s, cy + s);
-          ctx.lineTo(cx - s, cy + s);
-          ctx.closePath();
-          break;
-        case 'statue':
-        case 'altar':
-          ctx.moveTo(cx, cy - s);
-          ctx.lineTo(cx + s, cy);
-          ctx.lineTo(cx, cy + s);
-          ctx.lineTo(cx - s, cy);
-          ctx.closePath();
-          break;
-        case 'rubble':
-          ctx.arc(cx - s * 0.5, cy + s * 0.3, s * 0.4, 0, Math.PI * 2);
-          ctx.moveTo(cx + s * 0.6, cy - s * 0.2);
-          ctx.arc(cx + s * 0.3, cy - s * 0.2, s * 0.3, 0, Math.PI * 2);
-          break;
-        default:
-          ctx.rect(cx - s, cy - s * 0.7, s * 2, s * 1.4);
-      }
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    // Walls on edges, drawn with a little depth: masonry as a dark band
-    // with a lit coping, a door as its plank leaf — swung open into the
-    // room, with the arc it swept — a window as stone with the arcane pane
-    // between, a rail as posts and a line.
-    const walls = wallIndex(terrain);
-    const masonryInk = dark ? '#1c1814' : '#3a3530';
-    const masonryLit = dark ? '#8a7d6b' : '#a1968a';
-    const plank = dark ? MATERIALS[4].swatchDark : MATERIALS[4].swatch;
-    for (const w of walls.values()) {
-      const x0 = w.x * size;
-      const y0 = w.y * size;
-      let ax = x0,
-        ay = y0,
-        bx = x0,
-        by = y0;
-      switch (w.side) {
-        case 'n':
-          bx = x0 + size;
-          break;
-        case 's':
-          ay = by = y0 + size;
-          bx = x0 + size;
-          break;
-        case 'w':
-          by = y0 + size;
-          break;
-        case 'e':
-          ax = bx = x0 + size;
-          by = y0 + size;
-          break;
-      }
-      // The edge's own direction, and the way into the tile it belongs to.
-      const dx = bx - ax;
-      const dy = by - ay;
-      const inX = w.side === 'w' ? 1 : w.side === 'e' ? -1 : 0;
-      const inY = w.side === 'n' ? 1 : w.side === 's' ? -1 : 0;
-      const thick = Math.max(3, size * 0.16);
-      ctx.lineCap = 'butt';
-      ctx.setLineDash([]);
-      if (w.kind !== 'rail') {
-        // The shadow a standing wall throws, so it is not a line on paper.
-        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-        ctx.lineWidth = thick * 1.6;
-        ctx.beginPath();
-        ctx.moveTo(ax + size * 0.04, ay + size * 0.06);
-        ctx.lineTo(bx + size * 0.04, by + size * 0.06);
-        ctx.stroke();
-      }
-      switch (w.kind) {
-        case 'solid':
-          ctx.strokeStyle = masonryInk;
-          ctx.lineWidth = thick;
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          ctx.strokeStyle = masonryLit;
-          ctx.lineWidth = Math.max(1, thick * 0.3);
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          break;
-        case 'door': {
-          // Jambs at both ends, in stone.
-          ctx.strokeStyle = masonryInk;
-          ctx.lineWidth = thick;
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(ax + dx * 0.12, ay + dy * 0.12);
-          ctx.moveTo(bx - dx * 0.12, by - dy * 0.12);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          const hx = ax + dx * 0.12;
-          const hy = ay + dy * 0.12;
-          const len = Math.hypot(dx, dy) * 0.76;
-          ctx.lineWidth = Math.max(3, size * 0.12);
-          ctx.strokeStyle = shade(plank, dark ? 0.15 : -0.25);
-          ctx.beginPath();
-          ctx.moveTo(hx, hy);
-          if (w.open) {
-            // Swung into its tile on the hinge, and the sweep it took.
-            ctx.lineTo(hx + inX * len, hy + inY * len);
-            ctx.stroke();
-            ctx.strokeStyle = p.success;
-            ctx.lineWidth = 1;
-            ctx.setLineDash([3, 3]);
-            ctx.beginPath();
-            const start = Math.atan2(dy, dx);
-            const end = Math.atan2(inY, inX);
-            const ccw = (end - start + Math.PI * 3) % (Math.PI * 2) > Math.PI;
-            ctx.arc(hx, hy, len, start, end, ccw);
-            ctx.stroke();
-            ctx.setLineDash([]);
-          } else {
-            ctx.lineTo(bx - dx * 0.12, by - dy * 0.12);
-            ctx.stroke();
-            // The strapping.
-            ctx.strokeStyle = dark ? '#1c1815' : '#2a2622';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            for (const f of [0.35, 0.65]) {
-              const sx = hx + dx * 0.76 * f;
-              const sy = hy + dy * 0.76 * f;
-              ctx.moveTo(sx - inX * thick * 0.5, sy - inY * thick * 0.5);
-              ctx.lineTo(sx + inX * thick * 0.5, sy + inY * thick * 0.5);
-            }
-            ctx.stroke();
-          }
-          break;
-        }
-        case 'window':
-          ctx.strokeStyle = masonryInk;
-          ctx.lineWidth = thick;
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          ctx.strokeStyle = p.arcane;
-          ctx.lineWidth = Math.max(2, thick * 0.45);
-          ctx.beginPath();
-          ctx.moveTo(ax + dx * 0.15, ay + dy * 0.15);
-          ctx.lineTo(bx - dx * 0.15, by - dy * 0.15);
-          ctx.stroke();
-          break;
-        case 'rail':
-          ctx.strokeStyle = p.inkMuted;
-          ctx.lineWidth = Math.max(1.5, size * 0.06);
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          ctx.fillStyle = p.inkMuted;
-          for (const f of [0.08, 0.5, 0.92]) {
-            ctx.beginPath();
-            ctx.arc(
-              ax + dx * f,
-              ay + dy * f,
-              Math.max(1.5, size * 0.06),
-              0,
-              Math.PI * 2
-            );
-            ctx.fill();
-          }
-          break;
-      }
-    }
-    ctx.setLineDash([]);
-    ctx.lineCap = 'round';
-
-    // Tokens: the same piece the 3D view stands up, seen from above. A soft
-    // ring of the side's colour on the floor, a pewter base with the side's
-    // colour as its rim, the face inside, and the hit points as an arc round
-    // the outside — not a counter painted in the side's colour edge to edge.
-    for (const t of board.tokens) {
-      const entry = t.entryId ? entriesById.get(t.entryId) : undefined;
-      const label = entry?.label ?? t.label ?? '';
-      const cx = (t.x + t.footprint / 2) * size;
-      const cy = (t.y + t.footprint / 2) * size;
-      const r = Math.max(
-        1,
-        (size * t.footprint) / 2 - Math.max(4, size * 0.16)
-      );
-      const faint = t.visibility === 'dm';
-      const sideColour =
-        entry?.side === 'foe'
-          ? p.danger
-          : entry?.side === 'party'
-            ? p.gold
-            : p.inkMuted;
-
-      // The halo on the floor.
-      const halo = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 1.5);
-      halo.addColorStop(0, sideColour);
-      halo.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = halo;
-      ctx.globalAlpha = faint ? 0.2 : 0.45;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r * 1.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-
-      // The base: pewter, with a shadow under its edge.
-      ctx.globalAlpha = faint ? 0.45 : 1;
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.beginPath();
-      ctx.arc(cx + size * 0.03, cy + size * 0.04, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = dark ? '#4c463e' : '#8a8173';
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = sideColour;
-      ctx.lineWidth = Math.max(2, size * 0.07);
-      ctx.beginPath();
-      ctx.arc(cx, cy, r - ctx.lineWidth / 2, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-
-      // HP as an arc, by the HeroCard rule: the tone says how it is going,
-      // the arc's length says how much is left. For a foe the server has
-      // nulled the numbers for a player, so there is no arc — as the tracker
-      // shows a word rather than a number.
-      const tone = hpTone(entry, p);
-      if (tone && entry && entry.hpCurrent !== null && entry.hpMax) {
-        const ratio = Math.max(0, Math.min(1, entry.hpCurrent / entry.hpMax));
-        const ar = r + Math.max(2, size * 0.07);
-        ctx.lineWidth = Math.max(2, size * 0.06);
-        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-        ctx.beginPath();
-        ctx.arc(cx, cy, ar, 0, Math.PI * 2);
-        ctx.stroke();
-        if (ratio > 0) {
-          ctx.strokeStyle = tone;
-          ctx.beginPath();
-          ctx.arc(cx, cy, ar, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
-          ctx.stroke();
-        }
-      }
-
-      // The one animated thing: whose turn it is.
-      if (entry && currentEntryIds.has(entry.id)) {
-        ctx.strokeStyle = p.gold;
-        ctx.lineWidth = Math.max(2, size * 0.06);
-        ctx.setLineDash([size * 0.12, size * 0.08]);
-        ctx.beginPath();
-        ctx.arc(cx, cy, r + Math.max(5, size * 0.18), 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      // Selection. Every token in the group wears the ring; the last one
-      // picked — the target — wears it in ink, the rest in gold.
-      if (selectedIds.includes(t.id)) {
-        ctx.strokeStyle = t.id === selected ? p.ink : p.gold;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(cx, cy, r + Math.max(8, size * 0.26), 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
-      // The turn, as four pips under the selected token whose turn it is:
-      // action, bonus, reaction, movement — filled when spent. The same
-      // data the card's strip shows; drawn here so the board answers "has
-      // it acted" on its own.
-      if (t.id === selected && entry && currentEntryIds.has(entry.id)) {
-        const pr = Math.max(2, size * 0.07);
-        const gap = pr * 2.6;
-        const py = cy + r + Math.max(8, size * 0.26) + pr * 2.2;
-        const spent = [
-          entry.turn.action,
-          entry.turn.bonus,
-          entry.turn.reaction,
-          movementBudget(entry.turn, entry.speed) === 0,
-        ];
-        spent.forEach((on, i) => {
-          const px = cx + (i - 1.5) * gap;
-          ctx.beginPath();
-          ctx.arc(px, py, pr, 0, Math.PI * 2);
-          ctx.fillStyle = on ? p.gold : 'rgba(0,0,0,0.35)';
-          ctx.fill();
-          ctx.strokeStyle = p.gold;
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        });
-      }
-
-      // The face, clipped inside the rim, or initials when there is none.
-      const face = faceFor(entry, t);
-      const inner = r - Math.max(2, size * 0.07);
-      if (face) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(cx, cy, inner, 0, Math.PI * 2);
-        ctx.clip();
-        // Cover, not stretch: the shorter side fills the circle.
-        const scale = Math.max(
-          (inner * 2) / face.naturalWidth,
-          (inner * 2) / face.naturalHeight
-        );
-        const dw = face.naturalWidth * scale;
-        const dh = face.naturalHeight * scale;
-        ctx.globalAlpha = faint ? 0.5 : 1;
-        ctx.drawImage(face, cx - dw / 2, cy - dh / 2, dw, dh);
-        ctx.globalAlpha = 1;
-        ctx.restore();
-      } else {
-        ctx.fillStyle = '#ece3cf';
-        ctx.globalAlpha = faint ? 0.6 : 1;
-        ctx.font = `600 ${Math.max(9, inner * 0.85)}px ui-sans-serif, system-ui`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(initials(label), cx, cy + 1);
-        ctx.globalAlpha = 1;
-      }
-
-      // What a thing is: a lock on a locked one, a cross through a broken
-      // one, and an open one drawn lighter — it no longer blocks its tile.
-      if (t.state === 'locked') {
-        const k = Math.max(4, size * 0.16);
-        const lx = cx + r - k;
-        const ly = cy - r;
-        ctx.fillStyle = p.ink;
-        ctx.strokeStyle = p.ink;
-        ctx.lineWidth = Math.max(1.5, k * 0.25);
-        ctx.beginPath();
-        ctx.arc(lx + k / 2, ly + k * 0.45, k * 0.3, Math.PI, 0);
-        ctx.stroke();
-        ctx.fillRect(lx, ly + k * 0.45, k, k * 0.75);
-      } else if (t.state === 'broken') {
-        ctx.strokeStyle = p.danger;
-        ctx.lineWidth = Math.max(2, size * 0.06);
-        ctx.beginPath();
-        ctx.moveTo(cx - r * 0.7, cy - r * 0.7);
-        ctx.lineTo(cx + r * 0.7, cy + r * 0.7);
-        ctx.moveTo(cx + r * 0.7, cy - r * 0.7);
-        ctx.lineTo(cx - r * 0.7, cy + r * 0.7);
-        ctx.stroke();
-      } else if (t.state === 'open') {
-        ctx.strokeStyle = p.success;
-        ctx.lineWidth = Math.max(1.5, size * 0.05);
-        ctx.setLineDash([size * 0.1, size * 0.1]);
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-    }
-
-    // Hover.
-    if (hover && isStaff && tool.kind !== 'select') {
-      ctx.strokeStyle = p.gold;
-      ctx.lineWidth = 2;
-      if ((tool.kind === 'wall' || tool.kind === 'erase-wall') && hover.side) {
-        const x0 = hover.x * size;
-        const y0 = hover.y * size;
-        ctx.beginPath();
-        switch (hover.side) {
-          case 'n':
-            ctx.moveTo(x0, y0);
-            ctx.lineTo(x0 + size, y0);
-            break;
-          case 's':
-            ctx.moveTo(x0, y0 + size);
-            ctx.lineTo(x0 + size, y0 + size);
-            break;
-          case 'w':
-            ctx.moveTo(x0, y0);
-            ctx.lineTo(x0, y0 + size);
-            break;
-          case 'e':
-            ctx.moveTo(x0 + size, y0);
-            ctx.lineTo(x0 + size, y0 + size);
-            break;
-        }
-        ctx.stroke();
-      } else if (tool.kind !== 'rect' && tool.kind !== 'ruler') {
-        const brushed =
-          tool.kind === 'reveal' ||
-          tool.kind === 'paint' ||
-          tool.kind === 'raise';
-        const r = brushed ? brush - 1 : 0;
-        ctx.strokeRect(
-          (hover.x - r) * size + 1,
-          (hover.y - r) * size + 1,
-          size * (2 * r + 1) - 2,
-          size * (2 * r + 1) - 2
-        );
-      }
-    }
-
-    // The rectangle being dragged: a dashed box over the tiles it will take.
-    if (marquee) {
-      const x0 = Math.min(marquee.from.x, marquee.to.x) * size;
-      const y0 = Math.min(marquee.from.y, marquee.to.y) * size;
-      const x1 = (Math.max(marquee.from.x, marquee.to.x) + 1) * size;
-      const y1 = (Math.max(marquee.from.y, marquee.to.y) + 1) * size;
-      ctx.fillStyle = p.gold;
-      ctx.globalAlpha = 0.18;
-      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = p.gold;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
-      ctx.setLineDash([]);
-    }
-
-    // The ruler: a line between two tile centres and the feet beside it.
-    if (ruler && ruler.to) {
-      const ax = (ruler.from.x + 0.5) * size;
-      const ay = (ruler.from.y + 0.5) * size;
-      const bx = (ruler.to.x + 0.5) * size;
-      const by = (ruler.to.y + 0.5) * size;
-      ctx.strokeStyle = p.ink;
-      ctx.lineWidth = 2;
-      ctx.setLineDash(ruler.pinned ? [] : [6, 4]);
-      ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      for (const [x, y] of [
-        [ax, ay],
-        [bx, by],
-      ]) {
-        ctx.beginPath();
-        ctx.arc(x, y, Math.max(3, size * 0.1), 0, Math.PI * 2);
-        ctx.fillStyle = p.ink;
-        ctx.fill();
-      }
-      const feet = distanceFeet(ruler.from, ruler.to, state.rules.diagonals);
-      const squares = distanceSquares(ruler.from, ruler.to);
-      const label = `${feet} ft · ${squares} sq`;
-      ctx.font = `600 ${Math.max(11, size * 0.4)}px Inter, system-ui, sans-serif`;
-      const tw = ctx.measureText(label).width + 10;
-      const th = Math.max(16, size * 0.55);
-      const lx = Math.min(W - tw - 2, Math.max(2, (ax + bx) / 2 - tw / 2));
-      const ly = Math.min(H - th - 2, Math.max(2, (ay + by) / 2 - th - 6));
-      ctx.fillStyle = p.surface;
-      ctx.globalAlpha = 0.92;
-      ctx.fillRect(lx, ly, tw, th);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = p.line;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(lx + 0.5, ly + 0.5, tw - 1, th - 1);
-      ctx.fillStyle = p.ink;
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, lx + 5, ly + th / 2);
-      ctx.textBaseline = 'alphabetic';
-    }
-  }, [
-    terrain,
-    board,
-    dark,
-    isStaff,
-    entriesById,
-    currentEntryId,
-    currentEntryIds,
-    selected,
-    selectedIds,
-    reach,
-    jumps,
-    hover,
-    tool,
-    faceFor,
-    faces,
-    imageUrlFor,
-    dimensional,
-    pendingCount,
-    brush,
-    fitHeight,
-    marquee,
-    ruler,
-    litArea,
-    state.rules.diagonals,
-  ]);
-
-  // Redraw on resize: the canvas is sized off its container.
-  const [, bump] = useState(0);
-  useEffect(() => {
-    const onResize = () => bump(n => n + 1);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
   /* --- no board -------------------------------------------------------- */
 
   if (!board || !terrain) {
@@ -2283,67 +1608,105 @@ export function BattleBoard({
           <EmptyState
             scene={<BattlefieldScene />}
             title="No board on the table"
-            description="Lay one out, paint the room, and deal the fight onto it."
+            description={
+              shelf.length > 0
+                ? 'Put one from the shelf on it, or lay a new one out.'
+                : 'Lay one out, paint the room, and deal the fight onto it.'
+            }
             action={
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="flex flex-col text-xs text-ink-muted">
-                  Wide
-                  <input
-                    type="number"
-                    min={MIN_SIDE}
-                    max={MAX_SIDE}
-                    value={newW}
-                    onChange={e => setNewW(e.target.value)}
-                    className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
-                  />
-                </label>
-                <label className="flex flex-col text-xs text-ink-muted">
-                  Tall
-                  <input
-                    type="number"
-                    min={MIN_SIDE}
-                    max={MAX_SIDE}
-                    value={newH}
-                    onChange={e => setNewH(e.target.value)}
-                    className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
-                  />
-                </label>
-                <label className="flex flex-col text-xs text-ink-muted">
-                  Floor
-                  <select
-                    value={newFloor}
-                    onChange={e => setNewFloor(e.target.value)}
-                    className="h-[30px] rounded-md border border-line bg-surface px-2 text-sm text-ink"
+              <div className="flex flex-col gap-3">
+                {shelf.length > 0 && (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <Select
+                      size="sm"
+                      label="From the shelf"
+                      aria-label="A board from the shelf"
+                      className="w-56"
+                      selectedKeys={shelfPick ? [shelfPick] : []}
+                      onSelectionChange={keys => {
+                        setShelfPick(String(Array.from(keys)[0] ?? ''));
+                      }}
+                    >
+                      {shelf.map(b => (
+                        <SelectItem
+                          key={b.id}
+                          textValue={b.name || 'The sand table'}
+                        >
+                          {b.name || 'The sand table'}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                    <Button
+                      size="sm"
+                      color="primary"
+                      isDisabled={busy || !shelfPick}
+                      onPress={() => putOnTable(shelfPick)}
+                    >
+                      Put it on the table
+                    </Button>
+                    <span className="pb-2 text-xs text-ink-muted">or</span>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="flex flex-col text-xs text-ink-muted">
+                    Wide
+                    <input
+                      type="number"
+                      min={MIN_SIDE}
+                      max={MAX_SIDE}
+                      value={newW}
+                      onChange={e => setNewW(e.target.value)}
+                      className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
+                    />
+                  </label>
+                  <label className="flex flex-col text-xs text-ink-muted">
+                    Tall
+                    <input
+                      type="number"
+                      min={MIN_SIDE}
+                      max={MAX_SIDE}
+                      value={newH}
+                      onChange={e => setNewH(e.target.value)}
+                      className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
+                    />
+                  </label>
+                  <label className="flex flex-col text-xs text-ink-muted">
+                    Floor
+                    <select
+                      value={newFloor}
+                      onChange={e => setNewFloor(e.target.value)}
+                      className="h-[30px] rounded-md border border-line bg-surface px-2 text-sm text-ink"
+                    >
+                      {MATERIALS.map((m, i) => (
+                        <option key={m.key} value={i}>
+                          {i === VOID ? 'Nothing yet' : m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button
+                    size="sm"
+                    color="primary"
+                    isDisabled={busy}
+                    onPress={async () => {
+                      setBusy(true);
+                      const res = await createBattleMapAction(campaignId, {
+                        w: Number(newW),
+                        h: Number(newH),
+                        material: Number(newFloor),
+                      });
+                      if (res.ok) {
+                        await setBattleMapActiveAction(res.data.id, true);
+                      } else {
+                        onError(res.error);
+                      }
+                      setBusy(false);
+                      await refresh();
+                    }}
                   >
-                    {MATERIALS.map((m, i) => (
-                      <option key={m.key} value={i}>
-                        {i === VOID ? 'Nothing yet' : m.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <Button
-                  size="sm"
-                  color="primary"
-                  isDisabled={busy}
-                  onPress={async () => {
-                    setBusy(true);
-                    const res = await createBattleMapAction(campaignId, {
-                      w: Number(newW),
-                      h: Number(newH),
-                      material: Number(newFloor),
-                    });
-                    if (res.ok) {
-                      await setBattleMapActiveAction(res.data.id, true);
-                    } else {
-                      onError(res.error);
-                    }
-                    setBusy(false);
-                    await refresh();
-                  }}
-                >
-                  Lay it out
-                </Button>
+                    Lay it out
+                  </Button>
+                </div>
               </div>
             }
           />
@@ -2395,19 +1758,65 @@ export function BattleBoard({
       title={board.name || 'The sand table'}
       description={
         isStaff
-          ? `${terrain.w}×${terrain.h} · ${board.tokens.length} on the board · ${board.revealed.length} tiles shown`
+          ? `${terrain.w}×${terrain.h} · ${doc && doc.levels.length > 1 ? `${doc.levels.length} floors · ` : ''}${board.tokens.length} on the board · ${(board.revealed[terrain.id] ?? []).length} tiles shown on the ${terrain.name.toLowerCase()}`
           : 'Tap your token, then tap where it goes.'
       }
       actions={
         <>
-          <Button
-            size="sm"
-            variant={dimensional ? 'solid' : 'flat'}
-            color={dimensional ? 'primary' : 'default'}
-            onPress={toggleDimensional}
+          {isStaff && (
+            <Button
+              as={Link}
+              href={`/campaigns/${campaignId}/workshop/${board.id}`}
+              size="sm"
+              variant="flat"
+              startContent={<Glyph name="hammer" size={13} />}
+            >
+              Open the workshop
+            </Button>
+          )}
+          {isStaff && (
+            <Dropdown onOpenChange={open => open && readShelf()}>
+              <DropdownTrigger>
+                <Button size="sm" variant="flat" isDisabled={busy}>
+                  Swap board
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Put another board on the table"
+                disabledKeys={[board.id]}
+                onAction={key => putOnTable(String(key))}
+              >
+                {shelf.map(b => (
+                  <DropdownItem
+                    key={b.id}
+                    description={
+                      b.id === board.id
+                        ? 'On the table now'
+                        : `${b.w} × ${b.h} · ${b.levels} ${b.levels === 1 ? 'floor' : 'floors'}`
+                    }
+                  >
+                    {b.name || 'The sand table'}
+                  </DropdownItem>
+                ))}
+              </DropdownMenu>
+            </Dropdown>
+          )}
+          <Tooltip
+            isDisabled={canStand}
+            content="This browser has no WebGL, so the table cannot be stood up here."
           >
-            {dimensional ? 'Back to the board' : 'Stand it up'}
-          </Button>
+            <span>
+              <Button
+                size="sm"
+                variant={dimensional ? 'solid' : 'flat'}
+                color={dimensional ? 'primary' : 'default'}
+                isDisabled={!canStand}
+                onPress={toggleDimensional}
+              >
+                {dimensional ? 'Back to the board' : 'Stand it up'}
+              </Button>
+            </span>
+          </Tooltip>
           {isStaff && (
             <>
               <Tooltip content="Reveal what the party's tokens can see, forty feet around each.">
@@ -2459,10 +1868,25 @@ export function BattleBoard({
       }
       bodyClassName="space-y-3"
     >
+      {doc && (
+        <FloorRail
+          board={doc}
+          tokens={board.tokens}
+          entriesById={entriesById}
+          levelId={terrain.id}
+          isStaff={isStaff}
+          follow={follow}
+          onPick={pickLevel}
+          onFollow={() => setFollow(true)}
+          onion={onion}
+          onOnion={setOnion}
+        />
+      )}
+
       {dimensional && (
         <BattleMap3DLazy
           terrain={terrain}
-          tokens={board.tokens}
+          tokens={here}
           entries={state.entries}
           currentEntryId={currentEntryId}
           portraits={state.portraits}
@@ -2480,7 +1904,30 @@ export function BattleBoard({
             await refresh();
             return ok;
           }}
+          onUnavailable={() => {
+            setDimensional(false);
+            setFlatOnly(
+              'This browser cannot stand the table up — it has no WebGL. The board stays flat.'
+            );
+            try {
+              localStorage.setItem('hero-nexus.sand-table.3d', '0');
+            } catch {
+              // Held for this page only.
+            }
+          }}
         />
+      )}
+      {flatOnly && (
+        <div className="flex items-center gap-2 text-xs text-warning">
+          <span>{flatOnly}</span>
+          <button
+            type="button"
+            className="text-ink-subtle hover:text-ink"
+            onClick={() => setFlatOnly(null)}
+          >
+            Dismiss
+          </button>
+        </div>
       )}
 
       {refused && (
@@ -2539,7 +1986,7 @@ export function BattleBoard({
               painting a floor does not need the fog brush in view. */}
           <div className="flex flex-wrap items-center gap-1.5">
             <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
-              {MODES.map(m => (
+              {MODES.filter(m => TABLE_MODES.includes(m.mode)).map(m => (
                 <button
                   key={m.mode}
                   type="button"
@@ -2555,12 +2002,50 @@ export function BattleBoard({
               ))}
             </div>
             <Marginalia dash className="ml-1">
-              {MODES.find(m => m.mode === mode)?.hint}
+              {TABLE_MODES.includes(mode)
+                ? MODES.find(m => m.mode === mode)?.hint
+                : 'floors, walls, trees and stamps now live in the workshop'}
             </Marginalia>
           </div>
 
           {tool.kind === 'area' && (
             <AreaControls tool={tool} onChange={setTool} />
+          )}
+
+          {mode === 'rooms' && tool.kind === 'room' && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {MATERIALS.filter((_, i) => i !== VOID).map((m, i) => {
+                const idx = i + 1;
+                const chosen = tool.material === idx;
+                return (
+                  <Button
+                    key={m.key}
+                    size="sm"
+                    variant={chosen ? 'solid' : 'flat'}
+                    color={chosen ? 'primary' : 'default'}
+                    className="min-w-0 gap-1.5 px-2"
+                    onPress={() => setTool({ ...tool, material: idx })}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-3 w-3 rounded-sm border border-line"
+                      style={{ background: dark ? m.swatchDark : m.swatch }}
+                    />
+                    {m.name}
+                  </Button>
+                );
+              })}
+              <span className="mx-1 h-5 w-px bg-line" />
+              <Checkbox
+                size="sm"
+                isSelected={tool.door}
+                onValueChange={door => setTool({ ...tool, door })}
+              >
+                <span className="text-sm text-ink-muted">
+                  Put a door where it meets a room
+                </span>
+              </Checkbox>
+            </div>
           )}
 
           {mode === 'paint' && (
@@ -2681,6 +2166,58 @@ export function BattleBoard({
                 tool.kind === 'picture'
               )}
               {toolButton('Brazier', { kind: 'light' }, tool.kind === 'light')}
+              {doc && doc.levels.length > 1 && (
+                <>
+                  <span className="mx-1 h-5 w-px bg-line" />
+                  {(['stairs', 'ladder'] as const).map(kind =>
+                    toolButton(
+                      LINK_LABEL[kind],
+                      {
+                        kind: 'link',
+                        link: kind,
+                        to:
+                          tool.kind === 'link'
+                            ? tool.to
+                            : (doc.levels[
+                                doc.levels.findIndex(l => l.id === terrain.id) +
+                                  1
+                              ]?.id ??
+                              doc.levels[
+                                doc.levels.findIndex(l => l.id === terrain.id) -
+                                  1
+                              ]?.id ??
+                              terrain.id),
+                      },
+                      tool.kind === 'link' && tool.link === kind
+                    )
+                  )}
+                  {tool.kind === 'link' && (
+                    <Select
+                      aria-label="Which floor it leads to"
+                      size="sm"
+                      className="w-44"
+                      selectedKeys={[tool.to]}
+                      onSelectionChange={keys => {
+                        const key = String(Array.from(keys)[0] ?? '');
+                        if (key) setTool({ ...tool, to: key });
+                      }}
+                    >
+                      {[...doc.levels]
+                        .reverse()
+                        .filter(l => l.id !== terrain.id)
+                        .map(l => (
+                          <SelectItem key={l.id} textValue={l.name}>
+                            {l.feet > terrain.feet ? 'Up to ' : 'Down to '}
+                            {l.name.toLowerCase()} · {feetLabel(l.feet)}
+                          </SelectItem>
+                        ))}
+                    </Select>
+                  )}
+                </>
+              )}
+              {doc && doc.levels.length === 1 && (
+                <Marginalia dash>add a floor to draw stairs</Marginalia>
+              )}
             </div>
           )}
 
@@ -2698,13 +2235,29 @@ export function BattleBoard({
                 variant="light"
                 className="text-ink-subtle"
                 onPress={async () => {
-                  const res = await resetFogAction(board.id);
+                  const res = await resetFogAction(board.id, terrain.id);
                   if (!res.ok) onError(res.error);
                   await refresh();
                 }}
               >
-                Fog it all
+                {doc && doc.levels.length > 1
+                  ? 'Hide this floor again'
+                  : 'Fog it all'}
               </Button>
+              {doc && doc.levels.length > 1 && (
+                <Button
+                  size="sm"
+                  variant="light"
+                  className="text-ink-subtle"
+                  onPress={async () => {
+                    const res = await resetFogAction(board.id);
+                    if (!res.ok) onError(res.error);
+                    await refresh();
+                  }}
+                >
+                  Fog every floor
+                </Button>
+              )}
               {/* The light everywhere nothing else lights (08). Dark, and
                   "Reveal from the party" reads torches and darkvision. */}
               {terrain && (
@@ -2713,7 +2266,7 @@ export function BattleBoard({
                     <button
                       key={a}
                       type="button"
-                      onClick={() => scheduleSave({ ...terrain, ambient: a })}
+                      onClick={() => saveLevel({ ...terrain, ambient: a })}
                       className={`rounded px-2 py-0.5 text-xs capitalize transition-colors ${
                         terrain.ambient === a
                           ? 'bg-gold font-medium text-bg'
@@ -2895,13 +2448,61 @@ export function BattleBoard({
           dimensional
             ? 'hidden'
             : fitHeight
-              ? 'flex w-full justify-center overflow-x-auto'
-              : 'w-full overflow-x-auto'
+              ? 'relative flex w-full justify-center overflow-x-auto'
+              : 'relative w-full overflow-x-auto'
         }
       >
-        <canvas
-          ref={canvasRef}
-          className="block cursor-crosshair touch-none rounded-md border border-line bg-bg"
+        <BoardCanvas
+          canvasRef={canvasRef}
+          wrapRef={wrapRef}
+          terrain={terrain}
+          doc={doc}
+          here={here}
+          allTokens={board.tokens}
+          entriesById={entriesById}
+          currentEntryIds={currentEntryIds}
+          revealed={isStaff ? (board.revealed[terrain.id] ?? []) : null}
+          isStaff={isStaff}
+          dark={dark}
+          hidden={dimensional}
+          fitHeight={fitHeight}
+          onion={onion}
+          selectedLink={selectedLink}
+          litArea={
+            litArea
+              ? { tiles: litArea.tiles, origin: litArea.area.origin }
+              : null
+          }
+          pending={pendingReveal.current}
+          tick={pendingCount}
+          reach={reach}
+          jumps={jumps}
+          faces={faces}
+          imageUrlFor={imageUrlFor}
+          faceFor={faceFor}
+          selectedIds={selectedIds}
+          selected={selected}
+          hover={hover}
+          hoverShape={
+            !isStaff || tool.kind === 'select'
+              ? null
+              : tool.kind === 'wall' || tool.kind === 'erase-wall'
+                ? 'edge'
+                : tool.kind === 'rect' ||
+                    tool.kind === 'room' ||
+                    tool.kind === 'link' ||
+                    tool.kind === 'ruler' ||
+                    tool.kind === 'area'
+                  ? null
+                  : tool.kind === 'reveal' ||
+                      tool.kind === 'paint' ||
+                      tool.kind === 'raise'
+                    ? brush - 1
+                    : 0
+          }
+          marquee={marquee}
+          ruler={ruler}
+          diagonals={state.rules.diagonals}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -2910,7 +2511,118 @@ export function BattleBoard({
             onPointerUp();
           }}
         />
+        {/* The offer (floors): a token that ends its move on the stairs is
+          asked whether it takes them. The climb is priced beside the
+          answer; "stay" keeps the offer away until something else is
+          picked up. */}
+        {stairsUnder &&
+          declinedLink !== stairsUnder.link.id &&
+          selectedToken && (
+            <div className="absolute inset-x-3 bottom-3 z-10 flex flex-wrap items-center gap-2 rounded-md border border-gold/50 bg-surface/95 px-3 py-2 text-sm text-ink shadow-md">
+              <Glyph name="stairs" size={14} className="text-gold" />
+              <span>
+                {(selectedToken.entryId &&
+                  entriesById.get(selectedToken.entryId)?.label) ||
+                  selectedToken.label ||
+                  'Somebody'}{' '}
+                is on {linkName(stairsUnder.link)}.
+              </span>
+              <span className="text-ink-muted">
+                {stairsUnder.up ? 'It climbs' : 'It drops'} {stairsUnder.feet}{' '}
+                ft of movement to {stairsUnder.otherPhrase}.
+              </span>
+              <Button
+                size="sm"
+                color="primary"
+                className="h-7 min-w-0 px-2.5 text-xs"
+                isDisabled={busy}
+                onPress={() => climb()}
+              >
+                {stairsUnder.up ? 'Go up' : 'Go down'} to{' '}
+                {stairsUnder.otherPhrase}
+              </Button>
+              <Button
+                size="sm"
+                variant="light"
+                className="h-7 min-w-0 px-2.5 text-xs text-ink-subtle"
+                onPress={() => setDeclinedLink(stairsUnder.link.id)}
+              >
+                Stay here
+              </Button>
+            </div>
+          )}
       </div>
+
+      {/* The stairs picked (floors): what they are called, where they go,
+          and whether the party has found them yet. Staff only. */}
+      {isStaff &&
+        doc &&
+        selectedLink &&
+        (() => {
+          const link = doc.links.find(l => l.id === selectedLink);
+          if (!link) return null;
+          const lower = doc.levels.find(l => l.id === link.from);
+          const upper = doc.levels.find(l => l.id === link.to);
+          const write = (next: Partial<LevelLink>) =>
+            scheduleSave({
+              ...doc,
+              links: doc.links.map(l =>
+                l.id === link.id ? { ...l, ...next } : l
+              ),
+            });
+          return (
+            <div className="flex flex-wrap items-center gap-3 text-sm text-ink-muted">
+              <Glyph name="stairs" size={13} className="text-gold" />
+              <Input
+                size="sm"
+                aria-label="What the stairs are called"
+                placeholder={
+                  link.kind === 'ladder' ? 'The ladder' : 'The stairs'
+                }
+                className="w-40"
+                classNames={{ inputWrapper: 'h-7 min-h-7' }}
+                defaultValue={link.name ?? ''}
+                onBlur={e => {
+                  const v = e.currentTarget.value.trim();
+                  if (v !== (link.name ?? '')) write({ name: v });
+                }}
+              />
+              <span>
+                {LINK_LABEL[link.kind]} · {link.w} × {link.h} tiles ·{' '}
+                {lower?.name.toLowerCase() ?? '?'} (
+                {feetLabel(lower?.feet ?? 0)}) to{' '}
+                {upper?.name.toLowerCase() ?? '?'} (
+                {feetLabel(upper?.feet ?? 0)})
+              </span>
+              <Marginalia dash>
+                it stands on both floors; a token that ends its move on it is
+                offered the other one
+              </Marginalia>
+              <Button
+                size="sm"
+                variant="flat"
+                className="ml-auto h-7 min-w-0 px-2.5 text-xs"
+                onPress={() => write({ hidden: !link.hidden })}
+              >
+                {link.hidden ? 'Let them find it' : 'Hide until found'}
+              </Button>
+              <Button
+                size="sm"
+                variant="light"
+                className="h-7 min-w-0 px-2.5 text-xs text-ink-subtle"
+                onPress={() => {
+                  setSelectedLink(null);
+                  scheduleSave({
+                    ...doc,
+                    links: doc.links.filter(l => l.id !== link.id),
+                  });
+                }}
+              >
+                Remove it
+              </Button>
+            </div>
+          );
+        })()}
 
       {litArea && (
         <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
@@ -3173,7 +2885,7 @@ export function BattleBoard({
             <ThingEffectEditor
               campaignId={campaignId}
               token={selectedToken}
-              terrain={terrain}
+              terrain={doc ? levelOf(doc, selectedToken.level) : terrain}
               onDone={refresh}
             />
           )}
@@ -3312,6 +3024,25 @@ export function BattleBoard({
                   </div>
                 </PopoverContent>
               </Popover>
+              {doc && doc.levels.length > 1 && (
+                <Select
+                  aria-label="Which floor it stands on"
+                  size="sm"
+                  className="w-40"
+                  selectedKeys={[selectedToken.level]}
+                  onSelectionChange={keys => {
+                    const key = String(Array.from(keys)[0] ?? '');
+                    if (!key || key === selectedToken.level) return;
+                    void describe(selectedToken.id, { level: key });
+                  }}
+                >
+                  {[...doc.levels].reverse().map(l => (
+                    <SelectItem key={l.id} textValue={l.name}>
+                      {l.name} · {feetLabel(l.feet)}
+                    </SelectItem>
+                  ))}
+                </Select>
+              )}
               <Button
                 size="sm"
                 variant="flat"
@@ -3345,6 +3076,93 @@ export function BattleBoard({
           )}
         </div>
       )}
+
+      {/* Elsewhere in the house (floors): everybody in the fight who is
+          not on this floor, and the ways off it. One line each, so the
+          board says where the wight is without a tab switch. */}
+      {doc &&
+        doc.levels.length > 1 &&
+        (() => {
+          const elsewhere = board.tokens.filter(
+            t => t.level !== terrain.id && t.entryId
+          );
+          const exits = doc.links.filter(
+            l =>
+              (l.from === terrain.id || l.to === terrain.id) &&
+              (!l.hidden || isStaff)
+          );
+          if (elsewhere.length === 0 && exits.length === 0) return null;
+          return (
+            <div className="flex flex-col gap-1 text-xs text-ink-muted">
+              {elsewhere.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-ink-subtle">
+                    Elsewhere in the house
+                  </span>
+                  {elsewhere.map(t => {
+                    const entry = t.entryId
+                      ? entriesById.get(t.entryId)
+                      : undefined;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          pickLevel(t.level);
+                          setSelected(t.id);
+                        }}
+                        className="inline-flex items-center gap-1 hover:text-ink"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`inline-block h-2 w-2 rounded-full ${
+                            entry?.side === 'foe'
+                              ? 'bg-danger'
+                              : entry?.side === 'party'
+                                ? 'bg-gold'
+                                : 'bg-ink-muted'
+                          }`}
+                        />
+                        <span className="text-ink">
+                          {entry?.label || t.label || 'Something'}
+                        </span>
+                        <span>· {levelPhrase(doc, t.level)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {exits.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-ink-subtle">Ways off this floor</span>
+                  {exits.map(l => {
+                    const otherId = linkOtherEnd(l, terrain.id)!;
+                    const up = l.from === terrain.id;
+                    return (
+                      <span
+                        key={l.id}
+                        className="inline-flex items-center gap-1"
+                      >
+                        <Glyph
+                          name={l.kind === 'ladder' ? 'ladder' : 'stairs'}
+                          size={12}
+                          className="text-gold"
+                        />
+                        <span className="text-ink">
+                          {l.name?.trim() || LINK_LABEL[l.kind]}
+                        </span>
+                        <span>
+                          · {up ? 'up' : 'down'} to {levelPhrase(doc, otherId)}
+                          {l.hidden ? ' · hidden' : ''}
+                        </span>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
       {isStaff && (
         <Marginalia dash>

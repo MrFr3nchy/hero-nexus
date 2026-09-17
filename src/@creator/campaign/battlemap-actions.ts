@@ -31,6 +31,9 @@ import {
   setThingEffect,
   searchNearby,
   operateThing,
+  takeLink,
+  getWorkshopBoard,
+  revealRoomsAround,
 } from '@/server/battlemap';
 
 import { RuleRefusal } from '@/server/table-rules';
@@ -58,6 +61,9 @@ function fail(err: unknown, fallback: string): Refusal {
     FORBIDDEN: 'Only the DM and co-DMs build the board.',
     NOT_YOUR_TOKEN: 'That is not yours to move.',
     CANNOT_STAND_THERE: 'Nothing can stand there.',
+    NO_SUCH_STAIR: 'There are no stairs there.',
+    NOT_ON_THE_STAIR: 'Step onto the stairs first.',
+    NO_ROOM_THERE: 'There is no room at the top.',
     TOO_FAR: 'That is further than they can move this turn.',
     NOT_IN_THIS_FIGHT: 'That combatant is not in the fight this board is for.',
     ALREADY_ON_THE_BOARD: 'They are already on the board.',
@@ -105,6 +111,34 @@ export async function getBoardTerrainAction(
     return await getBoardTerrain(mapId);
   } catch {
     return null;
+  }
+}
+
+const levelId = z.string().min(1).max(32);
+
+/** The board on the workshop's bench. Staff only; null when it is gone. */
+export async function getWorkshopBoardAction(
+  mapId: string
+): Promise<Awaited<ReturnType<typeof getWorkshopBoard>> | null> {
+  try {
+    return await getWorkshopBoard(mapId);
+  } catch {
+    return null;
+  }
+}
+
+/** Show the party the rooms they stand in on one floor. */
+export async function revealRoomsAroundAction(
+  mapId: string,
+  level: string
+): Promise<Result<{ revealed: number }>> {
+  const lv = levelId.safeParse(level);
+  if (!lv.success) return { ok: false, error: 'Not a floor.' };
+  try {
+    const revealed = await revealRoomsAround(mapId, lv.data);
+    return { ok: true, data: { revealed } };
+  } catch (err) {
+    return fail(err, 'Could not show the room.');
   }
 }
 
@@ -215,24 +249,31 @@ export async function deleteBattleMapAction(mapId: string): Promise<Result> {
 
 export async function revealTilesAction(
   mapId: string,
-  indices: number[]
+  indices: number[],
+  level?: string
 ): Promise<Result> {
   const parsed = z
     .array(z.number().int().min(0))
     .max(MAX_SIDE * MAX_SIDE)
     .safeParse(indices);
   if (!parsed.success) return { ok: false, error: 'Nothing to reveal.' };
+  const lv = levelId.optional().safeParse(level);
   try {
-    await revealTiles(mapId, parsed.data);
+    await revealTiles(mapId, parsed.data, lv.success ? lv.data : undefined);
     return { ok: true };
   } catch (err) {
     return fail(err, 'Could not reveal that.');
   }
 }
 
-export async function resetFogAction(mapId: string): Promise<Result> {
+/** Fog one floor again, or every floor when none is named. */
+export async function resetFogAction(
+  mapId: string,
+  level?: string
+): Promise<Result> {
+  const lv = levelId.optional().safeParse(level);
   try {
-    await resetFog(mapId);
+    await resetFog(mapId, lv.success ? lv.data : undefined);
     return { ok: true };
   } catch (err) {
     return fail(err, 'Could not draw the fog back.');
@@ -262,6 +303,7 @@ export async function placeTokenAction(
     .extend({
       entryId: z.string().min(1).nullable().optional(),
       label: z.string().trim().max(60).optional(),
+      level: levelId.optional(),
       footprint: z.number().int().min(1).max(3).optional(),
       altitude: z.number().int().min(-100).max(500).optional(),
       tint: z.string().max(20).optional(),
@@ -314,6 +356,27 @@ export async function moveTokenAction(
   }
 }
 
+/**
+ * Take the stairs (floors): the token stands on a link, and goes to the
+ * other floor. The one move a player may make that changes floors.
+ */
+export async function takeLinkAction(
+  tokenId: string,
+  linkId: string,
+  opts: { ruling?: boolean } = {}
+): Promise<Result<{ level: string; x: number; y: number }>> {
+  const parsed = levelId.safeParse(linkId);
+  if (!parsed.success) return { ok: false, error: 'Not a stair.' };
+  try {
+    const data = await takeLink(tokenId, parsed.data, {
+      ruling: opts.ruling === true,
+    });
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Could not take the stairs.');
+  }
+}
+
 export async function updateTokenAction(
   tokenId: string,
   patch: unknown
@@ -321,6 +384,7 @@ export async function updateTokenAction(
   const parsed = z
     .object({
       label: z.string().trim().max(60).optional(),
+      level: levelId.optional(),
       altitude: z.number().int().min(-100).max(500).optional(),
       tint: z.string().max(20).optional(),
       visibility: z.enum(['dm', 'shared']).optional(),

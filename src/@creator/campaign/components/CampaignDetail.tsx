@@ -39,6 +39,7 @@ import { PartySecrets } from './PartySecrets';
 import { QuestPanel } from './QuestPanel';
 import { RevealTimeline } from './RevealTimeline';
 import { EncounterPlanner } from './EncounterPlanner';
+import { BoardShelf } from './workshop/BoardShelf';
 
 const ROLE_LABEL = { gm: 'DM', 'co-gm': 'Co-DM', player: 'Player' } as const;
 const ROLE_TONE = { gm: 'gold', 'co-gm': 'arcane', player: 'neutral' } as const;
@@ -336,6 +337,24 @@ export function CampaignDetail({
         </div>
       ),
     },
+    // The shelf of boards: prep furniture, so staff only — a player has
+    // no board of their own and `listBattleMaps` would hand them nothing.
+    // Every handle a board has is here too — into the workshop, onto the
+    // table, renamed, taken down — so the DM need not open the workshop
+    // to find out what is on the shelf.
+    ...(isStaff
+      ? [
+          {
+            key: 'boards',
+            title: <TabTitle glyph="cube" label="Boards" />,
+            content: (
+              <div className="pt-4">
+                <BoardShelf campaignId={campaign.id} />
+              </div>
+            ),
+          },
+        ]
+      : []),
     {
       key: 'content',
       title: <TabTitle glyph="tome" label="Content" />,

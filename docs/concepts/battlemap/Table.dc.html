@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&amp;family=Cinzel:wght@500;600&amp;family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=Inter:wght@400;500;600&amp;display=swap">
+  <style>
+    body { margin: 0; background: #faf6ef; color: #2b2620; font-family: Inter, ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #7a5c2e; text-decoration: none; } a:hover { color: #5c4520; }
+    button { font-family: inherit; cursor: pointer; }
+    button:focus-visible, a:focus-visible { outline: 2px solid #7a5c2e; outline-offset: 2px; }
+  </style>
+</helmet>
+<div style="width: 1280px; height: 860px; box-sizing: border-box; padding: 28px 32px; display: flex; flex-direction: column; gap: 16px; background: #faf6ef;">
+  <div style="display: flex; align-items: baseline; gap: 14px;">
+    <span style="font-family: Cinzel, serif; font-size: 11px; font-weight: 600; letter-spacing: 0.18em; color: #7a5c2e;">IN BATTLE</span>
+    <span style="font-family: Caveat, cursive; font-size: 19px; color: #6b6459;">— the sand table, with the building tools moved out</span>
+  </div>
+
+  <section style="flex-grow: 1; display: flex; flex-direction: column; gap: 14px; padding: 20px 22px; border: 1px solid #e4dccb; border-radius: 10px; background: #ffffff; box-shadow: 0 1px 2px rgba(43,38,32,0.04), 0 8px 24px -12px rgba(43,38,32,0.12);">
+    <div style="display: flex; align-items: flex-start; gap: 16px;">
+      <div style="display: flex; flex-direction: column; gap: 3px;">
+        <h2 style="margin: 0; font-family: Fraunces, Georgia, serif; font-size: 24px; font-weight: 550; letter-spacing: -0.01em;">Blackwood Manor</h2>
+        <span style="font-size: 13px; color: #6b6459;">34×24 · 4 floors · 7 on the board</span>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px;">
+        <a href="Main.dc.html" style="display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 1px solid #b4894a; border-radius: 8px; color: #7a5c2e; font-size: 13px; font-weight: 600;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6v5l3 3v3H6v-3l3-3zM5 18h14v3H5z"></path></svg>
+          <span>Open the workshop</span>
+        </a>
+        <a href="Workshop3D.dc.html" style="display: flex; align-items: center; height: 34px; padding: 0 12px; border-radius: 8px; background: #f3ede1; color: #2b2620; font-size: 13px;">Stand it up</a>
+        <button type="button" style="height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: #f3ede1; color: #2b2620; font-size: 13px;">Look around</button>
+        <button type="button" style="height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: #f3ede1; color: #2b2620; font-size: 13px;">Deal them in</button>
+        <button type="button" style="height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: #7a5c2e; color: #ffffff; font-size: 13px; font-weight: 600;">Take it back</button>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <nav aria-label="Floors" style="display: flex; padding: 3px; gap: 2px; border: 1px solid #e4dccb; border-radius: 10px; background: #f3ede1;">
+        <sc-for list="{{levels}}" as="lv" hint-placeholder-count="4">
+          <button type="button" onClick="{{lv.pick}}" aria-pressed="{{lv.on}}" style="display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border: 0; border-radius: 8px; background: {{lv.bg}}; color: {{lv.fg}}; font-size: 13px; font-weight: {{lv.weight}};">
+            <span>{{lv.name}}</span>
+            <span style="display: flex; gap: 3px;">
+              <sc-for list="{{lv.pips}}" as="pp" hint-placeholder-count="2">
+                <span style="width: 7px; height: 7px; border-radius: 4px; background: {{pp}}; box-shadow: 0 0 0 1px rgba(255,255,255,0.7);"></span>
+              </sc-for>
+            </span>
+          </button>
+        </sc-for>
+      </nav>
+      <span style="font-family: Caveat, cursive; font-size: 18px; color: #6b6459;">— each player only sees the floor they stand on</span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div style="display: inline-flex; padding: 2px; border: 1px solid #e4dccb; border-radius: 6px; background: #f3ede1;">
+        <span style="padding: 4px 10px; border-radius: 4px; background: #b4894a; color: #faf6ef; font-size: 12px; font-weight: 500;">Select</span>
+        <span style="padding: 4px 10px; border-radius: 4px; color: #6b6459; font-size: 12px;">Ruler</span>
+        <span style="padding: 4px 10px; border-radius: 4px; color: #6b6459; font-size: 12px;">Area</span>
+        <span style="padding: 4px 10px; border-radius: 4px; color: #6b6459; font-size: 12px;">Fog</span>
+      </div>
+      <span style="font-size: 12px; color: #6b6459;">Floors, walls, trees and stamps now live in the workshop.</span>
+    </div>
+
+    <div style="flex-grow: 1; display: flex; gap: 24px; min-height: 0;">
+      <div style="position: relative; width: 680px; height: 480px; flex-shrink: 0; border-radius: 4px; background: #efe8da; box-shadow: 0 0 0 1px #e4dccb;">
+        <sc-for list="{{floors}}" as="f" hint-placeholder-count="6">
+          <div style="position: absolute; left: {{f.l}}px; top: {{f.t}}px; width: {{f.w}}px; height: {{f.h}}px; background-color: {{f.bg}}; background-image: linear-gradient(rgba(43,38,32,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(43,38,32,0.1) 1px, transparent 1px); background-size: 20px 20px;"></div>
+        </sc-for>
+        <sc-for list="{{props}}" as="p" hint-placeholder-count="8">
+          <div style="position: absolute; left: {{p.l}}px; top: {{p.t}}px; width: {{p.w}}px; height: {{p.h}}px; box-sizing: border-box; background: {{p.bg}}; border: 1px solid {{p.bd}}; border-radius: {{p.r}};"></div>
+        </sc-for>
+        <sc-for list="{{walls}}" as="w" hint-placeholder-count="20">
+          <div style="position: absolute; left: {{w.l}}px; top: {{w.t}}px; width: {{w.w}}px; height: {{w.h}}px; background: {{w.bg}};"></div>
+        </sc-for>
+        <sc-for list="{{trees}}" as="t" hint-placeholder-count="12">
+          <div style="position: absolute; left: {{t.l}}px; top: {{t.t}}px; width: {{t.s}}px; height: {{t.s}}px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #a3bb86, #7f9a64 70%); box-shadow: 0 2px 4px rgba(43,38,32,0.25), inset 0 0 0 1px #5f7d43;"></div>
+        </sc-for>
+        <sc-for list="{{tokens}}" as="k" hint-placeholder-count="4">
+          <div style="position: absolute; left: {{k.l}}px; top: {{k.t}}px; width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%; border: 2px solid {{k.ring}}; background: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 7px; font-weight: 700; color: #2b2620; box-shadow: {{k.glow}};"></div>
+        </sc-for>
+
+        <sc-if value="{{showPrompt}}" hint-placeholder-val="{{ true }}">
+          <div role="dialog" aria-label="Take the stairs" style="position: absolute; left: 412px; top: 196px; width: 236px; display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid #e4dccb; border-radius: 10px; background: #ffffff; box-shadow: 0 12px 30px -10px rgba(43,38,32,0.35);">
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <span style="font-size: 14px; font-weight: 600;">Wren is on the grand stair</span>
+              <span style="font-size: 12px; color: #6b6459;">It climbs 12 ft to the upper floor.</span>
+            </div>
+            <button type="button" onClick="{{goUp}}" style="height: 38px; border: 0; border-radius: 8px; background: #7a5c2e; color: #ffffff; font-size: 13px; font-weight: 600;">Go up to the upper floor</button>
+            <button type="button" onClick="{{stay}}" style="height: 34px; border: 1px solid #e4dccb; border-radius: 8px; background: #ffffff; color: #2b2620; font-size: 13px;">Stay down here</button>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0;">
+        <h3 style="margin: 0; font-family: Fraunces, Georgia, serif; font-size: 19px; font-weight: 550;">Elsewhere in the house</h3>
+        <div style="display: flex; flex-direction: column; border: 1px solid #e4dccb; border-radius: 10px; overflow: hidden;">
+          <sc-for list="{{elsewhere}}" as="e" hint-placeholder-count="3">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid {{e.line}};">
+              <span style="width: 22px; height: 22px; box-sizing: border-box; flex-shrink: 0; border-radius: 50%; border: 2px solid {{e.ring}}; background: #ffffff;"></span>
+              <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px;">
+                <span style="font-size: 14px; font-weight: 500;">{{e.name}}</span>
+                <span style="font-size: 12px; color: #6b6459;">{{e.where}}</span>
+              </span>
+              <button type="button" onClick="{{e.go}}" style="height: 32px; padding: 0 12px; border: 1px solid #e4dccb; border-radius: 8px; background: #faf6ef; color: #2b2620; font-size: 12px;">Go there</button>
+            </div>
+          </sc-for>
+        </div>
+
+        <h3 style="margin: 6px 0 0; font-family: Fraunces, Georgia, serif; font-size: 19px; font-weight: 550;">Ways off this floor</h3>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <sc-for list="{{exits}}" as="x" hint-placeholder-count="2">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: #f3ede1; font-size: 13px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7a5c2e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="{{x.d}}"></path></svg>
+              <span style="flex-grow: 1;">{{x.name}}</span>
+              <span style="color: #6b6459;">{{x.to}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+const MATS = { stone: '#d9d2c3', dirt: '#cdbba0', grass: '#b9c9a3', wood: '#d4b58c', water: '#a9bfd0', rubble: '#c2b6a6', lava: '#d98a6c' };
+const LEVELS = [
+  { id: 'attic', name: 'Attic', feet: 24 },
+  { id: 'upper', name: 'Upper floor', feet: 12 },
+  { id: 'ground', name: 'Ground floor', feet: 0 },
+  { id: 'cellar', name: 'Cellar', feet: -10 },
+];
+const H = (x0, x1, y) => { const a = []; for (let x = x0; x <= x1; x++) a.push('h:' + x + ':' + y); return a; };
+const V = (x, y0, y1) => { const a = []; for (let y = y0; y <= y1; y++) a.push('v:' + x + ':' + y); return a; };
+const B = (x, y) => ({ kind: 'barrel', x: x, y: y, w: 1, h: 1 });
+const DEFS = {
+  ground: {
+    base: [{ x: 0, y: 0, w: 34, h: 24, mat: 'grass' }, { x: 15, y: 20, w: 4, h: 4, mat: 'dirt' }],
+    rooms: [
+      { x: 5, y: 4, w: 8, h: 8, mat: 'wood', name: 'Great hall' },
+      { x: 13, y: 4, w: 8, h: 8, mat: 'wood', name: 'Dining room' },
+      { x: 21, y: 4, w: 8, h: 8, mat: 'stone', name: 'Kitchen' },
+      { x: 5, y: 12, w: 8, h: 8, mat: 'wood', name: 'Library' },
+      { x: 13, y: 12, w: 8, h: 8, mat: 'stone', name: 'Foyer' },
+      { x: 21, y: 12, w: 8, h: 8, mat: 'wood', name: 'Parlor' },
+    ],
+    doors: [].concat(H(16, 17, 20), H(16, 17, 12), V(13, 15, 16), V(21, 15, 16), V(13, 7, 7), V(21, 7, 7), H(8, 8, 12), V(29, 9, 9)),
+    windows: [].concat(H(7, 7, 4), H(10, 10, 4), H(15, 15, 4), H(18, 18, 4), H(23, 23, 4), H(26, 26, 4), V(5, 7, 7), V(5, 16, 16), H(23, 23, 20), H(26, 26, 20), V(29, 15, 15)),
+    props: [
+      { kind: 'stairs', x: 18, y: 13, w: 2, h: 3 }, { kind: 'stairs', x: 27, y: 5, w: 2, h: 3 },
+      { kind: 'table', x: 14, y: 7, w: 6, h: 2 }, { kind: 'hearth', x: 7, y: 4, w: 3, h: 1 }, { kind: 'hearth', x: 22, y: 4, w: 3, h: 1 },
+      { kind: 'table', x: 22, y: 7, w: 3, h: 2 }, { kind: 'shelf', x: 5, y: 13, w: 1, h: 3 }, { kind: 'shelf', x: 7, y: 19, w: 5, h: 1 },
+      { kind: 'table', x: 8, y: 15, w: 2, h: 2 }, { kind: 'table', x: 24, y: 15, w: 2, h: 2 }, B(27, 10), B(28, 10),
+    ],
+    trees: [[1, 1, 1], [3, 2, 0.8], [8, 1, 1.1], [12, 2, 0.9], [20, 1, 1], [25, 2, 0.8], [30, 1, 1.1], [32, 3, 0.9], [1, 4, 0.9], [2, 14, 1], [1, 17, 0.8], [3, 19, 1], [31, 11, 0.9], [32, 13, 1], [31, 16, 0.8], [2, 21, 1.1], [4, 22, 0.8], [1, 23, 0.9], [7, 22, 1], [10, 21, 0.9], [12, 23, 0.8], [22, 23, 0.9], [20, 21, 0.8]],
+    exits: [{ name: 'Grand stair · Foyer', to: 'up to the Upper floor', d: 'M6 15l6-6 6 6' }, { name: 'Cellar steps · Kitchen', to: 'down to the Cellar', d: 'M6 9l6 6 6-6' }],
+  },
+  upper: {
+    base: [],
+    rooms: [
+      { x: 5, y: 4, w: 8, h: 8, mat: 'wood', name: 'Master bedroom' },
+      { x: 13, y: 4, w: 8, h: 8, mat: 'wood', name: 'Gallery' },
+      { x: 21, y: 4, w: 8, h: 8, mat: 'wood', name: 'Guest room' },
+      { x: 5, y: 12, w: 8, h: 8, mat: 'wood', name: 'Study' },
+      { x: 13, y: 12, w: 8, h: 8, mat: 'wood', name: 'Landing' },
+      { x: 21, y: 12, w: 8, h: 8, mat: 'wood', name: 'Nursery' },
+      { x: 13, y: 20, w: 8, h: 2, mat: 'stone', name: 'Balcony', wall: 'rail' },
+    ],
+    doors: [].concat(H(16, 17, 12), V(13, 15, 15), V(21, 15, 15), V(13, 7, 7), V(21, 7, 7), H(16, 17, 20)),
+    windows: [].concat(H(7, 7, 4), H(10, 10, 4), H(23, 23, 4), H(26, 26, 4), V(5, 7, 7), V(5, 16, 16), V(29, 7, 7), V(29, 15, 15)),
+    props: [
+      { kind: 'stairs', x: 18, y: 13, w: 2, h: 3 }, { kind: 'stairs', x: 10, y: 13, w: 1, h: 2 },
+      { kind: 'bed', x: 6, y: 5, w: 2, h: 3 }, { kind: 'bed', x: 26, y: 5, w: 2, h: 3 }, { kind: 'bed', x: 26, y: 16, w: 2, h: 2 },
+      { kind: 'table', x: 6, y: 17, w: 3, h: 1 }, { kind: 'shelf', x: 12, y: 16, w: 1, h: 3 },
+      { kind: 'statue', x: 14, y: 5, w: 1, h: 1 }, { kind: 'statue', x: 19, y: 5, w: 1, h: 1 },
+    ],
+    trees: [],
+    exits: [{ name: 'Grand stair · Landing', to: 'down to the Ground floor', d: 'M6 9l6 6 6-6' }, { name: 'Attic ladder · Study', to: 'up to the Attic', d: 'M6 15l6-6 6 6' }],
+  },
+  cellar: {
+    base: [],
+    rooms: [
+      { x: 13, y: 4, w: 8, h: 8, mat: 'dirt', name: 'Storeroom' },
+      { x: 21, y: 4, w: 8, h: 8, mat: 'stone', name: 'Wine cellar' },
+      { x: 9, y: 12, w: 12, h: 6, mat: 'stone', name: 'Old crypt' },
+    ],
+    patches: [{ x: 10, y: 15, w: 3, h: 2, mat: 'rubble' }, { x: 16, y: 5, w: 3, h: 2, mat: 'water' }],
+    doors: [].concat(V(21, 8, 8), H(16, 16, 12)),
+    windows: [],
+    props: [{ kind: 'stairs', x: 27, y: 5, w: 2, h: 3 }, B(22, 5), B(22, 6), B(22, 7), B(22, 9), B(24, 10), B(25, 10), { kind: 'altar', x: 15, y: 14, w: 2, h: 1 }, { kind: 'altar', x: 18, y: 14, w: 2, h: 1 }],
+    trees: [],
+    exits: [{ name: 'Cellar steps · Wine cellar', to: 'up to the Ground floor', d: 'M6 15l6-6 6 6' }],
+  },
+  attic: {
+    base: [],
+    rooms: [
+      { x: 9, y: 6, w: 16, h: 10, mat: 'wood', name: 'Attic' },
+      { x: 19, y: 6, w: 6, h: 4, mat: 'wood', name: 'Hidden room' },
+    ],
+    patches: [{ x: 11, y: 8, w: 3, h: 2, mat: 'rubble' }],
+    doors: V(19, 8, 8),
+    windows: [].concat(V(9, 10, 10), V(25, 12, 12)),
+    props: [{ kind: 'stairs', x: 10, y: 13, w: 1, h: 2 }, { kind: 'chest', x: 22, y: 7, w: 1, h: 1 }, B(14, 13), B(15, 13), B(14, 14)],
+    trees: [],
+    exits: [{ name: 'Attic ladder', to: 'down to the Upper floor', d: 'M6 9l6 6 6-6' }],
+  },
+};
+
+function edgesOf(def) {
+  const m = new Map();
+  for (const r of def.rooms) {
+    const kind = r.wall || 'solid';
+    const put = (k) => { if (!m.has(k)) m.set(k, kind); };
+    for (let i = 0; i < r.w; i++) { put('h:' + (r.x + i) + ':' + r.y); put('h:' + (r.x + i) + ':' + (r.y + r.h)); }
+    for (let j = 0; j < r.h; j++) { put('v:' + r.x + ':' + (r.y + j)); put('v:' + (r.x + r.w) + ':' + (r.y + j)); }
+  }
+  for (const k of def.doors || []) m.set(k, 'door');
+  for (const k of def.windows || []) m.set(k, 'window');
+  const groups = {};
+  for (const [k, kind] of m) {
+    const parts = k.split(':');
+    const e = { o: parts[0], x: +parts[1], y: +parts[2], kind: kind };
+    const g = e.o === 'h' ? 'h' + e.y : 'v' + e.x;
+    (groups[g] = groups[g] || []).push(e);
+  }
+  const runs = [];
+  for (const g in groups) {
+    const arr = groups[g];
+    const at = (e) => (e.o === 'h' ? e.x : e.y);
+    arr.sort((p, q) => at(p) - at(q));
+    let cur = null;
+    for (const e of arr) {
+      if (cur && cur.kind === e.kind && at(e) === cur.start + cur.len) cur.len++;
+      else { cur = { o: e.o, x: e.x, y: e.y, kind: e.kind, start: at(e), len: 1 }; runs.push(cur); }
+    }
+  }
+  const order = { rail: 0, solid: 1, window: 2, door: 3 };
+  return runs.sort((a, b) => order[a.kind] - order[b.kind]);
+}
+
+const PROPSTYLE = {
+  stairs: { bg: 'repeating-linear-gradient(0deg, #e8dcc0 0 3px, #b9a582 3px 7px)', bd: '#b4894a', r: '2px' },
+  table: { bg: '#b08a5c', bd: '#8a6a44', r: '3px', inset: 3 },
+  hearth: { bg: '#d98a6c', bd: '#a23b34', r: '2px', inset: 1 },
+  shelf: { bg: '#7a5c3a', bd: '#5a4328', r: '1px', inset: 2 },
+  bed: { bg: '#c9b8dc', bd: '#6b4d8a', r: '3px', inset: 3 },
+  barrel: { bg: '#b08a5c', bd: '#7a5c3a', r: '50%', inset: 4 },
+  statue: { bg: '#bdb5a5', bd: '#6b6459', r: '50%', inset: 5 },
+  altar: { bg: '#bdb5a5', bd: '#6b6459', r: '2px', inset: 3 },
+  chest: { bg: '#b4894a', bd: '#7a5c2e', r: '2px', inset: 5 },
+};
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { level: 'ground', wrenUp: false, prompt: true };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const T = 20;
+    const set = (patch) => () => this.setState(patch);
+    const GOLD = '#b4894a', FOE = '#a23b34';
+    const TOKENS = [
+      { name: 'Wren', level: s.wrenUp ? 'upper' : 'ground', x: 18, y: 14, party: true },
+      { name: 'Tobin', level: 'ground', x: 16, y: 17, party: true },
+      { name: 'Mara', level: 'ground', x: 15, y: 18, party: true },
+      { name: 'Kest', level: 'ground', x: 17, y: 16, party: true },
+      { name: 'Ghoul 1', level: 'upper', x: 15, y: 7 },
+      { name: 'Ghoul 2', level: 'upper', x: 18, y: 8 },
+      { name: 'Wight', level: 'cellar', x: 12, y: 14 },
+    ];
+    const def = DEFS[s.level];
+    const roomAt = (lv, x, y) => {
+      const r = DEFS[lv].rooms.slice().reverse().find((q) => x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h);
+      return r ? r.name : 'the garden';
+    };
+
+    const levels = LEVELS.map((l) => {
+      const on = l.id === s.level;
+      const pips = TOKENS.filter((t) => t.level === l.id).map((t) => (t.party ? GOLD : FOE));
+      return { name: l.name, pips: pips, on: on, pick: set({ level: l.id }), bg: on ? '#ffffff' : 'transparent', fg: on ? '#2b2620' : '#6b6459', weight: on ? 600 : 400 };
+    });
+
+    const floors = [].concat(def.base || [], def.rooms, def.patches || []).map((r) => ({ l: r.x * T, t: r.y * T, w: r.w * T, h: r.h * T, bg: MATS[r.mat] }));
+    const WS = { solid: { th: 4, bg: '#2b2620', ext: 2 }, door: { th: 4, bg: GOLD, ext: -2 }, window: { th: 3, bg: '#4a6076', ext: -2 }, rail: { th: 2, bg: '#6b6459', ext: 0 } };
+    const walls = edgesOf(def).map((r) => {
+      const st = WS[r.kind];
+      if (r.o === 'h') return { l: r.x * T - st.ext, t: r.y * T - st.th / 2, w: r.len * T + 2 * st.ext, h: st.th, bg: st.bg };
+      return { l: r.x * T - st.th / 2, t: r.y * T - st.ext, w: st.th, h: r.len * T + 2 * st.ext, bg: st.bg };
+    });
+    const props = def.props.map((p) => {
+      const st = PROPSTYLE[p.kind];
+      const ins = st.inset || 0;
+      return { l: p.x * T + ins, t: p.y * T + ins, w: p.w * T - 2 * ins, h: p.h * T - 2 * ins, bg: st.bg, bd: st.bd, r: st.r };
+    });
+    const trees = def.trees.map((t) => { const sz = Math.round(T * 1.25 * t[2]); return { l: (t[0] + 0.5) * T - sz / 2, t: (t[1] + 0.5) * T - sz / 2, s: sz }; });
+    const promptOn = s.prompt && !s.wrenUp && s.level === 'ground';
+    const tokens = TOKENS.filter((t) => t.level === s.level).map((t) => ({
+      l: t.x * T + 1, t: t.y * T + 1, ring: t.party ? GOLD : FOE,
+      glow: t.name === 'Wren' && promptOn ? '0 0 0 4px rgba(180,137,74,0.35)' : 'none',
+    }));
+
+    const elsewhere = TOKENS.filter((t) => t.level !== s.level).map((t, i) => ({
+      name: t.name,
+      where: LEVELS.find((l) => l.id === t.level).name + ' · ' + roomAt(t.level, t.x, t.y),
+      ring: t.party ? GOLD : FOE,
+      line: i === 0 ? 'transparent' : '#e4dccb',
+      go: set({ level: t.level }),
+    }));
+
+    return {
+      levels: levels,
+      floors: floors,
+      walls: walls,
+      props: props,
+      trees: trees,
+      tokens: tokens,
+      elsewhere: elsewhere,
+      exits: def.exits,
+      showPrompt: promptOn,
+      goUp: set({ wrenUp: true, level: 'upper' }),
+      stay: set({ prompt: false }),
+    };
+  }
+}
+</script>
+</body>
+</html>

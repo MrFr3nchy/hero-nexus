@@ -458,6 +458,7 @@ export async function runPlan(planId: string): Promise<{
           entryId: ids[i],
           x: spot.x,
           y: spot.y,
+          level: spot.level,
           visibility: 'dm',
         });
         placed += 1;

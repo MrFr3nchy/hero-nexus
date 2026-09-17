@@ -82,6 +82,22 @@ export type GlyphName =
   | 'moon'
   | 'eye'
   | 'eye-off'
+  // the sand table's floors
+  | 'stairs'
+  | 'ladder'
+  | 'floors'
+  // the workshop's tool rail
+  | 'select'
+  | 'room'
+  | 'wall'
+  | 'brush'
+  | 'hills'
+  | 'stamp'
+  | 'fog'
+  | 'undo'
+  | 'redo'
+  | 'back'
+  | 'cube'
   // ambient sound (12): a speaker, on and off
   | 'speaker'
   | 'speaker-off';
@@ -451,6 +467,41 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
       <path d="M4 4l16 16" />
       <path d="M9.9 6c.7-.3 1.4-.5 2.1-.5 6 0 9.5 6.5 9.5 6.5s-1 1.9-2.9 3.6M14.6 17.6c-.8.3-1.7.4-2.6.4-6 0-9.5-6-9.5-6s1.3-2.5 3.7-4.3" />
       <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+    </>
+  ),
+  // A flight of four steps, seen from the side.
+  stairs: <path d="M3 20h4v-4h4v-4h4V8h4V4M3 20V4" />,
+  // Two rails and three rungs.
+  ladder: <path d="M8 3v18M16 3v18M8 8h8M8 13h8M8 18h8" />,
+  // Three floors stacked, the middle one picked out.
+  floors: (
+    <>
+      <path d="M3 8l9-4 9 4-9 4z" />
+      <path d="M3 12l9 4 9-4M3 16l9 4 9-4" />
+    </>
+  ),
+  // A pointer arrow.
+  select: <path d="M5 3l14 8-6 2-2 6z" />,
+  // A plan: a box with one inner wall.
+  room: <path d="M4 4h16v16H4zM4 12h9M13 4v16" />,
+  // Coursed masonry.
+  wall: <path d="M3 6h18M3 12h18M3 18h18M8 6v6M16 6v6M12 12v6" />,
+  // A brush, bristles down.
+  brush: <path d="M4 20h7M6 16l8-8 4 4-8 8H6zM14 8l2-2 4 4-2 2" />,
+  // Two hills and the ground line.
+  hills: <path d="M3 19l6-9 4 5 3-4 5 8zM3 19h18" />,
+  // A rubber stamp.
+  stamp: <path d="M9 3h6v5l3 3v3H6v-3l3-3zM5 18h14v3H5z" />,
+  // Three drifts of fog.
+  fog: <path d="M3 9h12a3 3 0 1 0-3-3M3 14h16a3 3 0 1 1-3 3M3 19h7" />,
+  undo: <path d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3" />,
+  redo: <path d="M15 14l5-5-5-5M20 9H9a5 5 0 0 0 0 10h3" />,
+  back: <path d="M15 5l-7 7 7 7" />,
+  // A box seen from a corner.
+  cube: (
+    <>
+      <path d="M4 8l8-4 8 4-8 4z" />
+      <path d="M4 8v8l8 4 8-4V8M12 12v8" />
     </>
   ),
 };

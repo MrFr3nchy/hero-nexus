@@ -8,6 +8,8 @@ export interface PlanSpot {
   mapId: string;
   x: number;
   y: number;
+  /** The floor; absent means the ground floor. */
+  level?: string;
 }
 
 /** Keep what is a spot; drop the rest. At most `count` of them. */
@@ -23,7 +25,14 @@ export function sanitizeSpots(raw: unknown, count: number): PlanSpot[] {
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0) {
       continue;
     }
-    out.push({ mapId: s.mapId, x, y });
+    out.push({
+      mapId: s.mapId,
+      x,
+      y,
+      ...(typeof s.level === 'string' && s.level
+        ? { level: s.level.slice(0, 32) }
+        : {}),
+    });
     if (out.length >= count) break;
   }
   return out;

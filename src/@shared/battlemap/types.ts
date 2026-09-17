@@ -22,6 +22,14 @@
 
 export const BATTLEMAP_FORMAT = 'hero-nexus.battlemap' as const;
 export const BATTLEMAP_VERSION = 1 as const;
+/**
+ * Version 2 stacks floors. A `BoardDoc` is a list of `LevelDoc`s — each one
+ * a whole version-1 `TerrainDoc` with a name and a height — and the stairs
+ * between them. Every rule below still takes one floor at a time; the
+ * stairs are the only thing that knows there is more than one. A stored
+ * version-1 document reads as a board with one floor (`normalizeBoard`).
+ */
+export const BOARD_VERSION = 2 as const;
 
 /** Feet per tile. D&D's grid, and the unit every rule below thinks in. */
 export const TILE_FEET = 5;
@@ -66,6 +74,12 @@ export interface TerrainDoc {
   /** Warm points. The palette is candlelight; lean into it. */
   lights: Light[];
   /**
+   * Named rooms (the workshop). A label on the floor and a line in the
+   * rooms list; no rule reads it. The Rooms tool writes one when asked to
+   * name what it drew, and the floor keeps it after the walls move.
+   */
+  rooms?: Room[];
+  /**
    * The light everywhere nothing else lights (improvements 08). Bright is
    * the default and how every board before it behaved: a party reveals what
    * it can see. Dark: only a light's radius or a token's own vision reveals.
@@ -76,8 +90,40 @@ export interface TerrainDoc {
 export type Ambient = 'bright' | 'dim' | 'dark';
 export const AMBIENTS: readonly Ambient[] = ['bright', 'dim', 'dark'];
 
+/** A named rectangle of floor. `w` × `h` tiles, anchored top-left. */
+export interface Room {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  name: string;
+}
+
 export type Side = 'n' | 'e' | 's' | 'w';
-export type WallKind = 'solid' | 'door' | 'window' | 'rail';
+/**
+ * What stands on an edge. A hedge is a wall that grows — 6 ft, stops feet
+ * and sight; a fence is a rail in wood — 4 ft, vaulted, seen over. The
+ * rules module says what each does; the kinds are here so a document can
+ * carry them.
+ */
+export type WallKind = 'solid' | 'door' | 'window' | 'rail' | 'hedge' | 'fence';
+export const WALL_KINDS: readonly WallKind[] = [
+  'solid',
+  'door',
+  'window',
+  'rail',
+  'hedge',
+  'fence',
+];
+/** Feet, by kind, when nothing says otherwise. */
+export const WALL_HEIGHT: Record<WallKind, number> = {
+  solid: 10,
+  door: 10,
+  window: 10,
+  rail: 3,
+  hedge: 6,
+  fence: 4,
+};
 
 /**
  * A wall on one edge of one tile.
@@ -106,6 +152,14 @@ export type PropKind =
   | 'rubble'
   | 'altar'
   | 'statue'
+  /** What the Scatter tool grows (the workshop). */
+  | 'pine'
+  | 'bush'
+  | 'boulder'
+  | 'mushroom'
+  | 'bed'
+  | 'shelf'
+  | 'hearth'
   /**
    * A picture standing up: one of the campaign's images as a paper standee
    * on the tile — a tree the DM drew, a statue, a door. The-sand-table's
@@ -120,6 +174,11 @@ export interface Prop {
   kind: PropKind;
   /** Whether it stops a token standing on its tile. A pillar does; rubble does not. */
   blocks: boolean;
+  /**
+   * How big it grew, 0.6–1.4, for the Scatter tool's "vary the size".
+   * Absent is 1: the same tree every time.
+   */
+  scale?: number;
   /** `image` only: a `campaign_images` id. Referenced, never copied. */
   imageId?: string;
   /** `image` only: feet tall. A tree is 20, a door 10, a mile-marker 3. */
@@ -384,7 +443,7 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
   for (const w of Array.isArray(src.walls) ? src.walls : []) {
     if (!w || !inBounds(base, Number(w.x), Number(w.y))) continue;
     if (!['n', 'e', 's', 'w'].includes(w.side)) continue;
-    if (!['solid', 'door', 'window', 'rail'].includes(w.kind)) continue;
+    if (!WALL_KINDS.includes(w.kind)) continue;
     const key = edgeKey(Number(w.x), Number(w.y), w.side);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -403,11 +462,15 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
     if (!p || !inBounds(base, Number(p.x), Number(p.y))) continue;
     // An image prop with no image is a tile with nothing on it.
     if (p.kind === 'image' && typeof p.imageId !== 'string') continue;
+    const scale = Number(p.scale);
     props.push({
       x: Number(p.x),
       y: Number(p.y),
       kind: p.kind,
       blocks: Boolean(p.blocks),
+      ...(Number.isFinite(scale) && scale > 0 && scale !== 1
+        ? { scale: Math.max(0.6, Math.min(1.4, Math.round(scale * 100) / 100)) }
+        : {}),
       ...(p.kind === 'image'
         ? {
             imageId: String(p.imageId).slice(0, 64),
@@ -434,6 +497,18 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
     });
   }
 
+  const rooms: Room[] = [];
+  for (const r of Array.isArray(src.rooms) ? src.rooms : []) {
+    if (!r || !inBounds(base, Number(r.x), Number(r.y))) continue;
+    const w = Math.max(1, Math.trunc(Number(r.w)) || 1);
+    const h = Math.max(1, Math.trunc(Number(r.h)) || 1);
+    const name = String(r.name ?? '')
+      .trim()
+      .slice(0, 40);
+    if (!name) continue;
+    rooms.push({ x: Number(r.x), y: Number(r.y), w, h, name });
+  }
+
   return {
     ...base,
     elevation: ints(src.elevation, 0),
@@ -441,9 +516,254 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
     walls,
     props,
     lights,
+    ...(rooms.length > 0 ? { rooms: rooms.slice(0, 200) } : {}),
     ambient: (AMBIENTS as readonly unknown[]).includes(src.ambient)
       ? (src.ambient as Ambient)
       : 'bright',
+  };
+}
+
+/* --- floors (the sand table, stood up) ----------------------------------- */
+
+/**
+ * One floor of a board: a whole `TerrainDoc`, with a name and how high it
+ * sits. `feet` is the floor's datum above the ground floor's — a cellar is
+ * −10, an upper floor +12 — and a tile's `elevation` is measured from its
+ * own floor, so a dais in the great hall is +5 on the ground floor and
+ * nothing else has to know where the hall is.
+ */
+export interface LevelDoc extends TerrainDoc {
+  id: string;
+  name: string;
+  feet: number;
+  /**
+   * When the party sees this floor. `hero`: once one of them stands on
+   * it, and then what has been revealed; `always`: the whole floor, from
+   * the start — the garden the fight began in; `reveal`: only what the DM
+   * reveals, hero or no hero — the cellar they were told is empty.
+   */
+  seen?: LevelSeen;
+}
+
+export type LevelSeen = 'hero' | 'always' | 'reveal';
+export const LEVEL_SEENS: readonly LevelSeen[] = ['hero', 'always', 'reveal'];
+
+export type LinkKind = 'stairs' | 'ladder';
+export const LINK_KINDS: readonly LinkKind[] = ['stairs', 'ladder'];
+
+/**
+ * A way between two floors. It stands on both: the same footprint of tiles
+ * on `from` (the lower floor) and on `to` (the upper), so a stairwell is
+ * a hole in the upper floor and a flight on the lower one. A token that
+ * ends its move on it is offered the other floor; taking the offer costs
+ * the climb (`linkCostFeet` in the rules module). Stairs may skip a floor —
+ * a spiral stair links any two.
+ */
+export interface LevelLink {
+  id: string;
+  kind: LinkKind;
+  /** Anchored top-left, `w` × `h` tiles, on both floors alike. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** The lower floor's id. */
+  from: string;
+  /** The upper floor's id. */
+  to: string;
+  name?: string;
+  /** Hidden until found: staff see it; the party is not offered it. */
+  hidden?: boolean;
+}
+
+/** A board with floors. What `battle_maps.terrain` holds from version 2. */
+export interface BoardDoc {
+  format: typeof BATTLEMAP_FORMAT;
+  version: typeof BOARD_VERSION;
+  w: number;
+  h: number;
+  /** Bottom to top, by `feet`. Never empty. */
+  levels: LevelDoc[];
+  links: LevelLink[];
+}
+
+/** The id a version-1 board's one floor takes; also the tokens' default. */
+export const GROUND_LEVEL_ID = 'ground';
+
+/** Enough floors for a tower; more is a scroll nobody wants. */
+export const MAX_LEVELS = 12;
+
+/** A short id for a floor or a link. Not a UUID: it lives in a document. */
+export function shortId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/** The floor with this id, else the ground floor, else the lowest. */
+export function levelOf(
+  board: BoardDoc,
+  id: string | null | undefined
+): LevelDoc {
+  return (
+    board.levels.find(l => l.id === id) ??
+    board.levels.find(l => l.id === GROUND_LEVEL_ID) ??
+    board.levels.find(l => l.feet === 0) ??
+    board.levels[0]
+  );
+}
+
+/** Where a token with no floor of its own stands: the ground floor. */
+export function defaultLevelId(board: BoardDoc): string {
+  return levelOf(board, GROUND_LEVEL_ID).id;
+}
+
+/** Feet between two floors, as a distance. */
+export function levelGapFeet(board: BoardDoc, a: string, b: string): number {
+  return Math.abs(levelOf(board, a).feet - levelOf(board, b).feet);
+}
+
+/** `+12 ft`, `−10 ft`, `0 ft`. */
+export function feetLabel(feet: number): string {
+  if (feet > 0) return `+${feet} ft`;
+  if (feet < 0) return `−${Math.abs(feet)} ft`;
+  return '0 ft';
+}
+
+/** The tile indices a link covers, in bounds. Same on both of its floors. */
+export function linkTiles(
+  board: { w: number; h: number },
+  link: LevelLink
+): number[] {
+  const out: number[] = [];
+  for (let dy = 0; dy < link.h; dy++) {
+    for (let dx = 0; dx < link.w; dx++) {
+      const x = link.x + dx;
+      const y = link.y + dy;
+      if (x < 0 || y < 0 || x >= board.w || y >= board.h) continue;
+      out.push(y * board.w + x);
+    }
+  }
+  return out;
+}
+
+/** The far end of a link from this floor, or null when it does not touch it. */
+export function linkOtherEnd(link: LevelLink, levelId: string): string | null {
+  if (link.from === levelId) return link.to;
+  if (link.to === levelId) return link.from;
+  return null;
+}
+
+/**
+ * Coerce a stored document into a board this build can draw.
+ *
+ * A version-1 document — one grid, no `levels` — becomes a board with one
+ * floor called the ground floor, at 0 ft, with the id every existing token
+ * defaults to. A version-2 document has each floor normalised as a terrain
+ * document at the board's size, its floors sorted bottom to top, and every
+ * link checked against the floors it names. A board with no floors gets
+ * one, because a board is never empty.
+ */
+export function normalizeBoard(raw: unknown): BoardDoc {
+  const src = (raw ?? {}) as Partial<BoardDoc> & Partial<TerrainDoc>;
+  if (!Array.isArray(src.levels)) {
+    const ground = normalizeTerrain(raw);
+    return {
+      format: BATTLEMAP_FORMAT,
+      version: BOARD_VERSION,
+      w: ground.w,
+      h: ground.h,
+      levels: [
+        { ...ground, id: GROUND_LEVEL_ID, name: 'Ground floor', feet: 0 },
+      ],
+      links: [],
+    };
+  }
+  const base = emptyTerrain(
+    Number(src.w) || MIN_SIDE,
+    Number(src.h) || MIN_SIDE
+  );
+  const seen = new Set<string>();
+  const levels: LevelDoc[] = [];
+  for (const raw of src.levels.slice(0, MAX_LEVELS)) {
+    const l = (raw ?? {}) as Partial<LevelDoc>;
+    const doc = normalizeTerrain({ ...l, w: base.w, h: base.h });
+    let id = typeof l.id === 'string' ? l.id.slice(0, 32) : '';
+    if (!id || seen.has(id)) id = shortId();
+    seen.add(id);
+    const feet = Math.trunc(Number(l.feet));
+    levels.push({
+      ...doc,
+      id,
+      name: String(l.name ?? '')
+        .trim()
+        .slice(0, 60),
+      feet: Number.isFinite(feet) ? Math.max(-500, Math.min(500, feet)) : 0,
+      ...(l.seen && l.seen !== 'hero' && LEVEL_SEENS.includes(l.seen)
+        ? { seen: l.seen }
+        : {}),
+    });
+  }
+  if (levels.length === 0) {
+    levels.push({
+      ...base,
+      id: GROUND_LEVEL_ID,
+      name: 'Ground floor',
+      feet: 0,
+    });
+  }
+  levels.sort((a, b) => a.feet - b.feet);
+  const ids = new Set(levels.map(l => l.id));
+  const links: LevelLink[] = [];
+  const linkIds = new Set<string>();
+  for (const raw of Array.isArray(src.links) ? src.links : []) {
+    const k = (raw ?? {}) as Partial<LevelLink>;
+    if (!LINK_KINDS.includes(k.kind as LinkKind)) continue;
+    if (typeof k.from !== 'string' || typeof k.to !== 'string') continue;
+    if (!ids.has(k.from) || !ids.has(k.to) || k.from === k.to) continue;
+    const x = Math.trunc(Number(k.x));
+    const y = Math.trunc(Number(k.y));
+    const w = Math.max(1, Math.min(6, Math.trunc(Number(k.w)) || 1));
+    const h = Math.max(1, Math.min(6, Math.trunc(Number(k.h)) || 1));
+    if (!inBounds(base, x, y)) continue;
+    // The lower floor is always `from`, whichever way it was authored.
+    const feetOf = (id: string) => levels.find(l => l.id === id)?.feet ?? 0;
+    const [from, to] =
+      feetOf(k.from) <= feetOf(k.to) ? [k.from, k.to] : [k.to, k.from];
+    let id = typeof k.id === 'string' ? k.id.slice(0, 32) : '';
+    if (!id || linkIds.has(id)) id = shortId();
+    linkIds.add(id);
+    links.push({
+      id,
+      kind: k.kind as LinkKind,
+      x,
+      y,
+      w,
+      h,
+      from,
+      to,
+      ...(typeof k.name === 'string' && k.name.trim()
+        ? { name: k.name.trim().slice(0, 60) }
+        : {}),
+      ...(k.hidden === true ? { hidden: true } : {}),
+    });
+  }
+  return {
+    format: BATTLEMAP_FORMAT,
+    version: BOARD_VERSION,
+    w: base.w,
+    h: base.h,
+    levels,
+    links: links.slice(0, 60),
+  };
+}
+
+/**
+ * A board with one floor swapped for an edited copy. The authoring surface
+ * edits one floor at a time and writes the whole board; this is the seam.
+ */
+export function withLevel(board: BoardDoc, level: LevelDoc): BoardDoc {
+  return {
+    ...board,
+    levels: board.levels.map(l => (l.id === level.id ? level : l)),
   };
 }
 
@@ -530,7 +850,7 @@ export function normalizeThingEffect(raw: unknown): ThingEffect | null {
         };
       case 'wall':
         return typeof x.edge === 'string' &&
-          ['solid', 'door', 'window', 'rail', 'none'].includes(String(x.to))
+          [...WALL_KINDS, 'none'].includes(String(x.to))
           ? {
               kind: 'wall',
               edge: x.edge,

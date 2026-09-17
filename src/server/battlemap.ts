@@ -30,8 +30,12 @@ import {
   canSee,
   canStand,
   distanceFeet,
-  fogged,
+  floodFill,
+  foggedBoard,
   footprintTiles,
+  landingFor,
+  linkCostFeet,
+  linksUnder,
   reachFor,
   standingIssue,
   visibleFrom,
@@ -40,16 +44,21 @@ import {
 } from '@/@creator/campaign/lib/battlemap';
 import {
   blocksTile,
+  defaultLevelId,
   emptyTerrain,
   FACINGS,
   footprintForSize,
   inBounds,
   ITEM_STATES,
-  normalizeTerrain,
+  levelOf,
+  linkOtherEnd,
+  normalizeBoard,
   VOID,
+  withLevel,
+  type BoardDoc,
   type Facing,
   type ItemState,
-  type TerrainDoc,
+  type LevelDoc,
 } from '@/@shared/battlemap/types';
 import { skillBonus } from '@/@creator/character/lib/derive';
 import type { CharacterSheet } from '@/@creator/character/schema';
@@ -120,6 +129,8 @@ export interface BattleTokenRow {
   label: string;
   x: number;
   y: number;
+  /** The floor it stands on: a `LevelDoc` id in `terrain.levels`. */
+  level: string;
   altitude: number;
   footprint: number;
   tint: string;
@@ -169,10 +180,14 @@ export interface BattleMapRow {
   name: string;
   visibility: 'dm' | 'shared';
   isActive: boolean;
-  /** Fogged for a player; whole for staff. */
-  terrain: TerrainDoc;
-  /** Revealed tile indices. Staff only; a player's is the empty list. */
-  revealed: number[];
+  /**
+   * The board, floors and stairs. Fogged for a player — floor by floor,
+   * and a floor the party has not set foot on or been shown is not in the
+   * list at all; whole for staff.
+   */
+  terrain: BoardDoc;
+  /** Revealed tile indices by floor id. Staff only; a player's is empty. */
+  revealed: Record<string, number[]>;
   tokens: BattleTokenRow[];
   updatedAt: string;
 }
@@ -197,14 +212,43 @@ async function staffForMap(mapId: string) {
   return { map, userId };
 }
 
-function revealedOf(raw: unknown): Set<number> {
-  const out = new Set<number>();
-  if (!Array.isArray(raw)) return out;
-  for (const v of raw) {
-    const n = Number(v);
-    if (Number.isInteger(n) && n >= 0) out.add(n);
+/**
+ * What the party has been shown, by floor. A stored array — every board
+ * before floors — is the ground floor's; a floor the board no longer has
+ * keeps nothing.
+ */
+function revealedOf(raw: unknown, board: BoardDoc): Map<string, Set<number>> {
+  const out = new Map<string, Set<number>>();
+  for (const l of board.levels) out.set(l.id, new Set());
+  const put = (levelId: string, list: unknown) => {
+    const set = out.get(levelId);
+    if (!set || !Array.isArray(list)) return;
+    for (const v of list) {
+      const n = Number(v);
+      if (Number.isInteger(n) && n >= 0) set.add(n);
+    }
+  };
+  if (Array.isArray(raw)) put(defaultLevelId(board), raw);
+  else if (raw && typeof raw === 'object') {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      put(k, v);
+    }
   }
   return out;
+}
+
+/** The revealed map as the row stores it. */
+function storeRevealed(
+  revealed: Map<string, Set<number>>
+): Record<string, number[]> {
+  const out: Record<string, number[]> = {};
+  for (const [k, v] of revealed) out[k] = [...v];
+  return out;
+}
+
+/** The floor a token stands on, as a terrain document. */
+function levelFor(board: BoardDoc, token: { level: string }): LevelDoc {
+  return levelOf(board, token.level);
 }
 
 /* --- reading ----------------------------------------------------------- */
@@ -214,8 +258,9 @@ function revealedOf(raw: unknown): Set<number> {
  *
  * Staff get the stored document and every token. A player gets:
  * - nothing at all if the board is `dm`;
- * - a **new** terrain document with every unrevealed tile void at 0 —
- *   `fogged` builds it; this function never hands back the stored one;
+ * - a **new** board with every unrevealed tile void at 0, floor by floor,
+ *   and only the floors the party has seen anything of or is standing on —
+ *   `foggedBoard` builds it; this function never hands back the stored one;
  * - only `shared` tokens, and only those standing on a revealed tile — an
  *   ambush in the dark room is not on the board until the room is.
  *
@@ -237,9 +282,8 @@ export async function getBattleMapState(
   const isStaff = isStaffRole(viewer.role);
   if (!isStaff && map.visibility !== 'shared') return null;
 
-  const stored = normalizeTerrain(map.terrain);
-  const revealed = revealedOf(map.revealed);
-  const terrain = isStaff ? stored : fogged(stored, revealed);
+  const stored = normalizeBoard(map.terrain);
+  const revealed = revealedOf(map.revealed, stored);
 
   const tokenRows = await db
     .select()
@@ -282,14 +326,50 @@ export async function getBattleMapState(
       : []
   );
 
-  const tokens: BattleTokenRow[] = tokenRows
-    .filter(t => t.entryId === null || inOrder.has(t.entryId))
+  const inFight = tokenRows.filter(
+    t => t.entryId === null || inOrder.has(t.entryId)
+  );
+  /*
+   * A player's floors: the ones the party has been shown something of, and
+   * the ones a party member is standing on — a hero who climbs into the
+   * dark attic is still on the board, and the attic is shown as far as
+   * they have seen it, which the climb itself reveals.
+   */
+  const partyIds = new Set<string>();
+  if (!isStaff && map.encounterId) {
+    const rows = await db
+      .select({ id: initiativeEntries.id })
+      .from(initiativeEntries)
+      .where(
+        and(
+          eq(initiativeEntries.encounterId, map.encounterId),
+          eq(initiativeEntries.side, 'party')
+        )
+      );
+    for (const r of rows) partyIds.add(r.id);
+  }
+  const trodden = new Set(
+    inFight
+      .filter(
+        t => t.visibility === 'shared' && t.entryId && partyIds.has(t.entryId)
+      )
+      .map(t => levelFor(stored, t).id)
+  );
+  const terrain = isStaff ? stored : foggedBoard(stored, revealed, trodden);
+  const shownLevels = new Set(terrain.levels.map(l => l.id));
+
+  const tokens: BattleTokenRow[] = inFight
     .filter(t => {
       if (isStaff) return true;
       if (t.visibility !== 'shared') return false;
+      const level = levelFor(stored, t);
+      if (!shownLevels.has(level.id)) return false;
       // Every tile of the footprint must be revealed. A large creature half
-      // in the dark is still a creature the party has not seen.
-      return footprintTiles(stored, t).every(i => revealed.has(i));
+      // in the dark is still a creature the party has not seen. A floor the
+      // party always sees is revealed whole.
+      if (level.seen === 'always') return true;
+      const shown = revealed.get(level.id) ?? new Set<number>();
+      return footprintTiles(level, t).every(i => shown.has(i));
     })
     .map(t => ({
       id: t.id,
@@ -297,6 +377,7 @@ export async function getBattleMapState(
       label: t.label,
       x: t.x,
       y: t.y,
+      level: levelFor(stored, t).id,
       altitude: t.altitude,
       footprint: t.footprint,
       tint: t.tint,
@@ -326,7 +407,7 @@ export async function getBattleMapState(
     visibility: map.visibility,
     isActive: map.isActive,
     terrain,
-    revealed: isStaff ? [...revealed] : [],
+    revealed: isStaff ? storeRevealed(revealed) : {},
     tokens,
     updatedAt: map.updatedAt,
   };
@@ -339,6 +420,7 @@ export async function listBattleMaps(campaignId: string): Promise<
     name: string;
     w: number;
     h: number;
+    levels: number;
     visibility: 'dm' | 'shared';
     isActive: boolean;
     encounterId: string | null;
@@ -351,12 +433,13 @@ export async function listBattleMaps(campaignId: string): Promise<
     .from(battleMaps)
     .where(eq(battleMaps.campaignId, campaignId));
   return rows.map(r => {
-    const t = normalizeTerrain(r.terrain);
+    const t = normalizeBoard(r.terrain);
     return {
       id: r.id,
       name: r.name,
       w: t.w,
       h: t.h,
+      levels: t.levels.length,
       visibility: r.visibility,
       isActive: r.isActive,
       encounterId: r.encounterId,
@@ -373,15 +456,17 @@ export async function listBattleMaps(campaignId: string): Promise<
 export async function getBoardTerrain(mapId: string): Promise<{
   id: string;
   name: string;
-  terrain: TerrainDoc;
+  terrain: BoardDoc;
   /** Where things already stand, so a plan does not put a goblin in the well. */
-  taken: { x: number; y: number; footprint: number }[];
+  taken: { x: number; y: number; level: string; footprint: number }[];
 }> {
   const { map } = await staffForMap(mapId);
+  const board = normalizeBoard(map.terrain);
   const tokens = await db
     .select({
       x: battleMapTokens.x,
       y: battleMapTokens.y,
+      level: battleMapTokens.level,
       footprint: battleMapTokens.footprint,
       state: battleMapTokens.state,
     })
@@ -390,11 +475,166 @@ export async function getBoardTerrain(mapId: string): Promise<{
   return {
     id: map.id,
     name: map.name,
-    terrain: normalizeTerrain(map.terrain),
+    terrain: board,
     taken: tokens
       .filter(t => blocksTile(t.state as ItemState | null))
-      .map(t => ({ x: t.x, y: t.y, footprint: t.footprint })),
+      .map(t => ({
+        x: t.x,
+        y: t.y,
+        level: levelFor(board, t).id,
+        footprint: t.footprint,
+      })),
   };
+}
+
+/**
+ * A board as the workshop has it: the whole document, every token with
+ * the name and side off its entry, and what the party has been shown.
+ * Staff only — it is the DM's bench. Not `getBattleMapState`: that is the
+ * table's fogged read of the active board; this is any board of theirs,
+ * on the table or on the shelf.
+ */
+/** A token on the bench: the board's row, with its side off the entry. */
+export type WorkshopToken = BattleTokenRow & {
+  side: 'party' | 'foe' | 'other' | null;
+};
+
+export interface WorkshopBoard {
+  id: string;
+  campaignId: string;
+  name: string;
+  visibility: 'dm' | 'shared';
+  isActive: boolean;
+  encounterId: string | null;
+  terrain: BoardDoc;
+  revealed: Record<string, number[]>;
+  tokens: WorkshopToken[];
+  updatedAt: string;
+}
+
+export async function getWorkshopBoard(mapId: string): Promise<WorkshopBoard> {
+  const { map } = await staffForMap(mapId);
+  const board = normalizeBoard(map.terrain);
+  const revealed = revealedOf(map.revealed, board);
+  const rows = await db
+    .select()
+    .from(battleMapTokens)
+    .where(eq(battleMapTokens.mapId, mapId));
+  const entryIds = rows
+    .map(t => t.entryId)
+    .filter((id): id is string => id !== null);
+  const entries = new Map(
+    (entryIds.length > 0
+      ? await db
+          .select({
+            id: initiativeEntries.id,
+            label: initiativeEntries.label,
+            side: initiativeEntries.side,
+            encounterId: initiativeEntries.encounterId,
+          })
+          .from(initiativeEntries)
+          .where(inArray(initiativeEntries.id, entryIds))
+      : []
+    ).map(e => [e.id, e])
+  );
+  return {
+    id: map.id,
+    campaignId: map.campaignId,
+    name: map.name,
+    visibility: map.visibility,
+    isActive: map.isActive,
+    encounterId: map.encounterId,
+    terrain: board,
+    revealed: storeRevealed(revealed),
+    tokens: rows
+      // Last week's goblins, still standing where they fell in an order
+      // that no longer exists, are not on the bench.
+      .filter(
+        t =>
+          t.entryId === null ||
+          entries.get(t.entryId)?.encounterId === map.encounterId
+      )
+      .map(t => {
+        const e = t.entryId ? entries.get(t.entryId) : undefined;
+        return {
+          id: t.id,
+          entryId: t.entryId,
+          label: e?.label ?? t.label,
+          side: e ? (e.side as 'party' | 'foe' | 'other') : null,
+          x: t.x,
+          y: t.y,
+          level: levelFor(board, t).id,
+          altitude: t.altitude,
+          footprint: t.footprint,
+          tint: t.tint,
+          visibility: t.visibility,
+          mine: true,
+          state: t.state,
+          lockDc: t.lockDc,
+          hpCurrent: t.hpCurrent,
+          hpMax: t.hpMax,
+          breakable: t.hpMax !== null,
+          blocks: blocksStanding(t),
+          facing: t.facing,
+          effect: normalizeThingEffect(t.effect),
+          visionFeet: t.visionFeet,
+          lightFeet: t.lightFeet,
+          imageId: t.imageId,
+          imageUrl: t.imageId ? imageUrl(map.campaignId, t.imageId) : null,
+        };
+      }),
+    updatedAt: map.updatedAt,
+  };
+}
+
+/**
+ * Show the party the rooms they are standing in (the workshop's fog
+ * panel): for every shared party token on a floor, the flood of its own
+ * room — bounded by walls and closed doors, the way the fill tool is.
+ */
+export async function revealRoomsAround(
+  mapId: string,
+  levelId: string
+): Promise<number> {
+  const { map } = await staffForMap(mapId);
+  const board = normalizeBoard(map.terrain);
+  const level = levelOf(board, levelId);
+  const partyIds = new Set<string>();
+  if (map.encounterId) {
+    const rows = await db
+      .select({ id: initiativeEntries.id })
+      .from(initiativeEntries)
+      .where(
+        and(
+          eq(initiativeEntries.encounterId, map.encounterId),
+          eq(initiativeEntries.side, 'party')
+        )
+      );
+    for (const r of rows) partyIds.add(r.id);
+  }
+  const tokens = await db
+    .select()
+    .from(battleMapTokens)
+    .where(eq(battleMapTokens.mapId, mapId));
+  const revealed = revealedOf(map.revealed, board);
+  const shown = revealed.get(level.id)!;
+  const before = shown.size;
+  for (const t of tokens) {
+    if (t.visibility !== 'shared' || !t.entryId || !partyIds.has(t.entryId)) {
+      continue;
+    }
+    if (levelFor(board, t).id !== level.id) continue;
+    for (const i of floodFill(level, { x: t.x, y: t.y })) shown.add(i);
+  }
+  await db
+    .update(battleMaps)
+    .set({
+      revealed: storeRevealed(revealed),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(battleMaps.id, mapId));
+  bumpVersion(map.campaignId);
+  return shown.size - before;
 }
 
 /* --- authoring --------------------------------------------------------- */
@@ -409,8 +649,10 @@ export async function createBattleMap(
     .values({
       campaignId,
       name: (input.name ?? '').trim().slice(0, 120),
-      terrain: emptyTerrain(input.w, input.h, input.material ?? VOID),
-      revealed: [],
+      terrain: normalizeBoard(
+        emptyTerrain(input.w, input.h, input.material ?? VOID)
+      ),
+      revealed: {},
       createdBy: userId,
     })
     .returning({ id: battleMaps.id });
@@ -429,12 +671,25 @@ export async function saveTerrain(
   terrain: unknown
 ): Promise<void> {
   const { map } = await staffForMap(mapId);
-  const doc = normalizeTerrain(terrain);
+  const doc = normalizeBoard(terrain);
 
   // Tokens that no longer have a floor under them are moved nowhere — they
   // stay, and the board shows them standing on nothing until the DM moves
   // them. Deleting a combatant's position because the DM erased a tile is a
-  // silent loss; a token in the void is a visible one.
+  // silent loss; a token in the void is a visible one. A token whose whole
+  // floor was removed drops to the ground floor for the same reason.
+  const ids = new Set(doc.levels.map(l => l.id));
+  const tokens = await db
+    .select({ id: battleMapTokens.id, level: battleMapTokens.level })
+    .from(battleMapTokens)
+    .where(eq(battleMapTokens.mapId, mapId));
+  const orphans = tokens.filter(t => !ids.has(t.level)).map(t => t.id);
+  if (orphans.length > 0) {
+    await db
+      .update(battleMapTokens)
+      .set({ level: defaultLevelId(doc), updatedAt: new Date().toISOString() })
+      .where(inArray(battleMapTokens.id, orphans));
+  }
   await db
     .update(battleMaps)
     .set({ terrain: doc, updatedAt: new Date().toISOString() })
@@ -603,28 +858,44 @@ export async function deleteBattleMap(mapId: string): Promise<void> {
  */
 export async function revealTiles(
   mapId: string,
-  indices: number[]
+  indices: number[],
+  levelId?: string
 ): Promise<void> {
   const { map } = await staffForMap(mapId);
-  const doc = normalizeTerrain(map.terrain);
-  const n = doc.w * doc.h;
-  const revealed = revealedOf(map.revealed);
+  const board = normalizeBoard(map.terrain);
+  const level = levelOf(board, levelId);
+  const n = board.w * board.h;
+  const revealed = revealedOf(map.revealed, board);
+  const set = revealed.get(level.id)!;
   for (const i of indices) {
-    if (Number.isInteger(i) && i >= 0 && i < n) revealed.add(i);
+    if (Number.isInteger(i) && i >= 0 && i < n) set.add(i);
   }
   await db
     .update(battleMaps)
-    .set({ revealed: [...revealed], updatedAt: new Date().toISOString() })
+    .set({
+      revealed: storeRevealed(revealed),
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(battleMaps.id, mapId));
   bumpVersion(map.campaignId);
 }
 
-/** Hide everything again. The one exception to "additive": a DM resetting a room. */
-export async function resetFog(mapId: string): Promise<void> {
+/**
+ * Hide everything again — one floor, or the whole house. The one exception
+ * to "additive": a DM resetting a room.
+ */
+export async function resetFog(mapId: string, levelId?: string): Promise<void> {
   const { map } = await staffForMap(mapId);
+  const board = normalizeBoard(map.terrain);
+  const revealed = revealedOf(map.revealed, board);
+  if (levelId) revealed.set(levelOf(board, levelId).id, new Set());
+  else for (const k of revealed.keys()) revealed.set(k, new Set());
   await db
     .update(battleMaps)
-    .set({ revealed: [], updatedAt: new Date().toISOString() })
+    .set({
+      revealed: storeRevealed(revealed),
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(battleMaps.id, mapId));
   bumpVersion(map.campaignId);
 }
@@ -639,14 +910,30 @@ const PARTY_SIGHT_FEET = 40;
  */
 export async function revealFromParty(
   mapId: string,
-  radiusFeet = PARTY_SIGHT_FEET
+  radiusFeet = PARTY_SIGHT_FEET,
+  only?: { tokenId: string }
 ): Promise<number> {
   const { map } = await staffForMap(mapId);
-  const doc = normalizeTerrain(map.terrain);
+  return revealFromPartyUnchecked(map, radiusFeet, only);
+}
+
+/**
+ * `revealFromParty` without the role check, for the server's own use: a
+ * hero who takes the stairs looks around when they land, whoever moved
+ * them. `only` narrows the looking to one token.
+ */
+async function revealFromPartyUnchecked(
+  map: typeof battleMaps.$inferSelect,
+  radiusFeet = PARTY_SIGHT_FEET,
+  only?: { tokenId: string }
+): Promise<number> {
+  const board = normalizeBoard(map.terrain);
   const tokens = await db
     .select({
+      id: battleMapTokens.id,
       x: battleMapTokens.x,
       y: battleMapTokens.y,
+      level: battleMapTokens.level,
       footprint: battleMapTokens.footprint,
       entryId: battleMapTokens.entryId,
       visibility: battleMapTokens.visibility,
@@ -654,7 +941,7 @@ export async function revealFromParty(
       lightFeet: battleMapTokens.lightFeet,
     })
     .from(battleMapTokens)
-    .where(eq(battleMapTokens.mapId, mapId));
+    .where(eq(battleMapTokens.mapId, map.id));
 
   const partyEntries = new Set<string>();
   if (map.encounterId) {
@@ -672,19 +959,25 @@ export async function revealFromParty(
 
   /*
    * Per token (08): a tile is revealed to the party if some party token can
-   * see it — a clear line, and either the tile is lit (the board's ambient
+   * see it — a clear line, and either the tile is lit (the floor's ambient
    * light, a brazier, a torch anybody carries) or it is within that token's
-   * own darkvision. On a bright board this is `visibleFrom` as it always was.
+   * own darkvision. Floor by floor: a torch downstairs lights nothing up
+   * here. On a bright board this is `visibleFrom` as it always was.
    */
-  const torches: Torch[] = tokens
-    .filter(t => t.lightFeet && t.lightFeet > 0)
-    .map(t => ({ x: t.x, y: t.y, radiusFeet: t.lightFeet as number }));
-  const revealed = revealedOf(map.revealed);
-  const before = revealed.size;
+  const revealed = revealedOf(map.revealed, board);
+  const before = [...revealed.values()].reduce((n, v) => n + v.size, 0);
   const r = Math.ceil(radiusFeet / 5);
   for (const t of tokens) {
+    if (only && t.id !== only.tokenId) continue;
     if (t.visibility !== 'shared') continue;
     if (!t.entryId || !partyEntries.has(t.entryId)) continue;
+    const doc = levelFor(board, t);
+    const shown = revealed.get(doc.id)!;
+    const torches: Torch[] = tokens
+      .filter(
+        o => o.lightFeet && o.lightFeet > 0 && levelFor(board, o).id === doc.id
+      )
+      .map(o => ({ x: o.x, y: o.y, radiusFeet: o.lightFeet as number }));
     const seer = {
       x: t.x,
       y: t.y,
@@ -695,7 +988,7 @@ export async function revealFromParty(
       for (let x = t.x - r; x <= t.x + r; x++) {
         if (!inBounds(doc, x, y)) continue;
         if (seesTile(doc, seer, { x, y }, torches, canSee, radiusFeet)) {
-          revealed.add(y * doc.w + x);
+          shown.add(y * doc.w + x);
         }
       }
     }
@@ -703,32 +996,41 @@ export async function revealFromParty(
 
   await db
     .update(battleMaps)
-    .set({ revealed: [...revealed], updatedAt: new Date().toISOString() })
-    .where(eq(battleMaps.id, mapId));
+    .set({
+      revealed: storeRevealed(revealed),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(battleMaps.id, map.id));
   bumpVersion(map.campaignId);
-  return revealed.size - before;
+  const after = [...revealed.values()].reduce((n, v) => n + v.size, 0);
+  return after - before;
 }
 
 /* --- tokens ------------------------------------------------------------ */
 
 async function occupantsExcept(
   mapId: string,
-  exceptId: string | null
+  exceptId: string | null,
+  levelId: string
 ): Promise<Occupant[]> {
   const rows = await db
     .select({
       id: battleMapTokens.id,
       x: battleMapTokens.x,
       y: battleMapTokens.y,
+      level: battleMapTokens.level,
       footprint: battleMapTokens.footprint,
       state: battleMapTokens.state,
       effect: battleMapTokens.effect,
     })
     .from(battleMapTokens)
-    .where(eq(battleMapTokens.mapId, mapId));
+    .where(
+      and(eq(battleMapTokens.mapId, mapId), eq(battleMapTokens.level, levelId))
+    );
   // An open door and a smashed chest are walked through, and so is a plate
   // that fires when stepped on; the same rule the boards apply when they
-  // light a token's reach.
+  // light a token's reach. One floor at a time: a barrel in the cellar is
+  // not under the foyer.
   return rows.filter(r => r.id !== exceptId && blocksStanding(r));
 }
 
@@ -739,6 +1041,8 @@ export interface TokenInput {
   lightFeet?: number | null;
   x: number;
   y: number;
+  /** The floor; the ground floor when absent. */
+  level?: string;
   footprint?: number;
   altitude?: number;
   tint?: string;
@@ -910,7 +1214,8 @@ export async function placeToken(
   input: TokenInput & { ruling?: boolean }
 ): Promise<string> {
   const { map } = await staffForMap(mapId);
-  const doc = normalizeTerrain(map.terrain);
+  const board = normalizeBoard(map.terrain);
+  const doc = levelOf(board, input.level);
 
   let footprint = Math.max(1, Math.min(3, Math.trunc(input.footprint ?? 1)));
   if (input.entryId) {
@@ -933,7 +1238,7 @@ export async function placeToken(
 
   const me: Occupant = { x: input.x, y: input.y, footprint };
   await refuseStanding(
-    standingIssue(doc, me, await occupantsExcept(mapId, null)),
+    standingIssue(doc, me, await occupantsExcept(mapId, null, doc.id)),
     map.campaignId,
     map.encounterId,
     { isStaff: true, ruling: input.ruling }
@@ -979,6 +1284,7 @@ export async function placeToken(
       label: (input.label ?? '').trim().slice(0, 60),
       x: input.x,
       y: input.y,
+      level: doc.id,
       altitude: Math.trunc(input.altitude ?? 0),
       footprint,
       visionFeet: vision,
@@ -1007,15 +1313,16 @@ export async function placeToken(
  */
 export async function dropThingNear(
   mapId: string,
-  near: { x: number; y: number },
+  near: { x: number; y: number; level?: string },
   label: string
 ): Promise<string | null> {
   const map = await db.query.battleMaps.findFirst({
     where: eq(battleMaps.id, mapId),
   });
   if (!map) return null;
-  const doc = normalizeTerrain(map.terrain);
-  const others = await occupantsExcept(mapId, null);
+  const board = normalizeBoard(map.terrain);
+  const doc = levelOf(board, near.level);
+  const others = await occupantsExcept(mapId, null, doc.id);
   const ring: { x: number; y: number }[] = [];
   for (let r = 0; r <= 2; r++) {
     for (let dy = -r; dy <= r; dy++) {
@@ -1038,6 +1345,7 @@ export async function dropThingNear(
       label: label.trim().slice(0, 60) || 'Something',
       x: spot.x,
       y: spot.y,
+      level: doc.id,
       footprint: 1,
       visibility: 'shared',
       state: null,
@@ -1067,7 +1375,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
   if (fight) await bindBoardToFight(mapId, fight.id);
   const map = fight ? { ...found, encounterId: fight.id } : found;
   if (!map.encounterId) throw new Error('NO_FIGHT');
-  const doc = normalizeTerrain(map.terrain);
+  const board = normalizeBoard(map.terrain);
 
   const entries = await db
     .select({
@@ -1089,10 +1397,20 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
       entryId: battleMapTokens.entryId,
       x: battleMapTokens.x,
       y: battleMapTokens.y,
+      level: battleMapTokens.level,
     })
     .from(battleMapTokens)
     .where(eq(battleMapTokens.mapId, mapId));
   const already = new Set(existing.map(e => e.entryId));
+  // The floor the party is on, if it is on one; else the ground floor. A
+  // deal into a house puts everybody where the fight is.
+  const partyIds0 = new Set(
+    entries.filter(e => e.side === 'party').map(e => e.id)
+  );
+  const partyFloor = existing.find(
+    t => t.entryId && partyIds0.has(t.entryId)
+  )?.level;
+  const doc = levelOf(board, partyFloor ?? defaultLevelId(board));
 
   /*
    * What the party can see from where it already stands, so a foe is dealt
@@ -1107,6 +1425,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
   const lit = new Set<number>();
   for (const t of existing) {
     if (!t.entryId || !partyIds.has(t.entryId)) continue;
+    if (levelFor(board, t).id !== doc.id) continue;
     for (const i of visibleFrom(doc, { x: t.x, y: t.y }, PARTY_SIGHT_FEET)) {
       lit.add(i);
     }
@@ -1121,7 +1440,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
   for (const e of entries) {
     if (already.has(e.id)) continue;
     const footprint = footprintOf(e);
-    const others = await occupantsExcept(mapId, null);
+    const others = await occupantsExcept(mapId, null, doc.id);
     let spot: { x: number; y: number } | null = null;
     const order: number[] = [];
     for (let i = 0; i < doc.w * doc.h; i++) order.push(i);
@@ -1145,6 +1464,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
       entryId: e.id,
       x: spot.x,
       y: spot.y,
+      level: doc.id,
       footprint,
       visionFeet: visions.get(e.id) ?? null,
       visibility: e.side === 'foe' ? 'dm' : 'shared',
@@ -1235,14 +1555,15 @@ export async function moveToken(
     }
   }
 
-  const doc = normalizeTerrain(map.terrain);
+  const board = normalizeBoard(map.terrain);
+  const doc = levelFor(board, token);
   if (!inBounds(doc, to.x, to.y)) throw new Error('CANNOT_STAND_THERE');
   const who = { isStaff: isStaffRole(role), ruling: opts.ruling };
   await refuseStanding(
     standingIssue(
       doc,
       { x: to.x, y: to.y, footprint: token.footprint },
-      await occupantsExcept(map.id, tokenId)
+      await occupantsExcept(map.id, tokenId, doc.id)
     ),
     map.campaignId,
     map.encounterId,
@@ -1261,10 +1582,14 @@ export async function moveToken(
         where: eq(initiativeEntries.id, token.entryId),
       })
     : null;
-  const all = await db
-    .select()
-    .from(battleMapTokens)
-    .where(eq(battleMapTokens.mapId, map.id));
+  // Everything on this floor. The floors below and above are as far away
+  // as another board: nothing there blocks, threatens or prices this move.
+  const all = (
+    await db
+      .select()
+      .from(battleMapTokens)
+      .where(eq(battleMapTokens.mapId, map.id))
+  ).filter(t => levelFor(board, t).id === doc.id);
   const entryIds = all
     .map(t => t.entryId)
     .filter((id): id is string => id !== null);
@@ -1372,7 +1697,177 @@ export async function moveToken(
   if (entry && trap) {
     await fireThing(trap.thing.id, { userId, actorName: entry.label });
   }
-  if (entry) await nudgeNearHidden(map, to, entry);
+  if (entry) await nudgeNearHidden(map, { ...to, level: doc.id }, entry);
+}
+
+/**
+ * Take the stairs. The one move that changes floors.
+ *
+ * The token must be standing on the link — every link stands on both of
+ * its floors — and lands on the far floor on the same tile, or the first
+ * tile of the stairwell with room. Priced as the climb (`linkCostFeet`)
+ * and spent from the turn the way a step is, under the same fence; a
+ * player takes only their own token, staff anybody's. A hidden stair is
+ * the DM's to offer: a player is refused it as if it were not there.
+ *
+ * Leaving a floor is leaving every hostile's reach on it, so the offer of
+ * opportunity attacks is made from where the token stood. A hero who
+ * lands looks around: the far floor is revealed from where they stand,
+ * so a player whose token climbs into the dark sees their own landing.
+ */
+export async function takeLink(
+  tokenId: string,
+  linkId: string,
+  opts: { ruling?: boolean } = {}
+): Promise<{ level: string; x: number; y: number }> {
+  const token = await db.query.battleMapTokens.findFirst({
+    where: eq(battleMapTokens.id, tokenId),
+  });
+  if (!token) throw new Error('NOT_FOUND');
+  const map = await db.query.battleMaps.findFirst({
+    where: eq(battleMaps.id, token.mapId),
+  });
+  if (!map) throw new Error('NOT_FOUND');
+  const { role, userId } = await requireCampaignRole(map.campaignId, [
+    'gm',
+    'co-gm',
+    'player',
+  ]);
+  const isStaff = isStaffRole(role);
+  if (!isStaff) {
+    if (!token.entryId) throw new Error('NOT_YOUR_TOKEN');
+    const membership = await db.query.campaignMembers.findFirst({
+      columns: { characterId: true },
+      where: and(
+        eq(campaignMembers.campaignId, map.campaignId),
+        eq(campaignMembers.userId, userId)
+      ),
+    });
+    const entry = await db.query.initiativeEntries.findFirst({
+      columns: { characterId: true },
+      where: eq(initiativeEntries.id, token.entryId),
+    });
+    if (
+      !membership?.characterId ||
+      !entry?.characterId ||
+      entry.characterId !== membership.characterId
+    ) {
+      throw new Error('NOT_YOUR_TOKEN');
+    }
+  }
+
+  const board = normalizeBoard(map.terrain);
+  const here = levelFor(board, token);
+  const link = board.links.find(l => l.id === linkId);
+  if (!link || (link.hidden && !isStaff)) throw new Error('NO_SUCH_STAIR');
+  const otherId = linkOtherEnd(link, here.id);
+  if (otherId === null) throw new Error('NOT_ON_THE_STAIR');
+  const me: Occupant = { x: token.x, y: token.y, footprint: token.footprint };
+  if (!linksUnder(board, here.id, me).some(l => l.id === link.id)) {
+    throw new Error('NOT_ON_THE_STAIR');
+  }
+  const there = levelOf(board, otherId);
+  const others = await occupantsExcept(map.id, tokenId, there.id);
+  const landing = landingFor(there, link, me, others);
+  if (!landing) throw new Error('NO_ROOM_THERE');
+  const who = { isStaff, ruling: opts.ruling };
+  await refuseStanding(
+    standingIssue(there, { ...landing, footprint: token.footprint }, others),
+    map.campaignId,
+    map.encounterId,
+    who
+  );
+
+  const entry = token.entryId
+    ? await db.query.initiativeEntries.findFirst({
+        where: eq(initiativeEntries.id, token.entryId),
+      })
+    : null;
+  let spent: { ruling: boolean } | null = null;
+  if (entry) {
+    spent = await spendMovement(entry, linkCostFeet(board, link, here.id), who);
+  }
+
+  // Who could swing as they leave: everybody hostile on the floor they are
+  // leaving, from where they stood. Read before the write.
+  const onThisFloor = (
+    await db
+      .select()
+      .from(battleMapTokens)
+      .where(eq(battleMapTokens.mapId, map.id))
+  ).filter(t => t.id !== token.id && levelFor(board, t).id === here.id);
+  const entryIds = onThisFloor
+    .map(t => t.entryId)
+    .filter((id): id is string => id !== null);
+  const entries =
+    entryIds.length > 0
+      ? await db
+          .select()
+          .from(initiativeEntries)
+          .where(inArray(initiativeEntries.id, entryIds))
+      : [];
+
+  await db
+    .update(battleMapTokens)
+    .set({
+      x: landing.x,
+      y: landing.y,
+      level: there.id,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(battleMapTokens.id, tokenId));
+  bumpVersion(map.campaignId);
+
+  if (isStaff) {
+    const from = { x: token.x, y: token.y, level: here.id };
+    const turnBefore = entry?.turn ?? null;
+    recordUndo(map.campaignId, {
+      label: `Put ${entry?.label ?? token.label ?? 'a token'} back on the ${here.name || 'floor below'}`,
+      inverse: async () => {
+        await db
+          .update(battleMapTokens)
+          .set({ ...from, updatedAt: new Date().toISOString() })
+          .where(eq(battleMapTokens.id, tokenId));
+        if (entry && turnBefore !== null) {
+          await db
+            .update(initiativeEntries)
+            .set({ turn: turnBefore })
+            .where(eq(initiativeEntries.id, entry.id));
+        }
+      },
+    });
+  }
+
+  if (entry && spent && !parseTurn(entry.turn).disengaged) {
+    await offerOpportunityAttacks(
+      map.campaignId,
+      entry,
+      me,
+      // Gone from the floor: further than any reach.
+      { x: -1000, y: -1000, footprint: token.footprint },
+      onThisFloor,
+      entries,
+      userId
+    );
+  }
+
+  if (entry?.side === 'party' && token.visibility === 'shared') {
+    await revealFromPartyUnchecked(map, PARTY_SIGHT_FEET, { tokenId });
+  }
+  if (entry) {
+    await nudgeNearHidden(map, { ...landing, level: there.id }, entry);
+  }
+  publish(map.campaignId, {
+    kind: 'thing',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    by: userId,
+    actorName: entry?.label ?? token.label ?? 'Somebody',
+    name: link.name || (link.kind === 'ladder' ? 'the ladder' : 'the stairs'),
+    what: there.feet > here.feet ? 'climbed' : 'descended',
+    detail: there.name,
+  });
+  return { level: there.id, x: landing.x, y: landing.y };
 }
 
 /**
@@ -1464,6 +1959,7 @@ export async function updateToken(
       | 'facing'
       | 'visionFeet'
       | 'lightFeet'
+      | 'level'
     >
   >
 ): Promise<void> {
@@ -1472,6 +1968,25 @@ export async function updateToken(
   });
   if (!token) throw new Error('NOT_FOUND');
   const { map } = await staffForMap(token.mapId);
+
+  // Moved to another floor by hand — the DM's "put the wight in the
+  // cellar" — on the same tile, which has to be able to hold it.
+  let level: string | undefined;
+  if (patch.level !== undefined) {
+    const board = normalizeBoard(map.terrain);
+    const doc = levelOf(board, patch.level);
+    if (doc.id !== levelFor(board, token).id) {
+      const issue = standingIssue(
+        doc,
+        { x: token.x, y: token.y, footprint: token.footprint },
+        await occupantsExcept(map.id, tokenId, doc.id)
+      );
+      if (issue !== null && issue !== 'terrain') {
+        throw new Error('CANNOT_STAND_THERE');
+      }
+      level = doc.id;
+    }
+  }
 
   // A picture from another campaign's library is not this table's to stand
   // up: the id is checked against the campaign before it is kept.
@@ -1494,6 +2009,7 @@ export async function updateToken(
     .update(battleMapTokens)
     .set({
       ...(patch.imageId !== undefined ? { imageId: patch.imageId } : {}),
+      ...(level !== undefined ? { level } : {}),
       ...(patch.state !== undefined ? { state: item.state } : {}),
       ...(patch.lockDc !== undefined ? { lockDc: item.lockDc } : {}),
       ...hp,
@@ -1585,6 +2101,7 @@ async function withinReach(
     .select({
       x: battleMapTokens.x,
       y: battleMapTokens.y,
+      level: battleMapTokens.level,
       footprint: battleMapTokens.footprint,
     })
     .from(battleMapTokens)
@@ -1601,8 +2118,10 @@ async function withinReach(
     );
   const gap = (a: number, aSize: number, b: number, bSize: number) =>
     Math.max(0, Math.max(a, b) - Math.min(a + aSize, b + bSize) + 1);
+  const board = normalizeBoard(map.terrain);
   return mine.some(
     m =>
+      levelFor(board, m).id === levelFor(board, thing).id &&
       gap(m.x, m.footprint, thing.x, thing.footprint) <= 1 &&
       gap(m.y, m.footprint, thing.y, thing.footprint) <= 1
   );
@@ -1843,19 +2362,24 @@ type MapRowT = typeof battleMaps.$inferSelect;
  */
 async function standingOn(
   map: MapRowT,
-  tiles: readonly number[]
+  tiles: readonly number[],
+  levelId: string
 ): Promise<
   { token: ThingRow; entry: typeof initiativeEntries.$inferSelect }[]
 > {
   if (tiles.length === 0) return [];
-  const doc = normalizeTerrain(map.terrain);
+  const board = normalizeBoard(map.terrain);
+  const doc = levelOf(board, levelId);
   const set = new Set(tiles);
   const tokens = await db
     .select()
     .from(battleMapTokens)
     .where(eq(battleMapTokens.mapId, map.id));
   const hit = tokens.filter(
-    t => t.entryId && footprintTiles(doc, t).some(i => set.has(i))
+    t =>
+      t.entryId &&
+      levelFor(board, t).id === doc.id &&
+      footprintTiles(doc, t).some(i => set.has(i))
   );
   if (hit.length === 0) return [];
   const entries = await db
@@ -1957,19 +2481,23 @@ export async function fireThing(
   const undoing = effect.repeat === 'toggle' && (effect.undo?.length ?? 0) > 0;
   const changes = undoing ? effect.undo! : effect.changes;
 
-  // 1. The document.
-  const doc = normalizeTerrain(map.terrain);
+  // 1. The document — the floor the thing is on. A lever in the cellar
+  // moves the cellar's walls; its tiles are the cellar's indices.
+  const board = normalizeBoard(map.terrain);
+  const doc = levelFor(board, thing);
   const terrainChanges = changes.filter(isTerrainChange);
   const applied = applyTerrainChanges(doc, terrainChanges);
-  const revealed = revealedOf(map.revealed);
+  const nextBoard = withLevel(board, { ...doc, ...applied.doc });
+  const revealed = revealedOf(map.revealed, board);
+  const shown = revealed.get(doc.id)!;
   for (const c of changes) {
-    if (c.kind === 'reveal') for (const i of c.tiles) revealed.add(i);
+    if (c.kind === 'reveal') for (const i of c.tiles) shown.add(i);
   }
   await db
     .update(battleMaps)
     .set({
-      terrain: applied.doc,
-      revealed: [...revealed],
+      terrain: nextBoard,
+      revealed: storeRevealed(revealed),
       updatedAt: new Date().toISOString(),
     })
     .where(eq(battleMaps.id, map.id));
@@ -2008,8 +2536,9 @@ export async function fireThing(
         visibility: 'table',
       });
       for (const { entry } of await standingOn(
-        { ...map, terrain: applied.doc },
-        c.area
+        { ...map, terrain: nextBoard },
+        c.area,
+        doc.id
       )) {
         let amount = rolled.total;
         if (c.save) {
@@ -2047,8 +2576,9 @@ export async function fireThing(
       const [key] = parseConditions(c.condition);
       if (!key) continue;
       for (const { entry } of await standingOn(
-        { ...map, terrain: applied.doc },
-        c.area
+        { ...map, terrain: nextBoard },
+        c.area,
+        doc.id
       )) {
         if (c.save) {
           const ability = c.save.ability as AbilityKey;
@@ -2132,7 +2662,7 @@ export async function fireThing(
  */
 async function trapOnPath(
   map: MapRowT,
-  doc: TerrainDoc,
+  doc: LevelDoc,
   path: Tile[],
   mover: { footprint: number; side: string | null }
 ): Promise<{ thing: ThingRow; stopAt: Tile } | null> {
@@ -2140,7 +2670,12 @@ async function trapOnPath(
     await db
       .select()
       .from(battleMapTokens)
-      .where(eq(battleMapTokens.mapId, map.id))
+      .where(
+        and(
+          eq(battleMapTokens.mapId, map.id),
+          eq(battleMapTokens.level, doc.id)
+        )
+      )
   ).filter(t => t.entryId === null && t.state !== 'broken' && t.effect);
   if (things.length === 0) return null;
   for (const step of path) {
@@ -2209,6 +2744,7 @@ export async function searchNearby(entryId: string): Promise<string[]> {
     ),
   });
   if (!me) return [];
+  const board = normalizeBoard(map.terrain);
   const hidden = (
     await db
       .select()
@@ -2220,6 +2756,7 @@ export async function searchNearby(entryId: string): Promise<string[]> {
       t.entryId === null &&
       t.visibility === 'dm' &&
       effect?.findDc &&
+      levelFor(board, t).id === levelFor(board, me).id &&
       distanceFeet(me, t) <= 5
     );
   });
@@ -2278,10 +2815,11 @@ export async function searchNearby(entryId: string): Promise<string[]> {
  */
 async function nudgeNearHidden(
   map: MapRowT,
-  mover: { x: number; y: number },
+  mover: { x: number; y: number; level: string },
   entry: typeof initiativeEntries.$inferSelect
 ): Promise<void> {
   if (entry.side !== 'party') return;
+  const board = normalizeBoard(map.terrain);
   const hidden = (
     await db
       .select()
@@ -2293,6 +2831,7 @@ async function nudgeNearHidden(
       t.entryId === null &&
       t.visibility === 'dm' &&
       effect?.findDc &&
+      levelFor(board, t).id === levelOf(board, mover.level).id &&
       distanceFeet(mover, t) <= 5
     );
   });

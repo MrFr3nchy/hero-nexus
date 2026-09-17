@@ -2061,9 +2061,16 @@ export const battleMaps = sqliteTable(
       { onDelete: 'set null' }
     ),
     name: text('name').notNull().default(''),
-    /** `TerrainDoc`, JSON. Normalised on read by `normalizeTerrain`. */
+    /**
+     * `BoardDoc`, JSON — floors and the stairs between them (0062).
+     * Normalised on read by `normalizeBoard`, which also lifts the
+     * one-floor `TerrainDoc` every board was before.
+     */
     terrain: text('terrain', { mode: 'json' }).notNull(),
-    /** Revealed tile indices, JSON array. Empty: the party has seen nothing. */
+    /**
+     * Revealed tile indices by floor id, JSON object (0062); a stored array
+     * is the ground floor's. Empty: the party has seen nothing.
+     */
     revealed: text('revealed', { mode: 'json' })
       .notNull()
       .default(sql`'[]'`),
@@ -2113,6 +2120,8 @@ export const battleMapTokens = sqliteTable(
     y: integer('y').notNull(),
     /** Feet above the tile's own elevation. */
     altitude: integer('altitude').notNull().default(0),
+    /** The floor it stands on: a `LevelDoc` id (0062). */
+    level: text('level').notNull().default('ground'),
     /** 1 medium, 2 large, 3 huge — tiles per side. */
     footprint: integer('footprint').notNull().default(1),
     tint: text('tint').notNull().default(''),

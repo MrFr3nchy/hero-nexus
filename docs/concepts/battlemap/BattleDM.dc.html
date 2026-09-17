@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&amp;family=Cinzel:wght@500;600&amp;family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=Inter:wght@400;500;600&amp;display=swap">
+  <style>
+    body { margin: 0; background: #16130f; color: #ede7da; font-family: Inter, ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #d9b061; text-decoration: none; } a:hover { color: #e8c988; }
+    button { font-family: inherit; cursor: pointer; }
+    button:focus-visible, a:focus-visible { outline: 2px solid #e8c988; outline-offset: 2px; }
+  </style>
+</helmet>
+<div style="width: 1600px; height: 960px; display: flex; flex-direction: column; background: #16130f; overflow: hidden;">
+
+  <!-- mode bar -->
+  <header style="height: 56px; flex-shrink: 0; display: flex; align-items: center; gap: 16px; padding: 0 18px; border-bottom: 1px solid #33291d; background: #1e1a14;">
+    <nav aria-label="Where the table is" style="display: flex; padding: 3px; gap: 2px; border: 1px solid #33291d; border-radius: 9px; background: #262019;">
+      <span style="display: flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 6px; color: #a89f8d; font-size: 13px;"><span style="width: 7px; height: 7px; box-sizing: border-box; border-radius: 4px; border: 1.5px solid #7a7060;"></span>The desk</span>
+      <span style="display: flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 6px; color: #a89f8d; font-size: 13px;"><span style="width: 7px; height: 7px; box-sizing: border-box; border-radius: 4px; border: 1.5px solid #7a7060;"></span>The table</span>
+      <span style="display: flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 6px; background: #33291d; color: #ede7da; font-size: 13px; font-weight: 600;"><span style="width: 7px; height: 7px; border-radius: 4px; background: {{accent}};"></span>The sand table</span>
+    </nav>
+    <div style="display: flex; flex-direction: column; gap: 0;">
+      <span style="font-family: Fraunces, Georgia, serif; font-size: 17px; font-weight: 550;">Blackwood Manor</span>
+      <span style="font-size: 11px; color: #a89f8d;">Round {{round}} · 1 min 42 s of game time</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <button type="button" aria-label="Table rules: advise" style="display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid #33291d; border-radius: 16px; background: transparent; color: #c9bfad; font-size: 12px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6M11 7l6 6M12.5 5.5l-6 6 3 3 6-6M8 13l-5 5 2 2 5-5M4 21h9"></path></svg>
+      <span>Advise</span>
+    </button>
+    <span style="font-size: 12px; color: #a89f8d;">Night · rain on the roof</span>
+    <button type="button" aria-label="Undo the last thing" style="width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border: 1px solid #33291d; border-radius: 8px; background: transparent; color: #c9bfad;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3"></path></svg>
+    </button>
+    <a href="Main.dc.html" style="display: flex; align-items: center; height: 34px; padding: 0 12px; border: 1px solid #33291d; border-radius: 8px; color: #ede7da; font-size: 13px;">Workshop</a>
+    <button type="button" style="height: 34px; padding: 0 14px; border: 1px solid #6b3a33; border-radius: 8px; background: transparent; color: #d9756c; font-size: 13px; font-weight: 500;">End the fight</button>
+  </header>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- initiative -->
+    <aside style="width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 14px; border-right: 1px solid #33291d; background: #1a1612;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between;">
+        <h2 style="margin: 0; font-family: Fraunces, Georgia, serif; font-size: 20px; font-weight: 550;">Initiative</h2>
+        <span style="font-size: 12px; color: #a89f8d;">round {{round}}</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <sc-for list="{{order}}" as="c" hint-placeholder-count="6">
+          <button type="button" onClick="{{c.pick}}" style="position: relative; display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 10px 12px; border: 1px solid {{c.bd}}; border-radius: 10px; background: {{c.bg}}; color: #ede7da; text-align: left;">
+            <sc-if value="{{c.now}}" hint-placeholder-val="{{ false }}">
+              <span style="position: absolute; right: -1px; top: 10px; padding: 2px 8px 2px 10px; border-radius: 4px 0 0 4px; background: {{accent}}; color: #16130f; font-family: Cinzel, serif; font-size: 9px; font-weight: 600; letter-spacing: 0.14em;">NOW</span>
+            </sc-if>
+            <span style="display: flex; align-items: center; gap: 10px;">
+              <span style="width: 26px; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: #a89f8d;">{{c.init}}</span>
+              <span style="width: 22px; height: 22px; flex-shrink: 0; box-sizing: border-box; border-radius: 50%; border: 2px solid {{c.ring}}; background: #16130f;"></span>
+              <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+                <span style="font-size: 14px; font-weight: 600;">{{c.name}}</span>
+                <span style="font-size: 11px; color: {{c.floorColor}};">{{c.floorLine}}</span>
+              </span>
+              <span style="display: flex; flex-direction: column; align-items: flex-end; gap: 1px; margin-right: {{c.hpGap}}px;">
+                <span style="font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;">{{c.hp}}<span style="color: #a89f8d; font-weight: 400;">/{{c.max}}</span></span>
+                <span style="font-size: 11px; color: #a89f8d;">AC {{c.ac}}</span>
+              </span>
+            </span>
+            <span style="height: 4px; border-radius: 2px; background: #33291d; overflow: hidden;"><span style="display: block; width: {{c.pct}}%; height: 4px; background: {{c.bar}};"></span></span>
+            <sc-if value="{{c.hasChips}}" hint-placeholder-val="{{ false }}">
+              <span style="display: flex; flex-wrap: wrap; gap: 4px;">
+                <sc-for list="{{c.chips}}" as="ch" hint-placeholder-count="1">
+                  <span style="padding: 2px 7px; border: 1px solid {{ch.c}}; border-radius: 10px; color: {{ch.c}}; font-size: 11px;">{{ch.t}}</span>
+                </sc-for>
+              </span>
+            </sc-if>
+          </button>
+        </sc-for>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px dashed #3d3226; border-radius: 10px; font-size: 12px; color: #a89f8d;">
+        <span style="width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%; border: 2px dashed #d9756c;"></span>
+        <span style="flex-grow: 1;">Wight · Cellar · not in the fight</span>
+        <button type="button" style="height: 28px; padding: 0 10px; border: 1px solid #33291d; border-radius: 6px; background: transparent; color: #ede7da; font-size: 12px;">Deal in</button>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <button type="button" onClick="{{next}}" style="height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 10px; background: {{accent}}; color: #16130f; font-size: 15px; font-weight: 600;">
+        <span>Next turn</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+      </button>
+    </aside>
+
+    <!-- board -->
+    <main style="position: relative; flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 14px 28px 16px; background-color: #110e0b; background-image: radial-gradient(#231d15 1px, transparent 1px); background-size: 24px 24px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <nav aria-label="Floors" style="display: flex; padding: 3px; gap: 2px; border: 1px solid #33291d; border-radius: 10px; background: #1e1a14;">
+          <sc-for list="{{floorTabs}}" as="f" hint-placeholder-count="4">
+            <button type="button" onClick="{{f.pick}}" aria-pressed="{{f.on}}" style="display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border: 0; border-radius: 7px; background: {{f.bg}}; color: {{f.fg}}; font-size: 13px; font-weight: {{f.weight}};">
+              <span>{{f.name}}</span>
+              <span style="display: flex; gap: 3px;">
+                <sc-for list="{{f.pips}}" as="pp" hint-placeholder-count="2">
+                  <span style="width: 7px; height: 7px; border-radius: 4px; background: {{pp}};"></span>
+                </sc-for>
+              </span>
+            </button>
+          </sc-for>
+        </nav>
+        <button type="button" onClick="{{toggleFollow}}" aria-pressed="{{follow}}" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px; border: 0; background: transparent; color: #c9bfad; font-size: 12px;">
+          <span style="position: relative; width: 30px; height: 18px; border-radius: 9px; background: {{followTrack}};"><span style="position: absolute; top: 3px; left: {{followKnob}}px; width: 12px; height: 12px; border-radius: 6px; background: #ede7da;"></span></span>
+          <span>Follow the turn</span>
+        </button>
+        <div style="flex-grow: 1;"></div>
+        <div style="display: flex; padding: 3px; gap: 2px; border: 1px solid #33291d; border-radius: 8px; background: #1e1a14;">
+          <span style="padding: 5px 10px; border-radius: 5px; background: #33291d; color: #ede7da; font-size: 12px; font-weight: 500;">Select</span>
+          <span style="padding: 5px 10px; color: #a89f8d; font-size: 12px;">Ruler</span>
+          <span style="padding: 5px 10px; color: #a89f8d; font-size: 12px;">Area</span>
+          <span style="padding: 5px 10px; color: #a89f8d; font-size: 12px;">Fog</span>
+        </div>
+        <a href="Workshop3D.dc.html" style="display: flex; align-items: center; height: 34px; padding: 0 12px; border: 1px solid #33291d; border-radius: 8px; color: #ede7da; font-size: 12px;">Stand it up</a>
+      </div>
+
+      <div style="position: relative; width: 816px; height: 576px; flex-shrink: 0; border-radius: 4px; box-shadow: 0 0 0 1px #33291d, 0 24px 60px -20px rgba(0,0,0,0.8);">
+        <sc-for list="{{floors}}" as="f" hint-placeholder-count="6">
+          <div style="position: absolute; left: {{f.l}}px; top: {{f.t}}px; width: {{f.w}}px; height: {{f.h}}px; background-color: {{f.bg}}; background-image: linear-gradient(rgba(0,0,0,0.22) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.22) 1px, transparent 1px); background-size: 24px 24px;"></div>
+        </sc-for>
+        <sc-for list="{{reach}}" as="r" hint-placeholder-count="0">
+          <div style="position: absolute; left: {{r.l}}px; top: {{r.t}}px; width: 24px; height: 24px; background: {{r.bg}};"></div>
+        </sc-for>
+        <sc-for list="{{props}}" as="p" hint-placeholder-count="8">
+          <div style="position: absolute; left: {{p.l}}px; top: {{p.t}}px; width: {{p.w}}px; height: {{p.h}}px; box-sizing: border-box; background: {{p.bg}}; border: 1px solid {{p.bd}}; border-radius: {{p.r}};"></div>
+        </sc-for>
+        <sc-for list="{{walls}}" as="w" hint-placeholder-count="20">
+          <div style="position: absolute; left: {{w.l}}px; top: {{w.t}}px; width: {{w.w}}px; height: {{w.h}}px; background: {{w.bg}}; box-shadow: 0 1px 2px rgba(0,0,0,0.6);"></div>
+        </sc-for>
+        <sc-for list="{{trees}}" as="t" hint-placeholder-count="0">
+          <div style="position: absolute; left: {{t.l}}px; top: {{t.t}}px; width: {{t.s}}px; height: {{t.s}}px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #6f8a4f, #3f5a2c 70%); box-shadow: 0 3px 6px rgba(0,0,0,0.55);"></div>
+        </sc-for>
+        <sc-for list="{{badges}}" as="b" hint-placeholder-count="0">
+          <div style="position: absolute; left: {{b.l}}px; top: {{b.t}}px; display: flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 10px; background: #16130f; border: 1px solid {{accent}}; color: #ede7da; font-size: 10px; font-weight: 600; white-space: nowrap;">{{b.text}}</div>
+        </sc-for>
+        <sc-if value="{{line.show}}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; left: {{line.l}}px; top: {{line.t}}px; width: {{line.len}}px; height: 0; border-top: 2px dashed #d9756c; transform-origin: 0 0; transform: rotate({{line.ang}}deg);"></div>
+        </sc-if>
+        <sc-for list="{{tokens}}" as="k" hint-placeholder-count="4">
+          <div style="position: absolute; left: {{k.l}}px; top: {{k.t}}px; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 2px solid {{k.ring}}; background: #1e1a14; box-shadow: {{k.glow}}; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #ede7da; opacity: {{k.o}};">{{k.n}}</div>
+        </sc-for>
+        <sc-if value="{{line.show}}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; left: {{line.tagL}}px; top: {{line.tagT}}px; padding: 4px 9px; border-radius: 6px; background: #1e1a14; border: 1px solid #6b3a33; font-size: 11px; color: #ede7da; white-space: nowrap;">{{line.tag}}</div>
+        </sc-if>
+        <sc-if value="{{emptyFloor}}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; left: 0; right: 0; bottom: 18px; text-align: center; font-family: Caveat, cursive; font-size: 20px; color: #a89f8d;">nobody's fighting down here — yet</div>
+        </sc-if>
+      </div>
+
+      <!-- turn strip -->
+      <div style="display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid #33291d; border-radius: 12px; background: #1e1a14;">
+        <div style="display: flex; align-items: center; gap: 18px;">
+          <span style="font-family: Fraunces, Georgia, serif; font-size: 18px; font-weight: 550;">{{turnName}}’s turn</span>
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <sc-for list="{{pips}}" as="p" hint-placeholder-count="3">
+              <span style="display: flex; align-items: center; gap: 6px;">
+                <span style="width: 11px; height: 11px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid {{accent}}; background: {{p.fill}};"></span>
+                <span style="font-size: 10px; letter-spacing: 0.1em; color: #a89f8d;">{{p.label}}</span>
+              </span>
+            </sc-for>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; min-width: 150px;">
+            <span style="font-size: 10px; letter-spacing: 0.1em; color: #a89f8d;">MOVE</span>
+            <span style="flex-grow: 1; height: 5px; border-radius: 3px; background: #33291d;"><span style="display: block; width: {{movePct}}%; height: 5px; border-radius: 3px; background: {{accent}};"></span></span>
+            <span style="font-size: 12px; font-variant-numeric: tabular-nums;">{{moveText}}</span>
+          </div>
+          <div style="flex-grow: 1;"></div>
+          <span style="font-family: Caveat, cursive; font-size: 17px; color: #a89f8d;">{{turnNote}}</span>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <sc-for list="{{verbs}}" as="v" hint-placeholder-count="8">
+            <button type="button" style="height: 36px; padding: 0 13px; border: 1px solid {{v.bd}}; border-radius: 8px; background: {{v.bg}}; color: {{v.fg}}; font-size: 13px; font-weight: 500;">{{v.label}}</button>
+          </sc-for>
+        </div>
+      </div>
+    </main>
+
+    <!-- shelf -->
+    <aside style="width: 360px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 12px; border-left: 1px solid #33291d; background: #1a1612; overflow: hidden;">
+      <section style="display: flex; flex-direction: column; border: 1px solid #33291d; border-radius: 10px; background: #1e1a14;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #33291d;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l6 3 2-3 2 3 6-3-2 7 2 5-5 1-3 4-3-4-5-1 2-5z"></path></svg>
+          <span style="flex-grow: 1; font-size: 13px; font-weight: 600;">Stat block</span>
+          <span style="font-size: 11px; color: #a89f8d;">Ghoul 1</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;">
+          <div style="display: flex; flex-direction: column; gap: 1px;">
+            <span style="font-family: Fraunces, Georgia, serif; font-size: 18px; font-weight: 550;">Ghoul</span>
+            <span style="font-size: 11px; font-style: italic; color: #a89f8d;">Medium undead · CR 1</span>
+          </div>
+          <div style="display: flex; gap: 14px; font-size: 12px;">
+            <span><span style="color: #a89f8d;">AC</span> 12</span>
+            <span><span style="color: #a89f8d;">HP</span> 9/22</span>
+            <span><span style="color: #a89f8d;">Speed</span> 30 ft</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; text-align: center;">
+            <sc-for list="{{abilities}}" as="a" hint-placeholder-count="6">
+              <span style="display: flex; flex-direction: column; padding: 4px 0; border-radius: 5px; background: #221d17;">
+                <span style="font-size: 9px; letter-spacing: 0.1em; color: #a89f8d;">{{a.k}}</span>
+                <span style="font-size: 12px; font-weight: 600;">{{a.v}}</span>
+              </span>
+            </sc-for>
+          </div>
+          <span style="font-size: 11px; line-height: 1.4; color: #a89f8d;">Immune to poison · can't be charmed, exhausted or poisoned · darkvision 60 ft</span>
+          <sc-for list="{{monsterActions}}" as="m" hint-placeholder-count="2">
+            <div style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; background: #221d17;">
+              <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px;">
+                <span style="font-size: 13px; font-weight: 600;">{{m.name}} <span style="font-weight: 400; color: #a89f8d;">{{m.hit}} · {{m.dmg}}</span></span>
+                <span style="font-size: 11px; line-height: 1.35; color: #a89f8d;">{{m.note}}</span>
+              </span>
+              <button type="button" style="height: 32px; padding: 0 10px; border: 1px solid {{m.bd}}; border-radius: 7px; background: {{m.bg}}; color: {{m.fg}}; font-size: 12px; font-weight: 600; white-space: nowrap;">{{m.cta}}</button>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+
+      <section style="display: flex; flex-direction: column; border: 1px solid #33291d; border-radius: 10px; background: #1e1a14;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #33291d;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7zM12 2v20M3 7l18 10M21 7L3 17"></path></svg>
+          <span style="flex-grow: 1; font-size: 13px; font-weight: 600;">Dice</span>
+          <span style="display: flex; padding: 2px; border: 1px solid #33291d; border-radius: 6px; font-size: 11px;">
+            <span style="padding: 2px 7px; color: #a89f8d;">Open</span>
+            <span style="padding: 2px 7px; border-radius: 4px; background: #33291d; color: #ede7da;">Behind the screen</span>
+          </span>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <sc-for list="{{log}}" as="l" hint-placeholder-count="5">
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-top: 1px solid {{l.line}};">
+              <span style="width: 30px; height: 30px; flex-shrink: 0; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border-radius: 7px; border: 1.5px {{l.dash}} {{l.c}}; background: {{l.fill}}; color: {{l.num}}; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;">{{l.total}}</span>
+              <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+                <span style="font-size: 12px; font-weight: 500;">{{l.what}}</span>
+                <span style="font-size: 11px; color: #a89f8d;">{{l.how}}</span>
+              </span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+
+      <section style="display: flex; flex-direction: column; border: 1px solid #33291d; border-radius: 10px; background: #1e1a14;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle></svg>
+          <span style="flex-grow: 1; font-size: 13px; font-weight: 600;">The asking</span>
+          <span style="font-size: 11px; color: #d6a253;">1 waiting</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 0 12px 10px; font-size: 12px;">
+          <span style="flex-grow: 1;">Kest · Con save DC 10 · end of turn</span>
+          <span style="color: #a89f8d;">waiting</span>
+        </div>
+      </section>
+
+      <section style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid #33291d; border-radius: 10px; background: #1e1a14;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v10H9l-5 4z"></path></svg>
+        <span style="flex-grow: 1; font-size: 13px; font-weight: 600;">Whispers</span>
+        <span style="min-width: 18px; padding: 0 5px; border-radius: 9px; background: #d9756c; color: #16130f; font-size: 11px; font-weight: 700; text-align: center;">1</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a89f8d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+      </section>
+    </aside>
+
+    <!-- shelf strip -->
+    <nav aria-label="Shelf" style="width: 48px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; border-left: 1px solid #33291d; background: #1e1a14;">
+      <sc-for list="{{strip}}" as="g" hint-placeholder-count="7">
+        <button type="button" aria-label="{{g.label}}" style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: {{g.bg}}; color: {{g.fg}};">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{{g.d}}"></path></svg>
+        </button>
+      </sc-for>
+    </nav>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#d9b061","options":["#d9b061","#a988cf","#6bbf8a","#8aa4bd"]},"$preview":{"width":1600,"height":960}}'>
+const MATS = { stone: '#3a342b', dirt: '#4a3d2c', grass: '#3b4a2e', wood: '#5a4328', water: '#2c3f52', rubble: '#4d4237' };
+const FLOORS = [
+  { id: 'attic', name: 'Attic' },
+  { id: 'upper', name: 'Upper floor' },
+  { id: 'ground', name: 'Ground floor' },
+  { id: 'cellar', name: 'Cellar' },
+];
+const H = (x0, x1, y) => { const a = []; for (let x = x0; x <= x1; x++) a.push('h:' + x + ':' + y); return a; };
+const V = (x, y0, y1) => { const a = []; for (let y = y0; y <= y1; y++) a.push('v:' + x + ':' + y); return a; };
+const B = (x, y) => ({ kind: 'barrel', x: x, y: y, w: 1, h: 1 });
+const DEFS = {
+  ground: {
+    base: [{ x: 0, y: 0, w: 34, h: 24, mat: 'grass' }, { x: 15, y: 20, w: 4, h: 4, mat: 'dirt' }],
+    rooms: [
+      { x: 5, y: 4, w: 8, h: 8, mat: 'wood' }, { x: 13, y: 4, w: 8, h: 8, mat: 'wood' }, { x: 21, y: 4, w: 8, h: 8, mat: 'stone' },
+      { x: 5, y: 12, w: 8, h: 8, mat: 'wood' }, { x: 13, y: 12, w: 8, h: 8, mat: 'stone' }, { x: 21, y: 12, w: 8, h: 8, mat: 'wood' },
+    ],
+    doors: [].concat(H(16, 17, 20), H(16, 17, 12), V(13, 15, 16), V(21, 15, 16), V(13, 7, 7), V(21, 7, 7), H(8, 8, 12), V(29, 9, 9)),
+    windows: [].concat(H(7, 7, 4), H(10, 10, 4), H(15, 15, 4), H(18, 18, 4), H(23, 23, 4), H(26, 26, 4), V(5, 7, 7), V(5, 16, 16), H(23, 23, 20), H(26, 26, 20), V(29, 15, 15)),
+    props: [
+      { kind: 'stairs', x: 18, y: 13, w: 2, h: 3 }, { kind: 'stairs', x: 27, y: 5, w: 2, h: 3 },
+      { kind: 'table', x: 14, y: 7, w: 6, h: 2 }, { kind: 'hearth', x: 7, y: 4, w: 3, h: 1 }, { kind: 'hearth', x: 22, y: 4, w: 3, h: 1 },
+      { kind: 'table', x: 22, y: 7, w: 3, h: 2 }, { kind: 'shelf', x: 5, y: 13, w: 1, h: 3 }, { kind: 'shelf', x: 7, y: 19, w: 5, h: 1 },
+      { kind: 'table', x: 8, y: 15, w: 2, h: 2 }, { kind: 'table', x: 24, y: 15, w: 2, h: 2 }, B(27, 10), B(28, 10),
+    ],
+    trees: [[1, 1, 1], [3, 2, 0.8], [8, 1, 1.1], [12, 2, 0.9], [20, 1, 1], [25, 2, 0.8], [30, 1, 1.1], [32, 3, 0.9], [1, 4, 0.9], [2, 14, 1], [1, 17, 0.8], [3, 19, 1], [31, 11, 0.9], [32, 13, 1], [31, 16, 0.8], [2, 21, 1.1], [4, 22, 0.8], [1, 23, 0.9], [7, 22, 1], [10, 21, 0.9], [12, 23, 0.8], [22, 23, 0.9], [20, 21, 0.8]],
+    stair: { x: 18, y: 13, up: true },
+  },
+  upper: {
+    base: [],
+    rooms: [
+      { x: 5, y: 4, w: 8, h: 8, mat: 'wood' }, { x: 13, y: 4, w: 8, h: 8, mat: 'wood' }, { x: 21, y: 4, w: 8, h: 8, mat: 'wood' },
+      { x: 5, y: 12, w: 8, h: 8, mat: 'wood' }, { x: 13, y: 12, w: 8, h: 8, mat: 'wood' }, { x: 21, y: 12, w: 8, h: 8, mat: 'wood' },
+      { x: 13, y: 20, w: 8, h: 2, mat: 'stone', wall: 'rail' },
+    ],
+    doors: [].concat(H(16, 17, 12), V(13, 15, 15), V(21, 15, 15), V(13, 7, 7), V(21, 7, 7), H(16, 17, 20)),
+    windows: [].concat(H(7, 7, 4), H(10, 10, 4), H(23, 23, 4), H(26, 26, 4), V(5, 7, 7), V(5, 16, 16), V(29, 7, 7), V(29, 15, 15)),
+    props: [
+      { kind: 'stairs', x: 18, y: 13, w: 2, h: 3 }, { kind: 'stairs', x: 10, y: 13, w: 1, h: 2 },
+      { kind: 'bed', x: 6, y: 5, w: 2, h: 3 }, { kind: 'bed', x: 26, y: 5, w: 2, h: 3 }, { kind: 'bed', x: 26, y: 16, w: 2, h: 2 },
+      { kind: 'table', x: 6, y: 17, w: 3, h: 1 }, { kind: 'shelf', x: 12, y: 16, w: 1, h: 3 },
+      { kind: 'statue', x: 14, y: 5, w: 1, h: 1 }, { kind: 'statue', x: 19, y: 5, w: 1, h: 1 },
+    ],
+    trees: [],
+    stair: { x: 18, y: 13, up: false },
+  },
+  cellar: {
+    base: [],
+    rooms: [{ x: 13, y: 4, w: 8, h: 8, mat: 'dirt' }, { x: 21, y: 4, w: 8, h: 8, mat: 'stone' }, { x: 9, y: 12, w: 12, h: 6, mat: 'stone' }],
+    patches: [{ x: 10, y: 15, w: 3, h: 2, mat: 'rubble' }, { x: 16, y: 5, w: 3, h: 2, mat: 'water' }],
+    doors: [].concat(V(21, 8, 8), H(16, 16, 12)),
+    windows: [],
+    props: [{ kind: 'stairs', x: 27, y: 5, w: 2, h: 3 }, B(22, 5), B(22, 6), B(22, 7), B(22, 9), B(24, 10), B(25, 10), { kind: 'altar', x: 15, y: 14, w: 2, h: 1 }, { kind: 'altar', x: 18, y: 14, w: 2, h: 1 }],
+    trees: [],
+  },
+  attic: {
+    base: [],
+    rooms: [{ x: 9, y: 6, w: 16, h: 10, mat: 'wood' }, { x: 19, y: 6, w: 6, h: 4, mat: 'wood' }],
+    patches: [{ x: 11, y: 8, w: 3, h: 2, mat: 'rubble' }],
+    doors: V(19, 8, 8),
+    windows: [].concat(V(9, 10, 10), V(25, 12, 12)),
+    props: [{ kind: 'stairs', x: 10, y: 13, w: 1, h: 2 }, { kind: 'chest', x: 22, y: 7, w: 1, h: 1 }, B(14, 13), B(15, 13), B(14, 14)],
+    trees: [],
+  },
+};
+
+function edgesOf(def) {
+  const m = new Map();
+  for (const r of def.rooms) {
+    const kind = r.wall || 'solid';
+    const put = (k) => { if (!m.has(k)) m.set(k, kind); };
+    for (let i = 0; i < r.w; i++) { put('h:' + (r.x + i) + ':' + r.y); put('h:' + (r.x + i) + ':' + (r.y + r.h)); }
+    for (let j = 0; j < r.h; j++) { put('v:' + r.x + ':' + (r.y + j)); put('v:' + (r.x + r.w) + ':' + (r.y + j)); }
+  }
+  for (const k of def.doors || []) m.set(k, 'door');
+  for (const k of def.windows || []) m.set(k, 'window');
+  const groups = {};
+  for (const [k, kind] of m) {
+    const parts = k.split(':');
+    const e = { o: parts[0], x: +parts[1], y: +parts[2], kind: kind };
+    const g = e.o === 'h' ? 'h' + e.y : 'v' + e.x;
+    (groups[g] = groups[g] || []).push(e);
+  }
+  const runs = [];
+  for (const g in groups) {
+    const arr = groups[g];
+    const at = (e) => (e.o === 'h' ? e.x : e.y);
+    arr.sort((p, q) => at(p) - at(q));
+    let cur = null;
+    for (const e of arr) {
+      if (cur && cur.kind === e.kind && at(e) === cur.start + cur.len) cur.len++;
+      else { cur = { o: e.o, x: e.x, y: e.y, kind: e.kind, start: at(e), len: 1 }; runs.push(cur); }
+    }
+  }
+  const order = { rail: 0, solid: 1, window: 2, door: 3 };
+  return runs.sort((a, b) => order[a.kind] - order[b.kind]);
+}
+
+const PROPSTYLE = {
+  stairs: { bg: 'repeating-linear-gradient(0deg, #9c8763 0 3px, #5c4f3a 3px 8px)', bd: '#d9b061', r: '2px' },
+  table: { bg: '#7a5c3a', bd: '#a3804f', r: '3px', inset: 3 },
+  hearth: { bg: '#6b2f22', bd: '#d9756c', r: '2px', inset: 1 },
+  shelf: { bg: '#2e2216', bd: '#7a5c3a', r: '1px', inset: 2 },
+  bed: { bg: '#4a3f5c', bd: '#8a78a8', r: '3px', inset: 3 },
+  barrel: { bg: '#6b5132', bd: '#a3804f', r: '50%', inset: 5 },
+  statue: { bg: '#8a8272', bd: '#c9bfad', r: '50%', inset: 6 },
+  altar: { bg: '#6e6658', bd: '#a89f8d', r: '2px', inset: 3 },
+  chest: { bg: '#7a5c2e', bd: '#d9b061', r: '2px', inset: 6 },
+};
+
+const ORDER = [
+  { name: 'Wren', n: 'WR', init: 19, hp: 38, max: 44, ac: 18, floor: 'upper', x: 18, y: 14, party: true, room: 'Grand stair' },
+  { name: 'Ghoul 1', n: 'G1', init: 17, hp: 9, max: 22, ac: 12, floor: 'upper', x: 16, y: 12, room: 'Landing' },
+  { name: 'Kest', n: 'KE', init: 15, hp: 12, max: 31, ac: 14, floor: 'upper', x: 17, y: 13, party: true, room: 'Landing', chips: [{ t: 'Paralyzed · save at end of turn', c: '#a988cf' }] },
+  { name: 'Ghoul 2', n: 'G2', init: 12, hp: 22, max: 22, ac: 12, floor: 'upper', x: 15, y: 8, room: 'Gallery' },
+  { name: 'Tobin', n: 'TO', init: 9, hp: 27, max: 27, ac: 16, floor: 'ground', x: 18, y: 17, party: true, room: 'Foyer', chips: [{ t: 'Concentrating · Bless', c: '#8aa4bd' }] },
+  { name: 'Mara', n: 'MA', init: 6, hp: 24, max: 24, ac: 13, floor: 'ground', x: 15, y: 17, party: true, room: 'Foyer' },
+];
+const BYSTANDERS = [{ name: 'Wight', n: 'WI', floor: 'cellar', x: 12, y: 14 }];
+const NOTES = [
+  'moved up the stairs, sword out',
+  'one claw from dropping Kest',
+  'save at the end of this turn',
+  'hasn’t seen anyone yet',
+  'hears it all through the ceiling',
+  'blessed and itching to climb',
+];
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { turn: 1, round: 3, view: 'upper', follow: true };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const T = 24;
+    const accent = this.props.accent ?? '#d9b061';
+    const set = (patch) => () => this.setState(patch);
+    const FOE = '#d9756c';
+    const active = ORDER[s.turn];
+    const view = s.follow ? active.floor : s.view;
+    const def = DEFS[view];
+    const floorName = (id) => FLOORS.find((f) => f.id === id).name;
+
+    const order = ORDER.map((c, i) => {
+      const now = i === s.turn;
+      const pct = Math.round((c.hp / c.max) * 100);
+      const chips = c.chips || [];
+      return {
+        name: c.name, init: c.init, hp: c.hp, max: c.max, ac: c.ac, pct: pct, now: now, hpGap: now ? 40 : 0,
+        bar: pct <= 25 ? '#d9756c' : pct <= 50 ? '#d6a253' : '#6bbf8a',
+        ring: c.party ? accent : FOE,
+        floorLine: floorName(c.floor) + ' · ' + c.room,
+        floorColor: c.floor === view ? '#a89f8d' : '#d6a253',
+        chips: chips, hasChips: chips.length > 0,
+        bg: now ? 'rgba(217,176,97,0.10)' : '#1e1a14', bd: now ? accent : '#33291d',
+        pick: () => this.setState({ view: c.floor, follow: false }),
+      };
+    });
+
+    const everyone = ORDER.concat(BYSTANDERS);
+    const floorTabs = FLOORS.map((f) => {
+      const on = f.id === view;
+      const pips = everyone.filter((c) => c.floor === f.id).map((c) => (c.party ? accent : FOE));
+      return { name: f.name, pips: pips, on: on, pick: () => this.setState({ view: f.id, follow: false }), bg: on ? '#33291d' : 'transparent', fg: on ? '#ede7da' : '#a89f8d', weight: on ? 600 : 400 };
+    });
+
+    const floors = [].concat(def.base || [], def.rooms, def.patches || []).map((r) => ({ l: r.x * T, t: r.y * T, w: r.w * T, h: r.h * T, bg: MATS[r.mat] }));
+    const WS = { solid: { th: 6, bg: '#d8ccb4', ext: 3 }, door: { th: 6, bg: '#d9b061', ext: -3 }, window: { th: 4, bg: '#8aa4bd', ext: -3 }, rail: { th: 3, bg: '#a89f8d', ext: 0 } };
+    const walls = edgesOf(def).map((r) => {
+      const st = WS[r.kind];
+      if (r.o === 'h') return { l: r.x * T - st.ext, t: r.y * T - st.th / 2, w: r.len * T + 2 * st.ext, h: st.th, bg: st.bg };
+      return { l: r.x * T - st.th / 2, t: r.y * T - st.ext, w: st.th, h: r.len * T + 2 * st.ext, bg: st.bg };
+    });
+    const props = def.props.map((p) => {
+      const st = PROPSTYLE[p.kind];
+      const ins = st.inset || 0;
+      return { l: p.x * T + ins, t: p.y * T + ins, w: p.w * T - 2 * ins, h: p.h * T - 2 * ins, bg: st.bg, bd: st.bd, r: st.r };
+    });
+    const trees = (def.trees || []).map((t) => { const sz = Math.round(T * 1.25 * t[2]); return { l: (t[0] + 0.5) * T - sz / 2, t: (t[1] + 0.5) * T - sz / 2, s: sz }; });
+
+    // how far the one whose turn it is can go: 30 ft, inside the house
+    const reach = [];
+    if (active.floor === view) {
+      for (let y = active.y - 6; y <= active.y + 6; y++) {
+        for (let x = active.x - 6; x <= active.x + 6; x++) {
+          const inside = def.rooms.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+          if (!inside) continue;
+          const d = Math.max(Math.abs(x - active.x), Math.abs(y - active.y));
+          reach.push({ l: x * T, t: y * T, bg: d <= 1 ? 'rgba(217,117,108,0.22)' : 'rgba(217,176,97,0.10)' });
+        }
+      }
+    }
+
+    const tokens = everyone.filter((c) => c.floor === view).map((c) => ({
+      l: c.x * T + 1, t: c.y * T + 1, n: c.n, ring: c.party ? accent : FOE, o: c.init === undefined ? 0.6 : 1,
+      glow: c === active ? '0 0 0 4px rgba(217,176,97,0.35), 0 0 16px rgba(217,176,97,0.55)' : c.name === 'Kest' && s.turn === 1 ? '0 0 0 3px rgba(217,117,108,0.5)' : '0 2px 4px rgba(0,0,0,0.6)',
+    }));
+
+    const badges = [];
+    if (def.stair) {
+      const other = def.stair.up ? 'upper' : 'ground';
+      const there = ORDER.filter((c) => c.floor === other);
+      const heroes = there.filter((c) => c.party).length;
+      const foes = there.length - heroes;
+      const bits = [];
+      if (heroes) bits.push(heroes + (heroes === 1 ? ' hero' : ' heroes'));
+      if (foes) bits.push(foes + (foes === 1 ? ' foe' : ' foes'));
+      if (bits.length) badges.push({ l: (def.stair.x + 2) * T + 4, t: def.stair.y * T + 2, text: (def.stair.up ? '↑ ' : '↓ ') + bits.join(', ') + (def.stair.up ? ' upstairs' : ' below') });
+    }
+
+    const g = ORDER[1], k = ORDER[2];
+    const x0 = (g.x + 0.5) * T, y0 = (g.y + 0.5) * T, x1 = (k.x + 0.5) * T, y1 = (k.y + 0.5) * T;
+    const line = s.turn === 1 && view === 'upper'
+      ? { show: true, l: x0, t: y0, len: Math.round(Math.hypot(x1 - x0, y1 - y0)), ang: Math.round(Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI), tag: 'Kest · 5 ft · paralyzed: advantage, hits are crits', tagL: (k.x + 1) * T + 34, tagT: (k.y) * T - 34 }
+      : { show: false, l: 0, t: 0, len: 0, ang: 0, tag: '', tagL: 0, tagT: 0 };
+
+    const foeTurn = !active.party;
+    const pips = [
+      { label: 'ACTION', fill: 'transparent' },
+      { label: 'BONUS', fill: 'transparent' },
+      { label: 'REACTION', fill: s.turn === 1 ? accent : 'transparent' },
+    ];
+    const moved = { 0: 10, 1: 5 }[s.turn] || 0;
+    const verbs = ['Attack', 'Magic', 'Dash', 'Disengage', 'Dodge', 'Help', 'Hide', 'Ready'].map((v, i) => (i === 0
+      ? { label: v, bg: 'rgba(217,176,97,0.14)', bd: accent, fg: accent }
+      : { label: v, bg: 'transparent', bd: '#33291d', fg: '#c9bfad' }));
+
+    const cta = (label, main) => (main ? { cta: label, bg: accent, bd: accent, fg: '#16130f' } : { cta: label, bg: 'transparent', bd: '#3d3226', fg: '#ede7da' });
+    const monsterActions = [
+      Object.assign({ name: 'Claws', hit: '+4', dmg: '2d4 + 2 slashing', note: 'Not undead: DC 10 Con save or paralyzed for 1 minute, saving at the end of each turn.' }, cta('Roll at Kest', true)),
+      Object.assign({ name: 'Bite', hit: '+2', dmg: '2d6 + 2 piercing', note: 'One creature within 5 ft.' }, cta('Roll', false)),
+    ];
+
+    const logRow = (total, what, how, kind) => {
+      const k2 = { hit: { c: accent, fill: 'rgba(217,176,97,0.15)', dash: 'solid', num: '#ede7da' }, fail: { c: FOE, fill: 'rgba(217,117,108,0.12)', dash: 'solid', num: '#ede7da' }, screen: { c: '#7a7060', fill: 'transparent', dash: 'dashed', num: '#a89f8d' }, table: { c: '#a89f8d', fill: 'transparent', dash: 'solid', num: '#ede7da' } }[kind];
+      return Object.assign({ total: total, what: what, how: how }, k2);
+    };
+    const log = [
+      logRow(14, 'Ghoul 2 · Stealth', 'behind the screen · only you see this', 'screen'),
+      logRow(7, 'Kest · Con save, DC 10', 'fails · paralyzed', 'fail'),
+      logRow(15, 'Ghoul 1 · Claws at Kest', 'hits · 6 slashing', 'hit'),
+      logRow(9, 'Wren · Longsword damage', '1d8 + 3 · rolled on real dice', 'table'),
+      logRow(17, 'Wren · Longsword at Ghoul 1', 'hits AC 12', 'hit'),
+    ].map((r, i) => Object.assign(r, { line: i === 0 ? 'transparent' : '#2b241b' }));
+
+    const strip = [
+      { label: 'Stat block', d: 'M4 4l6 3 2-3 2 3 6-3-2 7 2 5-5 1-3 4-3-4-5-1 2-5z', on: true },
+      { label: 'Dice', d: 'M12 2l9 5v10l-9 5-9-5V7zM12 2v20', on: true },
+      { label: 'The asking', d: 'M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6', on: true },
+      { label: 'Whispers', d: 'M4 5h16v10H9l-5 4z', on: true },
+      { label: 'The evening', d: 'M6 4h10v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2zM16 8h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2', on: false },
+      { label: 'Conditions', d: 'M9 9a3 3 0 1 1 4 2.8c-.8.4-1 1-1 1.7V14M12 18h.01', on: false },
+      { label: 'Timers', d: 'M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9', on: false },
+      { label: 'Add a panel', d: 'M12 5v14M5 12h14', on: false },
+    ].map((x) => Object.assign({}, x, { bg: x.on ? 'rgba(217,176,97,0.14)' : 'transparent', fg: x.on ? accent : '#a89f8d' }));
+
+    return {
+      accent: accent,
+      round: s.round,
+      order: order,
+      next: () => this.setState({ turn: (s.turn + 1) % ORDER.length, round: s.turn === ORDER.length - 1 ? s.round + 1 : s.round }),
+      floorTabs: floorTabs,
+      follow: s.follow,
+      toggleFollow: () => this.setState({ follow: !s.follow, view: view }),
+      followTrack: s.follow ? accent : '#3d3226',
+      followKnob: s.follow ? 15 : 3,
+      floors: floors,
+      walls: walls,
+      props: props,
+      trees: trees,
+      reach: reach,
+      tokens: tokens,
+      badges: badges,
+      line: line,
+      emptyFloor: view === 'attic',
+      turnName: active.name,
+      turnNote: NOTES[s.turn],
+      pips: pips,
+      movePct: Math.round((moved / 30) * 100),
+      moveText: moved + ' / 30 ft',
+      verbs: verbs,
+      abilities: [{ k: 'STR', v: '+1' }, { k: 'DEX', v: '+2' }, { k: 'CON', v: '+0' }, { k: 'INT', v: '−2' }, { k: 'WIS', v: '+0' }, { k: 'CHA', v: '−2' }],
+      monsterActions: monsterActions,
+      log: log,
+      strip: strip,
+      foeTurn: foeTurn,
+    };
+  }
+}
+</script>
+</body>
+</html>
