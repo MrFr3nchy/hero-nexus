@@ -23,6 +23,8 @@ import type {
   RsvpStatus,
   SessionRow,
 } from '@/server/campaign-sessions';
+import type { PollRow } from '@/server/scheduling';
+import type { FeedbackFormRow } from '@/server/session-feedback';
 import {
   createSessionAction,
   deleteSessionAction,
@@ -34,6 +36,13 @@ import {
   setRsvpAction,
   updateSessionAction,
 } from '../chronicle-actions';
+import {
+  listFeedbackFormsAction,
+  listPollsAction,
+} from '../scheduling-actions';
+import { AvailabilityPanel } from './AvailabilityPanel';
+import { SessionFeedback } from './SessionFeedback';
+import { SessionPoll } from './SessionPoll';
 
 /**
  * Asked before the night, answered by the person themselves. Deliberately
@@ -65,6 +74,8 @@ function SessionEntry({
   viewerId,
   session,
   calendar,
+  polls,
+  feedback,
   isStaff,
   refresh,
   onError,
@@ -74,6 +85,10 @@ function SessionEntry({
   session: SessionRow;
   /** The world's calendar (10), to read the date the sitting opened on. */
   calendar?: CalendarDef;
+  /** Every date poll ever held for this sitting, oldest first. */
+  polls: PollRow[];
+  /** The DM's questionnaire for this sitting, if one was written. */
+  feedback: FeedbackFormRow | null;
   isStaff: boolean;
   refresh: () => Promise<void>;
   onError: (message: string) => void;
@@ -455,6 +470,19 @@ function SessionEntry({
             </div>
           )}
 
+          {/* The date can be a vote rather than a decree. Under the RSVP so
+              the two questions read in order: which night, then are you in. */}
+          {session.status === 'planned' && !editing && (
+            <SessionPoll
+              campaignId={campaignId}
+              sessionId={session.id}
+              polls={polls}
+              isStaff={isStaff}
+              refresh={refresh}
+              onError={onError}
+            />
+          )}
+
           {isStaff &&
             session.status === 'played' &&
             session.attendance.length > 0 &&
@@ -500,6 +528,18 @@ function SessionEntry({
                 ))}
               </div>
             )}
+
+          {session.status === 'played' && !editing && (
+            <SessionFeedback
+              campaignId={campaignId}
+              sessionId={session.id}
+              viewerId={viewerId}
+              form={feedback}
+              isStaff={isStaff}
+              refresh={refresh}
+              onError={onError}
+            />
+          )}
         </div>
       </div>
     </article>
@@ -523,6 +563,8 @@ export function ChroniclePanel({
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
 
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
+  const [polls, setPolls] = useState<PollRow[]>([]);
+  const [forms, setForms] = useState<FeedbackFormRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'planned' | 'played'>('all');
   const [newTitle, setNewTitle] = useState('');
@@ -532,7 +574,14 @@ export function ChroniclePanel({
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      setSessions(await listSessionsAction(campaignId));
+      const [rows, pollRows, formRows] = await Promise.all([
+        listSessionsAction(campaignId),
+        listPollsAction(campaignId),
+        listFeedbackFormsAction(campaignId),
+      ]);
+      setSessions(rows);
+      setPolls(pollRows);
+      setForms(formRows);
     } catch {
       setError('Failed to open the chronicle.');
     }
@@ -578,10 +627,12 @@ export function ChroniclePanel({
         </p>
       )}
 
+      <AvailabilityPanel campaignId={campaignId} viewerId={viewerId} />
+
       {isStaff && (
         <SectionCard
           title="Open the next sitting"
-          description="Number it now, write it up after."
+          description="Number it now, write it up after. Leave the date blank to put it to a vote."
         >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <Input
@@ -659,6 +710,8 @@ export function ChroniclePanel({
                 viewerId={viewerId}
                 session={s}
                 calendar={calendar}
+                polls={polls.filter(p => p.sessionId === s.id)}
+                feedback={forms.find(f => f.sessionId === s.id) ?? null}
                 isStaff={isStaff}
                 refresh={refresh}
                 onError={setError}
