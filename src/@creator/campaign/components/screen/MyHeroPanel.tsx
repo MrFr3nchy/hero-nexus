@@ -17,9 +17,84 @@ import type { PlayLoadout, PlayState } from '@/server/play';
 import type { EffectRow } from '@/@creator/campaign/lib/effects';
 import type { EntryRow } from '@/server/session';
 import { TurnStrip } from '../session/TurnStrip';
+import { RestSheet } from '../session/RestPanel';
 import { consumeItemAction, getPlayLoadoutAction } from '../../play-actions';
+import { passInspirationAction } from '../../time-actions';
 import { PlayCard } from '../PlayCard';
 import { Refused, type RefusedState } from '../Refused';
+import type { LiveState } from '@/server/session';
+
+/**
+ * Hand Heroic Inspiration to somebody else at the table (10). 2024 lets a
+ * player give theirs away; the list is the rest of the party, and anybody
+ * already holding one is greyed — there is only ever one per hero.
+ */
+function PassInspiration({
+  campaignId,
+  own,
+  party,
+  refresh,
+  onError,
+}: {
+  campaignId: string;
+  own: PlayState;
+  party: PlayState[];
+  refresh: () => Promise<void> | void;
+  onError: (message: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const others = party.filter(p => p.characterId !== own.characterId);
+  if (!own.heroicInspiration || others.length === 0) return null;
+  const pass = async (toCharacterId: string) => {
+    setBusy(true);
+    const res = await passInspirationAction(
+      campaignId,
+      own.characterId,
+      toCharacterId
+    );
+    setBusy(false);
+    setOpen(false);
+    if (!res.ok) {
+      onError(res.error);
+      return;
+    }
+    await refresh();
+  };
+  return (
+    <Popover placement="bottom-start" isOpen={open} onOpenChange={setOpen}>
+      <PopoverTrigger>
+        <Button
+          size="sm"
+          variant="light"
+          className="h-6 min-w-0 px-2 text-xs text-gold-strong dark:text-gold"
+          isDisabled={busy}
+        >
+          Pass your inspiration on…
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 border border-line bg-surface p-2">
+        <ul className="w-full space-y-1">
+          {others.map(p => (
+            <li key={p.characterId}>
+              <button
+                type="button"
+                disabled={busy || p.heroicInspiration}
+                onClick={() => pass(p.characterId)}
+                className="flex w-full items-baseline justify-between gap-2 rounded px-1.5 py-1 text-left text-sm text-ink hover:bg-surface-2 disabled:opacity-50"
+              >
+                <span>{p.name}</span>
+                {p.heroicInspiration && (
+                  <span className="text-xs text-ink-subtle">already</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /**
  * Use a thing from the pack on your turn (09), beside the action pips: the
@@ -146,6 +221,7 @@ export function MyHeroPanel({
   campaignId,
   myCharacters,
   play,
+  live,
   loadoutKey,
   clocks,
   turnEntry,
@@ -154,6 +230,8 @@ export function MyHeroPanel({
 }: {
   campaignId: string;
   myCharacters: CharacterRow[];
+  /** The whole live read (10): the rest in progress, and the party to pass to. */
+  live?: LiveState;
   /** The viewer's own at-the-table numbers off the live read, when seated. */
   play?: PlayState;
   /** The clocks on the viewer's own combatant in the running fight. */
@@ -242,14 +320,34 @@ export function MyHeroPanel({
               </div>
             </div>
           )}
+          {live?.rest && refresh && (
+            <RestSheet
+              campaignId={campaignId}
+              state={live}
+              isStaff={false}
+              refresh={refresh}
+              onError={onError}
+            />
+          )}
           <PlayCard
             state={local}
             campaignId={campaignId}
             physicalDice={local.physicalDice}
             clocks={clocks}
+            restOpen={live?.rest?.kind ?? null}
+            onRest={refresh}
             onChange={setLocal}
             onError={onError}
           />
+          {live && refresh && (
+            <PassInspiration
+              campaignId={campaignId}
+              own={local}
+              party={live.party}
+              refresh={refresh}
+              onError={onError}
+            />
+          )}
         </>
       )}
       {loadout ? (

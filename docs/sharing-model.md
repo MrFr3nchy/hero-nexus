@@ -91,8 +91,9 @@ the adopter becomes the DM, and prep with the secret half stripped is not prep.
 
 Never carried: members, invites, the join code, characters and their sheets, sessions,
 attendance, rolls, journals, downtime, awards, initiative, clocks, screen layouts, loot,
-treasury, handouts, reveals and approvals. Some of that is other users' rows outright;
-the rest is the record of a table that was played, not a thing to run.
+treasury, handouts, reveals, approvals and the soundtrack. Some of that is other users'
+rows outright; the rest is the record of a table that was played, not a thing to run —
+and a track somebody uploaded is not a thing to publish.
 
 - **Do** — add a table to `CARRIED` and to `NEVER_CARRIED`'s opposite deliberately.
 - **Don't** — a `select * where campaign_id = ?` sweep, however tidy it looks.

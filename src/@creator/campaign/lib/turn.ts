@@ -11,6 +11,8 @@
  * `spend` here only says which. Pure — no React, no DB.
  */
 
+import { normalizeRecharge } from './monsters';
+
 export interface TurnState {
   /** The action is spent. */
   action: boolean;
@@ -30,6 +32,12 @@ export interface TurnState {
   ready?: { trigger: string; action: string };
   /** Took Hide and the DM said it worked. A flag, not stealth maths. */
   hidden?: boolean;
+  /**
+   * Abilities that recharge on a d6 (11), by name: the face that readies
+   * each and whether it is ready now. Rolled at the start of the creature's
+   * turn; a rest readies everything. Absent for anything without one.
+   */
+  recharge?: Record<string, { min: number; ready: boolean }>;
 }
 
 export const FRESH_TURN: TurnState = {
@@ -71,6 +79,9 @@ export function parseTurn(raw: unknown): TurnState {
     freeInteraction: flag('freeInteraction'),
     ...(ready && (ready.trigger || ready.action) ? { ready } : {}),
     ...(r.hidden === true ? { hidden: true } : {}),
+    ...(r.recharge && typeof r.recharge === 'object'
+      ? { recharge: normalizeRecharge(r.recharge) }
+      : {}),
   };
 }
 
@@ -83,7 +94,13 @@ export function parseTurn(raw: unknown): TurnState {
  * `hidden` survives: being unseen is a state of the room, not of the turn.
  */
 export function beginTurn(prev: TurnState): TurnState {
-  return { ...FRESH_TURN, ...(prev.hidden ? { hidden: true } : {}) };
+  return {
+    ...FRESH_TURN,
+    ...(prev.hidden ? { hidden: true } : {}),
+    // Recharge survives too: what is spent stays spent until the die says
+    // otherwise, and the server rolls that die right after this.
+    ...(prev.recharge ? { recharge: prev.recharge } : {}),
+  };
 }
 
 export type TurnSlot = 'action' | 'bonus' | 'reaction' | 'interaction';

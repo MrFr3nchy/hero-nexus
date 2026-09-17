@@ -16,6 +16,11 @@ import {
   rollDeathSaveAction,
   spendHitDiceAction,
 } from '../play-actions';
+import {
+  grantInspirationAction,
+  restSpendHitDiceAction,
+  revokeInspirationAction,
+} from '../time-actions';
 
 /** Signed modifier — "+3", "−1", "+0". */
 function mod(value: number): string {
@@ -308,11 +313,23 @@ export function PlayCard({
   canRollSecret = false,
   physicalDice = false,
   clocks = [],
+  restOpen = null,
+  canInspire = false,
+  onRest,
   onChange,
   onError,
 }: {
   state: PlayState;
   campaignId: string | null;
+  /**
+   * A rest in progress at this table (10). During a short rest a spent hit
+   * die goes through the rest, so the DM's checklist says who spent what.
+   */
+  restOpen?: 'short' | 'long' | null;
+  /** Staff: the star that hands over Heroic Inspiration, or takes it back. */
+  canInspire?: boolean;
+  /** Called after a hit die is spent into the rest, so the caller re-reads. */
+  onRest?: () => void | Promise<void>;
   /** Drop the ability rail and the slots — for the DM's party list. */
   compact?: boolean;
   /** Staff may roll a death save the players never see. */
@@ -362,6 +379,28 @@ export function PlayCard({
   const tray = useDiceTray();
   const spendDie = async (faces?: number[]) => {
     setBusy(true);
+    // Mid short rest the same die is spent through the rest, which keeps the
+    // count on the checklist; the roll itself is the same server call.
+    if (restOpen === 'short' && campaignId) {
+      const res = await restSpendHitDiceAction(
+        campaignId,
+        state.characterId,
+        1,
+        faces
+      );
+      setBusy(false);
+      if (!res.ok) {
+        onError(res.error);
+        return;
+      }
+      void tray.showNotationRoll(res.data.roll, {
+        title: 'Hit die',
+        hint: `d${state.hitDieSize}, plus your Constitution`,
+        physical: res.data.physical,
+      });
+      await onRest?.();
+      return;
+    }
     const res = await spendHitDiceAction(
       state.characterId,
       campaignId,
@@ -383,6 +422,20 @@ export function PlayCard({
     });
   };
 
+  const inspire = async () => {
+    if (!campaignId) return;
+    setBusy(true);
+    const res = state.heroicInspiration
+      ? await revokeInspirationAction(campaignId, state.characterId)
+      : await grantInspirationAction(campaignId, state.characterId);
+    setBusy(false);
+    if (!res.ok) {
+      onError(res.error);
+      return;
+    }
+    onChange({ ...state, heroicInspiration: !state.heroicInspiration });
+  };
+
   const down = state.hpCurrent <= 0;
   const hpPercent =
     state.hpMax > 0
@@ -397,13 +450,65 @@ export function PlayCard({
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <div className="min-w-0">
-          <h3 className="truncate font-display text-lg text-ink">
-            {state.name}
+          <h3 className="flex items-center gap-1.5 truncate font-display text-lg text-ink">
+            <span className="truncate">{state.name}</span>
+            {/* Heroic Inspiration (10): the star is the state; staff tap it
+                to hand one over or take it back. A holder's own card says
+                it, and the tray offers the reroll. */}
+            {canInspire && campaignId ? (
+              <Tooltip
+                content={
+                  state.heroicInspiration
+                    ? 'Holding Heroic Inspiration. Tap to take it back.'
+                    : 'Give Heroic Inspiration.'
+                }
+              >
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={inspire}
+                  aria-pressed={state.heroicInspiration}
+                  aria-label="Heroic Inspiration"
+                  className={`shrink-0 rounded-sm p-0.5 transition-colors ${
+                    state.heroicInspiration
+                      ? 'text-gold-strong dark:text-gold'
+                      : 'text-ink-subtle/50 hover:text-ink-subtle'
+                  }`}
+                >
+                  <Glyph name="star" size={14} />
+                </button>
+              </Tooltip>
+            ) : (
+              state.heroicInspiration && (
+                <Tooltip content="Holding Heroic Inspiration: reroll a d20 from the tray.">
+                  <span className="shrink-0 text-gold-strong dark:text-gold">
+                    <Glyph name="star" size={14} />
+                  </span>
+                </Tooltip>
+              )
+            )}
           </h3>
           <p className="text-xs text-ink-subtle">
             Level {state.level} {state.className || '—'}
             {state.species ? ` · ${state.species}` : ''}
           </p>
+          {/* The threshold (10): experience has outrun the level. The sheet
+              is the player's to walk up; the DM's card just says who is
+              owed one. */}
+          {state.levelEarned !== null && (
+            <p className="mt-0.5 text-xs text-gold-strong dark:text-gold">
+              {state.canEdit && !canRollSecret ? (
+                <a
+                  href={`/creator/character?id=${state.characterId}&intent=level-up`}
+                  className="underline-offset-2 hover:underline"
+                >
+                  Enough for level {state.levelEarned} — level up
+                </a>
+              ) : (
+                <>Owed level {state.levelEarned}</>
+              )}
+            </p>
+          )}
         </div>
         <div className="flex items-baseline gap-1 font-display tabular-nums">
           <span

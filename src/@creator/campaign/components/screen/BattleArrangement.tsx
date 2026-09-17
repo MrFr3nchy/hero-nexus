@@ -10,7 +10,7 @@ import {
 } from '@heroui/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { Glyph } from '@/@shared/components/ui';
+import { Glyph, Panel, type PanelStatus } from '@/@shared/components/ui';
 import {
   SCREEN_PANELS,
   SCREEN_PANEL_KEYS,
@@ -18,13 +18,28 @@ import {
   type ScreenPanelKey,
 } from '../../lib/screen';
 
-/** A count worn on a glyph. Only ever drawn when it is above zero. */
-function Badge({ count }: { count: number | undefined }) {
+/** What a panel wears on the shelf: the same answer the box grid gives. */
+export interface PanelWear {
+  status: PanelStatus;
+  detail?: ReactNode;
+  badge?: number;
+}
+
+/** A count worn on a glyph in the strip. Only ever drawn above zero. */
+function Badge({
+  count,
+  waiting,
+}: {
+  count: number | undefined;
+  waiting: boolean;
+}) {
   if (!count) return null;
   return (
     <span
       aria-label={`${count} waiting`}
-      className="absolute -right-0.5 -top-0.5 min-w-[1rem] rounded-full bg-gold px-1 text-center text-[0.6rem] font-medium leading-4 tabular-nums text-bg"
+      className={`absolute -right-0.5 -top-0.5 min-w-[1rem] rounded-full px-1 text-center text-[0.6rem] font-bold leading-4 tabular-nums text-bg ${
+        waiting ? 'bg-danger' : 'bg-warning'
+      }`}
     >
       {count > 9 ? '9+' : count}
     </span>
@@ -60,17 +75,19 @@ function useMediaQuery(query: string): boolean {
  * wide screen it can be two shelves, one each side, so the board keeps its
  * square rather than a letterbox.
  *
- * **Function over form.** The shelf renders its panels
- * headless through the same `.screen-box-body` flattening the boxes use, at
- * `text-sm`, with no card chrome. Density is the feature. On a phone the
- * shelf drops below the board rather than beside it; on a phone held
- * sideways it is a sheet the strip pulls up.
+ * **Function over form.** The shelf renders its panels in the same `Panel`
+ * chrome the boxes use, at shelf density — tighter, `text-sm` — and the
+ * board sits in one too, so the whole screen is one thing. Density is the
+ * feature. On a phone the shelf drops below the board rather than beside
+ * it; on a phone held sideways it is a sheet the strip pulls up.
  */
 export function BattleArrangement({
   layout,
   arranging,
   isStaff,
   badges = {},
+  wear,
+  titleOf,
   onChange,
   board,
   renderPanel,
@@ -83,6 +100,10 @@ export function BattleArrangement({
    * waiting on the viewer, a whisper unread. Nothing else earns one.
    */
   badges?: Partial<Record<ScreenPanelKey, number>>;
+  /** The state each panel is in, from the status language. */
+  wear: (key: ScreenPanelKey) => PanelWear;
+  /** The title each panel wears, with whatever follows it. */
+  titleOf: (key: ScreenPanelKey) => string;
   onChange: (next: BattleLayout) => void;
   board: (fitHeight: number) => ReactNode;
   renderPanel: (key: ScreenPanelKey) => ReactNode;
@@ -174,10 +195,10 @@ export function BattleArrangement({
   const panel = (key: ScreenPanelKey) => {
     const meta = SCREEN_PANELS[key];
     const isFolded = folded.has(key);
+    const w = wear(key);
     return (
-      <section
+      <div
         key={key}
-        aria-label={meta.label}
         onDragOver={event => {
           if (!dragged || !arranging) return;
           event.preventDefault();
@@ -190,12 +211,21 @@ export function BattleArrangement({
           setDragged(null);
           setDropBefore(null);
         }}
-        className={`border-b border-line last:border-b-0 ${
-          dragged === key ? 'opacity-40' : ''
-        } ${dragged && dropBefore === key ? 'border-t-2 border-t-gold' : ''}`}
+        className={`px-1.5 pt-1.5 ${
+          dragged && dropBefore === key ? 'border-t-2 border-t-gold' : ''
+        }`}
       >
-        <header
-          draggable={arranging}
+        <Panel
+          title={titleOf(key)}
+          label={meta.label}
+          status={w.status}
+          statusDetail={w.detail}
+          badge={w.badge}
+          density="shelf"
+          folded={isFolded}
+          onFold={next => setFolded(key, next)}
+          arranging={arranging}
+          dragging={dragged === key}
           onDragStart={event => {
             event.dataTransfer.effectAllowed = 'move';
             event.dataTransfer.setData('text/plain', key);
@@ -205,42 +235,13 @@ export function BattleArrangement({
             setDragged(null);
             setDropBefore(null);
           }}
-          className={`flex items-center gap-1.5 px-2 py-1 ${
-            arranging ? 'cursor-grab active:cursor-grabbing' : ''
-          }`}
-        >
-          {arranging && (
-            <Glyph
-              name="compass"
-              size={12}
-              className="shrink-0 text-ink-subtle"
-              label="Drag to move this panel"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => toggleFold(key)}
-            className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs text-ink-muted hover:text-ink"
-            aria-expanded={!isFolded}
-          >
-            <Glyph name={meta.glyph} size={13} className="shrink-0" />
-            <span className="truncate font-display-alt text-[0.6rem] uppercase tracking-[0.14em]">
-              {meta.label}
-            </span>
-            {/* A folded panel with something waiting says so; an
-                open one is showing it already. */}
-            {isFolded && !!badges[key] && (
-              <span className="rounded-full bg-gold px-1.5 text-[0.6rem] font-medium tabular-nums text-bg">
-                {badges[key]}
-              </span>
-            )}
-          </button>
-          {arranging && (
+          onRemove={() => remove(key)}
+          arrangeControls={
             <span className="flex shrink-0 gap-0.5">
               <button
                 type="button"
                 onClick={() => move(key, -1)}
-                className="px-1 text-[0.65rem] text-ink-subtle hover:text-ink"
+                className="px-1 text-ink-subtle hover:text-ink"
                 aria-label="Move up"
               >
                 <Glyph name="chevron-up" size={11} />
@@ -248,28 +249,20 @@ export function BattleArrangement({
               <button
                 type="button"
                 onClick={() => move(key, 1)}
-                className="px-1 text-[0.65rem] text-ink-subtle hover:text-ink"
+                className="px-1 text-ink-subtle hover:text-ink"
                 aria-label="Move down"
               >
                 <Glyph name="chevron-down" size={11} />
               </button>
-              <button
-                type="button"
-                onClick={() => remove(key)}
-                className="px-1 text-ink-subtle hover:text-danger"
-                aria-label="Take off the shelf"
-              >
-                <Glyph name="x" size={11} />
-              </button>
             </span>
-          )}
-        </header>
-        {!isFolded && (
-          <div className="screen-box-body shelf-dense px-2 pb-2">
-            {renderPanel(key)}
-          </div>
-        )}
-      </section>
+          }
+          // The shelf scrolls as a column; a panel on it grows to its
+          // content rather than scrolling inside a scroller.
+          className="max-h-[60vh]"
+        >
+          {renderPanel(key)}
+        </Panel>
+      </div>
     );
   };
 
@@ -320,7 +313,10 @@ export function BattleArrangement({
             className="relative rounded p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink"
           >
             <Glyph name={SCREEN_PANELS[key].glyph} size={15} />
-            <Badge count={badges[key]} />
+            <Badge
+              count={badges[key]}
+              waiting={wear(key).status === 'waiting'}
+            />
           </button>
         </li>
       ))}
@@ -389,9 +385,18 @@ export function BattleArrangement({
         <div
           ref={regionRef}
           data-board-region
-          className="screen-box-body min-h-0 flex-1 overflow-auto"
+          className="min-h-0 flex-1 overflow-auto"
         >
-          <div className="p-1">{board(regionHeight)}</div>
+          <Panel
+            title={titleOf('board')}
+            status={wear('board').status}
+            statusDetail={wear('board').detail}
+            scroll={false}
+            padded={false}
+            className="h-full rounded-none border-0 shadow-none"
+          >
+            {board(regionHeight)}
+          </Panel>
         </div>
         <div className="flex shrink-0 items-center border-t border-line bg-surface">
           {strip(key => {
@@ -464,13 +469,22 @@ export function BattleArrangement({
       {split && shelf(left, 'left')}
 
       {/* The board. It owns its own scroll; the page never does. */}
-      <div
-        ref={regionRef}
-        data-board-region
-        className="screen-box-body min-h-0 flex-1 overflow-auto rounded-[var(--radius-card)] border border-line bg-surface [box-shadow:var(--shadow-card)]"
+      <Panel
+        title={titleOf('board')}
+        status={wear('board').status}
+        statusDetail={wear('board').detail}
+        scroll={false}
+        padded={false}
+        className="min-h-0 flex-1"
       >
-        <div className="p-2">{board(regionHeight)}</div>
-      </div>
+        <div
+          ref={regionRef}
+          data-board-region
+          className="h-full min-h-0 overflow-auto"
+        >
+          <div className="p-2">{board(regionHeight)}</div>
+        </div>
+      </Panel>
 
       {shelf(right, 'right')}
     </div>

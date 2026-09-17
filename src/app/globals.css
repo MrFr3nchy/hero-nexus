@@ -211,83 +211,34 @@ h4 {
 }
 
 /* ------------------------------------------------------------------ *
- * The DM screen
+ * The status language (design language rule 9)
  *
- * Boxes on the screen already have a frame, a title bar and their own
- * scroller. The panels that go inside them are the same components the
- * campaign tabs use, and those draw their own `SectionCard` — a frame inside a
- * frame, with two sets of padding and a second copy of the title, costs the
- * vertical space the screen exists to save.
- *
- * Flattening them here rather than threading a `dense` prop through nine
- * panels keeps one renderer per panel (content model rule 5): the tab and the
- * screen show the same component, and only its chrome differs.
+ * The hatched ground two of the six states stand on: `hidden` in the
+ * table's own greys, `waiting` tinted with danger. Mixed from the tokens so
+ * both palettes get it for free; the stripes are 4px, which reads as hatch
+ * at 16px and as texture from across a room.
  * ------------------------------------------------------------------ */
 
-.screen-box-body [data-card] {
-  border: 0;
-  background: transparent;
-  box-shadow: none !important;
+.status-hatch {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--surface-2) 92%, var(--ink)) 0 4px,
+    color-mix(in srgb, var(--surface-2) 60%, var(--bg)) 4px 8px
+  );
 }
 
-.screen-box-body [data-card] > * {
-  padding-left: 0;
-  padding-right: 0;
-}
-
-/* The box's title bar already says what this is. */
-.screen-box-body [data-card-title] {
-  display: none;
-}
-
-/* A header with nothing but that title left in it is a blank rule. One that
-   still holds actions — "Add the party", "Long rest" — is function, and stays. */
-.screen-box-body [data-card-head] {
-  border-bottom: 0;
-  padding-top: 0;
-  padding-bottom: 0.25rem;
-}
-
-.screen-box-body [data-card-head]:not(:has([data-card-actions])) {
-  display: none;
-}
-
-/* Empty states are an invitation on a page and an obstruction in a box: the
-   scene is half the height of a screen box on its own. */
-.screen-box-body [data-empty-state] {
-  padding: 0.75rem 0.5rem;
-}
-
-.screen-box-body [data-empty-scene] {
-  display: none;
-}
-
-/* ------------------------------------------------------------------
- * The shelf beside the sand table.
- *
- * Denser than a screen box: the shelf is a column beside a battle map and
- * every pixel of it is something a player reaches for mid-round. A convention
- * broken on purpose.
- * ------------------------------------------------------------------ */
-
-.shelf-dense {
-  font-size: 0.8125rem;
-}
-
-.shelf-dense [data-card] > * {
-  padding-top: 0.25rem;
-  padding-bottom: 0.25rem;
-}
-
-.shelf-dense h2,
-.shelf-dense h3 {
-  font-size: 0.875rem;
+.status-hatch-danger {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--danger) 14%, var(--surface)) 0 4px,
+    color-mix(in srgb, var(--danger) 6%, var(--surface)) 4px 8px
+  );
 }
 
 /* A tracker row in a box or on the shelf: the name and the hit points keep a
    floor, so the hit-point control and the condition picker wrap to a second
    line instead of squeezing "150 / 150 hp · ac 17" into a column five lines
    tall beside a number field. */
-.screen-box-body [data-entry-info] {
+[data-panel-body] [data-entry-info] {
   min-width: 11rem;
 }

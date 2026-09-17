@@ -1,19 +1,18 @@
 'use client';
 
 import { Button, Link } from '@heroui/react';
-import { Icon } from '@iconify/react';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 
 import { useAuth } from '@/@auth/context';
-import { Glyph, Marginalia } from './ui';
+import { Glyph, type GlyphName, Marginalia } from './ui';
 import { ThemeToggle } from './ThemeToggle';
 
 interface NavItem {
   name: string;
   href: string;
-  icon: string;
+  icon: GlyphName;
   /** Where "one more of these" starts. Renders the row's `+`. */
   create?: string;
   /** What the `+` makes, for its tooltip and its label. */
@@ -22,18 +21,18 @@ interface NavItem {
 
 /** Primary: the things you own. Compendium: the reference shelves. */
 const PRIMARY: NavItem[] = [
-  { name: 'Table', href: '/dashboard', icon: 'ph:house-bold' },
+  { name: 'Table', href: '/dashboard', icon: 'house' },
   {
     name: 'Campaigns',
     href: '/campaigns',
-    icon: 'ph:castle-turret-bold',
+    icon: 'castle',
     create: '/campaigns/create',
     creates: 'campaign',
   },
   {
     name: 'Heroes',
     href: '/characters',
-    icon: 'ph:sword-bold',
+    icon: 'sword',
     create: '/creator/character',
     creates: 'hero',
   },
@@ -73,28 +72,28 @@ const COMPENDIUM: NavGroup[] = [
       {
         name: 'Classes',
         href: '/classes',
-        icon: 'ph:shield-bold',
+        icon: 'shield',
         create: '/creator/homebrew?type=class',
         creates: 'class',
       },
       {
         name: 'Species',
         href: '/species',
-        icon: 'ph:tree-bold',
+        icon: 'tree',
         create: '/creator/homebrew?type=species',
         creates: 'species',
       },
       {
         name: 'Backgrounds',
         href: '/backgrounds',
-        icon: 'ph:scroll-bold',
+        icon: 'scroll',
         create: '/creator/homebrew?type=background',
         creates: 'background',
       },
       {
         name: 'Feats',
         href: '/feats',
-        icon: 'ph:star-bold',
+        icon: 'star',
         create: '/creator/homebrew?type=feat',
         creates: 'feat',
       },
@@ -106,28 +105,28 @@ const COMPENDIUM: NavGroup[] = [
       {
         name: 'Spells',
         href: '/spells',
-        icon: 'ph:magic-wand-bold',
+        icon: 'wand',
         create: '/creator/homebrew?type=spell',
         creates: 'spell',
       },
       {
         name: 'Items',
         href: '/items',
-        icon: 'ph:treasure-chest-bold',
+        icon: 'chest',
         create: '/creator/homebrew?type=item',
         creates: 'item',
       },
       {
         name: 'Bestiary',
         href: '/bestiary',
-        icon: 'ph:paw-print-bold',
+        icon: 'paw',
         create: '/creator/homebrew?type=creature',
         creates: 'creature',
       },
       {
         name: 'House rules',
         href: '/house-rules',
-        icon: 'ph:gavel-bold',
+        icon: 'gavel',
         create: '/creator/homebrew?type=rule',
         creates: 'rule',
       },
@@ -139,7 +138,7 @@ const COMPENDIUM: NavGroup[] = [
 const LIBRARY: NavItem = {
   name: 'Library',
   href: '/library',
-  icon: 'ph:books-bold',
+  icon: 'books',
 };
 
 /**
@@ -198,7 +197,7 @@ export function SideNavigation() {
               className="absolute inset-y-0 left-0 w-1 bg-danger"
             />
           )}
-          <Icon icon={item.icon} width={17} className="shrink-0" />
+          <Glyph name={item.icon} size={17} />
           {!collapsed && <span className="truncate">{item.name}</span>}
         </Link>
         {/*
@@ -259,9 +258,9 @@ export function SideNavigation() {
           className="text-ink-muted"
           onPress={() => setCollapsed(!collapsed)}
         >
-          <Icon
-            icon={collapsed ? 'ph:caret-right-bold' : 'ph:caret-left-bold'}
-            width={16}
+          <Glyph
+            name={collapsed ? 'chevron-right' : 'chevron-left'}
+            size={16}
           />
         </Button>
       </div>
@@ -307,7 +306,7 @@ export function SideNavigation() {
                 : 'text-ink-muted hover:text-ink'
             }`}
           >
-            <Icon icon="ph:user-bold" width={16} />
+            <Glyph name="person" size={16} />
             {!collapsed && <span>Account</span>}
           </Link>
           <ThemeToggle />
@@ -319,7 +318,7 @@ export function SideNavigation() {
           aria-label="Sign out"
           title={collapsed ? 'Sign out' : undefined}
           className="mt-1 w-full justify-start text-ink-muted data-[hover=true]:text-danger"
-          startContent={<Icon icon="ph:sign-out-bold" width={16} />}
+          startContent={<Glyph name="sign-out" size={16} />}
         >
           {!collapsed && 'Sign out'}
         </Button>

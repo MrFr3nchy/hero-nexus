@@ -26,7 +26,7 @@ new page.
 **Show the artifact.** Every page leads with the thing itself — a character sheet, a
 spell block, a stack of party cards, a review queue — not a description of the thing.
 
-Eight rules, each phrased so a reviewer can point at a diff and say it's violated.
+Ten rules, each phrased so a reviewer can point at a diff and say it's violated.
 
 ### 1. The object is the hero
 
@@ -168,6 +168,72 @@ belongs in `scenes.tsx`, not here.
 - **Don't** — an emoji in a kind label, or an icon fetched from a CDN at
   runtime. Hero Nexus is self-hosted and makes no outbound calls; a CDN icon is
   blank on a box without internet.
+
+### 9. Reading surfaces hold still; operating surfaces speak in one language
+
+Rules 2 and 4 were written for pages that are _read_ — the home page, the dashboard,
+the campaign record — and they still govern every one of those. They do not govern a
+page that is _operated_ for four hours while a fight is running. On those, a count is
+a readout and an arriving event has to announce itself, or the surface is not doing
+its job.
+
+**Which is which.** A reading surface is any route in the archetype table. An
+operating surface is the screen (`/campaigns/[id]/screen`) and every panel rendered
+inside it, in all three of its states. Nothing else is one; a component that wants
+the exemption has to be on the screen to get it.
+
+On an operating surface:
+
+- **A number may be a readout, not prose** — an initiative score, hit points over a
+  maximum, a round counter, the count on a badge. A readout is tabular figures set
+  beside the thing it measures; it is still never a tile in a grid of tiles (rule 2
+  stands for anything that is not a live figure).
+- **A panel may react to an arriving event, once, in the status language** — the
+  panel's own mark changes state, a badge appears, a row takes the waiting-on-you
+  edge. It may not pulse, flash, bounce, slide or otherwise move: the announcement slip
+  is still the only thing on the window that moves (rule 4 stands for motion). Under
+  `prefers-reduced-motion` nothing here changes, because nothing here moved.
+- **State is said in the status language and nowhere else.** Six states, each with a
+  mark, an edge and a word, from `StatusMark` / `StatusChip` / `statusEdge` in `ui/`:
+  `live` (filled dot), `stale` (slashed dot, elapsed time named), `yours` (solid ink
+  bar, bold name), `waiting` (filled lozenge, 2px border, count — the only state that
+  may take a 2px border or a hatched ground on a title bar), `hidden` (hatched ground,
+  dotted edge, "only you"), `homebrew` (double edge, hollow square). Greyscaled, all
+  six still separate. A panel or row that says its state any other way — a coloured
+  background with no mark, a bare icon, a word with no edge — is violated; so is a
+  seventh state invented locally.
+- **Every panel wears the same chrome.** One title bar: the mark, a Cinzel title that
+  ellipsises on one line at 18rem, the badge (absent at zero — it never renders a 0),
+  the fold control. The body is the only scroller. A panel that draws its own frame,
+  its own heading or its own scrollbar inside that is violated; the container is what
+  makes the screen one thing rather than twenty-four.
+
+- **Do** — the initiative box: `21 · Kestrel Vane · 31/44` with a solid ink bar and
+  the word _yours_ on the reader's own row; a hatched row with _only you_ for the thing
+  the party has not seen; a 2px danger border and a count on the row waiting for a
+  save.
+- **Don't** — the same box on the Chronicle tab; a `Ledger` line for hit points; a
+  panel whose border pulses when a whisper lands; a green background meaning "live"
+  with no dot.
+
+### 10. Controls on one row share one size
+
+A row of HeroUI controls — a Select, an Input, a Button, a Switch — is one height,
+because it is one row. Panels use `sm`; forms use `md`; nothing mixes inside a row.
+A HeroUI control with no `size` is `md`, so an unsized Select beside `size="sm"`
+inputs is the mixed row this rule is about, and the usual cause of the extra
+height is a Select's label placed inside: a row's labels go `outside-left`, a
+stacked form's go `outside`.
+
+Checkable: `hero-nexus/one-size-per-row` in `eslint-rules/` fails the build on a
+flex row whose direct children carry two different sizes. `ControlRow` in `ui/` is
+the primitive that sets one size on every child, and the escape from thinking
+about it.
+
+- **Do** — `<ControlRow size="sm">` around the asking's Select, two Inputs and the
+  button; a manage form whose every control is `md` and stacked.
+- **Don't** — `<Input size="sm" />` beside `<Select>` in one `flex`; a row where the
+  button is `sm` so it "fits" and the inputs are not.
 
 ---
 
@@ -390,6 +456,7 @@ Fonts (aliases in the `@theme inline` block):
 | `DiceTray`      | every roll in the app. `useDiceTray().rollNotation('2d6+3')` / `.rollSpec()` / `.showNotationRoll()` — awaited, so callers act when the dice land. |
 | `DieGlyph`      | one die at rest, in the same drawing the tray throws. d4 / d6 / d8 / d10 / d12 / d20 / d100.                                                       |
 | `Announcements` | the table's word reaching you, wherever you are standing (rule 4's second exception). Mounted once at the root; fed by `useTable()`.               |
+| `ControlRow`    | one row of controls at one size (rule 10). `size` + `align`; hands the size to every HeroUI child that does not set its own.                       |
 
 ---
 
@@ -427,7 +494,8 @@ Run this against any page diff:
 3. Any `md:grid-cols-3` (or 4) of near-identical cards that aren't a homogeneous
    collection? Fail (rule 3).
 4. More than one animated/interactive element? Fail (rule 4). Is the one toy tied to
-   the product?
+   the product? On the screen: does anything move that is not the announcement slip?
+   Fail (rule 9).
 5. Hand-lettered text anywhere load-bearing, or marked up as a heading? Fail (rule 5).
 6. Any `framed` card when another is on screen? Any coloured bar / seal / bracket with
    no state behind it? Fail (rule 6).
@@ -439,6 +507,8 @@ Run this against any page diff:
 10. A roll made on the server that the tray never draws, or a tray roll the
     server never made? Fail (rule 4, the dice tray).
 11. Verified in light **and** dark, and with `prefers-reduced-motion: reduce`.
+12. On the screen: any state said outside the six of the status language, or a panel
+    drawing its own frame, heading or scrollbar inside the container? Fail (rule 9).
 
 ---
 

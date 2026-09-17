@@ -16,7 +16,9 @@ import {
   users,
 } from '@/db/schema';
 import type { TableKind } from '@/@creator/campaign/lib/screen';
+import type { WorldTime } from '@/@creator/campaign/lib/calendar';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
+import { readWorldClock } from './world-time';
 import { bumpVersion, publish } from './live-hub';
 import { requireUserId } from './session-user';
 
@@ -60,6 +62,8 @@ export interface SessionRow {
   playedOn: string | null;
   /** ISO instant the table sat down. Kept after it rises. */
   startedAt: string | null;
+  /** The world's date it opened on (10), when the table was counting. */
+  worldDate: WorldTime | null;
   status: SessionStatus;
   /** Staff only — null for a player, so prep never reaches the client. */
   prepBody: string | null;
@@ -205,6 +209,7 @@ export async function listSessions(campaignId: string): Promise<SessionRow[]> {
     scheduledFor: row.scheduledFor,
     playedOn: row.playedOn,
     startedAt: row.startedAt,
+    worldDate: (row.worldDate as WorldTime | null) ?? null,
     status: row.status,
     prepBody: isStaff ? row.prepBody : null,
     recapBody:
@@ -519,6 +524,8 @@ export async function openSitting(campaignId: string): Promise<string> {
   if (already) return already.id;
 
   const startedAt = new Date().toISOString();
+  // The world's date the evening opens on, if the table is counting (10).
+  const worldDate = (await readWorldClock(campaignId)).time;
   const planned = await db.query.campaignSessions.findFirst({
     where: and(
       eq(campaignSessions.campaignId, campaignId),
@@ -537,7 +544,7 @@ export async function openSitting(campaignId: string): Promise<string> {
     title = planned.title;
     await db
       .update(campaignSessions)
-      .set({ status: 'live', startedAt, updatedAt: startedAt })
+      .set({ status: 'live', startedAt, worldDate, updatedAt: startedAt })
       .where(eq(campaignSessions.id, planned.id));
   } else {
     const highest = await db
@@ -555,6 +562,7 @@ export async function openSitting(campaignId: string): Promise<string> {
         number,
         status: 'live',
         startedAt,
+        worldDate,
         createdBy: userId,
       })
       .returning({ id: campaignSessions.id });

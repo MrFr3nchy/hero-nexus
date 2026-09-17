@@ -40,6 +40,11 @@ export const TABLE_EVENT_KINDS = [
   'action',
   'opportunity',
   'cast',
+  'time',
+  'rest',
+  'levelup',
+  'undo',
+  'ambience',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -151,7 +156,8 @@ export interface VitalsEvent extends BaseEvent {
   kind: 'vitals';
   characterName: string;
   characterId: string;
-  state: 'down' | 'up' | 'dead' | 'stable';
+  /** `inspired`: the DM handed over Heroic Inspiration (10). */
+  state: 'down' | 'up' | 'dead' | 'stable' | 'inspired';
 }
 
 /**
@@ -250,7 +256,11 @@ export interface ActionEvent extends BaseEvent {
   note: string;
   again: boolean;
   ruling: boolean;
-  what: 'took' | 'holding';
+  /**
+   * `legendary` (11) is the staff-only nudge after somebody else's turn:
+   * "Ancient red dragon · 2 legendary actions left".
+   */
+  what: 'took' | 'holding' | 'legendary';
 }
 
 /**
@@ -282,6 +292,63 @@ export interface CastEvent extends BaseEvent {
   refused?: boolean;
 }
 
+/**
+ * The world's clock moved (10). `label` is the moment it now reads — "Dawn,
+ * 3rd of Mirtul" — and `why` what moved it: a rest, the DM's hand, a sitting
+ * opening. `notes` are what the day tick did on the way: who went hungry,
+ * who has not slept. Everyone hears the clock; a note about a hero reaches
+ * everyone too, because the road is not a secret.
+ */
+export interface TimeEvent extends BaseEvent {
+  kind: 'time';
+  label: string;
+  why: string;
+  /** Minutes moved. Zero when the clock was set rather than advanced. */
+  minutes: number;
+  notes: string[];
+}
+
+/**
+ * A rest was called, confirmed or broken (10). `called` asks each player
+ * for their hit dice and a confirm; `done` is the sheets moved; `broken` is
+ * a rest interrupted, nothing granted.
+ */
+export interface RestEvent extends BaseEvent {
+  kind: 'rest';
+  restKind: 'short' | 'long';
+  state: 'called' | 'done' | 'broken';
+  /** How long it takes at this table — "an hour", "8 hours". */
+  takes: string;
+}
+
+/**
+ * Somebody has the experience for a level they have not taken (10). To the
+ * owner and staff: the sheet is theirs to walk up.
+ */
+export interface LevelUpEvent extends BaseEvent {
+  kind: 'levelup';
+  characterId: string;
+  characterName: string;
+  level: number;
+}
+
+/** The DM put something back (11). Everyone hears: the 12 came back. */
+export interface UndoEvent extends BaseEvent {
+  kind: 'undo';
+  /** What was undone, as the stack labelled it — "Damage Goblin 2 −12". */
+  label: string;
+}
+
+/**
+ * The DM put a track on, or took it off (12). Everyone hears the moment;
+ * whether they hear the track is their own preference.
+ */
+export interface AmbienceEvent extends BaseEvent {
+  kind: 'ambience';
+  state: 'playing' | 'stopped';
+  title: string;
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -300,7 +367,12 @@ export type TableEvent =
   | EffectEvent
   | ActionEvent
   | OpportunityEvent
-  | CastEvent;
+  | CastEvent
+  | TimeEvent
+  | RestEvent
+  | LevelUpEvent
+  | UndoEvent
+  | AmbienceEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -350,6 +422,11 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   action: 'sword',
   opportunity: 'target',
   cast: 'sparkle',
+  time: 'hourglass',
+  rest: 'tankard',
+  levelup: 'star',
+  undo: 'gavel',
+  ambience: 'candle',
 };
 
 /**
@@ -586,6 +663,15 @@ export function describe(
     }
 
     case 'action': {
+      if (event.what === 'legendary') {
+        return {
+          glyph,
+          title: `${event.actorLabel} · ${event.note} legendary`,
+          detail: 'Taken at the end of another creature’s turn.',
+          tone: 'arcane',
+          asks: true,
+        };
+      }
       if (event.what === 'holding') {
         const held = event.note.includes('→')
           ? event.note
@@ -648,18 +734,91 @@ export function describe(
         asks: true,
       };
 
+    case 'time':
+      return {
+        glyph,
+        title: event.label,
+        detail:
+          [event.why, ...event.notes].filter(Boolean).join(' · ') || undefined,
+        // A note on the line means the road took something — a hungry day,
+        // a night without sleep — and that is worth the danger ink.
+        tone: event.notes.length > 0 ? 'danger' : 'gold',
+      };
+
+    case 'rest': {
+      const which = event.restKind === 'long' ? 'long rest' : 'short rest';
+      if (event.state === 'called') {
+        return {
+          glyph,
+          title: `The DM calls a ${which}`,
+          detail:
+            event.restKind === 'short'
+              ? `${event.takes} · spend hit dice from your hero panel, then confirm`
+              : `${event.takes} · confirm from your hero panel`,
+          tone: 'gold',
+          asks: true,
+        };
+      }
+      return {
+        glyph,
+        title:
+          event.state === 'done'
+            ? `The ${which} is over`
+            : `The ${which} is broken`,
+        detail: event.state === 'done' ? event.takes : 'Nothing was regained.',
+        tone: event.state === 'done' ? 'success' : 'danger',
+      };
+    }
+
+    case 'ambience':
+      return {
+        glyph,
+        title:
+          event.state === 'playing'
+            ? `The DM puts on ${event.title || 'something'}`
+            : 'The room falls quiet',
+        detail:
+          event.state === 'playing'
+            ? 'Turn it on from the mode bar to hear it.'
+            : undefined,
+        tone: 'gold',
+      };
+
+    case 'undo':
+      return {
+        glyph,
+        title: `The DM takes it back — ${event.label}`,
+        tone: 'gold',
+      };
+
+    case 'levelup': {
+      const yours = event.characterId === viewer.characterId;
+      return {
+        glyph,
+        title: yours
+          ? `You have enough to reach level ${event.level}`
+          : `${event.characterName} has enough to reach level ${event.level}`,
+        detail: yours ? 'Walk it up on your sheet.' : undefined,
+        tone: 'success',
+        asks: yours,
+      };
+    }
+
     case 'vitals': {
       const words: Record<VitalsEvent['state'], string> = {
         down: `${event.characterName} goes down`,
         up: `${event.characterName} is back up`,
         dead: `${event.characterName} dies`,
         stable: `${event.characterName} is stable`,
+        inspired: `The DM gives ${event.characterName} Heroic Inspiration`,
       };
       return {
-        glyph,
+        glyph: event.state === 'inspired' ? 'star' : glyph,
         title: words[event.state],
         tone:
-          event.state === 'up' || event.state === 'stable'
+          event.state === 'up' ||
+          event.state === 'stable' ||
+          event.state === 'inspired'
             ? 'success'
             : 'danger',
       };

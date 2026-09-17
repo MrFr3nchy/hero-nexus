@@ -16,6 +16,6 @@ export const config = {
   // ("Response body object should not be disturbed or locked") before the
   // route that would have accepted it ever ran.
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|icons/|api/campaigns/[^/]+/images|.*\\.png$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|icons/|api/campaigns/[^/]+/images|api/campaigns/[^/]+/audio|.*\\.png$).*)',
   ],
 };

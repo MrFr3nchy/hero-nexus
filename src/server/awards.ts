@@ -17,6 +17,9 @@ import {
 } from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
 import { writeSheetAsStaff } from './characters';
+import { publish } from './live-hub';
+import { xpStanding } from '@/@creator/character/lib/advancement';
+import { randomUUID } from 'node:crypto';
 
 export type AwardKind = 'xp' | 'milestone';
 
@@ -267,12 +270,9 @@ export async function awardExperience(
       continue;
     }
 
+    const next = applyToSheet(parsed.data, xp, levels);
     try {
-      await writeSheetAsStaff(
-        recipient.characterId,
-        userId,
-        applyToSheet(parsed.data, xp, levels)
-      );
+      await writeSheetAsStaff(recipient.characterId, userId, next);
     } catch {
       // A sheet the table's own rules would now reject cannot be written, and
       // that is a real answer: the DM sees it as one recipient short.
@@ -288,6 +288,34 @@ export async function awardExperience(
       levels,
     });
     granted += 1;
+
+    /*
+     * The threshold (10). Nothing here writes a level: the sheet is the
+     * player's to walk up, through the builder's Advancement step, which is
+     * where the hit points and the choices get recorded. What this does is
+     * notice, once, when this award is the one that crossed the line — to
+     * the owner and staff, the way a check pushed at one player travels.
+     */
+    const before = xpStanding(
+      parsed.data.identity.xp,
+      parsed.data.identity.level
+    );
+    const after = xpStanding(next.identity.xp, next.identity.level);
+    if (after.canLevel && after.earnedLevel !== before.earnedLevel) {
+      publish(
+        campaignId,
+        {
+          kind: 'levelup',
+          id: randomUUID(),
+          at: new Date().toISOString(),
+          by: userId,
+          characterId: recipient.characterId,
+          characterName: recipient.name,
+          level: after.earnedLevel,
+        },
+        { users: [row.ownerId] }
+      );
+    }
   }
 
   // An award nobody could receive is not a record of anything.

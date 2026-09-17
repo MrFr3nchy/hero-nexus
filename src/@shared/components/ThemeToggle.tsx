@@ -1,9 +1,10 @@
 'use client';
 
-import { Icon } from '@iconify/react';
 import { Button } from '@heroui/react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
+
+import { Glyph } from './ui';
 
 export function ThemeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
@@ -21,9 +22,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       className={`text-ink-muted data-[hover=true]:text-ink ${className ?? ''}`}
       onPress={() => setTheme(isDark ? 'light' : 'dark')}
     >
-      {mounted && (
-        <Icon icon={isDark ? 'ph:sun-bold' : 'ph:moon-stars-bold'} width={18} />
-      )}
+      {mounted && <Glyph name={isDark ? 'sun' : 'moon'} size={18} />}
     </Button>
   );
 }

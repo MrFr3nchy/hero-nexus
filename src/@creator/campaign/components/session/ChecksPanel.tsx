@@ -17,11 +17,15 @@ import {
   SKILL_LABELS,
 } from '@/@creator/character/schema';
 import {
+  ControlRow,
   EmptyState,
   Glyph,
   Marginalia,
   QuestScene,
   SectionCard,
+  statusEdge,
+  StatusMark,
+  StatusWord,
 } from '@/@shared/components/ui';
 import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import type { CampaignMemberRow } from '@/server/campaigns';
@@ -198,16 +202,23 @@ function CheckCard({
   return (
     <div
       className={`rounded-[var(--radius-card)] border bg-surface px-3 py-2.5 ${
-        check.mine ? 'border-arcane/50' : 'border-line'
+        // An ask still owed by the reader is the one row on the surface that
+        // is *waiting on you*, and it says so in the status language.
+        check.mine ? statusEdge('waiting') : 'border-line'
       }`}
     >
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <Glyph
-          name="target"
-          size={14}
-          className={check.mine ? 'text-arcane' : 'text-ink-subtle'}
-        />
-        <span className="text-sm font-medium text-ink">{check.ask}</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {check.mine ? (
+          <StatusMark kind="waiting" size={9} />
+        ) : (
+          <Glyph name="target" size={14} className="text-ink-subtle" />
+        )}
+        <span
+          className={`text-sm text-ink ${check.mine ? 'font-bold' : 'font-medium'}`}
+        >
+          {check.ask}
+        </span>
+        {check.mine && <StatusWord kind="waiting" />}
         {check.spell && check.kind !== 'consent' && (
           <span className="text-xs text-arcane">
             {check.spell.name}
@@ -460,10 +471,9 @@ function AskForm({
   };
 
   return (
-    <div className="flex flex-wrap items-end gap-2 border-t border-line pt-3">
+    <ControlRow size="sm" className="border-t border-line pt-3">
       <Select
         aria-label="What to roll"
-        size="sm"
         className="w-52"
         selectedKeys={[what]}
         onSelectionChange={keys => {
@@ -489,7 +499,6 @@ function AskForm({
       </Select>
 
       <Input
-        size="sm"
         type="number"
         label="DC"
         placeholder="15"
@@ -499,7 +508,6 @@ function AskForm({
       />
 
       <Input
-        size="sm"
         label="Against what"
         placeholder="past the dogs"
         value={prompt}
@@ -509,7 +517,6 @@ function AskForm({
 
       <Select
         aria-label="Who is asked"
-        size="sm"
         selectionMode="multiple"
         className="w-44"
         placeholder="Everyone"
@@ -526,7 +533,7 @@ function AskForm({
         ))}
       </Select>
 
-      <Button size="sm" color="primary" isDisabled={busy} onPress={ask}>
+      <Button color="primary" isDisabled={busy} onPress={ask}>
         Ask
       </Button>
 
@@ -537,7 +544,7 @@ function AskForm({
           </Switch>
         </div>
       </Tooltip>
-    </div>
+    </ControlRow>
   );
 }
 

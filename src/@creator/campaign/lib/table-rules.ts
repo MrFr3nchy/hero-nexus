@@ -54,6 +54,13 @@ export interface TableRules {
   movementFence: boolean;
   /** Who is told whether an attack landed (see 06). */
   showHitMiss: 'staff' | 'everyone';
+  /**
+   * Whether the fight is run on the app's board or a real one on a real
+   * table. A fact about the room, not a rule: every seat at a table with a
+   * physical map is at a table with a physical map, which is why it is a
+   * campaign setting and not a viewer preference.
+   */
+  board: 'virtual' | 'in-person';
 }
 
 export const DEFAULT_TABLE_RULES: TableRules = {
@@ -72,11 +79,18 @@ export const DEFAULT_TABLE_RULES: TableRules = {
   foeHpShown: 'word',
   movementFence: true,
   showHitMiss: 'everyone',
+  board: 'virtual',
 };
 
 /* --- the registry -------------------------------------------------------- */
 
-export type TableRuleGroup = 'combat' | 'rests' | 'survival' | 'dice' | 'seen';
+export type TableRuleGroup =
+  | 'combat'
+  | 'rests'
+  | 'survival'
+  | 'dice'
+  | 'seen'
+  | 'room';
 
 export const TABLE_RULE_GROUPS: Record<
   TableRuleGroup,
@@ -101,6 +115,10 @@ export const TABLE_RULE_GROUPS: Record<
   seen: {
     label: 'What players see',
     line: 'How much of the DM’s side of the table is shown.',
+  },
+  room: {
+    label: 'The room',
+    line: 'Where the table actually is.',
   },
 };
 
@@ -455,6 +473,28 @@ export const TABLE_RULE_FIELDS: readonly TableRuleField[] = [
     describe: {
       everyone: 'Everyone is told whether an attack landed.',
       staff: 'Only the DM is told whether an attack landed.',
+    },
+  }),
+  // Not `perFight`: the physical table does not change mid-fight.
+  choiceField('board', {
+    group: 'room',
+    label: 'The battlefield',
+    hint: 'The app’s board by default. A real map on a real table still gets the order, the hourglass and the reveals — just no board.',
+    options: [
+      {
+        value: 'virtual',
+        label: 'On the app',
+        note: 'The sand table: a grid, tokens, sight and reach.',
+      },
+      {
+        value: 'in-person',
+        label: 'In person',
+        note: 'A physical map. The screen leads with the order instead.',
+      },
+    ],
+    describe: {
+      virtual: 'Fights are run on the app’s board.',
+      'in-person': 'Fights are run on a real map on a real table.',
     },
   }),
 ];

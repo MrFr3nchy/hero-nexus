@@ -36,6 +36,7 @@ import { db } from '@/db';
 import {
   battleMapTokens,
   campaignMembers,
+  campaignRolls,
   characters,
   initiativeEncounters,
   initiativeEntries,
@@ -45,6 +46,13 @@ import { resolveContentRefs } from './content';
 import { loadFor } from './load';
 import type { Encumbrance } from '@/@creator/character/lib/derive';
 import { bumpVersion, publish, type Audience } from './live-hub';
+import {
+  normalizeLegendary,
+  rechargesOwed,
+  rollRecharges,
+  turnMembers,
+} from '@/@creator/campaign/lib/monsters';
+import { rollDie } from '@/@shared/lib/dice';
 import { effectiveRules, fence } from './table-rules';
 
 type Entry = typeof initiativeEntries.$inferSelect;
@@ -147,6 +155,32 @@ export async function currentEntryId(
     (a, b) => b.initiative - a.initiative || a.sort - b.sort
   );
   return ordered[enc.turnIndex]?.id ?? null;
+}
+
+/**
+ * Every entry sharing the current turn (11): one id for a lone combatant,
+ * all of them for a group. What `spendMovement` and the free interaction
+ * check against, so the third goblin can move on the goblins' turn.
+ */
+export async function currentEntryIds(encounterId: string): Promise<string[]> {
+  const enc = await db.query.initiativeEncounters.findFirst({
+    columns: { turnIndex: true },
+    where: eq(initiativeEncounters.id, encounterId),
+  });
+  if (!enc) return [];
+  const rows = await db
+    .select({
+      id: initiativeEntries.id,
+      initiative: initiativeEntries.initiative,
+      sort: initiativeEntries.sort,
+      groupId: initiativeEntries.groupId,
+    })
+    .from(initiativeEntries)
+    .where(eq(initiativeEntries.encounterId, encounterId));
+  const ordered = [...rows].sort(
+    (a, b) => b.initiative - a.initiative || a.sort - b.sort
+  );
+  return turnMembers(ordered, enc.turnIndex).map(i => ordered[i].id);
 }
 
 /**
@@ -284,7 +318,7 @@ export async function resetTurn(entryId: string): Promise<void> {
 export async function beginEntryTurn(
   campaignId: string,
   encounterId: string,
-  entryId: string | null,
+  entryIds: readonly string[],
   byUserId: string
 ): Promise<void> {
   const rows = await db
@@ -293,8 +327,68 @@ export async function beginEntryTurn(
     .where(eq(initiativeEntries.encounterId, encounterId));
   for (const row of rows) {
     const turn = parseTurn(row.turn);
-    if (row.id === entryId) {
-      await writeTurn(row.id, beginTurn(turn));
+    if (entryIds.includes(row.id)) {
+      let fresh = beginTurn(turn);
+      /*
+       * Recharge (11): a d6 for every spent ability, at the start of the
+       * creature's turn. The faces go to the log behind the screen so the
+       * DM sees "Fire Breath · recharge · 5" in the tray, and the verdicts
+       * are written onto the turn.
+       */
+      if (fresh.recharge && rechargesOwed(fresh.recharge) > 0) {
+        const faces = Array.from(
+          { length: rechargesOwed(fresh.recharge) },
+          () => rollDie(6)
+        );
+        const rolled = rollRecharges(fresh.recharge, faces);
+        fresh = { ...fresh, recharge: rolled.map };
+        for (const v of rolled.verdicts) {
+          await db.insert(campaignRolls).values({
+            campaignId,
+            actorUserId: byUserId,
+            characterId: null,
+            actorName: row.label,
+            label: `${v.name} · recharge${v.ready ? 'd' : ' — not yet'}`,
+            notation: '1d6',
+            dice: [v.face],
+            dropped: [],
+            modifier: 0,
+            total: v.face,
+            visibility: 'dm',
+            physical: false,
+          });
+          publish(
+            campaignId,
+            {
+              kind: 'roll',
+              id: randomUUID(),
+              at: new Date().toISOString(),
+              by: byUserId,
+              actorName: row.label,
+              label: `${v.name} · recharge${v.ready ? 'd' : ' — not yet'}`,
+              notation: '1d6',
+              total: v.face,
+              tone: 'plain',
+              secret: true,
+            },
+            'staff'
+          );
+        }
+      }
+      await writeTurn(row.id, fresh);
+      // Legendary actions come back at the start of the creature's own turn.
+      const legendary = normalizeLegendary(row.legendary);
+      if (legendary && legendary.actions.used > 0) {
+        await db
+          .update(initiativeEntries)
+          .set({
+            legendary: {
+              ...legendary,
+              actions: { ...legendary.actions, used: 0 },
+            },
+          })
+          .where(eq(initiativeEntries.id, row.id));
+      }
       continue;
     }
     if (turn.ready) {
@@ -336,8 +430,8 @@ export async function spendMovement(
   costFeet: number,
   who: { isStaff: boolean; ruling?: boolean }
 ): Promise<{ ruling: boolean } | null> {
-  const current = await currentEntryId(entry.encounterId);
-  if (current !== entry.id) return null;
+  const current = await currentEntryIds(entry.encounterId);
+  if (!current.includes(entry.id)) return null;
 
   const enc = await db.query.initiativeEncounters.findFirst({
     columns: { campaignId: true, isActive: true },
@@ -393,7 +487,7 @@ export async function spendWeaponSwap(
     ),
   });
   if (!entry) return;
-  if ((await currentEntryId(enc.id)) !== entry.id) return;
+  if (!(await currentEntryIds(enc.id)).includes(entry.id)) return;
 
   const turn = parseTurn(entry.turn);
   const free = spend(turn, 'interaction');

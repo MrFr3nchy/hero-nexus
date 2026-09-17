@@ -4,6 +4,7 @@ import { Card, CardBody, CardHeader } from '@heroui/react';
 import { type ReactNode } from 'react';
 
 import { LiftCard } from '../motion';
+import { usePanelDensity } from './Panel';
 
 interface SectionCardProps {
   title?: ReactNode;
@@ -31,7 +32,16 @@ function Corners() {
   );
 }
 
-/** Themed panel: surface background, hairline border, one soft shadow. */
+/**
+ * Themed panel: surface background, hairline border, one soft shadow.
+ *
+ * Inside a `Panel` it draws none of that. The panel is the frame and its
+ * title bar is the heading, so the card keeps only what is function — the
+ * actions in its head ("Add the party", "Long rest") — and drops the title,
+ * the description, the border and the padding. This used to be done by CSS
+ * selector from the screen; asking the panel means a card cannot lose its
+ * heading by accident, only by being put in a panel.
+ */
 export function SectionCard({
   title,
   description,
@@ -42,13 +52,33 @@ export function SectionCard({
   framed,
   reveal,
 }: SectionCardProps) {
+  const { inPanel, density } = usePanelDensity();
+
+  if (inPanel) {
+    return (
+      <div data-card className={className}>
+        {actions && (
+          <div
+            data-card-head
+            className={`flex flex-wrap justify-end gap-2 ${
+              density === 'shelf' ? 'pb-1' : 'pb-1.5'
+            }`}
+          >
+            {actions}
+          </div>
+        )}
+        <div
+          className={`${density === 'shelf' ? 'py-1' : 'py-1.5'} ${bodyClassName ?? ''}`}
+        >
+          {children}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <LiftCard reveal={reveal} className={`relative ${className ?? ''}`}>
       {framed && <Corners />}
-      {/* `data-card` is a styling hook for surfaces that stack cards inside
-          cards — the DM screen puts whole panels into boxes that already have
-          a frame, and a frame inside a frame reads as a mistake. Nothing but
-          CSS should ever key off it. */}
       <Card
         data-card
         shadow="none"

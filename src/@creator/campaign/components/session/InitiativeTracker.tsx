@@ -19,6 +19,9 @@ import {
   EmptyState,
   Marginalia,
   SectionCard,
+  statusEdge,
+  StatusMark,
+  StatusWord,
 } from '@/@shared/components/ui';
 import { formatChallenge } from '@/@shared/content';
 import type { CombatantChoice } from '@/server/content';
@@ -47,6 +50,7 @@ import {
   type PickerEntry,
 } from './EffectPicker';
 import { FightRules } from './FightRules';
+import { GroupControl, LegendaryControls } from './LegendaryControls';
 import { TurnStrip } from './TurnStrip';
 
 type Act = (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
@@ -74,6 +78,9 @@ function BestiaryPicker({
   const [choices, setChoices] = useState<CombatantChoice[] | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [copies, setCopies] = useState(1);
+  // Roll as a group (11): on for six of a thing, off for one, unless said.
+  const [group, setGroup] = useState<boolean | null>(null);
+  const grouped = group ?? copies > 1;
 
   const load = useCallback(async () => {
     setChoices(
@@ -127,15 +134,36 @@ function BestiaryPicker({
         value={copies}
         onValueChange={v => setCopies(Number(v) || 1)}
       />
+      {copies > 1 && (
+        <Tooltip
+          content={
+            grouped
+              ? 'One initiative, one turn for the lot. Tap to roll each on its own.'
+              : 'Each rolls and acts on its own. Tap to roll them as a group.'
+          }
+        >
+          <Button
+            size="sm"
+            variant={grouped ? 'flat' : 'light'}
+            className={`min-w-0 px-2 text-xs ${
+              grouped ? 'text-arcane' : 'text-ink-subtle'
+            }`}
+            onPress={() => setGroup(!grouped)}
+          >
+            {grouped ? 'As a group' : 'Each alone'}
+          </Button>
+        </Tooltip>
+      )}
       <Button
         size="sm"
         variant="flat"
         isDisabled={!chosen}
         onPress={() => {
           if (!chosen) return;
-          act(addCreaturesAction(encounterId, chosen.ref, copies));
+          act(addCreaturesAction(encounterId, chosen.ref, copies, grouped));
           setPicked(null);
           setCopies(1);
+          setGroup(null);
         }}
       >
         Send them in
@@ -240,10 +268,14 @@ function EntryLine({
   campaignId,
   refresh,
   onError,
+  waiting,
+  groupKin = [],
 }: {
   campaignId: string;
   entry: EntryRow;
   current: boolean;
+  /** Everybody in the order with their group, for the group control (11). */
+  groupKin?: { id: string; label: string; groupId: string | null }[];
   isStaff: boolean;
   isYours: boolean;
   act: Act;
@@ -259,20 +291,45 @@ function EntryLine({
   /** The board is waiting for a tap for this one. */
   placing: boolean;
   onPlace: () => void;
+  /** Asks put to this combatant that nobody has answered yet. */
+  waiting: number;
 }) {
   const showNumbers = isStaff || entry.side === 'party';
   const hp = entry.hpCurrent;
   const max = entry.hpMax;
+  const homebrew = entry.creatureRef?.source === 'homebrew';
+
+  /*
+   * The row says its state in the status language (rule 9), and the states
+   * use different channels — the left edge for yours, the frame and ground
+   * for waiting, the mark for homebrew — so two can stack on one row
+   * without either being lost. The turn is the fourth channel: the gold
+   * ring, which is not a state of the combatant but of the round.
+   */
+  const edge =
+    waiting > 0 ? statusEdge('waiting') : isYours ? statusEdge('yours') : '';
 
   return (
     <li
-      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md px-2 py-2.5 ${
+      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-transparent px-2 py-2.5 ${edge} ${
         current ? 'bg-surface-2 ring-1 ring-gold/40' : ''
       }`}
     >
-      <span className="w-8 shrink-0 text-center font-display text-lg tabular-nums text-ink">
+      <span
+        className={`w-8 shrink-0 text-center font-display text-lg tabular-nums ${
+          waiting > 0 ? 'text-danger' : 'text-ink'
+        }`}
+      >
         {entry.initiative}
       </span>
+      {homebrew && <StatusMark kind="homebrew" size={8} />}
+      {entry.groupId && (
+        <Tooltip content="Acts with its group, on one turn.">
+          <span className="text-[0.55rem] uppercase tracking-[0.1em] text-arcane">
+            grp
+          </span>
+        </Tooltip>
+      )}
 
       {/* `data-entry-info` is a hook for the screen, which gives this block a
           floor so the controls wrap under it rather than squeezing the name
@@ -287,15 +344,20 @@ function EntryLine({
           <span
             className={`text-sm ${
               entry.side === 'party' ? 'text-ink' : 'text-ink-muted'
-            } ${hp === 0 ? 'line-through opacity-70' : ''}`}
+            } ${isYours ? 'font-bold' : ''} ${
+              hp === 0 ? 'line-through opacity-70' : ''
+            }`}
           >
             {entry.label}
           </span>
-          {isYours && (
-            <span className="rounded-sm border border-gold/50 px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-gold-strong dark:text-gold">
-              You
-            </span>
+          {isYours && <StatusWord kind="yours" />}
+          {waiting > 0 && (
+            <StatusWord
+              kind="waiting"
+              detail={waiting > 1 ? `· ${waiting}` : undefined}
+            />
           )}
+          {homebrew && <StatusWord kind="homebrew" />}
           {entry.concentrating && (
             <Tooltip
               content={
@@ -391,6 +453,11 @@ function EntryLine({
             />
           </div>
         )}
+        {/* What the other side has left (11): legendary pips, recharge
+            dots, the lair. Staff only — the counters are the DM's. */}
+        {isStaff && (
+          <LegendaryControls entry={entry} act={act} onError={onError} />
+        )}
       </div>
 
       {isStaff && (
@@ -426,8 +493,12 @@ function EntryLine({
             ]}
             others={everyone.filter(e => e.id !== entry.id)}
             act={act}
+            keyboardEntryId={entry.id}
           />
           <ShapePicker campaignId={campaignId} entry={entry} act={act} />
+          {entry.side !== 'party' && (
+            <GroupControl entry={entry} everyone={groupKin} act={act} />
+          )}
           <Button
             size="sm"
             variant={entry.concentrating ? 'flat' : 'light'}
@@ -579,11 +650,11 @@ export function InitiativeTracker({
     >
       <ol className="divide-y divide-line">
         <CountdownRows effects={state.effects} isStaff={isStaff} act={act} />
-        {state.entries.map((e, i) => (
+        {state.entries.map(e => (
           <EntryLine
             key={e.id}
             entry={e}
-            current={i === enc.turnIndex}
+            current={state.turnEntryIds.includes(e.id)}
             isStaff={isStaff}
             isYours={
               e.characterId != null && e.characterId === state.viewerCharacterId
@@ -591,6 +662,11 @@ export function InitiativeTracker({
             act={act}
             effects={state.effects}
             everyone={everyone}
+            groupKin={state.entries.map(x => ({
+              id: x.id,
+              label: x.label,
+              groupId: x.groupId,
+            }))}
             encounterId={enc.id}
             campaignId={campaignId}
             refresh={refresh}
@@ -600,6 +676,19 @@ export function InitiativeTracker({
               !!onBoard &&
               !onBoard.has(e.id) &&
               state.battlemap?.encounterId === enc.id
+            }
+            waiting={
+              e.characterId
+                ? state.checks.filter(
+                    c =>
+                      c.status === 'open' &&
+                      c.targets.some(
+                        t =>
+                          t.characterId === e.characterId &&
+                          t.status === 'waiting'
+                      )
+                  ).length
+                : 0
             }
             placing={placement?.entryId === e.id}
             onPlace={() =>

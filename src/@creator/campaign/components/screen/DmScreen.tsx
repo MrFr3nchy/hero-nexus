@@ -1,10 +1,24 @@
 'use client';
 
 import { Button, Input, Link, Select, SelectItem } from '@heroui/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import { listCharactersAction } from '@/@creator/character/actions';
-import { DiceSpinner, Glyph, Ribbon } from '@/@shared/components/ui';
+import {
+  DiceSpinner,
+  Panel,
+  Ribbon,
+  staleFor,
+  useConfirm,
+  type PanelStatus,
+} from '@/@shared/components/ui';
 import { useCampaignLive } from '@/@shared/hooks/useCampaignLive';
 import { AtTable, useTable } from '@/@shared/table';
 import type { SessionRow } from '@/server/campaign-sessions';
@@ -15,6 +29,8 @@ import {
   SCREEN_COLUMN_COUNTS,
   SCREEN_PANELS,
   SCREEN_PANEL_KEYS,
+  SCREEN_PRESETS,
+  screenPreset,
   type BattleLayout,
   type ScreenLayout,
   type ScreenLayouts,
@@ -22,13 +38,25 @@ import {
   type TableKind,
 } from '../../lib/screen';
 import { BattleArrangement } from './BattleArrangement';
-import { TableRibbon } from './TableRibbon';
-import { createEncounterAction } from '../../actions';
-import { listSessionsAction } from '../../chronicle-actions';
+import { ModeBar } from './ModeBar';
+import {
+  advanceTurnAction,
+  applyHpAction,
+  createEncounterAction,
+} from '../../actions';
+import { undoLastAction } from '../../monster-actions';
+import { useSelectedToken } from '@/@shared/battlemap/selection';
+import { SHORTCUTS, useDmShortcuts } from './useDmShortcuts';
+import { YourTurnBanner } from './YourTurnBanner';
+import {
+  fileUnderSessionAction,
+  listSessionsAction,
+} from '../../chronicle-actions';
 import { getScreenAction, saveScreenAction } from '../../screen-actions';
 import { CanonPanel } from '../CanonPanel';
 import { ChroniclePanel } from '../ChroniclePanel';
 import { DowntimePanel } from '../DowntimePanel';
+import { EncounterPlanner } from '../EncounterPlanner';
 import { LedgerPanel } from '../LedgerPanel';
 import { NotebookPanel } from '../NotebookPanel';
 import { PartyPlayPanel } from '../PartyPlayPanel';
@@ -49,28 +77,40 @@ import { CastPanel } from './CastPanel';
 import { FeedPanel } from './FeedPanel';
 import { StatBlockPanel } from './StatBlockPanel';
 import { unreadWhispers, WhispersPanel } from './WhispersPanel';
-import { ScreenBox } from './ScreenBox';
 import { TimerPanel } from '../session/TimerPanel';
 import { MyHeroPanel } from './MyHeroPanel';
+
+/** "Session 4 · The bridge" — one line per sitting, for the filing select. */
+function SessionChoice({ session }: { session: SessionRow }) {
+  return (
+    <>
+      Session {session.number}
+      {session.title ? ` · ${session.title}` : ''}
+    </>
+  );
+}
 
 /**
  * What the initiative box shows when nothing is trying to kill anybody.
  *
- * The tab version leaves this to `SessionPanel`, which is why the box was
- * simply blank here — a dead panel on a screen whose whole promise is that
- * everything on it is useful. Calling for initiative is one field and a button,
- * so it belongs in the box rather than a tab away.
+ * This is the one place a fight starts from now — the Session tab that used
+ * to carry a copy is gone — so it also carries the filing: a fight can be put
+ * under the sitting it belongs to as it is called, the way the tab allowed,
+ * rather than found and filed from the chronicle afterwards.
  */
 function CallForInitiative({
   campaignId,
+  sessions,
   refresh,
   onError,
 }: {
   campaignId: string;
+  sessions: SessionRow[];
   refresh: () => Promise<void>;
   onError: (message: string) => void;
 }) {
   const [name, setName] = useState('');
+  const [sessionId, setSessionId] = useState('');
   const [busy, setBusy] = useState(false);
 
   return (
@@ -85,6 +125,25 @@ function CallForInitiative({
           value={name}
           onValueChange={setName}
         />
+        {sessions.length > 0 && (
+          <Select
+            aria-label="File under a session"
+            size="sm"
+            className="w-40"
+            placeholder="Unfiled"
+            selectedKeys={sessionId ? [sessionId] : []}
+            onSelectionChange={keys => {
+              const key = Array.from(keys)[0];
+              setSessionId(key ? String(key) : '');
+            }}
+          >
+            {sessions.map(s => (
+              <SelectItem key={s.id} textValue={`Session ${s.number}`}>
+                <SessionChoice session={s} />
+              </SelectItem>
+            ))}
+          </Select>
+        )}
         <Button
           size="sm"
           color="primary"
@@ -93,6 +152,14 @@ function CallForInitiative({
           onPress={async () => {
             setBusy(true);
             const res = await createEncounterAction(campaignId, name);
+            if (res.ok && sessionId) {
+              await fileUnderSessionAction(
+                campaignId,
+                'encounter',
+                res.data.id,
+                sessionId
+              );
+            }
             setBusy(false);
             if (!res.ok) {
               onError(res.error ?? 'Failed to start the encounter.');
@@ -105,6 +172,52 @@ function CallForInitiative({
           Roll for it
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Where a running fight is filed. One line above the order, staff only, and
+ * only when there is a sitting to file it under.
+ */
+function FileFightUnder({
+  campaignId,
+  encounterId,
+  sessions,
+  onError,
+}: {
+  campaignId: string;
+  encounterId: string;
+  sessions: SessionRow[];
+  onError: (message: string) => void;
+}) {
+  if (sessions.length === 0) return null;
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+      <span>File this fight under</span>
+      <Select
+        aria-label="File this fight under a session"
+        size="sm"
+        className="w-44"
+        classNames={{ trigger: 'h-7 min-h-7' }}
+        placeholder="Unfiled"
+        onSelectionChange={async keys => {
+          const key = Array.from(keys)[0];
+          const res = await fileUnderSessionAction(
+            campaignId,
+            'encounter',
+            encounterId,
+            key ? String(key) : null
+          );
+          if (!res.ok) onError(res.error ?? 'Failed to file it.');
+        }}
+      >
+        {sessions.map(s => (
+          <SelectItem key={s.id} textValue={`Session ${s.number}`}>
+            <SessionChoice session={s} />
+          </SelectItem>
+        ))}
+      </Select>
     </div>
   );
 }
@@ -125,14 +238,20 @@ interface ScreenContext {
 }
 
 /**
- * One panel's contents.
+ * One panel's contents — what goes inside the `Panel` chrome.
  *
  * The panels are the ones the campaign page already has — this screen is an
  * arrangement of the app, not a second implementation of it. A quest ticked
  * here is ticked on the Quests tab, because it is the same component reading
  * the same server function.
  */
-function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
+function PanelContents({
+  id,
+  ctx,
+}: {
+  id: ScreenPanelKey;
+  ctx: ScreenContext;
+}) {
   const { live } = ctx;
 
   switch (id) {
@@ -147,6 +266,7 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
         return (
           <CallForInitiative
             campaignId={ctx.campaignId}
+            sessions={ctx.sessions}
             refresh={async () => {
               await live.refresh();
             }}
@@ -155,13 +275,23 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
         );
       }
       return (
-        <InitiativeTracker
-          campaignId={ctx.campaignId}
-          state={live.state}
-          isStaff={ctx.isStaff}
-          refresh={live.refresh}
-          onError={ctx.onError}
-        />
+        <>
+          {ctx.isStaff && live.state.encounter && (
+            <FileFightUnder
+              campaignId={ctx.campaignId}
+              encounterId={live.state.encounter.id}
+              sessions={ctx.sessions}
+              onError={ctx.onError}
+            />
+          )}
+          <InitiativeTracker
+            campaignId={ctx.campaignId}
+            state={live.state}
+            isStaff={ctx.isStaff}
+            refresh={live.refresh}
+            onError={ctx.onError}
+          />
+        </>
       );
 
     case 'mine': {
@@ -175,12 +305,13 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
       const myTurn =
         !!ownEntry &&
         !!enc?.isActive &&
-        live.state?.entries[enc.turnIndex]?.id === ownEntry.id;
+        (live.state?.turnEntryIds.includes(ownEntry.id) ?? false);
       return (
         <MyHeroPanel
           campaignId={ctx.campaignId}
           myCharacters={ctx.myCharacters}
           play={own}
+          live={live.state ?? undefined}
           loadoutKey={own?.loadoutKey}
           clocks={
             ownEntry
@@ -208,6 +339,7 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
       return live.state ? (
         <PartyPlayPanel
           campaignId={ctx.campaignId}
+          state={live.state}
           party={live.state.party}
           entries={live.state.entries}
           effects={live.state.effects}
@@ -410,6 +542,12 @@ function Panel({ id, ctx }: { id: ScreenPanelKey; ctx: ScreenContext }) {
           viewerRole={ctx.viewerRole}
         />
       );
+
+    case 'encounters':
+      // Staff only by `SCREEN_PANELS`, so a player's layout never stores it.
+      return ctx.isStaff ? (
+        <EncounterPlanner campaignId={ctx.campaignId} />
+      ) : null;
   }
 }
 
@@ -447,6 +585,73 @@ function movePanel(
   return { columns };
 }
 
+/* --- what each panel wears ---------------------------------------------- */
+
+/** Panels that read the live state: their dot fills, and slashes when the
+ *  stream is down. Everything else is reference and wears a hollow dot. */
+const LIVE_PANELS: ReadonlySet<ScreenPanelKey> = new Set<ScreenPanelKey>([
+  'sitting',
+  'board',
+  'initiative',
+  'mine',
+  'vitals',
+  'dice',
+  'checks',
+  'attacks',
+  'spells',
+  'statblock',
+  'whispers',
+  'spotlight',
+  'timers',
+  'handouts',
+  'rules',
+  'shop',
+  'feed',
+]);
+
+/** Panels only the DM's side of the table can see: "only you". */
+const HIDDEN_PANELS: ReadonlySet<ScreenPanelKey> = new Set<ScreenPanelKey>([
+  'statblock',
+  'notebook',
+  'encounters',
+]);
+
+/**
+ * Which of the status language's states a panel is in right now, and what
+ * follows the word. One place, so the box grid and the shelf agree.
+ */
+function panelStatus(
+  key: ScreenPanelKey,
+  ctx: {
+    stale: boolean;
+    staleFor: string;
+    badges: Partial<Record<ScreenPanelKey, number>>;
+  }
+): { status: PanelStatus; detail?: ReactNode; badge?: number } {
+  const badge = ctx.badges[key];
+  if (key === 'checks' && badge) {
+    return { status: 'waiting', badge };
+  }
+  if (key === 'mine') return { status: 'yours' };
+  if (HIDDEN_PANELS.has(key)) return { status: 'hidden', badge };
+  if (LIVE_PANELS.has(key)) {
+    return ctx.stale
+      ? { status: 'stale', detail: ctx.staleFor, badge }
+      : { status: 'live', badge };
+  }
+  return { status: 'reference' };
+}
+
+/** The title a panel wears: the registry's label, with the round on the
+ *  order while a fight runs. */
+function panelTitle(key: ScreenPanelKey, ctx: ScreenContext): string {
+  const label = SCREEN_PANELS[key].label;
+  if (key === 'initiative' && ctx.live.state?.encounter?.isActive) {
+    return `${label} · Round ${ctx.live.state.encounter.round}`;
+  }
+  return label;
+}
+
 /* --- the screen -------------------------------------------------------- */
 
 /**
@@ -472,6 +677,7 @@ export function DmScreen({
 
   const live = useCampaignLive(campaign.id);
   const { preferences } = useTable();
+  const { confirm, dialog } = useConfirm();
   const [layouts, setLayouts] = useState<ScreenLayouts | null>(null);
   const [arranging, setArranging] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -483,6 +689,20 @@ export function DmScreen({
   const [dragged, setDragged] = useState<ScreenPanelKey | null>(null);
   const [dropAt, setDropAt] = useState<DropAt | null>(null);
   const columnRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  /*
+   * The stale word names how long ago the last answer landed, so it needs a
+   * clock — but only while the stream is down. Connected, nothing here
+   * ticks; rule 9 keeps the screen still.
+   */
+  const stale = !live.connected && live.updatedAt !== null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!stale) return;
+    const t = setInterval(() => setNow(Date.now()), 5_000);
+    return () => clearInterval(t);
+  }, [stale]);
+  const staleAge = live.updatedAt ? staleFor(now - live.updatedAt) : '';
 
   useEffect(() => {
     getScreenAction(campaign.id)
@@ -516,6 +736,62 @@ export function DmScreen({
     [campaign.id]
   );
 
+  /*
+   * Keyboard for the DM (11). "Highlighted" is the tracker's selected token
+   * — the same selection the stat block reads — else whoever's turn it is.
+   * The handlers are memoised on the live state so the hook rebinds once
+   * per read, not once per render.
+   */
+  const selectedTokenId = useSelectedToken(campaign.id);
+  const shortcutHandlers = useMemo(() => {
+    const st = live.state;
+    const enc = st?.encounter;
+    const highlighted = (() => {
+      if (!st) return null;
+      const token = st.battlemap?.tokens.find(t => t.id === selectedTokenId);
+      if (token?.entryId) return token.entryId;
+      return st.turnEntryIds[0] ?? null;
+    })();
+    const run = async (p: Promise<{ ok: boolean; error?: string }>) => {
+      const res = await p;
+      if (!res.ok) setError(res.error ?? 'That did not take.');
+      await live.refresh();
+    };
+    return {
+      nextTurn: () => {
+        if (enc?.isActive) void run(advanceTurnAction(enc.id, 1));
+      },
+      previousTurn: () => {
+        if (enc?.isActive) void run(advanceTurnAction(enc.id, -1));
+      },
+      hp: (delta: number) => {
+        if (highlighted) void run(applyHpAction(highlighted, delta));
+      },
+      conditions: () => {
+        if (highlighted) {
+          window.dispatchEvent(
+            new CustomEvent('hero-nexus:conditions', {
+              detail: { entryId: highlighted },
+            })
+          );
+        }
+      },
+      toggleShelf: () => {
+        if (!layouts) return;
+        const merged = {
+          ...layouts,
+          battle: { ...layouts.battle, shelfOpen: !layouts.battle.shelfOpen },
+        };
+        setLayouts(merged);
+        void save(merged);
+      },
+      undo: () => {
+        void run(undoLastAction(campaign.id));
+      },
+    };
+  }, [live.state, live.refresh, selectedTokenId, layouts, campaign.id, save]);
+  const shortcuts = useDmShortcuts(isStaff, shortcutHandlers);
+
   if (!layouts) {
     return (
       <div className="flex h-full items-center justify-center bg-bg">
@@ -528,11 +804,21 @@ export function DmScreen({
    * Which table this screen is set for: the viewer's pin if they have one,
    * else what the campaign is at, else the table while the first read lands.
    * The arrangement follows it — and so does the shape, because the sand
-   * table is not columns but a board with a shelf.
+   * table is not columns but a board with a shelf. Unless the board is a
+   * real one on a real table: then the fight is columns too, with the order
+   * where the board would be.
    */
   const current: TableKind = layouts.pin ?? live.state?.table ?? 'table';
-  const layout: ScreenLayout =
-    current === 'battle' ? layouts.table : layouts[current];
+  const inPerson = live.state?.rules.board === 'in-person';
+  const arrangementKey: 'desk' | 'table' | 'battleInPerson' =
+    current === 'battle'
+      ? inPerson
+        ? 'battleInPerson'
+        : // The board-and-shelf branch renders below; this is only the
+          // fallback the grid code reads while it is not on screen.
+          'table'
+      : current;
+  const layout: ScreenLayout = layouts[arrangementKey];
 
   const setPin = async (pin: TableKind | null) => {
     const next = { ...layouts, pin };
@@ -583,19 +869,40 @@ export function DmScreen({
       }
     : {};
 
+  const statusCtx = { stale, staleFor: staleAge, badges };
+
   const columnCount = layout.columns.length;
   const onScreen = panelsOn(layout);
+  // At a table with a real map there is no board to offer.
   const allowed = SCREEN_PANEL_KEYS.filter(
-    key => isStaff || SCREEN_PANELS[key].players
+    key =>
+      (isStaff || SCREEN_PANELS[key].players) && !(inPerson && key === 'board')
   );
   const spare = allowed.filter(key => !onScreen.includes(key));
 
   const change = (next: ScreenLayout) => {
     // Written into the arrangement for the table the screen is set to, and
-    // never into the battle one, which is a different shape.
-    const key: 'desk' | 'table' = current === 'desk' ? 'desk' : 'table';
-    setLayouts({ ...layouts, [key]: next });
+    // never into the board-and-shelf one, which is a different shape.
+    setLayouts({ ...layouts, [arrangementKey]: next });
     setDirty(true);
+  };
+
+  /**
+   * A preset overwrites every arrangement but the pin. The confirm is the
+   * price of a one-press screen: what it replaces may have been arranged by
+   * hand over a season.
+   */
+  const applyPreset = async (key: string) => {
+    const preset = screenPreset(key);
+    if (!preset) return;
+    const ok = await confirm({
+      title: `${preset.label}?`,
+      body: `${preset.line} This replaces how every table is arranged now.`,
+      confirmLabel: 'Arrange it',
+    });
+    if (!ok) return;
+    setArranging(false);
+    await save({ ...preset.layouts(isStaff), pin: layouts.pin });
   };
 
   /** Which slot in a column the pointer is nearest, by box midpoints. */
@@ -627,6 +934,7 @@ export function DmScreen({
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg">
+      {dialog}
       <AtTable campaignId={campaign.id} />
 
       {/* One bar, not a page header: every row of chrome up here is a row of
@@ -637,7 +945,7 @@ export function DmScreen({
           {isStaff ? 'Behind the screen' : 'At the table'}
         </Ribbon>
         {live.state && (
-          <TableRibbon
+          <ModeBar
             campaignId={campaign.id}
             state={live.state}
             isStaff={isStaff}
@@ -646,7 +954,27 @@ export function DmScreen({
             onPin={setPin}
             refresh={live.refresh}
             onError={setError}
+            typing={shortcuts.typing}
+            onHelp={() => shortcuts.setHelp(!shortcuts.help)}
           />
+        )}
+        {shortcuts.help && (
+          <div
+            role="dialog"
+            aria-label="Keyboard shortcuts"
+            className="basis-full rounded-md border border-line bg-surface-2 px-3 py-2"
+          >
+            <ul className="grid gap-x-6 gap-y-0.5 text-xs sm:grid-cols-2">
+              {SHORTCUTS.map(sc => (
+                <li key={sc.keys} className="flex gap-2">
+                  <span className="w-32 shrink-0 font-mono text-ink">
+                    {sc.keys}
+                  </span>
+                  <span className="text-ink-muted">{sc.does}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {live.error && (
@@ -655,7 +983,7 @@ export function DmScreen({
         {error && <span className="text-xs text-danger">{error}</span>}
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {arranging && current !== 'battle' && (
+          {arranging && (current !== 'battle' || inPerson) && (
             <>
               <Select
                 aria-label="How many columns"
@@ -710,16 +1038,42 @@ export function DmScreen({
             </>
           )}
 
+          {/* The choice first, the canvas behind it: a DM mid-session wants
+              a sensible screen in one press, and arranging by hand is the
+              escape hatch, not the front door. */}
+          {!arranging && (
+            <Select
+              aria-label="Arrange the screen as"
+              size="sm"
+              className="w-44"
+              classNames={{ trigger: 'h-8 min-h-8' }}
+              placeholder="Arrange as…"
+              selectedKeys={[]}
+              onSelectionChange={keys => {
+                const key = Array.from(keys)[0];
+                if (key) void applyPreset(String(key));
+              }}
+            >
+              {SCREEN_PRESETS.map(p => (
+                <SelectItem key={p.key} textValue={p.label}>
+                  <span className="flex flex-col">
+                    <span>{p.label}</span>
+                    <span className="text-xs text-ink-subtle">{p.line}</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </Select>
+          )}
           <Button
             size="sm"
-            variant={arranging ? 'solid' : 'flat'}
+            variant={arranging ? 'solid' : 'light'}
             color={arranging ? 'primary' : 'default'}
             onPress={async () => {
               if (arranging && dirty) await save(layouts);
               setArranging(!arranging);
             }}
           >
-            {arranging ? (dirty ? 'Save the screen' : 'Done') : 'Arrange'}
+            {arranging ? (dirty ? 'Save the screen' : 'Done') : 'Customise'}
           </Button>
           <Button
             as={Link}
@@ -731,13 +1085,23 @@ export function DmScreen({
           </Button>
         </div>
       </header>
+      {/* The reader's own turn, across the top until it is over (12). */}
+      {live.state && !isStaff && (
+        <YourTurnBanner
+          state={live.state}
+          refresh={live.refresh}
+          onError={setError}
+        />
+      )}
 
-      {current === 'battle' && live.state ? (
+      {current === 'battle' && live.state && !inPerson ? (
         <BattleArrangement
           layout={layouts.battle}
           arranging={arranging}
           isStaff={isStaff}
           badges={badges}
+          wear={key => panelStatus(key, statusCtx)}
+          titleOf={key => panelTitle(key, ctx)}
           onChange={changeBattle}
           board={fitHeight => (
             <BattleBoard
@@ -749,13 +1113,13 @@ export function DmScreen({
               fitHeight={fitHeight}
             />
           )}
-          renderPanel={key => <Panel id={key} ctx={ctx} />}
+          renderPanel={key => <PanelContents id={key} ctx={ctx} />}
         />
       ) : (
-        /* The desk and the table: columns of equal standing, with the fold
-         given a grid column of its own so it always lands in a gutter and
-         never crosses a box. Below `lg` the columns stack and the fold goes:
-         a phone has no middle. */
+        /* The desk, the table, and a fight around a real map: columns of
+         equal standing, with the fold given a grid column of its own so it
+         always lands in a gutter and never crosses a box. Below `lg` the
+         columns stack and the fold goes: a phone has no middle. */
         <div
           className="grid min-h-0 flex-1 gap-2 p-2 max-lg:!grid-cols-1 max-lg:overflow-y-auto"
           style={{
@@ -819,7 +1183,7 @@ export function DmScreen({
                 )}
 
                 {column.map((key, boxIndex) => {
-                  const meta = SCREEN_PANELS[key];
+                  const wear = panelStatus(key, statusCtx);
                   return (
                     <div key={key} className="contents">
                       {dragged &&
@@ -830,31 +1194,65 @@ export function DmScreen({
                             className="h-0.5 shrink-0 rounded bg-gold"
                           />
                         )}
-                      <ScreenBox
-                        id={key}
-                        title={meta.label}
-                        glyph={<Glyph name={meta.glyph} size={13} />}
-                        available={[key, ...spare]}
+                      <Panel
+                        title={panelTitle(key, ctx)}
+                        status={wear.status}
+                        statusDetail={wear.detail}
+                        badge={wear.badge}
                         arranging={arranging}
                         dragging={dragged === key}
-                        onDragStart={() => setDragged(key)}
+                        onDragStart={event => {
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', key);
+                          setDragged(key);
+                        }}
                         onDragEnd={() => {
                           setDragged(null);
                           setDropAt(null);
                         }}
-                        onSwap={next =>
-                          change({
-                            columns: layout.columns.map(col =>
-                              col.map(k => (k === key ? next : k))
-                            ),
-                          })
-                        }
                         onRemove={() =>
                           change({ columns: withoutPanel(layout, key) })
                         }
+                        arrangeControls={
+                          <Select
+                            aria-label={`Swap ${SCREEN_PANELS[key].label} for another panel`}
+                            size="sm"
+                            variant="flat"
+                            className="w-36"
+                            classNames={{ trigger: 'h-6 min-h-6' }}
+                            selectedKeys={[key]}
+                            onSelectionChange={keys => {
+                              const next = Array.from(keys)[0];
+                              if (next && next !== key) {
+                                change({
+                                  columns: layout.columns.map(col =>
+                                    col.map(k =>
+                                      k === key
+                                        ? (String(next) as ScreenPanelKey)
+                                        : k
+                                    )
+                                  ),
+                                });
+                              }
+                            }}
+                          >
+                            {[key, ...spare].map(k => (
+                              <SelectItem
+                                key={k}
+                                textValue={SCREEN_PANELS[k].label}
+                              >
+                                {SCREEN_PANELS[k].label}
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        }
+                        className="flex-1"
+                        // The board draws its own scroller and fits itself
+                        // to the box; anything else scrolls here.
+                        scroll={key !== 'board'}
                       >
-                        <Panel id={key} ctx={ctx} />
-                      </ScreenBox>
+                        <PanelContents id={key} ctx={ctx} />
+                      </Panel>
                     </div>
                   );
                 })}

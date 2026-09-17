@@ -23,7 +23,7 @@ export default function AboutPage() {
     <PageShell>
       <PageHeader
         title="Hero Nexus"
-        description="A campaign organiser you run yourself."
+        description="A campaign organizer you run yourself."
       />
 
       <div className="divide-y divide-line">

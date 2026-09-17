@@ -23,7 +23,6 @@
     "@auth/drizzle-adapter": "^1.10.0",
     "@heroui/react": "^2.8.2",
     "@hookform/resolvers": "^5.1.1",
-    "@iconify/react": "^6.0.0",
     "@node-rs/argon2": "^2.0.2",
     "@types/three": "^0.185.4",
     "autoprefixer": "^10.4.21",

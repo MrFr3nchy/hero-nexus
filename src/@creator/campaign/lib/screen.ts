@@ -37,6 +37,7 @@ export const SCREEN_PANEL_KEYS = [
   'canon',
   'chronicle',
   'downtime',
+  'encounters',
 ] as const;
 
 export type ScreenPanelKey = (typeof SCREEN_PANEL_KEYS)[number];
@@ -242,6 +243,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     description: 'What the party is doing between sittings.',
     players: true,
   },
+  encounters: {
+    key: 'encounters',
+    label: 'Fights planned',
+    glyph: 'crossed-swords',
+    description: 'Ambushes built ahead of time, ready to deal out.',
+    // Prep, not play: the ambush the party has not walked into yet.
+    players: false,
+  },
 };
 
 /**
@@ -378,6 +387,14 @@ export interface ScreenLayouts {
   table: ScreenLayout;
   battle: BattleLayout;
   /**
+   * The sand table when the table's board is a real one (`rules.board` is
+   * `'in-person'`): columns like the desk and the table, because there is no
+   * board to lead with, and the order leads instead. A fourth arrangement
+   * rather than a reuse of `table`, so a DM's in-session and in-fight screens
+   * can differ — which is the point of having three tables.
+   */
+  battleInPerson: ScreenLayout;
+  /**
    * Pin the screen to one table regardless of what the campaign is at: a
    * player who wants the board up between fights, a DM checking a note
    * mid-sitting. A preference, not a fact about the campaign — which is why it
@@ -428,13 +445,263 @@ export function defaultBattleLayout(isStaff: boolean): BattleLayout {
   };
 }
 
+/**
+ * The fight at a table with a real map: the order and the party's numbers
+ * lead, with the hourglass, the asking and what the party knows beside them.
+ * Explicitly not the board — nobody at this table is looking at one.
+ */
+export function defaultInPersonBattleLayout(isStaff: boolean): ScreenLayout {
+  return isStaff
+    ? {
+        columns: [
+          ['initiative', 'vitals'],
+          ['statblock', 'checks'],
+          ['timers', 'reveals'],
+        ],
+      }
+    : {
+        columns: [
+          ['initiative', 'mine'],
+          ['attacks', 'checks'],
+          ['timers', 'reveals'],
+        ],
+      };
+}
+
 export function defaultLayouts(isStaff: boolean): ScreenLayouts {
   return {
     desk: defaultDeskLayout(isStaff),
     table: defaultLayout(isStaff),
     battle: defaultBattleLayout(isStaff),
+    battleInPerson: defaultInPersonBattleLayout(isStaff),
     pin: null,
   };
+}
+
+/* --- presets ------------------------------------------------------------- */
+
+/**
+ * A preset is a named `ScreenLayouts` value and nothing more: applying one is
+ * an ordinary save, and it round-trips through `normalizeLayouts` unchanged
+ * (asserted, not assumed — see `scripts/`). A DM mid-session wants a choice,
+ * not a canvas; arranging by hand is the escape hatch behind it.
+ *
+ * Each preset sets all four arrangements. The pin is left alone: it is the
+ * viewer's, and a preset is about what the boxes hold, not which table the
+ * screen is held at.
+ */
+export interface ScreenPreset {
+  key: string;
+  label: string;
+  /** One line, like `TABLE_META`. */
+  line: string;
+  layouts: (isStaff: boolean) => Omit<ScreenLayouts, 'pin'>;
+}
+
+const withoutPin = (layouts: ScreenLayouts): Omit<ScreenLayouts, 'pin'> => {
+  const { desk, table, battle, battleInPerson } = layouts;
+  return { desk, table, battle, battleInPerson };
+};
+
+export const SCREEN_PRESETS: readonly ScreenPreset[] = [
+  {
+    key: 'default',
+    label: 'The house screen',
+    line: 'Where every screen starts. Prep at the desk, the room at the table, the board in a fight.',
+    layouts: isStaff => withoutPin(defaultLayouts(isStaff)),
+  },
+  {
+    key: 'combat',
+    label: 'Combat forward',
+    line: 'The order, the foe and the numbers up front at every table.',
+    layouts: isStaff => ({
+      desk: isStaff
+        ? {
+            columns: [
+              ['encounters', 'notebook'],
+              ['quests', 'chronicle'],
+              ['canon', 'ledger'],
+            ],
+          }
+        : {
+            columns: [
+              ['mine', 'quests'],
+              ['reveals', 'chronicle'],
+              ['ledger', 'canon'],
+            ],
+          },
+      table: isStaff
+        ? {
+            columns: [
+              ['initiative', 'vitals'],
+              ['statblock', 'checks'],
+              ['dice', 'whispers'],
+            ],
+          }
+        : {
+            columns: [
+              ['initiative', 'mine'],
+              ['attacks', 'spells'],
+              ['dice', 'checks'],
+            ],
+          },
+      battle: {
+        shelf: isStaff
+          ? ['initiative', 'statblock', 'vitals', 'dice']
+          : ['initiative', 'mine', 'attacks', 'spells', 'dice'],
+        shelfOpen: true,
+        folded: [],
+        shelfSide: 'right',
+      },
+      battleInPerson: isStaff
+        ? {
+            columns: [
+              ['initiative', 'vitals'],
+              ['statblock', 'conditions'],
+              ['dice', 'checks'],
+            ],
+          }
+        : {
+            columns: [
+              ['initiative', 'mine'],
+              ['attacks', 'spells'],
+              ['dice', 'checks'],
+            ],
+          },
+    }),
+  },
+  {
+    key: 'roleplay',
+    label: 'Roleplay forward',
+    line: 'Whispers, what the party knows and the notebook lead; the dice wait their turn.',
+    layouts: isStaff => ({
+      desk: isStaff
+        ? {
+            columns: [
+              ['notebook', 'canon'],
+              ['quests', 'reveals'],
+              ['chronicle', 'downtime'],
+            ],
+          }
+        : {
+            columns: [
+              ['reveals', 'canon'],
+              ['quests', 'chronicle'],
+              ['downtime', 'ledger'],
+            ],
+          },
+      table: isStaff
+        ? {
+            columns: [
+              ['notebook', 'whispers'],
+              ['spotlight', 'reveals'],
+              ['checks', 'feed'],
+            ],
+          }
+        : {
+            columns: [
+              ['whispers', 'reveals'],
+              ['spotlight', 'checks'],
+              ['handouts', 'feed'],
+            ],
+          },
+      battle: {
+        shelf: isStaff
+          ? ['initiative', 'whispers', 'notebook', 'dice']
+          : ['initiative', 'mine', 'whispers', 'dice'],
+        shelfOpen: true,
+        folded: [],
+        shelfSide: 'right',
+      },
+      battleInPerson: isStaff
+        ? {
+            columns: [
+              ['initiative', 'whispers'],
+              ['notebook', 'checks'],
+              ['timers', 'reveals'],
+            ],
+          }
+        : {
+            columns: [
+              ['initiative', 'mine'],
+              ['whispers', 'checks'],
+              ['timers', 'reveals'],
+            ],
+          },
+    }),
+  },
+  {
+    key: 'in-person',
+    label: 'Around a real map',
+    line: 'Built for a table with a physical board: the order and the timer lead, and nothing draws a grid.',
+    layouts: isStaff => ({
+      desk: defaultDeskLayout(isStaff),
+      table: isStaff
+        ? {
+            columns: [
+              ['initiative', 'vitals'],
+              ['notebook', 'checks'],
+              ['timers', 'reveals'],
+            ],
+          }
+        : {
+            columns: [
+              ['mine', 'initiative'],
+              ['checks', 'whispers'],
+              ['timers', 'reveals'],
+            ],
+          },
+      battle: {
+        shelf: isStaff
+          ? ['initiative', 'vitals', 'timers', 'checks']
+          : ['initiative', 'mine', 'timers', 'checks'],
+        shelfOpen: true,
+        folded: [],
+        shelfSide: 'right',
+      },
+      battleInPerson: defaultInPersonBattleLayout(isStaff),
+    }),
+  },
+  {
+    key: 'everything',
+    label: 'Everything',
+    line: 'Every box you may have, four columns, at every table. For a big monitor.',
+    layouts: isStaff => {
+      const keys = SCREEN_PANEL_KEYS.filter(
+        k => (isStaff || SCREEN_PANELS[k].players) && k !== 'board'
+      );
+      const four = (order: readonly ScreenPanelKey[]): ScreenLayout => {
+        const columns: ScreenPanelKey[][] = [[], [], [], []];
+        order.forEach((k, i) => columns[i % 4].push(k));
+        return { columns };
+      };
+      // The desk leads with prep, the table with the room, the fight with the
+      // order; the rest follows in registry order.
+      const lead = (first: readonly ScreenPanelKey[]) => [
+        ...first.filter(k => keys.includes(k)),
+        ...keys.filter(k => !first.includes(k)),
+      ];
+      return {
+        desk: four(
+          lead(['notebook', 'encounters', 'quests', 'chronicle', 'canon'])
+        ),
+        table: four(lead(['sitting', 'initiative', 'vitals', 'checks'])),
+        battle: {
+          shelf: lead(['initiative', 'statblock', 'mine', 'dice']),
+          shelfOpen: true,
+          folded: [],
+          shelfSide: 'both',
+        },
+        battleInPerson: four(
+          lead(['initiative', 'vitals', 'statblock', 'timers'])
+        ),
+      };
+    },
+  },
+];
+
+export function screenPreset(key: string): ScreenPreset | undefined {
+  return SCREEN_PRESETS.find(p => p.key === key);
 }
 
 /**
@@ -477,8 +744,13 @@ export function normalizeLayouts(
   }
 
   return {
-    desk: src.desk ? normalizeLayout(src.desk, isStaff) : base.desk,
+    desk: src.desk ? normalizeLayout(src.desk, isStaff, base.desk) : base.desk,
     table: src.table ? normalizeLayout(src.table, isStaff) : base.table,
+    // A row written before the in-person arrangement existed reads as the
+    // default one, the same way a missing `desk` does.
+    battleInPerson: src.battleInPerson
+      ? normalizeLayout(src.battleInPerson, isStaff, base.battleInPerson)
+      : base.battleInPerson,
     battle: {
       shelf: kept,
       shelfOpen: battleRaw.shelfOpen ?? true,
@@ -514,7 +786,13 @@ export function panelsOn(layout: ScreenLayout): ScreenPanelKey[] {
  * arranged before this became a column grid survives as its first two columns
  * rather than being silently reset to the default.
  */
-export function normalizeLayout(raw: unknown, isStaff: boolean): ScreenLayout {
+export function normalizeLayout(
+  raw: unknown,
+  isStaff: boolean,
+  /** What an arrangement with nothing left on it becomes. The table's, unless
+   *  the caller is reading a different arrangement. */
+  fallback: ScreenLayout = defaultLayout(isStaff)
+): ScreenLayout {
   const source = (raw ?? {}) as {
     columns?: unknown;
     main?: unknown;
@@ -547,6 +825,6 @@ export function normalizeLayout(raw: unknown, isStaff: boolean): ScreenLayout {
   // about to drop something into, and closing it up would move every box on
   // the screen while you were looking away.
   const columns = stored.slice(0, Math.max(...SCREEN_COLUMN_COUNTS));
-  if (columns.every(c => c.length === 0)) return defaultLayout(isStaff);
+  if (columns.every(c => c.length === 0)) return fallback;
   return { columns: columns.length > 0 ? columns : [[]] };
 }
