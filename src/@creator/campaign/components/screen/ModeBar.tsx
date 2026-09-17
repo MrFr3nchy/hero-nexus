@@ -9,6 +9,7 @@ import { TABLE_KINDS, TABLE_META, type TableKind } from '../../lib/screen';
 import { createEncounterAction, endEncounterAction } from '../../actions';
 import { closeSittingAction, openSittingAction } from '../../chronicle-actions';
 import { setTableModeAction } from '../../rules-actions';
+import { WorldClockControl } from './WorldClockControl';
 
 /**
  * The mode bar: the three tables in a row, the one the campaign is at lit,
@@ -130,6 +131,15 @@ export function ModeBar({
             );
           })}
         </div>
+
+        {/* The world's clock (10): read by everyone, moved by staff. */}
+        <WorldClockControl
+          campaignId={campaignId}
+          clock={state.clock}
+          isStaff={isStaff}
+          refresh={refresh}
+          onError={onError}
+        />
 
         {isStaff && (
           <Tooltip

@@ -13,7 +13,7 @@ import { db } from '@/db';
 import { campaignMembers, campaignRests } from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
-import { applyRestUnchecked, spendHitDice } from './play';
+import { applyRestUnchecked, spendHitDice, type HitDiceResult } from './play';
 import { readWorldClock, advanceTimeAs, resetSleep } from './world-time';
 import { effectiveRules } from './table-rules';
 import { requireUserId } from './session-user';
@@ -133,7 +133,7 @@ export async function restSpendHitDice(
   characterId: string,
   count: number,
   faces?: number[]
-): Promise<RestRow> {
+): Promise<{ rest: RestRow; roll: HitDiceResult['roll']; physical: boolean }> {
   await ownSeat(campaignId, characterId);
   const rest = await openRest(campaignId);
   if (!rest) throw new Error('NO_REST');
@@ -149,7 +149,11 @@ export async function restSpendHitDice(
     .set({ answers })
     .where(eq(campaignRests.id, rest.id));
   bumpVersion(campaignId);
-  return { ...rest, answers };
+  return {
+    rest: { ...rest, answers },
+    roll: result.roll,
+    physical: result.physical,
+  };
 }
 
 /** "I'm done." A player for their own hero; staff for anybody. */

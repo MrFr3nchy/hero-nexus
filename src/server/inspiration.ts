@@ -153,7 +153,7 @@ export async function rerollWithInspiration(
     ),
   });
   if (!roll || !roll.characterId) throw new Error('NOT_FOUND');
-  if (!/\bd20\b/i.test(roll.notation)) throw new Error('NOT_A_D20');
+  if (!/d20(?!\d)/i.test(roll.notation)) throw new Error('NOT_A_D20');
   if (/Heroic Inspiration/.test(roll.label))
     throw new Error('ALREADY_REROLLED');
 

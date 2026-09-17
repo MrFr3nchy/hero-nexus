@@ -1,5 +1,23 @@
 # 10 — The world's clock: a calendar, days, rests, and growing up
 
+**Status: built** (`feat/improvements-10-time-calendar-rests-progression`, on top
+of 13). Departures: the level-up flag is derived (`xpStanding` off `identity.xp`,
+as `PlayState.levelEarned`) rather than stored — the builder's save is still
+what clears it, by writing the level. Survival is simpler than written: a
+carried ration (by name) is eaten one a day, a carried waterskin is a day's
+water and is not used up, a dry day is a level of exhaustion outright (no
+half-ration DC 15 save), and sleep counts hours awake across every advance,
+one level per 24 — the day tick writes one history line per advance carrying
+the tally, not one per day. The DM's **Provisions** card on the party panel
+zeroes any count by hand. `ends_at_world` on sheet conditions, class-feature
+`recharge` uses, and the prepared-spells prompt on a long rest were not built;
+the loadout already offers preparing. The canon, journal and downtime
+`world_date` columns exist (0057) and the chronicle reads a sitting's; the
+"when" editors on canon and journal pages are not built. A `rest` event kind
+was added beside `time` and `levelup`, because a rest being called is a moment
+the players have to answer. Heroic Inspiration's dawn regain is off the species
+name (`human`), since species data carries no flag.
+
 Covers from `improvements.txt`: _day and sleep cycles / a DM-editable
 calendar_, _survival (food, water, sleep)_, _rests as a flow_, _level-up at the
 table_, _Heroic Inspiration_, and `survival` / `rests` from 01.

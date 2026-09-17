@@ -3,12 +3,12 @@
 import { useEffect, useState } from 'react';
 
 import { CandleScene, EmptyState, SectionCard } from '@/@shared/components/ui';
-import { Button } from '@heroui/react';
 
 import type { PlayState } from '@/server/play';
 import type { LiveState } from '@/server/session';
-import { restPartyAction } from '../play-actions';
 import { PlayCard } from './PlayCard';
+import { CallRest, RestSheet } from './session/RestPanel';
+import { Provisions } from './session/Provisions';
 
 /**
  * The party as it stands right now.
@@ -25,6 +25,7 @@ import { PlayCard } from './PlayCard';
  */
 export function PartyPlayPanel({
   campaignId,
+  state,
   party: live,
   entries = [],
   effects = [],
@@ -33,6 +34,8 @@ export function PartyPlayPanel({
   onError,
 }: {
   campaignId: string;
+  /** The whole live read, for the rest in progress and the clock (10). */
+  state: LiveState;
   party: LiveState['party'];
   /** The fight's order and its clocks, so a card can show its own count. */
   entries?: LiveState['entries'];
@@ -50,15 +53,6 @@ export function PartyPlayPanel({
   const [local, setLocal] = useState<PlayState[]>(live);
   useEffect(() => setLocal(live), [live]);
   const party = local;
-
-  const callRest = async (kind: 'short' | 'long') => {
-    const res = await restPartyAction(campaignId, kind);
-    if (!res.ok) {
-      onError(res.error);
-      return;
-    }
-    await refresh();
-  };
 
   const replace = (next: PlayState) =>
     setLocal(prev =>
@@ -96,20 +90,37 @@ export function PartyPlayPanel({
       description="Hit points, hit dice, slots — the numbers that move mid-fight."
       bodyClassName="space-y-3"
       actions={
-        isStaff && (
-          <>
-            {/* "You take a long rest" is one sentence at the table and was
-                five separate presses here, with the fifth forgotten. */}
-            <Button size="sm" variant="flat" onPress={() => callRest('short')}>
-              Short rest
-            </Button>
-            <Button size="sm" variant="flat" onPress={() => callRest('long')}>
-              Long rest
-            </Button>
-          </>
+        isStaff &&
+        !state.rest && (
+          // "You take a long rest" is one sentence at the table; here it is
+          // one press that asks each player for their hit dice, then a
+          // confirm (10). The sheet it opens is drawn below.
+          <CallRest
+            campaignId={campaignId}
+            rules={state.rules}
+            refresh={refresh}
+            onError={onError}
+          />
         )
       }
     >
+      {state.rest && (
+        <RestSheet
+          campaignId={campaignId}
+          state={state}
+          isStaff={isStaff}
+          refresh={refresh}
+          onError={onError}
+        />
+      )}
+      {isStaff && (
+        <Provisions
+          campaignId={campaignId}
+          state={state}
+          refresh={refresh}
+          onError={onError}
+        />
+      )}
       {mine.map(p => (
         <PlayCard
           key={p.characterId}
@@ -118,6 +129,8 @@ export function PartyPlayPanel({
           canRollSecret={isStaff}
           physicalDice={p.physicalDice}
           clocks={clocksFor(p.characterId)}
+          restOpen={state.rest?.kind ?? null}
+          onRest={refresh}
           onChange={replace}
           onError={onError}
         />
@@ -135,6 +148,9 @@ export function PartyPlayPanel({
               physicalDice={p.physicalDice}
               clocks={clocksFor(p.characterId)}
               compact={!isStaff}
+              restOpen={state.rest?.kind ?? null}
+              canInspire={isStaff}
+              onRest={refresh}
               onChange={replace}
               onError={onError}
             />

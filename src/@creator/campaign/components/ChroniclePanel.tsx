@@ -13,6 +13,10 @@ import {
   useConfirm,
 } from '@/@shared/components/ui';
 import { formatCalendarDate, toDateInputValue } from '@/@shared/lib/dates';
+import {
+  format as formatWorld,
+  type CalendarDef,
+} from '@/@creator/campaign/lib/calendar';
 import type { CampaignRole } from '@/server/campaigns';
 import type {
   AttendanceStatus,
@@ -60,6 +64,7 @@ function SessionEntry({
   campaignId,
   viewerId,
   session,
+  calendar,
   isStaff,
   refresh,
   onError,
@@ -67,6 +72,8 @@ function SessionEntry({
   campaignId: string;
   viewerId: string;
   session: SessionRow;
+  /** The world's calendar (10), to read the date the sitting opened on. */
+  calendar?: CalendarDef;
   isStaff: boolean;
   refresh: () => Promise<void>;
   onError: (message: string) => void;
@@ -127,6 +134,11 @@ function SessionEntry({
           { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' },
           'No date set'
         );
+  // Both dates (10): the real one the table met on, and the world's.
+  const worldLine =
+    calendar && session.worldDate
+      ? formatWorld(calendar, session.worldDate, 'date')
+      : null;
 
   // Only a played sitting has a register: `status` is null before the night,
   // so "at the table" would otherwise list everyone who had merely answered.
@@ -163,7 +175,15 @@ function SessionEntry({
               <h3 className="font-display text-lg text-ink">
                 {session.title || `Session ${session.number}`}
               </h3>
-              <p className="text-xs text-ink-subtle">{dateLine}</p>
+              <p className="text-xs text-ink-subtle">
+                {dateLine}
+                {worldLine && (
+                  <span className="text-gold-strong/80 dark:text-gold/80">
+                    {' '}
+                    · {worldLine}
+                  </span>
+                )}
+              </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-1.5">
               {/* Planned steps down to the quiet tone now that there is a
@@ -492,10 +512,13 @@ export function ChroniclePanel({
   campaignId,
   viewerId,
   viewerRole,
+  calendar,
 }: {
   campaignId: string;
   viewerId: string;
   viewerRole: CampaignRole;
+  /** The world's calendar (10), for the date each sitting opened on. */
+  calendar?: CalendarDef;
 }) {
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
 
@@ -635,6 +658,7 @@ export function ChroniclePanel({
                 campaignId={campaignId}
                 viewerId={viewerId}
                 session={s}
+                calendar={calendar}
                 isStaff={isStaff}
                 refresh={refresh}
                 onError={setError}

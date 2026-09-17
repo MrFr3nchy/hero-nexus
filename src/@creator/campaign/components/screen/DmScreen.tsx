@@ -302,6 +302,7 @@ function PanelContents({
           campaignId={ctx.campaignId}
           myCharacters={ctx.myCharacters}
           play={own}
+          live={live.state ?? undefined}
           loadoutKey={own?.loadoutKey}
           clocks={
             ownEntry
@@ -329,6 +330,7 @@ function PanelContents({
       return live.state ? (
         <PartyPlayPanel
           campaignId={ctx.campaignId}
+          state={live.state}
           party={live.state.party}
           entries={live.state.entries}
           effects={live.state.effects}

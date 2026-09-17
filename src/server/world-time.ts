@@ -167,6 +167,11 @@ export async function advanceTimeAs(
 
 /* --- the day tick --------------------------------------------------------- */
 
+const EMPTY_SURVIVAL = {
+  daysWithoutFood: 0,
+  daysWithoutWater: 0,
+  hoursAwake: 0,
+};
 const RATION = /\bration/i;
 const WATER = /\bwater(skin)?\b/i;
 
@@ -190,7 +195,8 @@ export function tickSheet(
   if (!rules.food && !rules.water && !rules.sleep) return { sheet, notes: [] };
   if (days <= 0 && (!rules.sleep || minutes <= 0)) return { sheet, notes: [] };
   const notes: string[] = [];
-  const survival = { ...sheet.survival };
+  // Stored sheets predate the field; the row is read raw, not parsed.
+  const survival = { ...EMPTY_SURVIVAL, ...(sheet.survival ?? {}) };
   const combat = { ...sheet.combat };
   let inventory = sheet.inventory;
   let exhausted = 0;
@@ -340,7 +346,7 @@ export async function markProvisioned(
   });
   if (!row) throw new Error('NOT_FOUND');
   const sheet = row.sheet as CharacterSheet;
-  const survival = { ...sheet.survival };
+  const survival = { ...EMPTY_SURVIVAL, ...(sheet.survival ?? {}) };
   if (what.food) survival.daysWithoutFood = 0;
   if (what.water) survival.daysWithoutWater = 0;
   if (what.slept) survival.hoursAwake = 0;
@@ -359,11 +365,14 @@ export async function resetSleep(characterIds: string[]): Promise<void> {
     });
     if (!row) continue;
     const sheet = row.sheet as CharacterSheet;
-    if (sheet.survival.hoursAwake === 0) continue;
+    if (!sheet.survival?.hoursAwake) continue;
     await db
       .update(characters)
       .set({
-        sheet: { ...sheet, survival: { ...sheet.survival, hoursAwake: 0 } },
+        sheet: {
+          ...sheet,
+          survival: { ...EMPTY_SURVIVAL, ...sheet.survival, hoursAwake: 0 },
+        },
         updatedAt: new Date().toISOString(),
       })
       .where(eq(characters.id, id));

@@ -17,6 +17,7 @@ import {
   revokeInspiration,
 } from '@/server/inspiration';
 import type { NotationRoll } from '@/@shared/lib/dice';
+import type { HitDiceResult } from '@/server/play';
 import {
   advanceTime,
   markProvisioned,
@@ -162,7 +163,9 @@ export async function restSpendHitDiceAction(
   characterId: string,
   count: number,
   faces?: unknown
-): Promise<Result<RestRow>> {
+): Promise<
+  Result<{ rest: RestRow; roll: HitDiceResult['roll']; physical: boolean }>
+> {
   const claimed = facesSchema.safeParse(faces);
   try {
     const data = await restSpendHitDice(

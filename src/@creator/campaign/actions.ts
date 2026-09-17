@@ -65,6 +65,7 @@ import {
   type CampaignRow,
 } from '@/server/campaigns';
 import { seatCharacterAtCampaign } from '@/server/characters';
+import { normalizeCalendar } from '@/@creator/campaign/lib/calendar';
 
 const trimmedList = z.array(z.string().trim().min(1).max(80)).max(100);
 
@@ -97,6 +98,8 @@ const settingsSchema = z
      * values in this file is the drift the registry exists to prevent.
      */
     table: z.unknown().transform(sanitizeTableRulesPatch).optional(),
+    /** The world's calendar (10), normalised the same way: `normalizeCalendar`. */
+    calendar: z.unknown().transform(normalizeCalendar).optional(),
   })
   .optional();
 
