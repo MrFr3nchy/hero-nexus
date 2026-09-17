@@ -1394,6 +1394,7 @@ export default function BattleMap3D({
     onSelect,
     selectedId,
     mode,
+    stack,
   });
   latest.current = {
     terrain,
@@ -1405,6 +1406,7 @@ export default function BattleMap3D({
     onSelect,
     selectedId,
     mode,
+    stack,
   };
 
   // Long-lived pieces, created once per mount.
@@ -1489,6 +1491,10 @@ export default function BattleMap3D({
       for (let i = 0; i < terrain.w * terrain.h; i++) {
         if (terrain.material[i] !== VOID)
           tallest = Math.max(tallest, terrain.elevation[i] / FEET_PER_UNIT);
+      }
+      // A house stood up is as tall as its top floor plus a wall.
+      for (const l of latest.current.stack?.levels ?? []) {
+        tallest = Math.max(tallest, l.y + 2.2);
       }
       const corners: THREE.Vector3[] = [];
       for (const x of [0, terrain.w])

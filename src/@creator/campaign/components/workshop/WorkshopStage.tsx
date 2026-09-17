@@ -11,7 +11,7 @@
  * the right picks a floor and the bar at the foot turns, tilts and zooms
  * the camera. Nothing here edits: the flat board is the authoring surface.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { feetLabel, levelOf, type BoardDoc } from '@/@shared/battlemap/types';
 import { Glyph, Marginalia } from '@/@shared/components/ui';
@@ -68,6 +68,11 @@ export function WorkshopStage({
 
   const level = levelOf(doc, levelId);
   const ai = doc.levels.findIndex(l => l.id === level.id);
+  // A new way of standing, or a new floor in front, is framed again.
+  useEffect(() => {
+    const t = setTimeout(() => camera.current?.fit(), 50);
+    return () => clearTimeout(t);
+  }, [mode, ai]);
 
   const stack = useMemo<NonNullable<BattleMap3DProps['stack']>>(() => {
     const yOf = (i: number) =>

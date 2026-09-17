@@ -893,7 +893,7 @@ export function BoardCanvas({
       const thick = Math.max(3, size * 0.16);
       ctx.lineCap = 'butt';
       ctx.setLineDash([]);
-      if (w.kind !== 'rail') {
+      if (w.kind !== 'rail' && w.kind !== 'fence') {
         // The shadow a standing wall throws, so it is not a line on paper.
         ctx.strokeStyle = 'rgba(0,0,0,0.35)';
         ctx.lineWidth = thick * 1.6;
@@ -978,6 +978,43 @@ export function BoardCanvas({
           ctx.moveTo(ax + dx * 0.15, ay + dy * 0.15);
           ctx.lineTo(bx - dx * 0.15, by - dy * 0.15);
           ctx.stroke();
+          break;
+        case 'hedge':
+          // A hedge: a thick green band, soft-edged.
+          ctx.strokeStyle = dark ? '#3f5a2e' : '#5f7d43';
+          ctx.lineWidth = thick * 1.3;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+          ctx.strokeStyle = dark ? '#6f8a4f' : '#7ea35e';
+          ctx.lineWidth = Math.max(1, thick * 0.4);
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.lineCap = 'butt';
+          break;
+        case 'fence':
+          // A fence: posts and a rail, in wood.
+          ctx.strokeStyle = shade(plank, dark ? 0.2 : -0.3);
+          ctx.lineWidth = Math.max(1.5, size * 0.07);
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+          ctx.fillStyle = shade(plank, dark ? 0.2 : -0.3);
+          for (const f of [0.1, 0.35, 0.65, 0.9]) {
+            ctx.fillRect(
+              ax + dx * f - Math.max(1, size * 0.05),
+              ay + dy * f - Math.max(1, size * 0.05),
+              Math.max(2, size * 0.1),
+              Math.max(2, size * 0.1)
+            );
+          }
           break;
         case 'rail':
           ctx.strokeStyle = p.inkMuted;

@@ -623,6 +623,7 @@ export function Workshop({
           return;
         }
         setSelection(null);
+        dragRef.current.marquee = { from: t, to: t };
         setMarquee({ from: t, to: t });
         return;
       }
@@ -635,6 +636,7 @@ export function Workshop({
           });
           return;
         }
+        dragRef.current.marquee = { from: t, to: t };
         setMarquee({ from: t, to: t });
         return;
       }
@@ -659,6 +661,7 @@ export function Workshop({
           return;
         }
         if (settings.paintMode === 'box') {
+          dragRef.current.marquee = { from: t, to: t };
           setMarquee({ from: t, to: t });
           return;
         }
@@ -691,19 +694,43 @@ export function Workshop({
     }
   };
 
+  // The drag in progress, readable before React has re-rendered: a fast
+  // drag's first move lands before the state from its press has, and a
+  // closure over the state would see no drag at all.
+  const dragRef = useRef<{
+    marquee: { from: Tile; to: Tile } | null;
+    wall: typeof wallDrag;
+  }>({ marquee: null, wall: null });
+  useEffect(() => {
+    dragRef.current.marquee = marquee;
+  }, [marquee]);
+  useEffect(() => {
+    dragRef.current.wall = wallDrag;
+  }, [wallDrag]);
+
   const onPointerMove = (ev: ReactPointerEvent<HTMLCanvasElement>) => {
     const t = at(ev);
     setHover(t);
     if (!t) return;
-    if (marquee) setMarquee({ ...marquee, to: t });
-    if (wallDrag) setWallDrag({ ...wallDrag, to: t });
+    const d = dragRef.current;
+    if (d.marquee) {
+      d.marquee = { ...d.marquee, to: t };
+      setMarquee(d.marquee);
+    }
+    if (d.wall) {
+      d.wall = { ...d.wall, to: t };
+      setWallDrag(d.wall);
+    }
     if (painting) brushAt(t);
   };
 
   const onPointerUp = () => {
     if (!doc || !terrain) return;
-    if (marquee) {
-      const { from, to } = marquee;
+    const marqueeNow = dragRef.current.marquee;
+    const wallNow = dragRef.current.wall;
+    dragRef.current = { marquee: null, wall: null };
+    if (marqueeNow) {
+      const { from, to } = marqueeNow;
       setMarquee(null);
       switch (tool) {
         case 'select':
@@ -726,8 +753,8 @@ export function Workshop({
           break;
       }
     }
-    if (wallDrag) {
-      putLevel(wallRun(terrain, wallDrag.from, wallDrag.to, settings.wallKind));
+    if (wallNow) {
+      putLevel(wallRun(terrain, wallNow.from, wallNow.to, settings.wallKind));
       setWallDrag(null);
     }
     if (painting) {

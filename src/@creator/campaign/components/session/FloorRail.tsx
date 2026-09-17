@@ -23,9 +23,6 @@ import {
   ModalContent,
   ModalFooter,
   ModalHeader,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Select,
   SelectItem,
 } from '@heroui/react';
@@ -40,12 +37,11 @@ import {
   feetLabel,
   levelOf,
   MATERIALS,
-  MAX_LEVELS,
   type Ambient,
   type BoardDoc,
   type LevelDoc,
 } from '@/@shared/battlemap/types';
-import { Glyph, Marginalia } from '@/@shared/components/ui';
+import { Marginalia } from '@/@shared/components/ui';
 import type { BattleTokenRow } from '@/server/battlemap';
 import type { EntryRow } from '@/server/session';
 
@@ -60,9 +56,6 @@ export function FloorRail({
   onFollow,
   onion,
   onOnion,
-  onChange,
-  onAdded,
-  onError,
 }: {
   board: BoardDoc;
   tokens: BattleTokenRow[];
@@ -74,14 +67,7 @@ export function FloorRail({
   onFollow: () => void;
   onion: boolean;
   onOnion: (on: boolean) => void;
-  /** The whole board, changed. The board schedules the save. */
-  onChange: (next: BoardDoc) => void;
-  /** A floor was added; the board turns to it. */
-  onAdded: (levelId: string) => void;
-  onError: (message: string) => void;
 }) {
-  const [adding, setAdding] = useState(false);
-  const level = levelOf(board, levelId);
   const mine = tokens.find(t => t.mine && t.entryId)?.level ?? null;
   const single = board.levels.length === 1;
 
@@ -172,37 +158,6 @@ export function FloorRail({
       {isStaff && (
         <>
           <span className="mx-1 h-5 w-px bg-line" />
-          <Popover placement="bottom-start">
-            <PopoverTrigger>
-              <Button
-                size="sm"
-                variant="flat"
-                className="min-w-0 px-2.5"
-                startContent={<Glyph name="floors" size={13} />}
-              >
-                This floor
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72 border border-line bg-surface p-3">
-              <ThisFloor
-                board={board}
-                level={level}
-                tokensHere={tokens.filter(t => t.level === level.id).length}
-                onChange={onChange}
-                onPick={onPick}
-              />
-            </PopoverContent>
-          </Popover>
-          <Button
-            size="sm"
-            variant="flat"
-            className="min-w-0 px-2.5"
-            isDisabled={board.levels.length >= MAX_LEVELS}
-            startContent={<Glyph name="plus" size={13} />}
-            onPress={() => setAdding(true)}
-          >
-            Add a floor
-          </Button>
           {board.levels.findIndex(l => l.id === levelId) > 0 && (
             <button
               type="button"
@@ -217,128 +172,8 @@ export function FloorRail({
               Ghost the floor below
             </button>
           )}
-          {adding && (
-            <AddFloorDialog
-              open={adding}
-              board={board}
-              from={level}
-              onClose={() => setAdding(false)}
-              onAdd={next => {
-                const feet = next.feet;
-                if (board.levels.some(l => l.feet === feet)) {
-                  onError('There is already a floor at that height.');
-                  return;
-                }
-                const levels = [...board.levels, next].sort(
-                  (a, b) => a.feet - b.feet
-                );
-                onChange({ ...board, levels });
-                setAdding(false);
-                onAdded(next.id);
-              }}
-            />
-          )}
         </>
       )}
-    </div>
-  );
-}
-
-/** Rename, re-height, relight or remove the floor in front. */
-function ThisFloor({
-  board,
-  level,
-  tokensHere,
-  onChange,
-  onPick,
-}: {
-  board: BoardDoc;
-  level: LevelDoc;
-  tokensHere: number;
-  onChange: (next: BoardDoc) => void;
-  onPick: (levelId: string) => void;
-}) {
-  const write = (patch: Partial<LevelDoc>) =>
-    onChange({
-      ...board,
-      levels: board.levels
-        .map(l => (l.id === level.id ? { ...l, ...patch } : l))
-        .sort((a, b) => a.feet - b.feet),
-    });
-  const [confirming, setConfirming] = useState(false);
-  return (
-    <div className="flex w-full flex-col gap-2">
-      <Input
-        size="sm"
-        label="Called"
-        defaultValue={level.name}
-        onBlur={e => {
-          const v = e.currentTarget.value.trim();
-          if (v && v !== level.name) write({ name: v });
-        }}
-      />
-      <Input
-        size="sm"
-        type="number"
-        label="Height, in feet from the ground floor"
-        step={5}
-        defaultValue={String(level.feet)}
-        onBlur={e => {
-          const v = Math.trunc(Number(e.currentTarget.value));
-          if (!Number.isFinite(v) || v === level.feet) return;
-          if (board.levels.some(l => l.id !== level.id && l.feet === v)) return;
-          write({ feet: Math.max(-500, Math.min(500, v)) });
-        }}
-      />
-      <Marginalia dash>
-        a tile&apos;s height is measured from this floor, not from the garden
-      </Marginalia>
-      {board.levels.length > 1 &&
-        (confirming ? (
-          <div className="flex items-center gap-2 text-xs text-ink-muted">
-            <span>
-              {tokensHere > 0
-                ? `${tokensHere} on it drop to the ground floor.`
-                : 'Gone for good.'}
-            </span>
-            <Button
-              size="sm"
-              color="danger"
-              variant="flat"
-              className="h-7 min-w-0 px-2.5 text-xs"
-              onPress={() => {
-                const rest = board.levels.filter(l => l.id !== level.id);
-                onChange({
-                  ...board,
-                  levels: rest,
-                  links: board.links.filter(
-                    k => k.from !== level.id && k.to !== level.id
-                  ),
-                });
-                onPick(levelOf({ ...board, levels: rest }, null).id);
-              }}
-            >
-              Remove it
-            </Button>
-            <Button
-              size="sm"
-              variant="light"
-              className="h-7 min-w-0 px-2.5 text-xs"
-              onPress={() => setConfirming(false)}
-            >
-              Keep it
-            </Button>
-          </div>
-        ) : (
-          <Button
-            size="sm"
-            variant="light"
-            className="self-start text-danger"
-            onPress={() => setConfirming(true)}
-          >
-            Remove this floor
-          </Button>
-        ))}
     </div>
   );
 }

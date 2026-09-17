@@ -63,7 +63,10 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
   // bar taller than the window, and the page scrolls by exactly that much.
   // Bounded here rather than on every route, because the other pages scroll
   // the document and Next's scroll restoration expects them to.
-  const fillsTheWindow = /^\/campaigns\/[^/]+\/screen$/.test(pathname);
+  // The workshop — a board on a bench — fills it the same way.
+  const fillsTheWindow =
+    /^\/campaigns\/[^/]+\/screen$/.test(pathname) ||
+    /^\/campaigns\/[^/]+\/workshop\/[^/]+$/.test(pathname);
 
   // If user is logged in and on a private route, show side navigation
   if (currentUser && isPrivateRoute) {

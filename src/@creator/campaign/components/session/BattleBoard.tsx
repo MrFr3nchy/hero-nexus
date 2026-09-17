@@ -30,6 +30,7 @@ import {
   SelectItem,
   Tooltip,
 } from '@heroui/react';
+import Link from 'next/link';
 import { useTheme } from 'next-themes';
 import {
   useCallback,
@@ -354,6 +355,14 @@ function levelPhrase(board: BoardDoc, id: string): string {
   const name = board.levels.find(l => l.id === id)?.name;
   return name ? `the ${name.toLowerCase()}` : 'a floor unseen';
 }
+
+/**
+ * The modes the table keeps. Building — rooms, floor, height, walls,
+ * things — lives in the workshop, off the fight's screen; the sand table
+ * on the screen is for playing on. The board still knows the other tools
+ * (the DM's keyboard names them), it just does not offer them here.
+ */
+const TABLE_MODES: readonly Mode[] = ['select', 'ruler', 'area', 'fog'];
 
 /** How far a token may be shown to reach. The rules module prices it. */
 const DEFAULT_SPEED_FEET = 30;
@@ -1679,6 +1688,17 @@ export function BattleBoard({
       }
       actions={
         <>
+          {isStaff && (
+            <Button
+              as={Link}
+              href={`/campaigns/${campaignId}/workshop/${board.id}`}
+              size="sm"
+              variant="flat"
+              startContent={<Glyph name="hammer" size={13} />}
+            >
+              Open the workshop
+            </Button>
+          )}
           <Button
             size="sm"
             variant={dimensional ? 'solid' : 'flat'}
@@ -1750,15 +1770,6 @@ export function BattleBoard({
           onFollow={() => setFollow(true)}
           onion={onion}
           onOnion={setOnion}
-          onChange={next => {
-            scheduleSave(next);
-          }}
-          onAdded={id => {
-            pickLevel(id);
-            // A new floor is open air: the DM is about to build on it.
-            setTool({ kind: 'room', material: 4, door: true });
-          }}
-          onError={onError}
         />
       )}
 
@@ -1842,7 +1853,7 @@ export function BattleBoard({
               painting a floor does not need the fog brush in view. */}
           <div className="flex flex-wrap items-center gap-1.5">
             <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
-              {MODES.map(m => (
+              {MODES.filter(m => TABLE_MODES.includes(m.mode)).map(m => (
                 <button
                   key={m.mode}
                   type="button"
@@ -1858,7 +1869,9 @@ export function BattleBoard({
               ))}
             </div>
             <Marginalia dash className="ml-1">
-              {MODES.find(m => m.mode === mode)?.hint}
+              {TABLE_MODES.includes(mode)
+                ? MODES.find(m => m.mode === mode)?.hint
+                : 'floors, walls, trees and stamps now live in the workshop'}
             </Marginalia>
           </div>
 
@@ -2302,8 +2315,8 @@ export function BattleBoard({
           dimensional
             ? 'hidden'
             : fitHeight
-              ? 'flex w-full justify-center overflow-x-auto'
-              : 'w-full overflow-x-auto'
+              ? 'relative flex w-full justify-center overflow-x-auto'
+              : 'relative w-full overflow-x-auto'
         }
       >
         <BoardCanvas
@@ -2365,45 +2378,47 @@ export function BattleBoard({
             onPointerUp();
           }}
         />
-      </div>
-
-      {/* The offer (floors): a token that ends its move on the stairs is
+        {/* The offer (floors): a token that ends its move on the stairs is
           asked whether it takes them. The climb is priced beside the
           answer; "stay" keeps the offer away until something else is
           picked up. */}
-      {stairsUnder && declinedLink !== stairsUnder.link.id && selectedToken && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-gold/40 bg-gold/10 px-3 py-2 text-sm text-ink">
-          <Glyph name="stairs" size={14} className="text-gold" />
-          <span>
-            {(selectedToken.entryId &&
-              entriesById.get(selectedToken.entryId)?.label) ||
-              selectedToken.label ||
-              'Somebody'}{' '}
-            is on {linkName(stairsUnder.link)}.
-          </span>
-          <span className="text-ink-muted">
-            {stairsUnder.up ? 'It climbs' : 'It drops'} {stairsUnder.feet} ft of
-            movement to {stairsUnder.otherPhrase}.
-          </span>
-          <Button
-            size="sm"
-            color="primary"
-            className="h-7 min-w-0 px-2.5 text-xs"
-            isDisabled={busy}
-            onPress={() => climb()}
-          >
-            {stairsUnder.up ? 'Go up' : 'Go down'} to {stairsUnder.otherPhrase}
-          </Button>
-          <Button
-            size="sm"
-            variant="light"
-            className="h-7 min-w-0 px-2.5 text-xs text-ink-subtle"
-            onPress={() => setDeclinedLink(stairsUnder.link.id)}
-          >
-            Stay here
-          </Button>
-        </div>
-      )}
+        {stairsUnder &&
+          declinedLink !== stairsUnder.link.id &&
+          selectedToken && (
+            <div className="absolute inset-x-3 bottom-3 z-10 flex flex-wrap items-center gap-2 rounded-md border border-gold/50 bg-surface/95 px-3 py-2 text-sm text-ink shadow-md">
+              <Glyph name="stairs" size={14} className="text-gold" />
+              <span>
+                {(selectedToken.entryId &&
+                  entriesById.get(selectedToken.entryId)?.label) ||
+                  selectedToken.label ||
+                  'Somebody'}{' '}
+                is on {linkName(stairsUnder.link)}.
+              </span>
+              <span className="text-ink-muted">
+                {stairsUnder.up ? 'It climbs' : 'It drops'} {stairsUnder.feet}{' '}
+                ft of movement to {stairsUnder.otherPhrase}.
+              </span>
+              <Button
+                size="sm"
+                color="primary"
+                className="h-7 min-w-0 px-2.5 text-xs"
+                isDisabled={busy}
+                onPress={() => climb()}
+              >
+                {stairsUnder.up ? 'Go up' : 'Go down'} to{' '}
+                {stairsUnder.otherPhrase}
+              </Button>
+              <Button
+                size="sm"
+                variant="light"
+                className="h-7 min-w-0 px-2.5 text-xs text-ink-subtle"
+                onPress={() => setDeclinedLink(stairsUnder.link.id)}
+              >
+                Stay here
+              </Button>
+            </div>
+          )}
+      </div>
 
       {/* The stairs picked (floors): what they are called, where they go,
           and whether the party has found them yet. Staff only. */}
