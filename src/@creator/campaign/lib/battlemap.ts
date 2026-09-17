@@ -99,7 +99,11 @@ export function blocksMovement(wall: Wall | undefined): boolean {
       return true;
     case 'door':
       return !wall.open;
+    case 'hedge':
+      // Six feet of thorn: a wall that happens to be green.
+      return true;
     case 'rail':
+    case 'fence':
       // A rail is something to vault, not something to stop at.
       return false;
   }
@@ -110,12 +114,14 @@ export function blocksSight(wall: Wall | undefined): boolean {
   if (!wall) return false;
   switch (wall.kind) {
     case 'solid':
+    case 'hedge':
       return true;
     case 'window':
       return false;
     case 'door':
       return !wall.open;
     case 'rail':
+    case 'fence':
       return false;
   }
 }
@@ -291,14 +297,16 @@ export function rectTiles(doc: TerrainDoc, a: Tile, b: Tile): number[] {
 /**
  * The tiles under a square brush centred on one, in bounds.
  *
- * `size` is 1, 2 or 3 for 1×1, 3×3, 5×5 — the reveal brush's scale, now
- * shared with the floor and the height tools so a room is not painted a
- * tile at a time.
+ * `size` is 1 to 5 for 1×1, 3×3, 5×5, 7×7, 9×9 — the reveal brush's
+ * scale, shared with the floor, the height and the scatter tools so a
+ * room is not painted a tile at a time.
  */
+export type BrushSize = 1 | 2 | 3 | 4 | 5;
+
 export function brushTiles(
   doc: TerrainDoc,
   at: Tile,
-  size: 1 | 2 | 3
+  size: BrushSize
 ): number[] {
   const r = size - 1;
   const out: number[] = [];
@@ -677,7 +685,9 @@ export function coverBetween(
   const p: [number, number] = [from.x, from.y];
   const q: [number, number] = [to.x, to.y];
   for (const w of doc.walls) {
-    if (w.kind !== 'window' && w.kind !== 'rail') continue;
+    if (w.kind !== 'window' && w.kind !== 'rail' && w.kind !== 'fence') {
+      continue;
+    }
     const [r, s] = wallSegment(w);
     if (!segmentsCross(p, q, r, s)) continue;
     cover = worse(cover, w.kind === 'window' ? 'three-quarters' : 'half');
@@ -692,6 +702,8 @@ export function coverBetween(
     switch (prop.kind) {
       case 'pillar':
       case 'tree':
+      case 'pine':
+      case 'boulder':
         cover = worse(cover, 'three-quarters');
         break;
       case 'table':
@@ -699,6 +711,10 @@ export function coverBetween(
       case 'chest':
       case 'altar':
       case 'statue':
+      case 'bush':
+      case 'bed':
+      case 'shelf':
+      case 'hearth':
         cover = worse(cover, 'half');
         break;
       case 'image':
@@ -953,15 +969,30 @@ export function fogged(
     }),
     props: doc.props.filter(p => shown(p.x, p.y)),
     lights: doc.lights.filter(l => shown(l.x, l.y)),
+    // A room's name once any of it is seen: "the great hall" is what the
+    // party calls it after one look through the door.
+    ...(doc.rooms
+      ? {
+          rooms: doc.rooms.filter(r => {
+            for (let y = r.y; y < r.y + r.h; y++) {
+              for (let x = r.x; x < r.x + r.w; x++)
+                if (shown(x, y)) return true;
+            }
+            return false;
+          }),
+        }
+      : {}),
   };
 }
 
 /**
  * The board a player is allowed to have: each floor through `fogged` with
  * its own revealed set, and only the floors that have anything revealed
- * or a party member standing on them (`trodden`). Hidden stairs are left
- * out; the rest are kept where a tile of them is revealed on a floor the
- * player has. A
+ * or a party member standing on them (`trodden`) — unless the floor says
+ * otherwise (`seen`): `always` is whole from the start, `reveal` waits
+ * for the DM whoever is standing on it. Hidden stairs are left out; the
+ * rest are kept where a tile of them is revealed on a floor the player
+ * has. A
  * board with nothing shown still carries the ground floor, fogged whole,
  * so there is always a floor to draw.
  */
@@ -970,16 +1001,26 @@ export function foggedBoard(
   revealed: ReadonlyMap<string, ReadonlySet<number>>,
   trodden: ReadonlySet<string> = new Set()
 ): BoardDoc {
+  const n = board.w * board.h;
+  const whole = new Set<number>();
+  for (let i = 0; i < n; i++) whole.add(i);
+  const shownOn = (l: LevelDoc): ReadonlySet<number> =>
+    l.seen === 'always' ? whole : (revealed.get(l.id) ?? new Set());
   const kept = board.levels.filter(
-    l => (revealed.get(l.id)?.size ?? 0) > 0 || trodden.has(l.id)
+    l =>
+      l.seen === 'always' ||
+      (revealed.get(l.id)?.size ?? 0) > 0 ||
+      (l.seen !== 'reveal' && trodden.has(l.id))
   );
   const levels = (kept.length > 0 ? kept : [levelOf(board, null)]).map(l => ({
-    ...fogged(l, revealed.get(l.id) ?? new Set()),
+    ...fogged(l, shownOn(l)),
     id: l.id,
     name: l.name,
     feet: l.feet,
+    ...(l.seen ? { seen: l.seen } : {}),
   }));
   const ids = new Set(levels.map(l => l.id));
+  const byId = new Map(board.levels.map(l => [l.id, l]));
   return {
     format: board.format,
     version: board.version,
@@ -991,11 +1032,12 @@ export function foggedBoard(
     links: board.links.filter(
       k =>
         !k.hidden &&
-        [k.from, k.to].some(
-          id =>
-            ids.has(id) &&
-            linkTiles(board, k).some(i => revealed.get(id)?.has(i))
-        )
+        [k.from, k.to].some(id => {
+          const l = byId.get(id);
+          return (
+            l && ids.has(id) && linkTiles(board, k).some(i => shownOn(l).has(i))
+          );
+        })
     ),
   };
 }

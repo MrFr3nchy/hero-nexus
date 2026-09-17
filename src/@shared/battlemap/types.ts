@@ -74,6 +74,12 @@ export interface TerrainDoc {
   /** Warm points. The palette is candlelight; lean into it. */
   lights: Light[];
   /**
+   * Named rooms (the workshop). A label on the floor and a line in the
+   * rooms list; no rule reads it. The Rooms tool writes one when asked to
+   * name what it drew, and the floor keeps it after the walls move.
+   */
+  rooms?: Room[];
+  /**
    * The light everywhere nothing else lights (improvements 08). Bright is
    * the default and how every board before it behaved: a party reveals what
    * it can see. Dark: only a light's radius or a token's own vision reveals.
@@ -84,8 +90,40 @@ export interface TerrainDoc {
 export type Ambient = 'bright' | 'dim' | 'dark';
 export const AMBIENTS: readonly Ambient[] = ['bright', 'dim', 'dark'];
 
+/** A named rectangle of floor. `w` × `h` tiles, anchored top-left. */
+export interface Room {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  name: string;
+}
+
 export type Side = 'n' | 'e' | 's' | 'w';
-export type WallKind = 'solid' | 'door' | 'window' | 'rail';
+/**
+ * What stands on an edge. A hedge is a wall that grows — 6 ft, stops feet
+ * and sight; a fence is a rail in wood — 4 ft, vaulted, seen over. The
+ * rules module says what each does; the kinds are here so a document can
+ * carry them.
+ */
+export type WallKind = 'solid' | 'door' | 'window' | 'rail' | 'hedge' | 'fence';
+export const WALL_KINDS: readonly WallKind[] = [
+  'solid',
+  'door',
+  'window',
+  'rail',
+  'hedge',
+  'fence',
+];
+/** Feet, by kind, when nothing says otherwise. */
+export const WALL_HEIGHT: Record<WallKind, number> = {
+  solid: 10,
+  door: 10,
+  window: 10,
+  rail: 3,
+  hedge: 6,
+  fence: 4,
+};
 
 /**
  * A wall on one edge of one tile.
@@ -114,6 +152,14 @@ export type PropKind =
   | 'rubble'
   | 'altar'
   | 'statue'
+  /** What the Scatter tool grows (the workshop). */
+  | 'pine'
+  | 'bush'
+  | 'boulder'
+  | 'mushroom'
+  | 'bed'
+  | 'shelf'
+  | 'hearth'
   /**
    * A picture standing up: one of the campaign's images as a paper standee
    * on the tile — a tree the DM drew, a statue, a door. The-sand-table's
@@ -128,6 +174,11 @@ export interface Prop {
   kind: PropKind;
   /** Whether it stops a token standing on its tile. A pillar does; rubble does not. */
   blocks: boolean;
+  /**
+   * How big it grew, 0.6–1.4, for the Scatter tool's "vary the size".
+   * Absent is 1: the same tree every time.
+   */
+  scale?: number;
   /** `image` only: a `campaign_images` id. Referenced, never copied. */
   imageId?: string;
   /** `image` only: feet tall. A tree is 20, a door 10, a mile-marker 3. */
@@ -392,7 +443,7 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
   for (const w of Array.isArray(src.walls) ? src.walls : []) {
     if (!w || !inBounds(base, Number(w.x), Number(w.y))) continue;
     if (!['n', 'e', 's', 'w'].includes(w.side)) continue;
-    if (!['solid', 'door', 'window', 'rail'].includes(w.kind)) continue;
+    if (!WALL_KINDS.includes(w.kind)) continue;
     const key = edgeKey(Number(w.x), Number(w.y), w.side);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -411,11 +462,15 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
     if (!p || !inBounds(base, Number(p.x), Number(p.y))) continue;
     // An image prop with no image is a tile with nothing on it.
     if (p.kind === 'image' && typeof p.imageId !== 'string') continue;
+    const scale = Number(p.scale);
     props.push({
       x: Number(p.x),
       y: Number(p.y),
       kind: p.kind,
       blocks: Boolean(p.blocks),
+      ...(Number.isFinite(scale) && scale > 0 && scale !== 1
+        ? { scale: Math.max(0.6, Math.min(1.4, Math.round(scale * 100) / 100)) }
+        : {}),
       ...(p.kind === 'image'
         ? {
             imageId: String(p.imageId).slice(0, 64),
@@ -442,6 +497,18 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
     });
   }
 
+  const rooms: Room[] = [];
+  for (const r of Array.isArray(src.rooms) ? src.rooms : []) {
+    if (!r || !inBounds(base, Number(r.x), Number(r.y))) continue;
+    const w = Math.max(1, Math.trunc(Number(r.w)) || 1);
+    const h = Math.max(1, Math.trunc(Number(r.h)) || 1);
+    const name = String(r.name ?? '')
+      .trim()
+      .slice(0, 40);
+    if (!name) continue;
+    rooms.push({ x: Number(r.x), y: Number(r.y), w, h, name });
+  }
+
   return {
     ...base,
     elevation: ints(src.elevation, 0),
@@ -449,6 +516,7 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
     walls,
     props,
     lights,
+    ...(rooms.length > 0 ? { rooms: rooms.slice(0, 200) } : {}),
     ambient: (AMBIENTS as readonly unknown[]).includes(src.ambient)
       ? (src.ambient as Ambient)
       : 'bright',
@@ -468,7 +536,17 @@ export interface LevelDoc extends TerrainDoc {
   id: string;
   name: string;
   feet: number;
+  /**
+   * When the party sees this floor. `hero`: once one of them stands on
+   * it, and then what has been revealed; `always`: the whole floor, from
+   * the start — the garden the fight began in; `reveal`: only what the DM
+   * reveals, hero or no hero — the cellar they were told is empty.
+   */
+  seen?: LevelSeen;
 }
+
+export type LevelSeen = 'hero' | 'always' | 'reveal';
+export const LEVEL_SEENS: readonly LevelSeen[] = ['hero', 'always', 'reveal'];
 
 export type LinkKind = 'stairs' | 'ladder';
 export const LINK_KINDS: readonly LinkKind[] = ['stairs', 'ladder'];
@@ -619,6 +697,9 @@ export function normalizeBoard(raw: unknown): BoardDoc {
         .trim()
         .slice(0, 60),
       feet: Number.isFinite(feet) ? Math.max(-500, Math.min(500, feet)) : 0,
+      ...(l.seen && l.seen !== 'hero' && LEVEL_SEENS.includes(l.seen)
+        ? { seen: l.seen }
+        : {}),
     });
   }
   if (levels.length === 0) {
@@ -769,7 +850,7 @@ export function normalizeThingEffect(raw: unknown): ThingEffect | null {
         };
       case 'wall':
         return typeof x.edge === 'string' &&
-          ['solid', 'door', 'window', 'rail', 'none'].includes(String(x.to))
+          [...WALL_KINDS, 'none'].includes(String(x.to))
           ? {
               kind: 'wall',
               edge: x.edge,

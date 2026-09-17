@@ -364,7 +364,9 @@ export async function getBattleMapState(
       const level = levelFor(stored, t);
       if (!shownLevels.has(level.id)) return false;
       // Every tile of the footprint must be revealed. A large creature half
-      // in the dark is still a creature the party has not seen.
+      // in the dark is still a creature the party has not seen. A floor the
+      // party always sees is revealed whole.
+      if (level.seen === 'always') return true;
       const shown = revealed.get(level.id) ?? new Set<number>();
       return footprintTiles(level, t).every(i => shown.has(i));
     })

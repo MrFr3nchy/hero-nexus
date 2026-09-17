@@ -15,6 +15,7 @@ import {
   inBounds,
   MATERIALS,
   VOID,
+  WALL_HEIGHT,
   type TerrainDoc,
   type ThingChange,
   type Wall,
@@ -107,7 +108,7 @@ export function applyTerrainChanges(
           y: place.y,
           side: place.side,
           kind: c.to as WallKind,
-          height: c.to === 'rail' ? 3 : (before?.height ?? 10),
+          height: WALL_HEIGHT[c.to as WallKind] ?? before?.height ?? 10,
           ...(c.to === 'door' ? { open: Boolean(c.open) } : {}),
         };
         next.walls.push(wall);
