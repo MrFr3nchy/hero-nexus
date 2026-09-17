@@ -351,7 +351,7 @@ const HEIGHTS = [10, 12, 15, 20];
  * shell of the floor it copies, or the whole floor without the furniture.
  * A mansion is a few of these, stacked.
  */
-function AddFloorDialog({
+export function AddFloorDialog({
   open,
   board,
   from,

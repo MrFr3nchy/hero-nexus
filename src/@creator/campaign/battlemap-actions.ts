@@ -32,6 +32,8 @@ import {
   searchNearby,
   operateThing,
   takeLink,
+  getWorkshopBoard,
+  revealRoomsAround,
 } from '@/server/battlemap';
 
 import { RuleRefusal } from '@/server/table-rules';
@@ -109,6 +111,34 @@ export async function getBoardTerrainAction(
     return await getBoardTerrain(mapId);
   } catch {
     return null;
+  }
+}
+
+const levelId = z.string().min(1).max(32);
+
+/** The board on the workshop's bench. Staff only; null when it is gone. */
+export async function getWorkshopBoardAction(
+  mapId: string
+): Promise<Awaited<ReturnType<typeof getWorkshopBoard>> | null> {
+  try {
+    return await getWorkshopBoard(mapId);
+  } catch {
+    return null;
+  }
+}
+
+/** Show the party the rooms they stand in on one floor. */
+export async function revealRoomsAroundAction(
+  mapId: string,
+  level: string
+): Promise<Result<{ revealed: number }>> {
+  const lv = levelId.safeParse(level);
+  if (!lv.success) return { ok: false, error: 'Not a floor.' };
+  try {
+    const revealed = await revealRoomsAround(mapId, lv.data);
+    return { ok: true, data: { revealed } };
+  } catch (err) {
+    return fail(err, 'Could not show the room.');
   }
 }
 
@@ -216,8 +246,6 @@ export async function deleteBattleMapAction(mapId: string): Promise<Result> {
     return fail(err, 'Could not clear the board.');
   }
 }
-
-const levelId = z.string().min(1).max(32);
 
 export async function revealTilesAction(
   mapId: string,

@@ -22,7 +22,7 @@
  * tokens are the only saturated things, and a warm point light sits on each
  * brazier.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type MutableRefObject } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
@@ -49,6 +49,8 @@ import {
   MATERIALS,
   VOID,
   type Facing,
+  type LevelDoc,
+  type LevelLink,
   type TerrainDoc,
 } from '@/@shared/battlemap/types';
 import { useReducedMotion } from '@/@shared/components/motion';
@@ -394,10 +396,22 @@ export function buildTerrain(
   doc: TerrainDoc,
   p: Palette,
   dark: boolean,
-  pictureFor: (imageId: string) => HTMLImageElement | null = () => null
+  pictureFor: (imageId: string) => HTMLImageElement | null = () => null,
+  opts: {
+    /** Walls drop to knee height: the workshop's cutaway, looking in. */
+    lowWalls?: boolean;
+  } = {}
 ): THREE.Group {
   const group = new THREE.Group();
   const unit = new THREE.BoxGeometry(1, 1, 1);
+  // A wall's height in units, capped at the knee for a cutaway. A rail is
+  // already knee-high and stays as it is.
+  const wallH = (w: TerrainDoc['walls'][number]) => {
+    const h = w.height / FEET_PER_UNIT;
+    return opts.lowWalls && w.kind !== 'rail' && w.kind !== 'fence'
+      ? Math.min(h, 0.6)
+      : h;
+  };
   const bottom = floorOf(doc);
   const masonry = masonryColour(p, dark);
 
@@ -530,7 +544,7 @@ export function buildTerrain(
     body.receiveShadow = cap.receiveShadow = true;
     solids.forEach((w, k) => {
       const e = edgeOf(w);
-      const h = w.height / FEET_PER_UNIT;
+      const h = wallH(w);
       tmp.position.set(e.cx, e.base + h / 2, e.cz);
       tmp.scale.set(e.alongX ? 1 : WALL_T, h, e.alongX ? WALL_T : 1);
       tmp.updateMatrix();
@@ -549,10 +563,18 @@ export function buildTerrain(
     group.add(body, cap);
   }
 
+  const hedgeMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(dark ? '#3f5a2e' : '#5f7d43'),
+    roughness: 0.95,
+  });
+  const fenceMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(dark ? '#7a5c3a' : '#a3804f'),
+    roughness: 0.9,
+  });
   for (const w of doc.walls) {
     if (w.kind === 'solid') continue;
     const e = edgeOf(w);
-    const h = w.height / FEET_PER_UNIT;
+    const h = wallH(w);
     const piece = new THREE.Group();
     piece.position.set(e.cx, e.base, e.cz);
     // Built along local x; turned to lie along z for an east/west edge.
@@ -608,18 +630,27 @@ export function buildTerrain(
       pane.scale.set(0.84, h - sillH - 0.16, 0.03);
       pane.position.set(0, sillH + (h - sillH - 0.16) / 2, 0);
       piece.add(pane);
+    } else if (w.kind === 'hedge') {
+      // A hedge: a green block, slightly bulging, no coping.
+      const hedge = new THREE.Mesh(unit, hedgeMat);
+      hedge.scale.set(1, h, WALL_T + 0.14);
+      hedge.position.set(0, h / 2, 0);
+      hedge.castShadow = hedge.receiveShadow = true;
+      piece.add(hedge);
     } else {
-      // A rail: two posts and two rails, in iron.
+      // A rail: two posts and two rails — iron, or wood for a fence.
+      const mat = w.kind === 'fence' ? fenceMat : ironMat;
+      const t = w.kind === 'fence' ? 0.08 : 0.06;
       for (const sx of [-0.47, 0.47]) {
-        const post = new THREE.Mesh(unit, ironMat);
-        post.scale.set(0.06, h, 0.06);
+        const post = new THREE.Mesh(unit, mat);
+        post.scale.set(t, h, t);
         post.position.set(sx, h / 2, 0);
         post.castShadow = true;
         piece.add(post);
       }
       for (const y of [h, h * 0.5]) {
-        const rail = new THREE.Mesh(unit, ironMat);
-        rail.scale.set(1, 0.05, 0.05);
+        const rail = new THREE.Mesh(unit, mat);
+        rail.scale.set(1, t * 0.8, t * 0.8);
         rail.position.set(0, y, 0);
         rail.castShadow = true;
         piece.add(rail);
@@ -685,6 +716,7 @@ export function buildTerrain(
     // hoops, a pillar a capital, a tree a trunk under its crown.
     const piece = new THREE.Group();
     piece.position.set(pr.x + 0.5, top, pr.y + 0.5);
+    if (pr.scale && pr.scale !== 1) piece.scale.setScalar(pr.scale);
     const add = (
       geo: THREE.BufferGeometry,
       mat: THREE.Material,
@@ -721,6 +753,40 @@ export function buildTerrain(
         add(sphere, stoneMat, 0.4, 0.28, 0.36, 0.12, -0.18, 0.1);
         add(sphere, stoneMat, 0.3, 0.22, 0.3, 0.1, 0.2, -0.15);
         add(sphere, stoneMat, 0.22, 0.18, 0.24, 0.08, 0.1, 0.25);
+        break;
+      case 'pine':
+        add(cylinder, trunkMat, 0.14, 0.6, 0.14, 0.3);
+        add(new THREE.ConeGeometry(0.5, 1, 10), canopyMat, 1.1, 1.3, 1.1, 1.1);
+        add(new THREE.ConeGeometry(0.5, 1, 10), canopyMat, 0.8, 1.0, 0.8, 1.7);
+        break;
+      case 'bush':
+        add(sphere, canopyMat, 0.8, 0.6, 0.8, 0.3);
+        add(sphere, canopyMat, 0.5, 0.45, 0.5, 0.45, 0.25, 0.1);
+        break;
+      case 'boulder':
+        add(sphere, stoneMat, 0.9, 0.7, 0.8, 0.32);
+        add(sphere, stoneMat, 0.5, 0.4, 0.5, 0.5, 0.2, -0.2);
+        break;
+      case 'mushroom':
+        add(cylinder, copingMat, 0.1, 0.3, 0.1, 0.15, -0.15, 0.1);
+        add(sphere, gildMat, 0.34, 0.2, 0.34, 0.32, -0.15, 0.1);
+        add(cylinder, copingMat, 0.08, 0.22, 0.08, 0.11, 0.2, -0.1);
+        add(sphere, gildMat, 0.26, 0.16, 0.26, 0.24, 0.2, -0.1);
+        break;
+      case 'bed':
+        add(unit, woodMat, 0.9, 0.16, 0.95, 0.24);
+        add(unit, leafMat, 0.86, 0.14, 0.9, 0.39);
+        add(unit, woodMat, 0.9, 0.5, 0.06, 0.4, 0, -0.45);
+        break;
+      case 'shelf':
+        add(unit, woodMat, 0.5, 1.6, 0.9, 0.8);
+        add(unit, copingMat, 0.44, 0.06, 0.84, 0.6);
+        add(unit, copingMat, 0.44, 0.06, 0.84, 1.1);
+        break;
+      case 'hearth':
+        add(unit, stoneMat, 0.96, 1.4, 0.5, 0.7, 0, -0.25);
+        add(unit, ironMat, 0.6, 0.5, 0.2, 0.25, 0, 0.02);
+        add(sphere, gildMat, 0.3, 0.2, 0.2, 0.15, 0, 0.1);
         break;
       case 'statue':
         add(unit, stoneMat, 0.7, 0.3, 0.7, 0.15);
@@ -811,6 +877,92 @@ export function buildTerrain(
   }
 
   return group;
+}
+
+/** Fade every mesh and sprite in a group: a floor above turned to glass. */
+function dimGroup(group: THREE.Object3D, opacity: number) {
+  group.traverse(obj => {
+    const m = (obj as THREE.Mesh).material as
+      | THREE.Material
+      | THREE.Material[]
+      | undefined;
+    if (!m) return;
+    for (const mat of Array.isArray(m) ? m : [m]) {
+      mat.transparent = true;
+      mat.opacity = Math.min(mat.opacity, opacity);
+      mat.depthWrite = opacity >= 0.5;
+    }
+  });
+}
+
+/** The ids of tokens on floors other than this one, in a stack. */
+function theirsIds(
+  stack: NonNullable<BattleMap3DProps['stack']>,
+  levelId: string
+): Set<string> {
+  const out = new Set<string>();
+  for (const l of stack.levels) {
+    if (l.doc.id === levelId) continue;
+    for (const t of l.tokens) out.add(t.id);
+  }
+  return out;
+}
+
+/**
+ * A flight of stairs between two floors (the workshop, stood up): a
+ * treaded ramp over the link's footprint, rising along its longer side
+ * from the lower floor to the upper. Drawn where the link is, whichever
+ * floor is in front, so the house reads as one thing.
+ */
+function buildRamp(
+  st: { link: LevelLink; fromY: number; toY: number; opacity: number },
+  p: Palette,
+  dark: boolean
+): THREE.Group {
+  const { link } = st;
+  const g = new THREE.Group();
+  const rise = st.toY - st.fromY;
+  const tall = link.h >= link.w;
+  const run = tall ? link.h : link.w;
+  const len = Math.hypot(run, rise);
+  const angle = Math.atan2(rise, run);
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(dark ? '#9c8763' : '#b9a582'),
+    roughness: 0.85,
+  });
+  const ramp = new THREE.Mesh(new THREE.BoxGeometry(1, 0.12, 1), mat);
+  // Along z for a tall link (rising toward its north end), along x for a
+  // wide one (rising toward its west end): the top step is the far end.
+  if (tall) {
+    ramp.scale.set(link.w, 1, len);
+    ramp.rotation.x = angle;
+    ramp.position.set(
+      link.x + link.w / 2,
+      st.fromY + rise / 2 + 0.06,
+      link.y + link.h / 2
+    );
+  } else {
+    ramp.scale.set(len, 1, link.h);
+    ramp.rotation.z = angle;
+    ramp.position.set(
+      link.x + link.w / 2,
+      st.fromY + rise / 2 + 0.06,
+      link.y + link.h / 2
+    );
+  }
+  ramp.castShadow = ramp.receiveShadow = true;
+  g.add(ramp);
+  const edge = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 0.02, 1),
+    new THREE.MeshBasicMaterial({ color: p.gold })
+  );
+  edge.scale.copy(ramp.scale).multiplyScalar(1.02);
+  edge.rotation.copy(ramp.rotation);
+  edge.position.copy(ramp.position);
+  edge.position.y -= 0.07;
+  g.add(edge);
+  if (st.opacity < 1) dimGroup(g, st.opacity);
+  return g;
 }
 
 /**
@@ -1135,7 +1287,8 @@ export function buildTokens(
 /* --- the component ----------------------------------------------------- */
 
 export interface BattleMap3DProps {
-  terrain: TerrainDoc;
+  /** The floor in front: a `LevelDoc` when the board has floors. */
+  terrain: TerrainDoc & { id?: string };
   tokens: BattleTokenRow[];
   entries: EntryRow[];
   currentEntryId: string | null;
@@ -1183,6 +1336,29 @@ export interface BattleMap3DProps {
    * region and a canvas at 62% of its width floated in the top half of it.
    */
   fill?: boolean;
+  /**
+   * The house stood up (the workshop): every floor to draw, each at its
+   * height in units, faded as the mode asks, with the stairs between them.
+   * Given, `terrain` and `tokens` are the floor in front and the rest come
+   * from here.
+   */
+  stack?: {
+    levels: {
+      doc: LevelDoc;
+      y: number;
+      opacity: number;
+      lowWalls: boolean;
+      tokens: BattleTokenRow[];
+    }[];
+    stairs: { link: LevelLink; fromY: number; toY: number; opacity: number }[];
+  };
+  /** The workshop's camera bar drives the orbit through this. */
+  cameraRef?: MutableRefObject<{
+    turn: (deg: number) => void;
+    tilt: (deg: number) => void;
+    zoom: (factor: number) => void;
+    fit: () => void;
+  } | null>;
 }
 
 export default function BattleMap3D({
@@ -1201,6 +1377,8 @@ export default function BattleMap3D({
   selectedId = null,
   mode = 'advise',
   fill = false,
+  stack,
+  cameraRef,
 }: BattleMap3DProps) {
   const mount = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
@@ -1353,6 +1531,47 @@ export default function BattleMap3D({
     controls.enableDamping = !reduce;
     controls.dampingFactor = 0.08;
     controls.update();
+
+    // The workshop's camera bar: a quarter turn, a tilt, a step of zoom, or
+    // the whole board framed again. Each moves the camera and lets the
+    // orbit settle it.
+    if (cameraRef) {
+      const offset = () => camera.position.clone().sub(controls.target);
+      cameraRef.current = {
+        turn: deg => {
+          const o = offset();
+          o.applyAxisAngle(
+            new THREE.Vector3(0, 1, 0),
+            THREE.MathUtils.degToRad(deg)
+          );
+          camera.position.copy(controls.target).add(o);
+          controls.update();
+        },
+        tilt: deg => {
+          const o = offset();
+          const r = o.length();
+          const azimuth = Math.atan2(o.x, o.z);
+          const polar = THREE.MathUtils.degToRad(
+            Math.max(5, Math.min(80, deg))
+          );
+          camera.position.set(
+            controls.target.x + r * Math.sin(polar) * Math.sin(azimuth),
+            controls.target.y + r * Math.cos(polar),
+            controls.target.z + r * Math.sin(polar) * Math.cos(azimuth)
+          );
+          controls.update();
+        },
+        zoom: factor => {
+          const o = offset().multiplyScalar(factor);
+          camera.position.copy(controls.target).add(o);
+          controls.update();
+        },
+        fit: () => {
+          frame();
+          controls.update();
+        },
+      };
+    }
 
     // Lighting: one warm key that casts the only shadow, a cool rim from
     // the far side so standees and walls have an edge, a sky fill so the
@@ -1892,10 +2111,31 @@ export default function BattleMap3D({
     const p = readPalette(dark);
     const pictureFor = (imageId: string) =>
       faces.get(imageUrlFor(imageId)) ?? null;
-    w.terrainGroup = buildTerrain(terrain, p, dark, pictureFor);
-    w.table = buildTable(terrain, dark);
+    if (stack) {
+      // The house: one group per floor at its height, faded as asked, the
+      // stairs as ramps between the floors they join, and the table under
+      // the lowest floor drawn.
+      const house = new THREE.Group();
+      let lowest: (typeof stack.levels)[number] | null = null;
+      for (const level of stack.levels) {
+        const g = buildTerrain(level.doc, p, dark, pictureFor, {
+          lowWalls: level.lowWalls,
+        });
+        g.position.y = level.y;
+        if (level.opacity < 1) dimGroup(g, level.opacity);
+        house.add(g);
+        if (!lowest || level.y < lowest.y) lowest = level;
+      }
+      for (const st of stack.stairs) house.add(buildRamp(st, p, dark));
+      w.terrainGroup = house;
+      w.table = buildTable(lowest?.doc ?? terrain, dark);
+      w.table.position.y += lowest?.y ?? 0;
+    } else {
+      w.terrainGroup = buildTerrain(terrain, p, dark, pictureFor);
+      w.table = buildTable(terrain, dark);
+    }
     w.scene.add(w.terrainGroup, w.table);
-  }, [terrain, dark, faces, imageUrlFor]);
+  }, [terrain, dark, faces, imageUrlFor, stack]);
 
   // Tokens: rebuilt on their own, because they are what moves during a fight.
   // A token that already stood somewhere keeps its group's position as the
@@ -1929,6 +2169,36 @@ export default function BattleMap3D({
       selectedId,
       dark
     );
+    // The other floors' tokens stand on their own floors, lifted to them.
+    if (stack) {
+      for (const level of stack.levels) {
+        if (level.doc.id === terrain.id) continue;
+        const theirs = buildTokens(
+          level.doc,
+          level.tokens,
+          byId,
+          currentEntryId,
+          p,
+          faceFor,
+          null,
+          dark
+        );
+        for (const [id, piece] of theirs.pieces) {
+          piece.at.y += level.y;
+          piece.group.position.y += level.y;
+          if (level.opacity < 1) dimGroup(piece.group, level.opacity);
+          built.pieces.set(id, piece);
+        }
+      }
+      const mine = stack.levels.find(l => l.doc.id === terrain.id);
+      if (mine && mine.y !== 0) {
+        for (const [id, piece] of built.pieces) {
+          if (theirsIds(stack, terrain.id ?? '').has(id)) continue;
+          piece.at.y += mine.y;
+          piece.group.position.y += mine.y;
+        }
+      }
+    }
     w.pieces = built.pieces;
     w.activeRing = built.activeRing;
     // A token in hand stays in hand: the rebuild swaps its drawing under the
@@ -1960,6 +2230,7 @@ export default function BattleMap3D({
     portraits,
     faces,
     reduce,
+    stack,
   ]);
 
   return (

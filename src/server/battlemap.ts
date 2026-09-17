@@ -30,6 +30,7 @@ import {
   canSee,
   canStand,
   distanceFeet,
+  floodFill,
   foggedBoard,
   footprintTiles,
   landingFor,
@@ -484,6 +485,156 @@ export async function getBoardTerrain(mapId: string): Promise<{
         footprint: t.footprint,
       })),
   };
+}
+
+/**
+ * A board as the workshop has it: the whole document, every token with
+ * the name and side off its entry, and what the party has been shown.
+ * Staff only — it is the DM's bench. Not `getBattleMapState`: that is the
+ * table's fogged read of the active board; this is any board of theirs,
+ * on the table or on the shelf.
+ */
+/** A token on the bench: the board's row, with its side off the entry. */
+export type WorkshopToken = BattleTokenRow & {
+  side: 'party' | 'foe' | 'other' | null;
+};
+
+export interface WorkshopBoard {
+  id: string;
+  campaignId: string;
+  name: string;
+  visibility: 'dm' | 'shared';
+  isActive: boolean;
+  encounterId: string | null;
+  terrain: BoardDoc;
+  revealed: Record<string, number[]>;
+  tokens: WorkshopToken[];
+  updatedAt: string;
+}
+
+export async function getWorkshopBoard(mapId: string): Promise<WorkshopBoard> {
+  const { map } = await staffForMap(mapId);
+  const board = normalizeBoard(map.terrain);
+  const revealed = revealedOf(map.revealed, board);
+  const rows = await db
+    .select()
+    .from(battleMapTokens)
+    .where(eq(battleMapTokens.mapId, mapId));
+  const entryIds = rows
+    .map(t => t.entryId)
+    .filter((id): id is string => id !== null);
+  const entries = new Map(
+    (entryIds.length > 0
+      ? await db
+          .select({
+            id: initiativeEntries.id,
+            label: initiativeEntries.label,
+            side: initiativeEntries.side,
+            encounterId: initiativeEntries.encounterId,
+          })
+          .from(initiativeEntries)
+          .where(inArray(initiativeEntries.id, entryIds))
+      : []
+    ).map(e => [e.id, e])
+  );
+  return {
+    id: map.id,
+    campaignId: map.campaignId,
+    name: map.name,
+    visibility: map.visibility,
+    isActive: map.isActive,
+    encounterId: map.encounterId,
+    terrain: board,
+    revealed: storeRevealed(revealed),
+    tokens: rows
+      // Last week's goblins, still standing where they fell in an order
+      // that no longer exists, are not on the bench.
+      .filter(
+        t =>
+          t.entryId === null ||
+          entries.get(t.entryId)?.encounterId === map.encounterId
+      )
+      .map(t => {
+        const e = t.entryId ? entries.get(t.entryId) : undefined;
+        return {
+          id: t.id,
+          entryId: t.entryId,
+          label: e?.label ?? t.label,
+          side: e ? (e.side as 'party' | 'foe' | 'other') : null,
+          x: t.x,
+          y: t.y,
+          level: levelFor(board, t).id,
+          altitude: t.altitude,
+          footprint: t.footprint,
+          tint: t.tint,
+          visibility: t.visibility,
+          mine: true,
+          state: t.state,
+          lockDc: t.lockDc,
+          hpCurrent: t.hpCurrent,
+          hpMax: t.hpMax,
+          breakable: t.hpMax !== null,
+          blocks: blocksStanding(t),
+          facing: t.facing,
+          effect: normalizeThingEffect(t.effect),
+          visionFeet: t.visionFeet,
+          lightFeet: t.lightFeet,
+          imageId: t.imageId,
+          imageUrl: t.imageId ? imageUrl(map.campaignId, t.imageId) : null,
+        };
+      }),
+    updatedAt: map.updatedAt,
+  };
+}
+
+/**
+ * Show the party the rooms they are standing in (the workshop's fog
+ * panel): for every shared party token on a floor, the flood of its own
+ * room — bounded by walls and closed doors, the way the fill tool is.
+ */
+export async function revealRoomsAround(
+  mapId: string,
+  levelId: string
+): Promise<number> {
+  const { map } = await staffForMap(mapId);
+  const board = normalizeBoard(map.terrain);
+  const level = levelOf(board, levelId);
+  const partyIds = new Set<string>();
+  if (map.encounterId) {
+    const rows = await db
+      .select({ id: initiativeEntries.id })
+      .from(initiativeEntries)
+      .where(
+        and(
+          eq(initiativeEntries.encounterId, map.encounterId),
+          eq(initiativeEntries.side, 'party')
+        )
+      );
+    for (const r of rows) partyIds.add(r.id);
+  }
+  const tokens = await db
+    .select()
+    .from(battleMapTokens)
+    .where(eq(battleMapTokens.mapId, mapId));
+  const revealed = revealedOf(map.revealed, board);
+  const shown = revealed.get(level.id)!;
+  const before = shown.size;
+  for (const t of tokens) {
+    if (t.visibility !== 'shared' || !t.entryId || !partyIds.has(t.entryId)) {
+      continue;
+    }
+    if (levelFor(board, t).id !== level.id) continue;
+    for (const i of floodFill(level, { x: t.x, y: t.y })) shown.add(i);
+  }
+  await db
+    .update(battleMaps)
+    .set({
+      revealed: storeRevealed(revealed),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(battleMaps.id, mapId));
+  bumpVersion(map.campaignId);
+  return shown.size - before;
 }
 
 /* --- authoring --------------------------------------------------------- */

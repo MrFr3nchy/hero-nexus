@@ -1150,7 +1150,7 @@ export function roomEdits(
   a: Tile,
   b: Tile,
   material: number,
-  opts: { door: boolean } = { door: true }
+  opts: { door: boolean; merge?: boolean } = { door: true }
 ): TerrainDoc {
   const x0 = Math.max(0, Math.min(a.x, b.x));
   const x1 = Math.min(doc.w - 1, Math.max(a.x, b.x));
@@ -1210,7 +1210,12 @@ export function roomEdits(
         : null;
     for (const t of s.edges) {
       const key = edgeKey(t.x, t.y, s.side);
-      if (walls.has(key)) continue;
+      // Sharing walls with neighbours keeps what stands there; not sharing
+      // builds this room's own wall over it.
+      if (walls.has(key)) {
+        if (opts.merge !== false) continue;
+        next.walls = next.walls.filter(w => edgeKey(w.x, w.y, w.side) !== key);
+      }
       const door = doorAt && doorAt.x === t.x && doorAt.y === t.y;
       const wall: Wall = door
         ? {
