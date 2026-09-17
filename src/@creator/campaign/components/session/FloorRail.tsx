@@ -29,6 +29,7 @@ import {
   Select,
   SelectItem,
 } from '@heroui/react';
+import { useTheme } from 'next-themes';
 import { useState } from 'react';
 
 import {
@@ -216,25 +217,27 @@ export function FloorRail({
               Ghost the floor below
             </button>
           )}
-          <AddFloorDialog
-            open={adding}
-            board={board}
-            from={level}
-            onClose={() => setAdding(false)}
-            onAdd={next => {
-              const feet = next.feet;
-              if (board.levels.some(l => l.feet === feet)) {
-                onError('There is already a floor at that height.');
-                return;
-              }
-              const levels = [...board.levels, next].sort(
-                (a, b) => a.feet - b.feet
-              );
-              onChange({ ...board, levels });
-              setAdding(false);
-              onAdded(next.id);
-            }}
-          />
+          {adding && (
+            <AddFloorDialog
+              open={adding}
+              board={board}
+              from={level}
+              onClose={() => setAdding(false)}
+              onAdd={next => {
+                const feet = next.feet;
+                if (board.levels.some(l => l.feet === feet)) {
+                  onError('There is already a floor at that height.');
+                  return;
+                }
+                const levels = [...board.levels, next].sort(
+                  (a, b) => a.feet - b.feet
+                );
+                onChange({ ...board, levels });
+                setAdding(false);
+                onAdded(next.id);
+              }}
+            />
+          )}
         </>
       )}
     </div>
@@ -368,6 +371,7 @@ function AddFloorDialog({
   const [ambient, setAmbient] = useState<Ambient>('bright');
   const [start, setStart] = useState<LevelStart>('outer');
   const [material, setMaterial] = useState(4);
+  const dark = useTheme().resolvedTheme === 'dark';
 
   const source = levelOf(board, sourceId);
   const feet = source.feet + (sits === 'above' ? height : -height);
@@ -526,7 +530,7 @@ function AddFloorDialog({
                           ? 'border-gold ring-1 ring-gold'
                           : 'border-line'
                       }`}
-                      style={{ background: m.swatch }}
+                      style={{ background: dark ? m.swatchDark : m.swatch }}
                       title={m.name}
                     />
                   )

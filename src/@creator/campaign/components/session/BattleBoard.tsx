@@ -348,9 +348,14 @@ function linkName(link: LevelLink): string {
   );
 }
 
-/** A floor's name, or a word for one the reader has not been shown. */
-function levelName(board: BoardDoc, id: string): string {
-  return board.levels.find(l => l.id === id)?.name || 'somewhere unseen';
+/**
+ * A floor in a sentence: "the upper floor", or "a floor unseen" for one
+ * the reader has not been shown — a player's board carries the stairs
+ * before it carries where they lead.
+ */
+function levelPhrase(board: BoardDoc, id: string): string {
+  const name = board.levels.find(l => l.id === id)?.name;
+  return name ? `the ${name.toLowerCase()}` : 'a floor unseen';
 }
 
 /** How far a token may be shown to reach. The rules module prices it. */
@@ -627,6 +632,15 @@ export function BattleBoard({
     window.addEventListener('hero-nexus:board', onMode);
     return () => window.removeEventListener('hero-nexus:board', onMode);
   }, [isStaff]);
+  // The stairs tool points at a neighbouring floor; when the floor in
+  // front changes under it, it points at that floor's neighbour instead.
+  useEffect(() => {
+    if (!doc || !levelId || tool.kind !== 'link') return;
+    if (tool.to !== levelId && doc.levels.some(l => l.id === tool.to)) return;
+    const i = doc.levels.findIndex(l => l.id === levelId);
+    const next = doc.levels[i + 1] ?? doc.levels[i - 1];
+    if (next) setTool({ ...tool, to: next.id });
+  }, [doc, levelId, tool]);
   // Doing something to a thing: the picker's mode and last word, and the DM's
   // amount for breaking one.
   const [lockMode, setLockMode] = useState<
@@ -1070,7 +1084,7 @@ export function BattleBoard({
     return {
       link,
       otherId,
-      otherName: levelName(doc, otherId),
+      otherPhrase: levelPhrase(doc, otherId),
       up: (other?.feet ?? terrain.feet + 1) > terrain.feet,
       feet: linkCostFeet(doc, link, terrain.id),
     };
@@ -3486,7 +3500,7 @@ export function BattleBoard({
           </span>
           <span className="text-ink-muted">
             {stairsUnder.up ? 'It climbs' : 'It drops'} {stairsUnder.feet} ft of
-            movement to the {stairsUnder.otherName.toLowerCase()}.
+            movement to {stairsUnder.otherPhrase}.
           </span>
           <Button
             size="sm"
@@ -3495,8 +3509,7 @@ export function BattleBoard({
             isDisabled={busy}
             onPress={() => climb()}
           >
-            {stairsUnder.up ? 'Go up' : 'Go down'} to the{' '}
-            {stairsUnder.otherName.toLowerCase()}
+            {stairsUnder.up ? 'Go up' : 'Go down'} to {stairsUnder.otherPhrase}
           </Button>
           <Button
             size="sm"
@@ -4082,7 +4095,7 @@ export function BattleBoard({
                         <span className="text-ink">
                           {entry?.label || t.label || 'Something'}
                         </span>
-                        <span>· {levelName(doc, t.level).toLowerCase()}</span>
+                        <span>· {levelPhrase(doc, t.level)}</span>
                       </button>
                     );
                   })}
@@ -4108,8 +4121,7 @@ export function BattleBoard({
                           {l.name?.trim() || LINK_LABEL[l.kind]}
                         </span>
                         <span>
-                          · {up ? 'up' : 'down'} to the{' '}
-                          {levelName(doc, otherId).toLowerCase()}
+                          · {up ? 'up' : 'down'} to {levelPhrase(doc, otherId)}
                           {l.hidden ? ' · hidden' : ''}
                         </span>
                       </span>

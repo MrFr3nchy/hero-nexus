@@ -960,7 +960,8 @@ export function fogged(
  * The board a player is allowed to have: each floor through `fogged` with
  * its own revealed set, and only the floors that have anything revealed
  * or a party member standing on them (`trodden`). Hidden stairs are left
- * out; the rest are kept where either end is a floor the player has. A
+ * out; the rest are kept where a tile of them is revealed on a floor the
+ * player has. A
  * board with nothing shown still carries the ground floor, fogged whole,
  * so there is always a floor to draw.
  */
@@ -985,8 +986,16 @@ export function foggedBoard(
     w: board.w,
     h: board.h,
     levels,
+    // A stair the party has seen a tile of, on a floor they have: a
+    // stairwell in a dark corner is not on their board until the corner is.
     links: board.links.filter(
-      k => !k.hidden && (ids.has(k.from) || ids.has(k.to))
+      k =>
+        !k.hidden &&
+        [k.from, k.to].some(
+          id =>
+            ids.has(id) &&
+            linkTiles(board, k).some(i => revealed.get(id)?.has(i))
+        )
     ),
   };
 }
