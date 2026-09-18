@@ -148,7 +148,11 @@ function DashboardContent() {
             {data ? (
               <Ledger
                 items={[
-                  { value: data.summary.characters, label: 'heroes' },
+                  {
+                    value: data.summary.characters,
+                    label: 'heroes',
+                    one: 'hero',
+                  },
                   // Only when there are any: a standing "0 drafts" would be
                   // furniture, and the ledger is a sentence (design rule 2).
                   ...(data.summary.drafts > 0
@@ -159,9 +163,17 @@ function DashboardContent() {
                         },
                       ]
                     : []),
-                  { value: data.summary.campaigns, label: 'campaigns' },
+                  {
+                    value: data.summary.campaigns,
+                    label: 'campaigns',
+                    one: 'campaign',
+                  },
                   { value: data.summary.homebrew, label: 'homebrew' },
-                  { value: data.summary.asDm, label: 'tables you run' },
+                  {
+                    value: data.summary.asDm,
+                    label: 'tables you run',
+                    one: 'table you run',
+                  },
                 ]}
               />
             ) : (

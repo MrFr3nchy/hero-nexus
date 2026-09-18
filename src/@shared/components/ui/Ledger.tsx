@@ -2,7 +2,10 @@ import { Fragment, type ReactNode } from 'react';
 
 interface LedgerItem {
   value: ReactNode;
+  /** The label beside the count, in the plural. */
   label: string;
+  /** The label when the count is exactly one — "1 hero", not "1 heroes". */
+  one?: string;
 }
 
 interface LedgerProps {
@@ -41,7 +44,9 @@ export function Ledger({ items, className }: LedgerProps) {
           <span className={allEmpty ? undefined : 'text-ink tabular-nums'}>
             {item.value}
           </span>{' '}
-          {item.label}
+          {item.one && (item.value === 1 || item.value === '1')
+            ? item.one
+            : item.label}
         </Fragment>
       ))}
     </p>

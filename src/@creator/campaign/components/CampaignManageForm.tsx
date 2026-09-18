@@ -2,50 +2,35 @@
 
 import {
   Button,
-  Checkbox,
-  CheckboxGroup,
   Input,
   NumberInput,
   Select,
   SelectItem,
-  Switch,
   Textarea,
 } from '@heroui/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { RPG_SYSTEMS } from '@/@creator/campaign/types';
-import { ABILITY_METHODS } from '@/@creator/character/schema';
-import {
-  TABLE_RULE_FIELDS,
-  TABLE_RULE_GROUPS,
-  type TableRuleGroup,
-  type TableRules,
-} from '@/@creator/campaign/lib/table-rules';
 import { SectionCard, useConfirm } from '@/@shared/components/ui';
-import { ImagePicker } from './ImagePicker';
-import { CalendarEditor } from './CalendarEditor';
-import type { CalendarDef } from '@/@creator/campaign/lib/calendar';
 import type { CampaignRow } from '@/server/campaigns';
 import {
   deleteCampaignAction,
   setCampaignStatusAction,
   updateCampaignAction,
 } from '../actions';
+import {
+  CampaignSettingsFields,
+  draftFromSettings,
+  settingsFromDraft,
+} from './CampaignSettingsFields';
+import { ImagePicker } from './ImagePicker';
 
-const METHOD_LABELS: Record<(typeof ABILITY_METHODS)[number], string> = {
-  manual: 'Manual',
-  pointbuy: 'Point Buy',
-  standard: 'Standard Array',
-  roll: 'Roll',
-};
-
-const parseList = (raw: string): string[] =>
-  raw
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean);
-
+/**
+ * The same sheet the table was created from, plus what only an existing
+ * table has: a banner (it needs a campaign to be filed under), a status, and
+ * the way out. The rules themselves live in `CampaignSettingsFields`, shared
+ * with creation, so this page cannot offer a setting the other lacks.
+ */
 export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
   const router = useRouter();
   const { settings } = campaign;
@@ -53,27 +38,10 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
   const [form, setForm] = useState({
     name: campaign.name,
     description: campaign.description,
-    rpgSystem: settings.rpgSystem,
     maxPlayers: settings.maxPlayers,
-    sessionNotes: settings.sessionNotes,
-    customRules: settings.customRules,
     bannerImageId: settings.bannerImageId,
-    // homebrew toggles (previously had no UI)
-    allowHomebrew: settings.allowHomebrew,
-    requireHomebrewApproval: settings.requireHomebrewApproval,
-    allowPublicHomebrew: settings.allowPublicHomebrew,
-    // structured table rules
-    abilityMethods: settings.rules.abilityMethods as string[],
-    allowMulticlass: settings.rules.allowMulticlass,
-    maxStartingLevel: settings.rules.maxStartingLevel,
-    requireBackstory: settings.rules.requireBackstory,
-    allowedSources: settings.rules.allowedSources.join(', '),
-    bannedSpecies: settings.rules.bannedSpecies.join(', '),
-    bannedClasses: settings.rules.bannedClasses.join(', '),
-    // what the app does about the rules at the table
-    table: settings.table as TableRules,
-    calendar: settings.calendar as CalendarDef,
   });
+  const [draft, setDraft] = useState(() => draftFromSettings(settings));
   const [status, setStatus] = useState(campaign.status);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<{
@@ -93,28 +61,10 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
         name: form.name,
         description: form.description,
         settings: {
-          rpgSystem: form.rpgSystem,
+          rpgSystem: settings.rpgSystem,
           maxPlayers: form.maxPlayers,
-          sessionNotes: form.sessionNotes,
-          customRules: form.customRules,
           bannerImageId: form.bannerImageId,
-          allowHomebrew: form.allowHomebrew,
-          requireHomebrewApproval: form.requireHomebrewApproval,
-          allowPublicHomebrew: form.allowPublicHomebrew,
-          rules: {
-            abilityMethods: form.abilityMethods.filter(
-              (m): m is (typeof ABILITY_METHODS)[number] =>
-                (ABILITY_METHODS as readonly string[]).includes(m)
-            ),
-            allowMulticlass: form.allowMulticlass,
-            maxStartingLevel: form.maxStartingLevel,
-            requireBackstory: form.requireBackstory,
-            allowedSources: parseList(form.allowedSources),
-            bannedSpecies: parseList(form.bannedSpecies),
-            bannedClasses: parseList(form.bannedClasses),
-          },
-          table: form.table,
-          calendar: form.calendar,
+          ...settingsFromDraft(draft),
         },
       });
       setBanner(
@@ -149,10 +99,11 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-5">
       {dialog}
       {banner && (
         <p
+          role={banner.kind === 'err' ? 'alert' : 'status'}
           className={`rounded-md border px-3 py-2 text-sm ${
             banner.kind === 'ok'
               ? 'border-success/40 bg-success/10 text-success'
@@ -163,9 +114,9 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
         </p>
       )}
 
-      <form onSubmit={save} className="space-y-5">
-        <SectionCard title="Details">
-          <div className="space-y-5">
+      <form onSubmit={save} className="flex flex-col gap-5">
+        <SectionCard title="The table">
+          <div className="flex flex-col gap-5">
             <Input
               label="Campaign name"
               value={form.name}
@@ -179,20 +130,6 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
               minRows={3}
             />
             <div className="grid gap-4 sm:grid-cols-2">
-              <Select
-                label="System"
-                selectedKeys={[form.rpgSystem]}
-                onSelectionChange={keys =>
-                  set(
-                    'rpgSystem',
-                    String(Array.from(keys)[0] ?? form.rpgSystem)
-                  )
-                }
-              >
-                {RPG_SYSTEMS.map(s => (
-                  <SelectItem key={s.id}>{s.name}</SelectItem>
-                ))}
-              </Select>
               <NumberInput
                 label="Max players"
                 minValue={1}
@@ -200,19 +137,10 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
                 value={form.maxPlayers}
                 onValueChange={v => set('maxPlayers', Number(v) || 6)}
               />
+              <div className="flex items-end pb-2 text-sm text-ink-muted">
+                D&amp;D 5e (2024), with the SRD on the shelves.
+              </div>
             </div>
-            <Textarea
-              label="Session notes"
-              value={form.sessionNotes}
-              onValueChange={v => set('sessionNotes', v)}
-              minRows={3}
-            />
-            <Textarea
-              label="House rules (free text — for the table to read)"
-              value={form.customRules}
-              onValueChange={v => set('customRules', v)}
-              minRows={3}
-            />
             <ImagePicker
               campaignId={campaign.id}
               label="Banner"
@@ -226,166 +154,13 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
           </div>
         </SectionCard>
 
-        <SectionCard title="Table rules (enforced in the character builder)">
-          <div className="space-y-5">
-            <CheckboxGroup
-              label="Ability score methods players may use"
-              orientation="horizontal"
-              value={form.abilityMethods}
-              onValueChange={v => set('abilityMethods', v)}
-            >
-              {ABILITY_METHODS.map(m => (
-                <Checkbox key={m} value={m}>
-                  {METHOD_LABELS[m]}
-                </Checkbox>
-              ))}
-            </CheckboxGroup>
-            {form.abilityMethods.length === 0 && (
-              <p className="text-xs text-danger">
-                Pick at least one — an empty list would leave players no way to
-                set ability scores.
-              </p>
-            )}
+        <CampaignSettingsFields draft={draft} onChange={setDraft} />
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <NumberInput
-                label="Highest starting level"
-                minValue={1}
-                maxValue={20}
-                value={form.maxStartingLevel}
-                onValueChange={v => set('maxStartingLevel', Number(v) || 1)}
-              />
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <Switch
-                isSelected={form.allowMulticlass}
-                onValueChange={v => set('allowMulticlass', v)}
-              >
-                Allow multiclassing
-              </Switch>
-              <Switch
-                isSelected={form.requireBackstory}
-                onValueChange={v => set('requireBackstory', v)}
-              >
-                Require a backstory before joining
-              </Switch>
-            </div>
-
-            <Input
-              label="Species not allowed (comma-separated)"
-              value={form.bannedSpecies}
-              onValueChange={v => set('bannedSpecies', v)}
-              placeholder="e.g. Custom Lineage, Warforged"
-            />
-            <Input
-              label="Classes not allowed (comma-separated)"
-              value={form.bannedClasses}
-              onValueChange={v => set('bannedClasses', v)}
-              placeholder="e.g. Artificer"
-            />
-            <Input
-              label="Sources in use (comma-separated — for reference, not enforced)"
-              value={form.allowedSources}
-              onValueChange={v => set('allowedSources', v)}
-              placeholder="e.g. PHB 2024, Xanathar's"
-            />
-          </div>
-        </SectionCard>
-
-        <SectionCard
-          title="At the table"
-          description="What the app does about the rules while people are playing. Every line defaults to the 2024 book; the note under each says where the alternative comes from."
-        >
-          <div className="space-y-6">
-            {(Object.keys(TABLE_RULE_GROUPS) as TableRuleGroup[]).map(group => {
-              const fields = TABLE_RULE_FIELDS.filter(f => f.group === group);
-              if (fields.length === 0) return null;
-              return (
-                <div key={group}>
-                  <h3 className="font-display-alt text-[0.7rem] uppercase tracking-[0.14em] text-gold/80">
-                    {TABLE_RULE_GROUPS[group].label}
-                  </h3>
-                  <p className="mt-0.5 text-xs text-ink-subtle">
-                    {TABLE_RULE_GROUPS[group].line}
-                  </p>
-                  <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                    {fields.map(field => {
-                      const value = field.read(form.table);
-                      return (
-                        <Select
-                          key={field.key}
-                          label={field.label}
-                          description={field.hint}
-                          selectedKeys={[value]}
-                          onSelectionChange={keys => {
-                            const next = String(Array.from(keys)[0] ?? value);
-                            set('table', field.write(form.table, next));
-                          }}
-                        >
-                          {field.options.map(o => (
-                            <SelectItem
-                              key={o.value}
-                              textValue={o.label}
-                              description={o.note}
-                            >
-                              {o.label}
-                            </SelectItem>
-                          ))}
-                        </Select>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </SectionCard>
-
-        <SectionCard
-          title="The world's calendar"
-          description="What the clock on the screen counts in. Where it stands is set from the screen; this is the year it stands in."
-        >
-          <CalendarEditor
-            value={form.calendar}
-            onChange={v => set('calendar', v)}
-          />
-        </SectionCard>
-
-        <SectionCard title="Homebrew">
-          <div className="flex flex-col gap-3">
-            <Switch
-              isSelected={form.allowHomebrew}
-              onValueChange={v => set('allowHomebrew', v)}
-            >
-              Allow homebrew content on character sheets
-            </Switch>
-            <Switch
-              isSelected={form.requireHomebrewApproval}
-              onValueChange={v => set('requireHomebrewApproval', v)}
-              isDisabled={!form.allowHomebrew}
-            >
-              Require DM approval for each homebrew entry
-            </Switch>
-            <Switch
-              isSelected={form.allowPublicHomebrew}
-              onValueChange={v => set('allowPublicHomebrew', v)}
-              isDisabled={!form.allowHomebrew}
-            >
-              Allow players to pull in publicly shared homebrew
-            </Switch>
-            {!form.requireHomebrewApproval && form.allowHomebrew && (
-              <p className="text-xs text-ink-subtle">
-                With approval off, homebrew entries are recorded as approved
-                automatically and the review queue stays empty.
-              </p>
-            )}
-          </div>
-        </SectionCard>
-
-        <Button type="submit" color="primary" isLoading={saving}>
-          Save changes
-        </Button>
+        <div>
+          <Button type="submit" color="primary" isLoading={saving}>
+            Save changes
+          </Button>
+        </div>
       </form>
 
       <SectionCard title="Status">

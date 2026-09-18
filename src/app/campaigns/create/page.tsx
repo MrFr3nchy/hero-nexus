@@ -9,7 +9,7 @@ export default function CreateCampaignPage() {
         <PageHeader
           rule={false}
           title="Start a campaign"
-          description="Set it up, then share the join code with your players."
+          description="Name it and go, or settle every rule now. Everything below the name starts at the book and can change later from Manage."
         />
         <Marginalia dash className="mb-5">
           the name can change later. the party rarely lets you forget the first

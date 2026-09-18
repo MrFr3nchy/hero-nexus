@@ -31,7 +31,7 @@ export default async function BackgroundsPage() {
           <Ledger
             className="mb-1"
             items={[
-              { value: items.length, label: 'backgrounds' },
+              { value: items.length, label: 'backgrounds', one: 'background' },
               { value: feats, label: 'origin feats between them' },
               ...(forged > 0 ? [{ value: forged, label: 'forged' }] : []),
             ]}

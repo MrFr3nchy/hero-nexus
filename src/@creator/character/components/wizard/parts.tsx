@@ -2,6 +2,8 @@
 
 import { type ReactNode } from 'react';
 
+import { InlineMd } from '@/@shared/components/ui';
+
 /**
  * Shared furniture for the guided builder. Kept deliberately plain: the class
  * and species grids are homogeneous collections, which is the one case the
@@ -120,7 +122,12 @@ export function ChoiceCard({
           {meta}
         </div>
       )}
-      {blurb && <p className="mt-2 text-sm text-ink-muted">{blurb}</p>}
+      {blurb && (
+        <p className="mt-2 text-sm text-ink-muted">
+          {/* An SRD blurb carries the book's *italics*; render them. */}
+          {typeof blurb === 'string' ? <InlineMd>{blurb}</InlineMd> : blurb}
+        </p>
+      )}
       {footer && <div className="mt-3">{footer}</div>}
     </button>
   );

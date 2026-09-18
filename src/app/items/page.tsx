@@ -35,7 +35,7 @@ export default async function ItemsPage() {
           <Ledger
             className="mb-1"
             items={[
-              { value: items.length, label: 'items' },
+              { value: items.length, label: 'items', one: 'item' },
               { value: uncommon, label: 'beyond common' },
               { value: attuned, label: 'wanting attunement' },
               ...(forged > 0 ? [{ value: forged, label: 'forged' }] : []),

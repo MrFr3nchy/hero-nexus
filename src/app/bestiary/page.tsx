@@ -36,7 +36,7 @@ export default async function BestiaryPage() {
           <Ledger
             className="mb-1"
             items={[
-              { value: items.length, label: 'creatures' },
+              { value: items.length, label: 'creatures', one: 'creature' },
               { value: lowLevel, label: 'CR 1 and under' },
               { value: legendary, label: 'legendary' },
               ...(forged > 0 ? [{ value: forged, label: 'forged' }] : []),

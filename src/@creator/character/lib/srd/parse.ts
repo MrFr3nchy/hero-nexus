@@ -408,7 +408,10 @@ export function toClassSummary(def: ClassDef): ClassSummary {
 }
 
 function firstSentence(input: string): string {
-  const clean = input.replace(/\n+/g, ' ').trim();
+  // The first line only. A feature that opens "…which are the following:"
+  // and then lists them used to run the list's dashes into the blurb.
+  const line = input.trim().split('\n')[0]?.trim() ?? '';
+  const clean = line.endsWith(':') ? `${line.slice(0, -1)}…` : line;
   const stop = clean.indexOf('. ');
   const out = stop > 0 ? clean.slice(0, stop + 1) : clean;
   return out.length > 200 ? `${out.slice(0, 197)}…` : out;

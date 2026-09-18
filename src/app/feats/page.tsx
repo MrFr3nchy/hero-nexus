@@ -33,8 +33,8 @@ export default async function FeatsPage() {
           <Ledger
             className="mb-1"
             items={[
-              { value: items.length, label: 'feats' },
-              { value: origin, label: 'origin feats' },
+              { value: items.length, label: 'feats', one: 'feat' },
+              { value: origin, label: 'origin feats', one: 'origin feat' },
               { value: gated, label: 'with prerequisites' },
               ...(forged > 0 ? [{ value: forged, label: 'forged' }] : []),
             ]}
