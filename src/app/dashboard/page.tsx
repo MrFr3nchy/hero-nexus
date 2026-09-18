@@ -11,6 +11,7 @@ import {
   DiceSpinner,
   EmptyState,
   Fleuron,
+  Glyph,
   HeroCard,
   Ledger,
   Marginalia,
@@ -71,7 +72,7 @@ function Rail({ rail }: { rail: DashboardData['rail'] }) {
           <h3 className="font-display text-lg text-ink">Recently forged</h3>
           <div className="mt-3 flex flex-wrap gap-2">
             {recentlyForged.map(h => (
-              <Link key={h.id} href="/creator/homebrew">
+              <Link key={h.id} href={`/creator/homebrew?id=${h.id}`}>
                 <Ribbon tone="arcane">
                   {h.name} · {h.type}
                 </Ribbon>
@@ -124,7 +125,7 @@ function DashboardContent() {
   const firstName =
     currentUser?.name?.trim().split(/\s+/)[0] ||
     currentUser?.email?.split('@')[0] ||
-    'traveller';
+    'traveler';
 
   const characters = data?.characters ?? [];
 
@@ -231,7 +232,7 @@ function DashboardContent() {
                 href="/creator/character"
                 className="flex w-48 flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-line p-5 text-center transition-colors hover:border-gold hover:bg-gold/[0.04]"
               >
-                <span className="text-2xl text-gold">✦</span>
+                <Glyph name="sparkle" size={26} className="text-gold" />
                 <Marginalia>Roll a new one</Marginalia>
               </Link>
             </div>

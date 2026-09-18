@@ -3,17 +3,22 @@ import { Marginalia, PageHeader, PageShell } from '@/@shared/components/ui';
 const SECTIONS = [
   {
     heading: 'What it is',
-    body: 'Hero Nexus keeps the moving parts of a tabletop campaign in one place: character sheets, homebrew content, session notes, an initiative tracker, and handouts you can push to your players. It targets D&D 5e (2024), with reference data pulled from the open Open5e API.',
+    body: 'Hero Nexus keeps the moving parts of a tabletop campaign in one place: character sheets, homebrew content, session notes, an initiative tracker, a battle map, and handouts you can push to your players. It targets D&D 5e (2024), with the System Reference Document built in.',
     aside: 'one app, not five browser tabs',
   },
   {
-    heading: 'Self-hosted by design',
-    body: 'The whole app is a Next.js server plus one SQLite file. There is no hosted service, no sign-up anywhere else, and no telemetry. You run it on a machine you control, and your table’s data stays there.',
-    aside: 'back it up by copying one file',
+    heading: 'Players build, DMs rule',
+    body: 'Anyone can forge a class, a spell, an item or a creature. Nothing forged reaches a table until the DM running it says so — approved, denied, or sent back with notes. What one table publishes, another can take off the shelf.',
+    aside: 'and yes, the DM can just say no',
+  },
+  {
+    heading: 'Live at the table',
+    body: 'The DM’s screen and every player’s sheet share one stream. A roll lands, a countdown starts, a save is asked for — and it shows up in the corner of whoever it concerns, wherever they are sitting.',
+    aside: 'the countdown is the DM’s favorite button',
   },
   {
     heading: 'Where it is',
-    body: 'Phase 1 — accounts, the character creator, homebrew — is in place. Phase 2 adds shared campaigns: invites, DM homebrew review, viewing player sheets, and live session tools.',
+    body: 'Accounts, the character creator, homebrew, campaigns with invites and DM review, the live screen with initiative and battle maps, and a library for sharing between tables are all in. Signing up is free.',
     aside: 'built in the open, one branch at a time',
   },
 ];
@@ -23,7 +28,7 @@ export default function AboutPage() {
     <PageShell>
       <PageHeader
         title="Hero Nexus"
-        description="A campaign organizer you run yourself."
+        description="A campaign organizer for the whole table."
       />
 
       <div className="divide-y divide-line">

@@ -589,7 +589,7 @@ export function CharacterForm({
           </p>
         )}
         {/*
-        The table is chosen now and honoured at the end. Saying so is the point
+        The table is chosen now and honored at the end. Saying so is the point
         of the line: the picker narrows the options from this moment, so it has
         to be answerable before the hero is finished, and a player who saves a
         draft should know the seat is not taken yet.

@@ -11,6 +11,7 @@ import {
   QuestScene,
   SectionCard,
   useConfirm,
+  Glyph,
 } from '@/@shared/components/ui';
 import type { CampaignRole } from '@/server/campaigns';
 import type { ObjectiveRow, QuestRow, QuestStatus } from '@/server/quests';
@@ -30,7 +31,7 @@ const STATUS: {
   label: string;
   tone: 'gold' | 'default' | 'success' | 'warning';
 }[] = [
-  { key: 'rumour', label: 'Rumour', tone: 'default' },
+  { key: 'rumour', label: 'Rumor', tone: 'default' },
   { key: 'active', label: 'In hand', tone: 'gold' },
   { key: 'done', label: 'Done', tone: 'success' },
   { key: 'failed', label: 'Failed', tone: 'warning' },
@@ -101,7 +102,7 @@ function Objectives({
                 onClick={() => act(deleteObjectiveAction(o.id))}
                 className="text-ink-subtle hover:text-danger"
               >
-                ✕
+                <Glyph name="x" size={14} />
               </button>
             </span>
           )}

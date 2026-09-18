@@ -224,12 +224,3 @@ export function TogglePill({
     </button>
   );
 }
-
-/** Collapsible block of SRD prose — long feature text shouldn't shout. */
-export function Prose({ children }: { children: ReactNode }) {
-  return (
-    <div className="whitespace-pre-wrap text-sm leading-relaxed text-ink-muted">
-      {children}
-    </div>
-  );
-}

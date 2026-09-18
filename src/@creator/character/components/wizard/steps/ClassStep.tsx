@@ -72,7 +72,7 @@ export function ClassStep({
     <div>
       <StepHeading
         title="Pick a class"
-        lede="What your hero does. The class sets the hit die, saving throws, armour and weapon training, and everything that arrives as you level."
+        lede="What your hero does. The class sets the hit die, saving throws, armor and weapon training, and everything that arrives as you level."
       />
 
       <ChoiceGrid>
@@ -145,10 +145,7 @@ export function ClassStep({
                     .join(' & ') || '—'
                 }
               />
-              <Fact
-                label="Armour"
-                value={classDef.coreTraits.armor || 'None'}
-              />
+              <Fact label="Armor" value={classDef.coreTraits.armor || 'None'} />
               <Fact
                 label="Weapons"
                 value={classDef.coreTraits.weapons || 'None'}

@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react';
 
+import { Marginalia } from './Marginalia';
 import { StatBlock } from './Stat';
 
 type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
@@ -20,6 +21,8 @@ interface SheetPreviewProps {
   abilities: Record<AbilityKey, number>;
   /** Derived rows — AC, Initiative, Proficiency, Save DC, … */
   derived?: { label: string; value: ReactNode }[];
+  /** A scrawl in the sheet's margin (design rule 5) — never load-bearing. */
+  note?: string;
   className?: string;
 }
 
@@ -38,6 +41,7 @@ export function SheetPreview({
   meta,
   abilities,
   derived,
+  note,
   className,
 }: SheetPreviewProps) {
   return (
@@ -78,6 +82,12 @@ export function SheetPreview({
             </div>
           ))}
         </dl>
+      )}
+
+      {note && (
+        <Marginalia dash className="mt-3 !text-base">
+          {note}
+        </Marginalia>
       )}
     </div>
   );

@@ -107,7 +107,7 @@ export function InventorySection({
   return (
     <SectionCard
       title="Inventory"
-      description="Everything on your person. Tick what you have equipped — worn armour and a held shield set your armour class."
+      description="Everything on your person. Tick what you have equipped — worn armor and a held shield set your armor class."
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <WeightChip load={load} />

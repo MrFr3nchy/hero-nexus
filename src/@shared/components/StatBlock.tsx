@@ -20,7 +20,7 @@ import {
   type SubclassData,
 } from '@/@shared/content';
 
-import { Glyph } from './ui';
+import { Glyph, InlineMd } from './ui';
 
 /**
  * One piece of game content, rendered as the thing itself.
@@ -77,7 +77,7 @@ function Passage({
       )}
       {body.trim() && (
         <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-ink-muted">
-          {body}
+          <InlineMd>{body}</InlineMd>
         </p>
       )}
     </div>
@@ -99,7 +99,7 @@ function Prose({ children }: { children: string }) {
   if (!children.trim()) return null;
   return (
     <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-muted">
-      {children}
+      <InlineMd>{children}</InlineMd>
     </p>
   );
 }
@@ -206,7 +206,7 @@ function ItemBody({ d }: { d: ItemData }) {
       )}
 
       {d.armor && (
-        <Group title="Armour">
+        <Group title="Armor">
           <div className="grid gap-1.5 sm:grid-cols-2">
             <Fact label="AC">
               {d.armor.ac_base}
@@ -269,7 +269,7 @@ function ClassBody({ d }: { d: ClassData }) {
         {t.savingThrows.length > 0 && (
           <Fact label="Saves">{listOf(t.savingThrows)}</Fact>
         )}
-        {t.armor && <Fact label="Armour">{t.armor}</Fact>}
+        {t.armor && <Fact label="Armor">{t.armor}</Fact>}
         {t.weapons && <Fact label="Weapons">{t.weapons}</Fact>}
         {t.tools && <Fact label="Tools">{t.tools}</Fact>}
         {t.skillChoice && (

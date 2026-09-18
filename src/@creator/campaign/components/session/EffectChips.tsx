@@ -1,5 +1,6 @@
 'use client';
 
+import { Glyph } from '@/@shared/components/ui';
 import {
   Button,
   Popover,
@@ -290,7 +291,7 @@ export function CountdownRows({
                 className="min-w-0 px-2 text-ink-subtle data-[hover=true]:text-danger"
                 onPress={() => act(removeEffectAction(c.id))}
               >
-                ✕
+                <Glyph name="x" size={14} />
               </Button>
             </div>
           )}

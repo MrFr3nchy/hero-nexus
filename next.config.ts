@@ -40,6 +40,13 @@ const nextConfig: NextConfig = {
         destination: '/creator/homebrew',
         permanent: false,
       },
+      // Profile and settings folded into one account page. Two short forms
+      // on two routes, offered from different menus, was one sheet's worth.
+      {
+        source: '/account/:rest(profile|settings)',
+        destination: '/account',
+        permanent: false,
+      },
     ];
   },
 };

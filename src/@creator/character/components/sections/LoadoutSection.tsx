@@ -310,7 +310,7 @@ export function LoadoutSection({
     <div className={stacked ? 'space-y-5' : 'grid gap-5 lg:grid-cols-2'}>
       <SectionCard
         title="What you are carrying"
-        description="Tick what is in hand. Worn armour and a held shield move your armour class."
+        description="Tick what is in hand. Worn armor and a held shield move your armor class."
         actions={
           <span className="inline-flex flex-wrap items-center gap-1.5">
             <WeightChip load={loadout.weight} />

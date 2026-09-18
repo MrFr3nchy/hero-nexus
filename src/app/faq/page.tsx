@@ -7,27 +7,27 @@ import { Marginalia, PageHeader, PageShell } from '@/@shared/components/ui';
 const faqItems = [
   {
     q: 'What is Hero Nexus?',
-    a: 'A self-hosted tool for tabletop RPG groups. Build D&D 5e (2024) characters, design homebrew, and run campaigns — the app and its database live on your own server.',
-  },
-  {
-    q: 'Where is my data stored?',
-    a: 'In a single SQLite file that ships with the app (data/hero-nexus.db). Nothing is sent to a third party. Back it up by copying that file.',
+    a: 'A campaign tool for tabletop RPG groups. Build D&D 5e (2024) characters, design homebrew, and run campaigns — players and DMs sign in to the same table.',
   },
   {
     q: 'Which systems does it support?',
-    a: 'D&D 5e (2024) for now. Reference data (classes, species, spells, items) is synced from the free Open5e API into your local database.',
+    a: 'D&D 5e (2024) for now. The System Reference Document — classes, species, backgrounds, feats, spells, items and creatures — is built in, and anything else your table wants is homebrew.',
   },
   {
-    q: 'Can I share characters and campaigns?',
-    a: 'Yes — invite players to a campaign and they can join. The DM can review submitted homebrew and see players’ character sheets. (Campaign features are rolling out in Phase 2.)',
+    q: 'How do I share characters and campaigns?',
+    a: 'Create a campaign and send the join code, or invite players by email. The DM sees every player’s sheet, reviews the homebrew they submit, and runs the live screen everyone at the table follows.',
+  },
+  {
+    q: 'Can homebrew be shared between tables?',
+    a: 'Yes. A DM can publish a campaign’s homebrew to the Library, and any other table can take it off the shelf. It stays the original author’s work; the copy lives with the table that adopted it.',
   },
   {
     q: 'How do I reset my password?',
-    a: 'There is no email on a self-hosted instance. Change it from Account → Settings while signed in, or ask whoever runs the instance.',
+    a: 'Signed out, use the “Forgot your password?” link on the sign-in page and we will email you a reset link. Signed in, change it from your account page.',
   },
   {
     q: 'Is it free?',
-    a: 'Yes. You host it yourself; there is no paid tier and no accounts anywhere else.',
+    a: 'Yes. Signing up is free, and there is no paid tier.',
   },
 ];
 
@@ -52,7 +52,7 @@ export default function FAQPage() {
         ))}
       </Accordion>
       <Marginalia dash className="mt-6">
-        still stuck? whoever set up this instance is your GM for tech support
+        still stuck? ask your DM. if you are the DM, ask the dice
       </Marginalia>
     </PageShell>
   );
