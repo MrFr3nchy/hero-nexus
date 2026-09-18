@@ -83,7 +83,17 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
               app's business, not this route's. It is also what puts the
               reader on the table's stream from wherever they are standing. */}
           <SittingBar />
-          <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+          {/* `overflow-auto` only where the page is the scroller. On a
+              document-scrolling page it made <main> the "scrolling
+              ancestor" for `position: sticky` without ever scrolling, so
+              nothing on a page could stick to the window. */}
+          <main
+            className={
+              fillsTheWindow ? 'min-h-0 flex-1 overflow-auto' : 'flex-1'
+            }
+          >
+            {children}
+          </main>
         </div>
       </div>
     );

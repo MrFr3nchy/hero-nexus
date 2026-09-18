@@ -1,27 +1,14 @@
+/**
+ * The one system the app is built for. There used to be four here, three
+ * of which nothing on the shelves or in the builder supported; a campaign
+ * form offered them anyway.
+ */
 export const RPG_SYSTEMS = [
   {
     id: 'dnd5e2024',
     name: 'Dungeons & Dragons',
     version: '5th Edition 2024',
     description: "The latest version of the world's most popular tabletop RPG",
-  },
-  {
-    id: 'pathfinder2e',
-    name: 'Pathfinder',
-    version: '2nd Edition',
-    description: 'A fantasy RPG with deep character customization',
-  },
-  {
-    id: 'callofcthulhu',
-    name: 'Call of Cthulhu',
-    version: '7th Edition',
-    description: 'Horror investigation RPG',
-  },
-  {
-    id: 'vampire5e',
-    name: 'Vampire: The Masquerade',
-    version: '5th Edition',
-    description: 'Gothic punk storytelling RPG',
   },
 ];
 

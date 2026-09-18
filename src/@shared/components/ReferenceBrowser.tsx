@@ -123,7 +123,9 @@ export function ReferenceBrowser({
 
   return (
     <div className="grid gap-5 md:grid-cols-[minmax(0,18rem)_1fr]">
-      <div className="flex flex-col gap-3">
+      {/* The list keeps to the window while a long stat block — a class
+          runs to twenty features — scrolls the page beside it. */}
+      <div className="flex flex-col gap-3 md:sticky md:top-6 md:self-start">
         <div className="flex items-center gap-2">
           <Input
             size="sm"
@@ -174,7 +176,7 @@ export function ReferenceBrowser({
           </div>
         )}
 
-        <ul className="max-h-[28rem] overflow-y-auto rounded-[var(--radius-card)] border border-line bg-surface">
+        <ul className="max-h-[28rem] overflow-y-auto rounded-[var(--radius-card)] border border-line bg-surface md:max-h-[calc(100dvh-14rem)]">
           {filtered.map(item => {
             const key = refKey(item.entry.ref);
             const isSelected =
