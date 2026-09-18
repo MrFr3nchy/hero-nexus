@@ -1,5 +1,7 @@
 'use client';
 
+import { InlineMd } from '@/@shared/components/ui';
+
 import {
   ChoiceCard,
   ChoiceGrid,
@@ -158,9 +160,11 @@ export function SpeciesStep({
               <div key={trait.name}>
                 <h4 className="font-display text-sm text-ink">{trait.name}</h4>
                 <p className="mt-0.5 whitespace-pre-wrap text-sm text-ink-muted">
-                  {trait.options.length > 0
-                    ? trait.desc.split('\n')[0]
-                    : trait.desc}
+                  <InlineMd>
+                    {trait.options.length > 0
+                      ? trait.desc.split('\n')[0]
+                      : trait.desc}
+                  </InlineMd>
                 </p>
 
                 {trait.options.length > 0 && (

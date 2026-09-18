@@ -35,8 +35,12 @@ export default async function ClassesPage() {
           <Ledger
             className="mb-1"
             items={[
-              { value: items.length, label: 'classes' },
-              { value: srdSubclasses, label: 'subclasses behind them' },
+              { value: items.length, label: 'classes', one: 'class' },
+              {
+                value: srdSubclasses,
+                label: 'subclasses behind them',
+                one: 'subclass behind them',
+              },
               ...(forged > 0 ? [{ value: forged, label: 'forged' }] : []),
             ]}
           />

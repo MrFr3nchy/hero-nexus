@@ -278,7 +278,7 @@ function ClassForm({
             onChange={v => setTraits({ savingThrows: v as AbilityKey[] })}
           />
           <TextField
-            label="Armour"
+            label="Armor"
             value={t.armor}
             onChange={v => setTraits({ armor: v })}
           />
@@ -1076,7 +1076,7 @@ function ItemForm({ d, onChange }: { d: ItemData; onChange: Patch<ItemData> }) {
       )}
 
       {d.armor && (
-        <FieldGroup title="Armour">
+        <FieldGroup title="Armor">
           <Row>
             <PickOne
               label="Category"
@@ -1247,15 +1247,15 @@ function CreatureForm({
       <FieldGroup title="What it takes to kill">
         <Row>
           <NumberField
-            label="Armour class"
+            label="Armor class"
             value={d.armor_class}
             onChange={v => set({ armor_class: v })}
           />
           <TextField
-            label="Armour from"
+            label="Armor from"
             value={d.armor_detail}
             onChange={v => set({ armor_detail: v })}
-            description="Natural armour, plate, shield…"
+            description="Natural armor, plate, shield…"
           />
         </Row>
         <Row>

@@ -1,6 +1,7 @@
 'use client';
 
 import { Button, NumberInput, Tooltip } from '@heroui/react';
+import Link from 'next/link';
 import { useState } from 'react';
 
 import { Glyph, Marginalia, Stat } from '@/@shared/components/ui';
@@ -498,12 +499,12 @@ export function PlayCard({
           {state.levelEarned !== null && (
             <p className="mt-0.5 text-xs text-gold-strong dark:text-gold">
               {state.canEdit && !canRollSecret ? (
-                <a
+                <Link
                   href={`/creator/character?id=${state.characterId}&intent=level-up`}
                   className="underline-offset-2 hover:underline"
                 >
                   Enough for level {state.levelEarned} — level up
-                </a>
+                </Link>
               ) : (
                 <>Owed level {state.levelEarned}</>
               )}

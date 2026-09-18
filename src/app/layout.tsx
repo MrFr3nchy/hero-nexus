@@ -37,7 +37,7 @@ const caveat = Caveat({
 export const metadata: Metadata = {
   title: 'Hero Nexus',
   description:
-    'A self-hosted campaign tool for tabletop RPG players and game masters — build characters, design homebrew, and run your table.',
+    'A campaign tool for tabletop RPG players and game masters — build characters, design homebrew, and run your table live.',
 };
 
 export default function RootLayout({

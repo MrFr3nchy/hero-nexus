@@ -17,6 +17,7 @@ import {
   Marginalia,
   Pill,
   SectionCard,
+  Glyph,
 } from '@/@shared/components/ui';
 import type { LedgerState, LootKind } from '@/server/quests';
 import {
@@ -383,7 +384,7 @@ export function LedgerPanel({
                   className="min-w-0 px-2 text-ink-subtle data-[hover=true]:text-danger"
                   onPress={() => act(deleteLootAction(item.id))}
                 >
-                  ✕
+                  <Glyph name="x" size={14} />
                 </Button>
               </li>
             ))}

@@ -1,10 +1,14 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { CampaignManageForm } from '@/@creator/campaign/components';
 import { PublishCampaign } from '@/@creator/library/components';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
-import { Marginalia, PageHeader, PageShell } from '@/@shared/components/ui';
+import {
+  Marginalia,
+  PageHeader,
+  PageShell,
+  BackLink,
+} from '@/@shared/components/ui';
 import { getCampaign } from '@/server/campaigns';
 import { publicationForCampaign } from '@/server/library';
 
@@ -25,12 +29,7 @@ export default async function ManageCampaignPage({
   return (
     <ProtectedRoute>
       <PageShell>
-        <Link
-          href={`/campaigns/${id}`}
-          className="mb-2 inline-block text-sm text-ink-muted hover:text-ink"
-        >
-          ← {campaign.name}
-        </Link>
+        <BackLink href={`/campaigns/${id}`}>{campaign.name}</BackLink>
         <PageHeader
           rule={false}
           title="Manage the table"

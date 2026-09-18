@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   const token = url.searchParams.get('token') ?? '';
 
   const back = (flag: string) =>
-    NextResponse.redirect(appUrl(`/account/settings?${flag}`), {
+    NextResponse.redirect(appUrl(`/account?${flag}`), {
       status: 303,
     });
 

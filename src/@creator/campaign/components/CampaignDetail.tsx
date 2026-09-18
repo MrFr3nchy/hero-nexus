@@ -198,6 +198,13 @@ export function CampaignDetail({
                     {campaign.settings.customRules}
                   </p>
                 )}
+                {/* Enforcing, with nothing to enforce beyond the book: say
+                    so, rather than a card with a heading and no body. */}
+                {ruleLines.length === 0 && !campaign.settings.customRules && (
+                  <p className="text-sm text-ink-muted">
+                    The book as written — no house rules on top of it yet.
+                  </p>
+                )}
               </div>
             </SectionCard>
           )}

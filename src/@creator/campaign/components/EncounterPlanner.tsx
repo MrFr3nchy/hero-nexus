@@ -377,7 +377,7 @@ export function EncounterPlanner({ campaignId }: { campaignId: string }) {
         <EmptyState
           scene={<BattlefieldScene />}
           title="Nothing waiting in the dark"
-          description="Build a fight now and it deals out in one press when the party walks into it — with the hit points, the armour class, and initiative already rolled."
+          description="Build a fight now and it deals out in one press when the party walks into it — with the hit points, the armor class, and initiative already rolled."
         />
       ) : (
         <div className="space-y-4">

@@ -93,7 +93,7 @@ export function CharactersList() {
         description="Every character you've built for the table."
         actions={
           <Button as={Link} href="/creator/character" color="primary" size="sm">
-            New character
+            New hero
           </Button>
         }
       />
@@ -145,10 +145,8 @@ export function CharactersList() {
               href="/creator/character"
               className="flex w-52 flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-line p-6 text-center transition-colors hover:border-gold hover:bg-gold/[0.04]"
             >
-              <Glyph name="plus" size={22} className="text-gold" />
-              <span className="font-hand text-lg text-ink-subtle">
-                Roll a new one
-              </span>
+              <Glyph name="sparkle" size={26} className="text-gold" />
+              <Marginalia>Roll a new one</Marginalia>
             </Link>
           </div>
 

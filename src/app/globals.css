@@ -161,6 +161,24 @@ h4 {
   letter-spacing: 0.02em;
 }
 
+/* ---- Turning the lights --------------------------------------------- *
+ * `ThemeToggle` puts this on <html> for the moment of the switch, so the
+ * palette crosses over instead of blinking. Backgrounds, borders and ink
+ * only; nothing that moves.
+ * ------------------------------------------------------------------- */
+
+html.theme-turning,
+html.theme-turning *,
+html.theme-turning *::before,
+html.theme-turning *::after {
+  transition:
+    background-color 320ms ease,
+    border-color 320ms ease,
+    color 320ms ease,
+    fill 320ms ease,
+    stroke 320ms ease !important;
+}
+
 /* ---- Ornament keyframes ------------------------------------------- */
 
 @keyframes fleuron-draw {
@@ -179,6 +197,22 @@ h4 {
   100% {
     transform: rotate3d(1, 1, 0, 360deg);
   }
+}
+
+/* A fresh sheet landing on the desk — the home page's roll control. */
+@keyframes sheet-land {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+.sheet-land {
+  animation: sheet-land 0.35s ease-out both;
 }
 
 /* The one allowed moving element inside an EmptyState scene (design rule 7). */
@@ -205,6 +239,7 @@ h4 {
 @media (prefers-reduced-motion: reduce) {
   .fleuron-rule,
   .d20-spin,
+  .sheet-land,
   .candle-flame {
     animation: none !important;
   }

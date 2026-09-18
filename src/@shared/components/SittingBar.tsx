@@ -77,7 +77,10 @@ function sittingFor(startedAt: string | null): string | null {
   if (!Number.isFinite(ms) || ms < 60_000) return null;
   const minutes = Math.floor(ms / 60_000);
   if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  // A table that never rose: "153h 48m" is a sum, "6d 9h" is a fact.
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
 export function SittingBar() {

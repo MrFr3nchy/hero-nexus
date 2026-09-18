@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Navigation } from './Navigation';
 import { NAV_HREFS, SideNavigation } from './SideNavigation';
 import { SittingBar } from './SittingBar';
+import { DiceSpinner } from './ui';
 
 interface ConditionalLayoutProps {
   children: React.ReactNode;
@@ -44,9 +45,7 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-bg">
-        <span className="animate-pulse font-display text-lg text-ink-muted">
-          Hero Nexus
-        </span>
+        <DiceSpinner size={44} label="Lighting the candles…" />
       </div>
     );
   }
@@ -84,7 +83,17 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
               app's business, not this route's. It is also what puts the
               reader on the table's stream from wherever they are standing. */}
           <SittingBar />
-          <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+          {/* `overflow-auto` only where the page is the scroller. On a
+              document-scrolling page it made <main> the "scrolling
+              ancestor" for `position: sticky` without ever scrolling, so
+              nothing on a page could stick to the window. */}
+          <main
+            className={
+              fillsTheWindow ? 'min-h-0 flex-1 overflow-auto' : 'flex-1'
+            }
+          >
+            {children}
+          </main>
         </div>
       </div>
     );

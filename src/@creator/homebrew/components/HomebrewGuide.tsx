@@ -143,9 +143,9 @@ const TYPE_NOTES: Record<ContentType, { forWhat: string; watch: string }> = {
   },
   item: {
     forWhat:
-      'Gear, weapons, armour and wondrous things — anything that can sit in an inventory.',
+      'Gear, weapons, armor and wondrous things — anything that can sit in an inventory.',
     watch:
-      'Armour and weapon stats only appear once you set the kind. Attunement is a real flag: a character can hold three attuned items and the sheet counts them.',
+      'Armor and weapon stats only appear once you set the kind. Attunement is a real flag: a character can hold three attuned items and the sheet counts them.',
   },
   creature: {
     forWhat:
@@ -247,7 +247,7 @@ export function HomebrewGuide() {
           )}
 
           <Marginalia className="mt-5" dash>
-            the tooth is flavour. the 4d6 is not.
+            the tooth is flavor. the 4d6 is not.
           </Marginalia>
         </div>
       </section>

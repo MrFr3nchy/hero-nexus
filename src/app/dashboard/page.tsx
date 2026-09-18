@@ -11,6 +11,7 @@ import {
   DiceSpinner,
   EmptyState,
   Fleuron,
+  Glyph,
   HeroCard,
   Ledger,
   Marginalia,
@@ -71,7 +72,7 @@ function Rail({ rail }: { rail: DashboardData['rail'] }) {
           <h3 className="font-display text-lg text-ink">Recently forged</h3>
           <div className="mt-3 flex flex-wrap gap-2">
             {recentlyForged.map(h => (
-              <Link key={h.id} href="/creator/homebrew">
+              <Link key={h.id} href={`/creator/homebrew?id=${h.id}`}>
                 <Ribbon tone="arcane">
                   {h.name} · {h.type}
                 </Ribbon>
@@ -124,7 +125,7 @@ function DashboardContent() {
   const firstName =
     currentUser?.name?.trim().split(/\s+/)[0] ||
     currentUser?.email?.split('@')[0] ||
-    'traveller';
+    'traveler';
 
   const characters = data?.characters ?? [];
 
@@ -147,7 +148,11 @@ function DashboardContent() {
             {data ? (
               <Ledger
                 items={[
-                  { value: data.summary.characters, label: 'heroes' },
+                  {
+                    value: data.summary.characters,
+                    label: 'heroes',
+                    one: 'hero',
+                  },
                   // Only when there are any: a standing "0 drafts" would be
                   // furniture, and the ledger is a sentence (design rule 2).
                   ...(data.summary.drafts > 0
@@ -158,9 +163,17 @@ function DashboardContent() {
                         },
                       ]
                     : []),
-                  { value: data.summary.campaigns, label: 'campaigns' },
+                  {
+                    value: data.summary.campaigns,
+                    label: 'campaigns',
+                    one: 'campaign',
+                  },
                   { value: data.summary.homebrew, label: 'homebrew' },
-                  { value: data.summary.asDm, label: 'tables you run' },
+                  {
+                    value: data.summary.asDm,
+                    label: 'tables you run',
+                    one: 'table you run',
+                  },
                 ]}
               />
             ) : (
@@ -216,9 +229,14 @@ function DashboardContent() {
                   key={c.id}
                   className={`w-48 ${TILT[i % TILT.length]} transition-transform hover:rotate-0`}
                 >
+                  {/*
+                    The sheet, not the builder: these are finished heroes,
+                    and the roster sends them there too. The builder is a
+                    press away from the sheet.
+                  */}
                   <HeroCard
                     layout="stack"
-                    href={`/creator/character?id=${c.id}`}
+                    href={`/characters/${c.id}`}
                     name={c.name || 'Unnamed character'}
                     charClass={c.class || undefined}
                     level={c.level}
@@ -231,7 +249,7 @@ function DashboardContent() {
                 href="/creator/character"
                 className="flex w-48 flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-line p-5 text-center transition-colors hover:border-gold hover:bg-gold/[0.04]"
               >
-                <span className="text-2xl text-gold">✦</span>
+                <Glyph name="sparkle" size={26} className="text-gold" />
                 <Marginalia>Roll a new one</Marginalia>
               </Link>
             </div>

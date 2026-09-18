@@ -167,7 +167,7 @@ export function HeroPanelBody({
 
       {/* ---- what those numbers came to ---- */}
       <div className="border-t border-line pt-2">
-        <Row label="Armour class" value={sheet.combat.armorClass} />
+        <Row label="Armor class" value={sheet.combat.armorClass} />
         <Row
           label="Hit points"
           value={`${sheet.combat.hitPointsMax} · ${sheet.combat.hitDiceMax}d${sheet.combat.hitDieSize}`}

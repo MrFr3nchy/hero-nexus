@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { type ReactNode } from 'react';
 
 import { Marginalia } from './Marginalia';
@@ -88,17 +89,24 @@ export function HeroCard({
   className,
 }: HeroCardProps) {
   const spineColor = spine[charClass?.toLowerCase() ?? ''] ?? 'var(--gold)';
-  const Wrapper = href ? 'a' : 'div';
   const sub = [charClass, species].filter(Boolean).join(' · ') || '—';
+  // A client-side link, not a bare <a>: the card used to reload the whole
+  // app on every press, splash screen and all.
+  const frame = (cls: string, children: ReactNode) =>
+    href ? (
+      <Link href={href} className={cls}>
+        {children}
+      </Link>
+    ) : (
+      <div className={cls}>{children}</div>
+    );
 
   if (layout === 'stack') {
-    return (
-      <Wrapper
-        {...(href ? { href } : {})}
-        className={`relative flex h-full flex-col overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface pb-3 [box-shadow:var(--shadow-card)] ${
-          href ? 'transition-colors hover:border-gold/40' : ''
-        } ${className ?? ''}`}
-      >
+    return frame(
+      `relative flex h-full flex-col overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface pb-3 [box-shadow:var(--shadow-card)] ${
+        href ? 'transition-colors hover:border-gold/40' : ''
+      } ${className ?? ''}`,
+      <>
         <span
           aria-hidden="true"
           className="h-1 w-full"
@@ -129,17 +137,15 @@ export function HeroCard({
             <Marginalia>{note}</Marginalia>
           </div>
         )}
-      </Wrapper>
+      </>
     );
   }
 
-  return (
-    <Wrapper
-      {...(href ? { href } : {})}
-      className={`relative flex gap-4 overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface py-4 pl-5 pr-4 [box-shadow:var(--shadow-card)] ${
-        href ? 'transition-colors hover:border-gold/40' : ''
-      } ${className ?? ''}`}
-    >
+  return frame(
+    `relative flex gap-4 overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface py-4 pl-5 pr-4 [box-shadow:var(--shadow-card)] ${
+      href ? 'transition-colors hover:border-gold/40' : ''
+    } ${className ?? ''}`,
+    <>
       <span
         aria-hidden="true"
         className="absolute inset-y-0 left-0 w-1"
@@ -168,6 +174,6 @@ export function HeroCard({
           </div>
         )}
       </div>
-    </Wrapper>
+    </>
   );
 }

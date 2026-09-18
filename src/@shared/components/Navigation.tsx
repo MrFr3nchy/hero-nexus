@@ -23,6 +23,7 @@ import { useState } from 'react';
 import { useAuth } from '@/@auth/context';
 import { NAV_ITEMS } from '@/@auth/types/constants';
 import { ThemeToggle } from './ThemeToggle';
+import { Glyph } from './ui';
 
 export const Navigation = () => {
   const pathname = usePathname();
@@ -109,19 +110,30 @@ export const Navigation = () => {
                 }
               />
             </DropdownTrigger>
+            {/*
+              The same three doors the spine's foot offers, in the same words,
+              so the public bar and the private shell do not disagree about
+              where "Account" goes.
+            */}
             <DropdownMenu aria-label="Account">
-              <DropdownItem key="dashboard" href="/dashboard">
-                Dashboard
+              <DropdownItem
+                key="dashboard"
+                href="/dashboard"
+                startContent={<Glyph name="house" size={15} />}
+              >
+                Your table
               </DropdownItem>
-              <DropdownItem key="profile" href="/account/profile">
-                Profile
-              </DropdownItem>
-              <DropdownItem key="settings" href="/account/settings">
-                Settings
+              <DropdownItem
+                key="account"
+                href="/account"
+                startContent={<Glyph name="person" size={15} />}
+              >
+                Account
               </DropdownItem>
               <DropdownItem
                 key="logout"
                 color="danger"
+                startContent={<Glyph name="sign-out" size={15} />}
                 onPress={() => logout()}
               >
                 Sign out

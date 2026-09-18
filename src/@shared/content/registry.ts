@@ -186,7 +186,7 @@ export const CONTENT_REGISTRY: Record<ContentType, ContentTypeMeta> = {
     label: 'Item',
     plural: 'Items',
     glyph: 'shield',
-    description: 'Gear, weapons, armour, and wondrous things.',
+    description: 'Gear, weapons, armor, and wondrous things.',
     chips: entry => {
       const d = parseContentData('item', entry.data) as ItemData;
       return [

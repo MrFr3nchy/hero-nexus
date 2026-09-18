@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { getCharacterAction } from '@/@creator/character/actions';
@@ -7,7 +6,7 @@ import {
   PlaySurface,
 } from '@/@creator/character/components/PlaySurface';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
-import { PageHeader, PageShell } from '@/@shared/components/ui';
+import { PageHeader, PageShell, BackLink } from '@/@shared/components/ui';
 import { weaponAttacks } from '@/@creator/character/lib/derive';
 import { characterTable } from '@/server/characters';
 import { resolveContentRefs } from '@/server/content';
@@ -53,12 +52,9 @@ export default async function CharacterPlayPage({
   return (
     <ProtectedRoute>
       <PageShell>
-        <Link
-          href={`/characters/${id}`}
-          className="mb-2 inline-block text-sm text-ink-muted hover:text-ink"
-        >
-          ← {character.name || 'Character'}
-        </Link>
+        <BackLink href={`/characters/${id}`}>
+          {character.name || 'Character'}
+        </BackLink>
         {/* rule={false}: the page leads with the object, not the title. */}
         <PageHeader
           rule={false}

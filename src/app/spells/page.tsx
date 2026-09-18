@@ -33,9 +33,9 @@ export default async function SpellsPage() {
           <Ledger
             className="mb-1"
             items={[
-              { value: items.length, label: 'spells' },
-              { value: cantrips, label: 'cantrips' },
-              { value: rituals, label: 'rituals' },
+              { value: items.length, label: 'spells', one: 'spell' },
+              { value: cantrips, label: 'cantrips', one: 'cantrip' },
+              { value: rituals, label: 'rituals', one: 'ritual' },
               ...(forged > 0 ? [{ value: forged, label: 'forged' }] : []),
             ]}
           />

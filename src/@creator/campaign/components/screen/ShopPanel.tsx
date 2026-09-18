@@ -565,7 +565,7 @@ function ShopEditor({
         >
           Save the shop
         </Button>
-        <Tooltip content="Every priced weapon, armour, gear and common consumable in the SRD, on unlimited shelves at the book price.">
+        <Tooltip content="Every priced weapon, armor, gear and common consumable in the SRD, on unlimited shelves at the book price.">
           <Button
             size="sm"
             variant="flat"

@@ -13,7 +13,7 @@ import {
 } from '@/@creator/character/lib/note-sections';
 import { PublishHero } from '@/@creator/library/components';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
-import { PageHeader, PageShell } from '@/@shared/components/ui';
+import { PageHeader, PageShell, BackLink } from '@/@shared/components/ui';
 import { weaponAttacks } from '@/@creator/character/lib/derive';
 import { characterTable } from '@/server/characters';
 import { resolveContentRefs } from '@/server/content';
@@ -85,12 +85,7 @@ export default async function CharacterSheetPage({
   return (
     <ProtectedRoute>
       <PageShell width="wide">
-        <Link
-          href="/characters"
-          className="mb-2 inline-block text-sm text-ink-muted hover:text-ink"
-        >
-          ← Your characters
-        </Link>
+        <BackLink href="/characters">Your characters</BackLink>
         <PageHeader
           title={character.name || 'Character'}
           description={

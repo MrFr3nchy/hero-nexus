@@ -268,7 +268,7 @@ export function WorkshopPanel({
               onChange={roomDoor => set({ roomDoor })}
             />
             <Toggle
-              label="Share walls with neighbours"
+              label="Share walls with neighbors"
               on={settings.roomMerge}
               onChange={roomMerge => set({ roomMerge })}
             />

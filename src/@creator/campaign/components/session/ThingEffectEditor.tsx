@@ -22,7 +22,7 @@ import {
 } from '@/@shared/battlemap/types';
 import { CONDITIONS } from '@/@creator/campaign/lib/conditions';
 import { ABILITY_KEYS, ABILITY_LABELS } from '@/@creator/character/schema';
-import { Marginalia } from '@/@shared/components/ui';
+import { Marginalia, Glyph } from '@/@shared/components/ui';
 import type { BattleTokenRow } from '@/server/battlemap';
 import { setThingEffectAction } from '../../battlemap-actions';
 
@@ -326,7 +326,7 @@ export function ThingEffectEditor({
                   onClick={() => remove(i)}
                   className="text-ink-subtle hover:text-danger"
                 >
-                  ✕
+                  <Glyph name="x" size={14} />
                 </button>
               </li>
             ))}

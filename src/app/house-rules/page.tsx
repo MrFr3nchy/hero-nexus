@@ -32,7 +32,7 @@ export default async function HouseRulesPage() {
           <Ledger
             className="mb-1"
             items={[
-              { value: items.length, label: 'house rules' },
+              { value: items.length, label: 'house rules', one: 'house rule' },
               { value: mine, label: 'of your own' },
               { value: replacing, label: 'replacing a printed rule' },
             ]}
