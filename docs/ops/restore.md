@@ -55,11 +55,18 @@ rclone ls backup:hero-nexus-backups/uploads   # should list files
 
 ## Restore (rebuilding after losing the droplet)
 
-1. **Provision** a new droplet and attach a volume at `/mnt/hero-nexus-data`.
-   Do the one-time setup in `deploy.md` steps 1–6, but **do not start
-   `hero-nexus` yet.**
+1. **Provision** a new droplet, attach a volume at `/mnt/hero-nexus-data`,
+   and run `deploy/bootstrap.sh` as in `deploy.md`. It builds, migrates and
+   seeds a fresh, empty database and starts the app — that is fine, the next
+   two steps replace it.
 
-2. **Stop the app** if it is somehow running: `sudo systemctl stop hero-nexus`.
+2. **Stop the app** and remove the fresh database (Litestream refuses to
+   restore over an existing file):
+
+   ```
+   sudo systemctl stop hero-nexus
+   sudo rm -f /mnt/hero-nexus-data/hero-nexus.db /mnt/hero-nexus-data/hero-nexus.db-wal /mnt/hero-nexus-data/hero-nexus.db-shm
+   ```
 
 3. **Restore the database** from the replica:
 

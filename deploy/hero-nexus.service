@@ -8,11 +8,19 @@
 # the process down on purpose. The restart cap below stops a bad migration from
 # crash-looping in silence — after 3 failures in 5 min the unit stays "failed"
 # and `systemctl status hero-nexus` / `journalctl -u hero-nexus` shows why.
+#
+# The server binds 127.0.0.1 only. `next start` defaults to 0.0.0.0, which
+# would leave :3000 reachable on the droplet's public IP — and the app trusts
+# X-Forwarded-For for its rate-limit keys, so a client that skips Caddy could
+# spoof it. `next start` takes the bind address from --hostname alone; a
+# HOSTNAME= line in .env.local does nothing. See docs/ops/security-decisions.md.
 
 [Unit]
 Description=Hero Nexus (Next.js)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -20,11 +28,10 @@ User=hero
 Group=hero
 WorkingDirectory=/opt/hero-nexus
 EnvironmentFile=/opt/hero-nexus/.env.local
-ExecStart=/usr/bin/npm run start
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3000
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=300
-StartLimitBurst=3
 
 # Hardening
 NoNewPrivileges=true

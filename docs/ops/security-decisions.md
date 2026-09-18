@@ -88,6 +88,11 @@ Both are only safe because Caddy terminates TLS and overwrites the forwarded
 headers. Do not expose the Next process directly, and do not put a proxy in
 front that forwards client-supplied `X-Forwarded-*` / `Host` unchecked.
 
+"Not exposed" is enforced, not assumed: `deploy/hero-nexus.service` starts Next
+with `--hostname 127.0.0.1`, because `next start` binds `0.0.0.0` by default
+and does not read a `HOSTNAME=` env var. ufw and the DO cloud firewall block
+:3000 as well. If the unit's `ExecStart` ever changes, keep the flag.
+
 ## Content-Security-Policy — partial
 
 `next.config.ts` sets HSTS, `X-Content-Type-Options`, `X-Frame-Options`,
