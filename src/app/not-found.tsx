@@ -40,7 +40,7 @@ export default function NotFound() {
         </Marginalia>
         <Link
           href="/"
-          className="mt-6 inline-block rounded-md bg-gold px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          className="mt-6 inline-block rounded-md bg-gold px-4 py-2 text-sm font-medium text-bg transition-opacity hover:opacity-90"
         >
           Return home
         </Link>

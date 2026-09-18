@@ -161,6 +161,24 @@ h4 {
   letter-spacing: 0.02em;
 }
 
+/* ---- Turning the lights --------------------------------------------- *
+ * `ThemeToggle` puts this on <html> for the moment of the switch, so the
+ * palette crosses over instead of blinking. Backgrounds, borders and ink
+ * only; nothing that moves.
+ * ------------------------------------------------------------------- */
+
+html.theme-turning,
+html.theme-turning *,
+html.theme-turning *::before,
+html.theme-turning *::after {
+  transition:
+    background-color 320ms ease,
+    border-color 320ms ease,
+    color 320ms ease,
+    fill 320ms ease,
+    stroke 320ms ease !important;
+}
+
 /* ---- Ornament keyframes ------------------------------------------- */
 
 @keyframes fleuron-draw {

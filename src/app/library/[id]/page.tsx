@@ -1,9 +1,8 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { PublicationDetail } from '@/@creator/library/components';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
-import { PageHeader, PageShell } from '@/@shared/components/ui';
+import { PageHeader, PageShell, BackLink } from '@/@shared/components/ui';
 import { getPublication } from '@/server/library';
 
 export const dynamic = 'force-dynamic';
@@ -27,11 +26,9 @@ export default async function PublicationPage({
   return (
     <ProtectedRoute>
       <PageShell width="wide">
-        <p className="mb-3 text-sm text-ink-muted">
-          <Link href="/library" className="hover:text-ink">
-            ← The Wandering Library
-          </Link>
-        </p>
+        <BackLink href="/library" className="mb-3">
+          The Wandering Library
+        </BackLink>
         <PageHeader
           rule={false}
           title={detail.card.title}

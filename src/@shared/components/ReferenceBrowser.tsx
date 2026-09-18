@@ -108,7 +108,7 @@ export function ReferenceBrowser({
         title="The shelves are bare"
         description={
           emptyHint ??
-          'No SRD content has been synced into this instance yet. Run `npm run db:seed` to pull it from Open5e.'
+          'The SRD has not been shelved here yet. Whoever runs the site needs to run the reference sync.'
         }
         action={
           createHref ? (

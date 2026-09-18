@@ -363,8 +363,8 @@ export function MembersPanel({
             </Button>
           </div>
           <p className="mt-2 text-xs text-ink-muted">
-            They must already have an account on this instance. Or share the
-            join code from the campaign header.
+            They need a Hero Nexus account first. Or hand them the join code
+            below and let them seat themselves.
           </p>
 
           {invites.length > 0 && (

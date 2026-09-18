@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import {
@@ -19,6 +18,7 @@ import {
   PageShell,
   Ribbon,
   SectionCard,
+  BackLink,
 } from '@/@shared/components/ui';
 import {
   getCharacterAuditForCampaign,
@@ -108,12 +108,7 @@ export default async function CampaignPlayerSheetPage({
   return (
     <ProtectedRoute>
       <PageShell width="wide">
-        <Link
-          href={`/campaigns/${id}`}
-          className="mb-2 inline-block text-sm text-ink-muted hover:text-ink"
-        >
-          ← Campaign
-        </Link>
+        <BackLink href={`/campaigns/${id}`}>Campaign</BackLink>
         <PageHeader
           title={character.name || 'Character'}
           description={`Level ${character.level} ${character.class} · ${character.species} · read-only`}

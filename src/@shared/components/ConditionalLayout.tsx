@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Navigation } from './Navigation';
 import { NAV_HREFS, SideNavigation } from './SideNavigation';
 import { SittingBar } from './SittingBar';
+import { DiceSpinner } from './ui';
 
 interface ConditionalLayoutProps {
   children: React.ReactNode;
@@ -44,9 +45,7 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-bg">
-        <span className="animate-pulse font-display text-lg text-ink-muted">
-          Hero Nexus
-        </span>
+        <DiceSpinner size={44} label="Lighting the candles…" />
       </div>
     );
   }

@@ -7,6 +7,7 @@ import { campaignService } from '@/@creator/campaign/services';
 import {
   DiceSpinner,
   EmptyState,
+  Glyph,
   PageHeader,
   PageShell,
   Ribbon,
@@ -96,7 +97,7 @@ export function CampaignDashboard() {
             <Link
               key={c.id}
               href={`/campaigns/${c.id}`}
-              className="group relative flex flex-col overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface [box-shadow:var(--shadow-card)] transition-colors hover:border-gold/40"
+              className="group relative flex flex-col overflow-hidden rounded-[var(--radius-card)] border border-line bg-surface [box-shadow:var(--shadow-card)] transition-[border-color,transform] hover:-translate-y-0.5 hover:border-gold/40 motion-reduce:hover:translate-y-0"
             >
               {c.settings.bannerImageId ? (
                 // Deliberately an <img>: the file is served through a
@@ -139,7 +140,12 @@ export function CampaignDashboard() {
 
                 {c.nextSessionAt && (
                   <p className="mt-auto pt-3 text-xs text-ink-subtle">
-                    <span className="text-gold">◆</span> next sitting{' '}
+                    <Glyph
+                      name="hourglass"
+                      size={12}
+                      className="mr-1 -mt-0.5 text-gold"
+                    />
+                    next sitting{' '}
                     {formatCalendarDate(
                       c.nextSessionAt,
                       { day: 'numeric', month: 'short' },

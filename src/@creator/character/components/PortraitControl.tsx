@@ -132,7 +132,7 @@ export function PortraitControl({
             <div className="flex items-center gap-3">
               {portrait.remote && (
                 <span className="text-xs text-ink-subtle">
-                  Linked from another site — your browser loads it, this server
+                  Linked from another site — your browser loads it, Hero Nexus
                   never does.
                 </span>
               )}
@@ -175,7 +175,7 @@ export function PortraitControl({
               className="block w-full text-sm text-ink-muted file:mr-3 file:rounded-md file:border file:border-line file:bg-surface-2 file:px-3 file:py-1.5 file:text-sm file:text-ink hover:file:border-gold/60"
             />
             <p className="text-xs text-ink-subtle">
-              PNG, JPEG, WebP or GIF, up to 4 MB. Kept on this server.
+              PNG, JPEG, WebP or GIF, up to 4 MB. Kept with your hero.
             </p>
           </div>
         </Tab>

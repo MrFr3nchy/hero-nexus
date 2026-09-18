@@ -11,6 +11,7 @@ export { DiceSpinner } from './DiceSpinner';
 export { DeckledEdge } from './DeckledEdge';
 export { Marginalia } from './Marginalia';
 export { InlineMd, renderInlineMd } from './InlineMd';
+export { BackLink } from './BackLink';
 export { Ledger } from './Ledger';
 export { HeroCard } from './HeroCard';
 export { SheetPreview, abilityMod } from './SheetPreview';

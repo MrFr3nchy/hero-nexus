@@ -126,7 +126,7 @@ function ProfileSheet() {
           type="url"
           label="Portrait URL"
           placeholder="https://…"
-          description="Fetched by each player's browser, never by this server."
+          description="Fetched by each player's browser, never by Hero Nexus."
           value={photoURL}
           onValueChange={setPhotoURL}
         />

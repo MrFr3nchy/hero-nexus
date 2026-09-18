@@ -217,9 +217,14 @@ function DashboardContent() {
                   key={c.id}
                   className={`w-48 ${TILT[i % TILT.length]} transition-transform hover:rotate-0`}
                 >
+                  {/*
+                    The sheet, not the builder: these are finished heroes,
+                    and the roster sends them there too. The builder is a
+                    press away from the sheet.
+                  */}
                   <HeroCard
                     layout="stack"
-                    href={`/creator/character?id=${c.id}`}
+                    href={`/characters/${c.id}`}
                     name={c.name || 'Unnamed character'}
                     charClass={c.class || undefined}
                     level={c.level}
