@@ -233,18 +233,23 @@ export function SideNavigation() {
   const onScreen = /^\/campaigns\/[^/]+\/screen/.test(pathname);
   const [collapsedByHand, setCollapsedByHand] = useState<boolean | null>(null);
   // A fold made by hand outlives the tab: the reader who tucked the spine
-  // away did not ask for it back on every reload.
+  // away did not ask for it back on every reload. The screen is left out
+  // of it — it always starts folded, and a fold made there is about the
+  // screen, not a preference for everywhere else.
+  const [savedFold, setSavedFold] = useState<boolean | null>(null);
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(FOLD_KEY);
-      if (saved === '1' || saved === '0') setCollapsedByHand(saved === '1');
+      if (saved === '1' || saved === '0') setSavedFold(saved === '1');
     } catch {
       /* storage blocked — the fold just does not persist */
     }
   }, []);
-  const collapsed = collapsedByHand ?? onScreen;
+  const collapsed = collapsedByHand ?? (onScreen ? true : (savedFold ?? false));
   const setCollapsed = (next: boolean) => {
     setCollapsedByHand(next);
+    if (onScreen) return;
+    setSavedFold(next);
     try {
       window.localStorage.setItem(FOLD_KEY, next ? '1' : '0');
     } catch {
