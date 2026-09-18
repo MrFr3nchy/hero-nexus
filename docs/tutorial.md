@@ -120,7 +120,7 @@ Starts on the first visit to `/dashboard` for a brand-new account.
    nothing reaches your table until you say so." → Next.
 5. → _Create campaign_ → completes on the redirect. Flourish: "the table is set."
 
-_Snag: the campaign page opens on the Chronicle tab. A new DM with no players wants
+_Note: the campaign page opens on the Chronicle tab. A new DM with no players wants
 the Party tab first. Chapter 2 opens by lighting that tab._
 
 ### Chapter 2 — Seat the party (DM, ~3 minutes; player side in Chapter 7)
@@ -141,9 +141,9 @@ the Party tab first. Chapter 2 opens by lighting that tab._
    waits quietly — a small pinned note "waiting for your first player…" — and the
    chapter completes itself when the roster changes. Flourish: "the chairs are filling."
 
-_Snag: a hero already seated at another table cannot be seated here — the app says
-"take the original to this one instead". Players do not know what an original is.
-Chapter 7 explains it before they hit it._
+_A hero already seated at another table cannot be seated here. The seat control now
+says so, and what an original is, before the pick; Chapter 7 says it in the guide's
+voice as well._
 
 ### Chapter 3 — The record (DM, ~4 minutes)
 
@@ -153,10 +153,8 @@ Short, because the record is self-explaining once the reader knows the tabs exis
    downtime, boards, content, homebrew. the search bar above them reads all of it." →
    Next.
 2. **Quests** → the _Pin up a thread_ title field → _Pin one up._ "a thread starts as
-   yours alone; tell the party when they've heard of it." → completes on **Pin it**.
-   _Snag: Enter does not submit this field, nor the clock's, nor the objective's — the
-   reader must press the button. Either make Enter submit or have the guide light
-   the button as the second half of the step._
+   yours alone; tell the party when they've heard of it." → completes on **Pin it**
+   or Enter.
 3. → the new thread's _Tell the party_ → _Now they know._ → click.
 4. → the **Clocks** card → _What happens anyway._ "wind one for the thing that
    advances while the party dawdles. tick it when they do." → completes on **Wind
@@ -181,10 +179,8 @@ board, and every tool gets one spotlight. The guide should let the reader make a
    lights, and what they can see." → Next.
 4. → **Rooms** → the board → _Drag a box._ "floor, walls and a door in one go. tap a
    quick size to stamp one; tap it again to drag your own." → completes on the first
-   room. Then → the _Call it_ prompt at the bottom → _Name it._ "rooms with names show
-   up on the screen's footer and in the fight planner." → completes on Enter. _Snag:
-   the naming prompt appears at the bottom of the stage, far from where the drag
-   ended; lit, it is fine — unlit, it is missed._
+   room. Then → the _Call it_ prompt under the room → _Name it._ "rooms with names
+   show up on the screen's footer and in the fight planner." → completes on Enter.
 5. → **Floor** → the material swatches → _Eight floors._ "brush paints, box fills a
    rectangle, fill takes the whole room. water and lava slow the party down; rubble is
    difficult terrain." → completes on a paint.
@@ -195,9 +191,6 @@ board, and every tool gets one spotlight. The guide should let the reader make a
    completes on a scatter.
 8. → **Stamps** → the catalogue → _Furniture, stairs, whole buildings._ "pick one; it
    follows the cursor. R turns it, F flips it." → completes when a stamp lands.
-   _Snag: the first tap after picking a stamp only shows the ghost; the second tap
-   places it (reproduced twice, banquet table and spiral stair). Fix before the tour
-   ships, or the step's completion will confuse people._
 9. → **Add a floor** (right rail) → _Stack the house._ "above or below, how far,
    how dark, and what to start it with — the shell of this floor, a full copy, or
    nothing." → completes on the dialog's **Add the floor**.
@@ -208,10 +201,8 @@ board, and every tool gets one spotlight. The guide should let the reader make a
     and a lock DC; the party rolls against it at the table." → completes on placing
     one. Then → the selected thing's _When it is used…_ → _Make it do something._
     "presets for a spike pit, a portcullis lever, a collapsing floor — or say a line,
-    deal damage, change the floor. aim it by grabbing tiles with Select." → Next.
-    _Snag: placing a thing switches the tool to Select (so its properties show).
-    Reasonable, but the second tap then starts a selection box. The guide should say
-    'pick Things again for another'._
+    deal damage, change the floor. aim it by grabbing tiles with Select." → Next. The
+    Things tool stays in hand; a second tap puts a second thing down.
 12. → **Light** → _Torches and braziers._ "a dark floor with no light is a fight in
     the dark. the hearth stamp brings its own." → completes on a light.
 13. → **Fog** → _What they can see._ "fog is per floor. reveal the approach, hide the
@@ -234,12 +225,11 @@ board, and every tool gets one spotlight. The guide should let the reader make a
    all placed. _The mini-map popover is small; the tour should enlarge nothing but
    should say 'the crypt is the second floor in the list'._
 4. → the note field → _A line for yourself._ → then **Save the note** → completes on
-   save. _Snag: the note has its own Save button under the textarea and it is easy to
-   type a note and walk away without pressing it._
+   leaving the field — it saves itself, and says so beside the field.
 5. → **Call for initiative** on the plan → _Deal it._ "this creates the fight, puts
    its board on the table and stands every body at its spot." → completes on the
-   banner. _Snag: the banner reads "They are up on the Session tab" — there is no
-   Session tab any more; it should say "on the screen"._
+   banner ("They are on the screen, with initiative rolled — go behind the screen to
+   run it").
 
 ### Chapter 6 — Behind the screen (DM, ~5 minutes)
 
@@ -251,15 +241,14 @@ board, and every tool gets one spotlight. The guide should let the reader make a
 3. → **Take your seats** → _Call the evening._ "from now on every player's sitting
    bar says the table is sitting, wherever they are in the app." → click.
 4. → the **Initiative** box, _Add the party_ → _Bring them in._ → click. → the board's
-   **Deal them in** → _Stand them up._ "the party lands at the board's edge. drag
-   them to the door." → completes when a party token moves.
-   _Gotcha the tour must state plainly: the mode bar's own **Call for initiative**
-   starts an empty fight. A planned fight is dealt from the plan (Chapter 5) — do
-   that first, then add the party here._
+   **Deal them in** → _Stand them up._ "the party lands on the approach you revealed
+   in the workshop, nearest the edge — the way they came in." → completes when a
+   party token moves. (The mode bar's _Start a fight_ menu offers the planned fights
+   too, so a DM who skipped Chapter 5's last step can deal one from here.)
 5. → a party token → drag beyond 30 ft → the red banner → _The fence._ "enforcing,
    the app refuses a move past their speed. 'do it anyway' is always yours." →
-   completes on the banner. _Dragging empty ground orbits the camera; a first-timer
-   trying to move a token will spin the room instead. Say so._
+   completes on the banner. The board's footer says which drag moves a token and
+   which turns the room.
 6. → a foe on the crypt floor → the **Stat block** box → _Tap a foe._ "its block,
    actions and all, only you." → completes on selection.
 7. → the initiative card's _Next turn_ → _Around the table._ "N and P do this from
@@ -293,33 +282,31 @@ board, and every tool gets one spotlight. The guide should let the reader make a
 
 ## Snags found on the walk
 
-Things a first-timer hits that the tour either routes around or that should be fixed
-before it ships. Ordered by how much they would hurt inside the tour.
+Things a first-timer hit that the tour would have had to route around. All eleven
+were fixed on the same branch as this document, so the tour can assume the
+behaviour described in the chapters above. For the record:
 
-1. **Stamps need two taps.** The first tap after choosing a stamp only shows the
-   ghost; the second places it. Reproduced with the banquet table and the spiral
-   stair. A tour step that says "tap to place" will complete on the second tap and
-   look broken.
-2. **Two "Call for initiative" buttons do different things.** The plan's deals the
-   plan; the mode bar's starts an empty fight. Both are named identically. Rename the
-   mode bar's to _Start a fight_ (or make it offer the planned fights).
-3. **Enter does not submit** the thread, objective, clock or sitting fields on the
-   campaign page; the button must be pressed.
-4. **"They are up on the Session tab"** after dealing a plan — stale wording, the
-   Session tab is gone.
-5. **The fight note's Save button** is separate and below the note; a note typed and
-   not saved is lost on navigation.
-6. **Placing a thing switches to Select**, so the second tap draws a selection box.
-   Intentional, but unannounced.
-7. **The party deals in at (0,0)** when unplaced — the far corner, behind the trees.
-   Deal them at the board's nearest door, or at the tile the DM last tapped.
-8. **Originals vs table copies** are never explained to a player until the seat is
-   refused.
-9. **The room-name prompt** sits at the bottom of the stage, away from the drag.
-10. **Dragging empty ground orbits the camera** on the sand table; there is no hint
-    that a token drag and a camera drag are different.
-11. **The creation form's most important switch** (advise / enforce) is mid-form and
-    looks like every other select.
+1. **Stamps looked like they needed two taps.** A stamp put down while the previous
+   stroke's save was still in flight was wiped by that save's echo, then restored
+   by its own save a second later — so the reader tapped again. The save cycle now
+   carries an edit number and a stale echo stands down.
+2. **Two "Call for initiative" buttons did different things.** The mode bar's is now
+   _Start a fight_, a menu: from nothing, or any planned fight, dealt onto its board.
+3. **Enter now submits** the thread, clock and sitting fields on the campaign page.
+4. **"They are up on the Session tab"** now says the screen, and where to go.
+5. **The fight note saves itself** when the field is left, with a status word
+   beside it instead of a lone button underneath.
+6. **Placing a thing keeps the Things tool in hand**; the thing is picked up in the
+   rail, and the panel says so.
+7. **The party deals in on the revealed approach** — the path to the door, the first
+   room — at the tile nearest the board's edge, not the top-left corner.
+8. **Originals vs table copies** are explained under the seat control before the
+   seat, with a count of heroes already sitting elsewhere.
+9. **The room-name prompt** sits under the room just drawn.
+10. **The stood-up board says** "drag a token to move it — drag the ground to walk
+    around the room" in its footer.
+11. **Advise / enforce** is the first thing on the "At the table" card, two lit doors
+    that each say what they do, on both the creation and the manage form.
 
 ## Open questions
 

@@ -388,6 +388,16 @@ export function QuestPanel({
   const [showClosed, setShowClosed] = useState(false);
   const [title, setTitle] = useState('');
 
+  const pin = async () => {
+    const res = await createQuestAction(campaignId, { title });
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setTitle('');
+    await refresh();
+  };
+
   const refresh = useCallback(async () => {
     try {
       setError(null);
@@ -433,20 +443,16 @@ export function QuestPanel({
               value={title}
               onValueChange={setTitle}
               className="min-w-40 flex-1"
+              onKeyDown={e => {
+                // Enter pins it, the way every other one-line field does.
+                if (e.key === 'Enter' && title.trim()) void pin();
+              }}
             />
             <Button
               size="sm"
               color="primary"
               isDisabled={!title.trim()}
-              onPress={async () => {
-                const res = await createQuestAction(campaignId, { title });
-                if (!res.ok) {
-                  setError(res.error);
-                  return;
-                }
-                setTitle('');
-                await refresh();
-              }}
+              onPress={pin}
             >
               Pin it
             </Button>

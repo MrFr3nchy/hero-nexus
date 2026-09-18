@@ -642,6 +642,9 @@ export function ChroniclePanel({
               value={newTitle}
               onValueChange={setNewTitle}
               className="flex-1"
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !opening) void open();
+              }}
             />
             <Input
               size="sm"

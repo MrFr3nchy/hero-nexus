@@ -59,6 +59,12 @@ function Plan({
   const [count, setCount] = useState(1);
   const [notes, setNotes] = useState(plan.notes);
   const [notesDirty, setNotesDirty] = useState(false);
+  const [notesSaved, setNotesSaved] = useState(false);
+  const saveNotes = async () => {
+    await act(updatePlanAction(campaignId, plan.id, { notes }));
+    setNotesDirty(false);
+    setNotesSaved(true);
+  };
   const [running, setRunning] = useState(false);
   const { confirm, dialog } = useConfirm();
 
@@ -251,6 +257,9 @@ function Plan({
         </div>
 
         <div className="flex flex-col gap-2">
+          {/* Saved when the field is left, not by a button under it: the
+              button was easy to type past, and a note typed and walked away
+              from was lost. The word beside the field says where it stands. */}
           <Textarea
             aria-label="How it starts"
             minRows={2}
@@ -260,20 +269,23 @@ function Plan({
               setNotes(v);
               setNotesDirty(true);
             }}
+            onBlur={() => {
+              if (notesDirty) void saveNotes();
+            }}
             classNames={{ input: 'font-hand text-[1.1875rem] leading-snug' }}
           />
-          {notesDirty && (
-            <div>
-              <Button
-                size="sm"
-                variant="flat"
-                onPress={async () => {
-                  await act(updatePlanAction(campaignId, plan.id, { notes }));
-                  setNotesDirty(false);
-                }}
-              >
-                Save the note
-              </Button>
+          {(notesDirty || notesSaved) && (
+            <div className="flex items-center gap-2 text-xs text-ink-subtle">
+              {notesDirty ? (
+                <>
+                  <span>Unsaved — saves when you leave the field.</span>
+                  <Button size="sm" variant="light" onPress={saveNotes}>
+                    Save now
+                  </Button>
+                </>
+              ) : (
+                <span>Saved.</span>
+              )}
             </div>
           )}
         </div>
@@ -398,10 +410,10 @@ export function EncounterPlanner({ campaignId }: { campaignId: string }) {
                     : null;
                 setNotice(
                   skipped > 0
-                    ? `They are up on the Session tab — ${skipped} of them could not be found and were left out.${where ? ` ${where[0].toUpperCase()}${where.slice(1)}.` : ''}`
+                    ? `They are on the screen — ${skipped} of them could not be found and were left out.${where ? ` ${where[0].toUpperCase()}${where.slice(1)}.` : ''}`
                     : where
-                      ? `They are up on the Session tab, with initiative rolled — ${where}.`
-                      : 'They are up on the Session tab, with initiative rolled.'
+                      ? `They are on the screen, with initiative rolled — ${where}. Go behind the screen to run it.`
+                      : 'They are on the screen, with initiative rolled. Go behind the screen to run it.'
                 );
               }}
             />

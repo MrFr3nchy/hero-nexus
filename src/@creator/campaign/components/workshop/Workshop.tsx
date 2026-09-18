@@ -206,6 +206,17 @@ export function Workshop({
   const [past, setPast] = useState<BoardDoc[]>([]);
   const [future, setFuture] = useState<BoardDoc[]>([]);
   const dirty = useRef(false);
+  /*
+   * Which edit the document is at. A save carries the number it was made
+   * for and a read carries the number it started at; either that comes
+   * back to find a newer edit stands down. Without this a stamp put down
+   * while the previous stroke's save was in flight was wiped by that save's
+   * echo — the save's continuation marked the document clean, the re-read
+   * then replaced it with the server's copy, which had no stamp yet — and
+   * the reader tapped again, which is why stamps looked like they needed
+   * two taps.
+   */
+  const edit = useRef(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saved, setSaved] = useState<'saved' | 'saving' | 'pending' | null>(
     null
@@ -213,13 +224,14 @@ export function Workshop({
   const strokeStart = useRef<BoardDoc | null>(null);
 
   const load = useCallback(async () => {
+    const asOf = edit.current;
     const b = await getWorkshopBoardAction(mapId);
     if (!b) {
       setMissing(true);
       return;
     }
     setBench(b);
-    if (!dirty.current) setDocState(b.terrain);
+    if (!dirty.current && edit.current === asOf) setDocState(b.terrain);
   }, [mapId]);
   useEffect(() => {
     load();
@@ -237,12 +249,16 @@ export function Workshop({
   const scheduleSave = useCallback(
     (next: BoardDoc) => {
       dirty.current = true;
+      const mine = ++edit.current;
       setSaved('pending');
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
         saveTimer.current = null;
         setSaved('saving');
         const res = await saveTerrainAction(mapId, next);
+        // A newer edit is pending its own save: this one does not get to
+        // call the document clean, or its re-read would wipe that edit.
+        if (edit.current !== mine) return;
         dirty.current = false;
         if (!res.ok) {
           setError(res.error);
@@ -596,10 +612,10 @@ export function Workshop({
       hpMax: settings.thingHp,
     });
     if (!res.ok) setError(res.error);
-    else {
-      setSelection({ kind: 'token', id: res.data.id });
-      setTool('select');
-    }
+    // Picked up in the rail so its state and effect can be set, but the tool
+    // stays in hand: it used to switch to Select, and the next tap — meant
+    // to put a second thing down — drew a selection box instead.
+    else setSelection({ kind: 'token', id: res.data.id });
     await load();
   };
 
@@ -1240,8 +1256,30 @@ export function Workshop({
       ? (tokens.find(t => t.id === selection.id) ?? null)
       : null;
 
+  /*
+   * Where the room-name prompt goes: under the room just drawn, in the
+   * stage's own coordinates. Read off the canvas at render — the prompt
+   * only exists for the render after the drag, when the canvas is there.
+   */
+  const namingSpot = (() => {
+    if (!naming || !canvasRef.current || !stageRef.current) return null;
+    const c = canvasRef.current.getBoundingClientRect();
+    const root = stageRef.current.closest('[data-workshop]');
+    if (!root) return null;
+    const r = root.getBoundingClientRect();
+    const left = c.left - r.left + (naming.x + naming.w / 2) * px;
+    const top = c.top - r.top + (naming.y + naming.h) * px + 8;
+    return {
+      left: Math.max(140, Math.min(r.width - 140, left)),
+      top: Math.max(70, Math.min(r.height - 60, top)),
+    };
+  })();
+
   return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-bg text-ink">
+    <div
+      data-workshop
+      className="relative flex h-full flex-col overflow-hidden bg-bg text-ink"
+    >
       {/* Top bar: one row of chrome, the way the screen has one. */}
       <header className="flex h-[60px] shrink-0 items-center gap-5 border-b border-line bg-surface px-5">
         <Link
@@ -1648,9 +1686,14 @@ export function Workshop({
         <div className="grow" />
         <span>Page Up / Page Down changes floor</span>
       </footer>
-      {/* A name for the room just drawn, when the flag asks for one. */}
+      {/* A name for the room just drawn, when the flag asks for one. Pinned
+          under the room itself — it used to sit at the foot of the stage, a
+          screen away from where the drag ended, and got missed. */}
       {naming && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center">
+        <div
+          className="pointer-events-none absolute z-20 flex -translate-x-1/2 justify-center"
+          style={namingSpot ?? { left: '50%', bottom: '3rem' }}
+        >
           <div className="pointer-events-auto flex items-center gap-2 rounded-md border border-gold/40 bg-surface px-3 py-2 shadow-md">
             <span className="text-sm text-ink">Call it</span>
             <Input

@@ -275,6 +275,29 @@ export function MembersPanel({
                     </Button>
                   </div>
                 )}
+                {/*
+                  Said before the seat, not after the refusal: a hero can sit
+                  at one table, and seating one here makes this table's copy.
+                  A hero already seated elsewhere is simply not in the menu,
+                  which reads as "where did Gon go?" unless something says.
+                */}
+                {isMe && m.role !== 'gm' && !m.characterId && (
+                  <p className="basis-full text-xs text-ink-subtle">
+                    Seating a hero makes this table&apos;s copy of them; the
+                    original stays on your heroes page for the next table.
+                    {(() => {
+                      const elsewhere = myCharacters.filter(
+                        c =>
+                          !c.forkedFrom &&
+                          c.campaignId &&
+                          c.campaignId !== campaignId
+                      ).length;
+                      return elsewhere > 0
+                        ? ` ${elsewhere === 1 ? 'One hero is' : `${elsewhere} heroes are`} already seated at another table and not offered here.`
+                        : '';
+                    })()}
+                  </p>
+                )}
 
                 {viewerRole === 'gm' && m.role !== 'gm' && (
                   <>

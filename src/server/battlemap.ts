@@ -1433,6 +1433,27 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
   const inTheOpen = (x: number, y: number, footprint: number) =>
     footprintTiles(doc, { x, y, footprint }).some(i => lit.has(i));
 
+  /*
+   * Where the party walks in. If the DM has revealed any of this floor in
+   * the workshop, that is the approach — the path to the door, the first
+   * room — and the party stands on it, at the tile nearest the board's edge,
+   * which is the end they came in by. Only with nothing revealed does the
+   * old walk from the top-left apply, which on a wooded board put the party
+   * in the far corner behind the trees.
+   */
+  const shownHere = revealedOf(map.revealed, board).get(doc.id);
+  const approach: number[] = [];
+  if (shownHere && shownHere.size > 0) {
+    const edgeDistance = (i: number) => {
+      const x = i % doc.w;
+      const y = Math.floor(i / doc.w);
+      return Math.min(x, y, doc.w - 1 - x, doc.h - 1 - y);
+    };
+    approach.push(
+      ...[...shownHere].sort((a, b) => edgeDistance(a) - edgeDistance(b))
+    );
+  }
+
   // Walk the board for the first standable tile each, party from the top-left
   // and foes from the bottom-right, so a fresh deal is two lines facing each
   // other rather than a pile in one corner.
@@ -1443,6 +1464,7 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
     const others = await occupantsExcept(mapId, null, doc.id);
     let spot: { x: number; y: number } | null = null;
     const order: number[] = [];
+    if (e.side === 'party') order.push(...approach);
     for (let i = 0; i < doc.w * doc.h; i++) order.push(i);
     if (e.side === 'foe') order.reverse();
     const find = (avoidLit: boolean) => {

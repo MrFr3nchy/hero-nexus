@@ -231,7 +231,17 @@ export function ClocksPanel({
   const [clocks, setClocks] = useState<ClockRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
+
   const [segments, setSegments] = useState(6);
+  const wind = async () => {
+    const res = await createClockAction(campaignId, { title, segments });
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setTitle('');
+    await refresh();
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -278,6 +288,9 @@ export function ClocksPanel({
             value={title}
             onValueChange={setTitle}
             className="min-w-40 flex-1"
+            onKeyDown={e => {
+              if (e.key === 'Enter' && title.trim()) void wind();
+            }}
           />
           <Select
             aria-label="Segments"
@@ -299,18 +312,7 @@ export function ClocksPanel({
             size="sm"
             color="primary"
             isDisabled={!title.trim()}
-            onPress={async () => {
-              const res = await createClockAction(campaignId, {
-                title,
-                segments,
-              });
-              if (!res.ok) {
-                setError(res.error);
-                return;
-              }
-              setTitle('');
-              await refresh();
-            }}
+            onPress={wind}
           >
             Wind it
           </Button>

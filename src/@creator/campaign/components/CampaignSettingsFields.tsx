@@ -154,6 +154,7 @@ export function CampaignSettingsFields({
     key: K,
     value: CampaignSettingsDraft[K]
   ) => onChange({ ...draft, [key]: value });
+  const modeField = TABLE_RULE_FIELDS.find(f => f.key === 'mode');
 
   return (
     <>
@@ -254,8 +255,63 @@ export function CampaignSettingsFields({
         description="What the app does about the rules while people are playing. Every line defaults to the 2024 book; the note under each says where the alternative comes from."
       >
         <div className="flex flex-col gap-6">
+          {/*
+            The mode first and on its own: it is the one setting every other
+            line is read through, and buried mid-grid as one select among
+            twenty it looked like any other. Two doors, each saying what it
+            does, and the one in force lit.
+          */}
+          {modeField && (
+            <div>
+              <p className="font-display text-base text-ink">
+                What the app does about the rules
+              </p>
+              <div
+                role="radiogroup"
+                aria-label="Advise or enforce"
+                className="mt-2 grid gap-2 sm:grid-cols-2"
+              >
+                {modeField.options.map(o => {
+                  const on = modeField.read(draft.table) === o.value;
+                  return (
+                    <button
+                      key={o.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() =>
+                        set('table', modeField.write(draft.table, o.value))
+                      }
+                      className={`rounded-[var(--radius-card)] border px-4 py-3 text-left transition-colors ${
+                        on
+                          ? 'border-gold bg-gold/10'
+                          : 'border-line hover:border-gold/40'
+                      }`}
+                    >
+                      <span
+                        className={`block font-display-alt text-sm ${
+                          on ? 'text-gold-strong dark:text-gold' : 'text-ink'
+                        }`}
+                      >
+                        {o.label}
+                      </span>
+                      <span className="mt-1 block text-xs text-ink-muted">
+                        {o.note}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-xs text-ink-subtle">
+                A running fight can override this for its own duration, from the
+                initiative box on the screen.
+              </p>
+            </div>
+          )}
           {(Object.keys(TABLE_RULE_GROUPS) as TableRuleGroup[]).map(group => {
-            const fields = TABLE_RULE_FIELDS.filter(f => f.group === group);
+            const fields = TABLE_RULE_FIELDS.filter(
+              f => f.group === group && f.key !== 'mode'
+            );
             if (fields.length === 0) return null;
             return (
               <div key={group}>

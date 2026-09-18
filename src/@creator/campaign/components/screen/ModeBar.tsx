@@ -1,6 +1,13 @@
 'use client';
 
-import { Button, Tooltip } from '@heroui/react';
+import {
+  Button,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+  Tooltip,
+} from '@heroui/react';
 import { useState } from 'react';
 
 import { Glyph, StatusMark, useConfirm } from '@/@shared/components/ui';
@@ -10,6 +17,8 @@ import { createEncounterAction, endEncounterAction } from '../../actions';
 import { closeSittingAction, openSittingAction } from '../../chronicle-actions';
 import { setTableModeAction } from '../../rules-actions';
 import { undoLastAction } from '../../monster-actions';
+import { listPlansAction, runPlanAction } from '../../encounter-actions';
+import type { PlanRow } from '@/server/encounter-plans';
 import { WorldClockControl } from './WorldClockControl';
 import { AmbienceControl } from './AmbienceControl';
 import { SHORTCUTS, type Typing } from './useDmShortcuts';
@@ -66,6 +75,38 @@ export function ModeBar({
 }) {
   const [busy, setBusy] = useState(false);
   const { confirm, dialog } = useConfirm();
+  // Planned fights, read when the Start-a-fight menu first opens.
+  const [plans, setPlans] = useState<PlanRow[] | null>(null);
+  const fightChoices: {
+    key: string;
+    label: string;
+    description: string;
+    planned: boolean;
+  }[] = [
+    {
+      key: 'blank',
+      label: 'From nothing',
+      description: 'An empty order — add the party and the foes yourself.',
+      planned: false,
+    },
+    ...(plans === null
+      ? [
+          {
+            key: 'loading',
+            label: 'Reading the plans…',
+            description: '',
+            planned: true,
+          },
+        ]
+      : plans.map(plan => ({
+          key: plan.id,
+          label: plan.name,
+          description: `${plan.maths.bodyCount} ${
+            plan.maths.bodyCount === 1 ? 'body' : 'bodies'
+          } · dealt onto its board, standing where you put them`,
+          planned: true,
+        }))),
+  ];
   const actual = state.table;
   const inPerson = state.rules.board === 'in-person';
   // While a fight overrides the mode, the campaign's switch changes nothing
@@ -274,15 +315,62 @@ export function ModeBar({
                     End the fight
                   </Button>
                 ) : (
-                  <Button
-                    size="sm"
-                    color="primary"
-                    className="h-7 min-w-0 px-2.5 text-xs"
-                    isDisabled={busy}
-                    onPress={() => act(createEncounterAction(campaignId, ''))}
+                  /*
+                   * Not "Call for initiative": the plan's button says that,
+                   * and this one used to as well, so a DM who had planned a
+                   * fight pressed this, got an empty one, and could not see
+                   * why the ghouls were not there. This one starts a fight —
+                   * from a plan, or from nothing — and says which.
+                   */
+                  <Dropdown
+                    placement="bottom"
+                    onOpenChange={open => {
+                      if (open && plans === null) {
+                        listPlansAction(campaignId)
+                          .then(setPlans)
+                          .catch(() => setPlans([]));
+                      }
+                    }}
                   >
-                    Call for initiative
-                  </Button>
+                    <DropdownTrigger>
+                      <Button
+                        size="sm"
+                        color="primary"
+                        className="h-7 min-w-0 px-2.5 text-xs"
+                        isDisabled={busy}
+                        endContent={<Glyph name="chevron-down" size={12} />}
+                      >
+                        Start a fight
+                      </Button>
+                    </DropdownTrigger>
+                    <DropdownMenu
+                      aria-label="Start a fight"
+                      items={fightChoices}
+                      disabledKeys={plans === null ? ['loading'] : []}
+                      onAction={key => {
+                        if (key === 'blank') {
+                          void act(createEncounterAction(campaignId, ''));
+                          return;
+                        }
+                        const plan = plans?.find(p => p.id === key);
+                        if (plan) void act(runPlanAction(campaignId, plan.id));
+                      }}
+                    >
+                      {choice => (
+                        <DropdownItem
+                          key={choice.key}
+                          description={choice.description}
+                          startContent={
+                            choice.planned ? (
+                              <Glyph name="crossed-swords" size={14} />
+                            ) : undefined
+                          }
+                        >
+                          {choice.label}
+                        </DropdownItem>
+                      )}
+                    </DropdownMenu>
+                  </Dropdown>
                 )}
                 <Button
                   size="sm"

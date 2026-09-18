@@ -804,8 +804,8 @@ export function WorkshopPanel({
             />
           </div>
           <Marginalia dash>
-            tap a tile to put it down, then say what it does when used in the
-            rail on the right
+            tap a tile to put it down — it lands in the rail on the right, where
+            you say what it does when used. tap again for another.
           </Marginalia>
         </div>
       );

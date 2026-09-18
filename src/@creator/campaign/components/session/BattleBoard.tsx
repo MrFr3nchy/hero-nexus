@@ -3164,10 +3164,19 @@ export function BattleBoard({
           );
         })()}
 
-      {isStaff && (
+      {/* Stood up, a drag on the ground turns the room and a drag on a token
+          moves it; nothing else says so, and the first drag a newcomer makes
+          is meant for a token. */}
+      {dimensional ? (
         <Marginalia dash>
-          diagonals are five feet — 2024 dropped the zig-zag
+          drag a token to move it — drag the ground to walk around the room
         </Marginalia>
+      ) : (
+        isStaff && (
+          <Marginalia dash>
+            diagonals are five feet — 2024 dropped the zig-zag
+          </Marginalia>
+        )
       )}
     </SectionCard>
   );
