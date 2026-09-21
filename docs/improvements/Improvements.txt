@@ -1,0 +1,23 @@
+Items that need more improvement:
+- We do not need the Desk. All managment of the party, lore, battle boards, encounters, etc. Should be done on the main campaign screen at /campaign/[campaignId], not behind a screen. The screen should be a screen for managing an actual session or combat, not management of the campaign.
+- this main campaign page also needs a complete overhaul. It is so hard to find anything you are trying to do.
+- Can no longer upload custom images for things/items in the battleboard. Should be an option for a custom thing where users can upload images like a fountain image.
+- Allow tying music to specific boards or events that happen. Spotify integration so users can connect to their own spoitfy playlists or upload sounds and then have a sound board they can play those sounds to the party for effects.
+- Setting up an encounter with combatants as the DM only happens whenever you start a combat encounter but setting up combatants/NPCs should happen and be placed on the board BEFORE combat has started. Should allow that preparation and then reveal before actually starting combat. Also, should have a big ROLL FOR INITATIVE button that signals to all players that combat is starting, it should be obvious and easy to see. But battleboards should not only be for combat and is not required in order to place character tokens or NPCs.
+- When placing something like a tree or hedge or wall on a the board, you cannot remove it without also removing the floor.
+- Should allow spinning the mouse wheel to rotate an object being placed instead of just hitting the Turn button in battleboard - Stamps.
+- Fog name should be changed to fog of war as that can be confusing
+- There should be an option for weather effects, like rain or snow on the battleboard.
+- Need difficult terrain tracking like moving in water would be difficult terrain.
+- Add snow floor or allow making a mountain.
+- Show the party and put it on the table is unclear on what on earth that means.
+- Naming conventions are strange, I think there are 4 things named "The Shelf" which is weird.
+- "The sidebar during Battleboard keeps refreshing regularly and it is not obvious what is happening, I hit Take - Attack but I was unable to actually target anything, I don't know if I hit or missed or what happened.
+- Having just one sidebar in the battleboard might not be enough for the DM, may need to take a closer approach with having the board in the middle and having all the info all around the board.
+- On Player screen Should not have homebrew tab as a player.
+- Dice rolling animation should not be a modal
+- Add a flag where the DM in The Asking can ask for a roll with advantage or disadvantage, player can overwrite it. All logged.
+- Notifications showing up more than once.
+- Combine panes in Player / DM screen
+- Super admin analytics and user manipulation.
+- In the battle board, in the hiehgt menu, you can go down to 1ft but whenever you hit plus again it takes you back up to 6ft instead of back to 5ft and there is no way to change that. If we can support 1ft intervals, then we should have buttons to increase by 5,10+ feet but also just allow the user to type in 0. Also need a way of setting the height back to 0 which I guess this would also do.
