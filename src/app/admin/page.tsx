@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 
 import { AdminConsole } from '@/@creator/admin/components/AdminConsole';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
-import { Marginalia, PageHeader, PageShell } from '@/@shared/components/ui';
+import { PageHeader, PageShell } from '@/@shared/components/ui';
 import { isSuperAdmin } from '@/server/admin';
 
 export const dynamic = 'force-dynamic';
@@ -20,14 +20,17 @@ export default async function AdminPage() {
   return (
     <ProtectedRoute>
       <PageShell width="wide">
+        {/*
+          No marginalia and no in-world voice on this page: it is read while
+          something is going wrong, by the person who owns the machine. The
+          naming document's vocabulary governs the app, not the console.
+        */}
         <PageHeader
           rule={false}
-          title="Running the box"
-          description="What this install is holding, and the few handles an operator has on it."
+          title="Admin"
+          description="What this install is holding, and what an operator can do about it. Counts and sizes only — nothing here reads a campaign, a notebook or a sheet."
         />
-        <Marginalia dash className="mb-5">
-          the shape of the place, not what anybody wrote in it
-        </Marginalia>
+        <div className="mb-5" />
         <AdminConsole />
       </PageShell>
     </ProtectedRoute>

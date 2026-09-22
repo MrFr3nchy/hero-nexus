@@ -2,6 +2,7 @@ import 'server-only';
 
 import {
   and,
+  avg,
   count,
   desc,
   eq,
@@ -10,43 +11,69 @@ import {
   isNull,
   like,
   or,
+  sql,
 } from 'drizzle-orm';
-import { stat } from 'node:fs/promises';
-import { readdir } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { db } from '@/db';
+import { db, DB_PATH } from '@/db';
 import {
+  adoptions,
+  battleMapTokens,
   battleMaps,
   campaignAudio,
+  campaignChecks,
+  campaignClocks,
+  campaignHandouts,
+  campaignImages,
+  campaignMaps,
   campaignMembers,
+  campaignNotes,
+  campaignQuests,
+  campaignRolls,
   campaignSessions,
+  campaignShops,
+  campaignWhispers,
   campaigns,
+  canonEntries,
+  characterPortraits,
   characters,
+  downtimeActions,
+  encounterPlans,
   homebrew,
   homebrewApprovals,
   initiativeEncounters,
+  initiativeEntries,
+  partyLoot,
+  playerJournals,
+  publicationAssets,
   publications,
+  sessionAwards,
   users,
 } from '@/db/schema';
 import { requireUserId } from './session-user';
 import { UPLOADS_DIR } from './uploads';
 
 /**
- * The operator's view of the box.
+ * The operator's view of the install.
  *
  * Hero Nexus is self-hosted: somebody owns the machine it runs on, and until
  * this existed the app had nothing to say to them. How many accounts are
- * there? How much of the disk have the uploads taken? Who signed up and
- * never verified? Which account is forging a hundred classes a night? All of
- * it was a SQLite prompt and a `du`.
+ * there? How much of the disk have the uploads taken? Who signed up and never
+ * verified? Is anybody actually playing? All of it was a SQLite prompt and a
+ * `du`.
  *
- * **What this is not.** A super admin is not a DM at every table. Nothing
- * here reads a campaign's canon, a DM's notebook, a whisper or a character
- * sheet, and nothing here is a back door into `requireCampaignRole`. The
- * shape of the install is the operator's business; what people wrote in it
- * is not. That line is the whole design of this module, and a future
- * addition that crosses it is a bug however convenient it is.
+ * **What this is not.** A super admin is not a DM at every table. Nothing here
+ * reads a campaign's canon, a DM's notebook, a whisper or a character sheet —
+ * it counts rows and sums bytes. Campaign names appear in one list and nothing
+ * else does. The shape of the install is the operator's business; what people
+ * wrote in it is not. That line is the whole design of this module, and a
+ * future addition that crosses it is a bug however convenient it is.
+ *
+ * **Voice.** Plain, unlike the rest of the app, and deliberately exempt from
+ * the naming document's in-world vocabulary. This page is read while something
+ * is going wrong, by the one person who owns the box: "accounts" beats "souls
+ * at the table" when you are deciding whether the disk is full.
  */
 
 /** Emails that are super admins whatever the database says. */
@@ -91,7 +118,7 @@ export async function isSuperAdmin(): Promise<boolean> {
   return row?.isSuperAdmin === true;
 }
 
-/** Throws `FORBIDDEN` for anybody who does not run this box. */
+/** Throws `FORBIDDEN` for anybody who does not run this install. */
 export async function requireSuperAdmin(): Promise<string> {
   const userId = await requireUserId();
   await syncEnvAdmins();
@@ -103,25 +130,72 @@ export async function requireSuperAdmin(): Promise<string> {
   return userId;
 }
 
-/* --- what the box looks like ------------------------------------------- */
+/* --- the shapes the page draws ----------------------------------------- */
 
-export interface AdminStat {
+export interface AdminMetric {
   key: string;
   label: string;
   value: number;
-  /** One line under the number. Absent when the number speaks. */
-  note?: string;
+  /** One line under it, when the number alone would mislead. */
+  hint?: string;
+  /**
+   * A state worth colouring. Always drawn beside its own label, never colour
+   * alone: `warn` is something to look at, `bad` is something wrong.
+   */
+  tone?: 'warn' | 'bad';
+}
+
+/** A named group of counts. One card on the page. */
+export interface AdminGroup {
+  key: string;
+  title: string;
+  line: string;
+  metrics: AdminMetric[];
+}
+
+/** A magnitude comparison of named things. One bar list on the page. */
+export interface AdminBreakdown {
+  key: string;
+  title: string;
+  line: string;
+  /** What a row's number counts: "characters", "pieces". */
+  unit: string;
+  rows: { label: string; value: number }[];
+}
+
+/** A count per bucket, oldest first. Buckets are never sparse. */
+export interface AdminSeries {
+  key: string;
+  title: string;
+  line: string;
+  unit: string;
+  points: { label: string; full: string; value: number }[];
 }
 
 export interface AdminOverview {
-  stats: AdminStat[];
-  /** Bytes under `UPLOADS_DIR`, and the file count. */
-  uploads: { bytes: number; files: number };
-  /** Signups per day for the last fortnight, oldest first. */
-  signups: { day: string; count: number }[];
-  /** The busiest tables, by how many sessions they have actually played. */
-  busiest: { id: string; name: string; sessions: number; members: number }[];
+  /** When this was read, so a tab left open says so rather than lying. */
+  generatedAt: string;
+  groups: AdminGroup[];
+  breakdowns: AdminBreakdown[];
+  series: AdminSeries[];
+  storage: {
+    /** What each kind of upload accounts for, from the rows that own it. */
+    kinds: { label: string; bytes: number; files: number }[];
+    /** What is actually on the disk, which may differ from the rows. */
+    onDisk: { bytes: number; files: number };
+    /** The SQLite file itself. */
+    database: number;
+  };
+  busiestCampaigns: {
+    id: string;
+    name: string;
+    sessions: number;
+    members: number;
+    rolls: number;
+  }[];
 }
+
+/* --- helpers ------------------------------------------------------------ */
 
 /** Bytes and files under a directory, walked once. */
 async function directorySize(
@@ -156,10 +230,56 @@ async function directorySize(
   return { bytes, files };
 }
 
+/** The last `n` days as `YYYY-MM-DD`, oldest first. */
+function lastDays(n: number): string[] {
+  const out: string[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    out.push(new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+/** The last `n` months as `YYYY-MM`, oldest first. */
+function lastMonths(n: number): string[] {
+  const out: string[] = [];
+  const now = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+/**
+ * Fill a bucket list from grouped rows, so no bucket is missing.
+ *
+ * A sparse series is the classic lie: three bars for three days that happened
+ * to have traffic reads as three consecutive days of it.
+ */
+function fill(
+  buckets: string[],
+  rows: { bucket: string | null; n: number }[],
+  label: (bucket: string) => string
+): AdminSeries['points'] {
+  const by = new Map(rows.map(r => [String(r.bucket ?? ''), r.n]));
+  return buckets.map(b => ({
+    label: label(b),
+    full: b,
+    value: by.get(b) ?? 0,
+  }));
+}
+
+const iso = (daysAgo: number) =>
+  new Date(Date.now() - daysAgo * 86_400_000).toISOString();
+
+/* --- the overview -------------------------------------------------------- */
+
 export async function adminOverview(): Promise<AdminOverview> {
   await requireSuperAdmin();
 
+  /** `SELECT count(*) FROM table [WHERE …]`, as one number. */
   const countOf = async (
+    // Drizzle's table type is not usefully nameable across thirty call sites.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     table: any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -171,107 +291,514 @@ export async function adminOverview(): Promise<AdminOverview> {
     return rows[0]?.n ?? 0;
   };
 
-  const fortnightAgo = new Date(
-    Date.now() - 14 * 24 * 60 * 60 * 1000
-  ).toISOString();
+  const since7 = iso(7);
+  const since30 = iso(30);
 
-  const [
-    accounts,
-    unverified,
-    disabled,
-    tables,
-    heroes,
-    forged,
-    pendingApprovals,
-    published,
-    boards,
-    tracks,
-    sessionsPlayed,
-    fightsRun,
-    recent,
-  ] = await Promise.all([
+  /* --- people ---------------------------------------------------------- */
+
+  const [accounts, verified, disabled, admins] = await Promise.all([
     countOf(users),
-    countOf(users, isNull(users.emailVerified)),
+    countOf(users, isNotNull(users.emailVerified)),
     countOf(users, isNotNull(users.disabledAt)),
-    countOf(campaigns),
-    countOf(characters),
-    countOf(homebrew),
-    countOf(homebrewApprovals, eq(homebrewApprovals.status, 'pending')),
-    countOf(publications),
-    countOf(battleMaps),
-    countOf(campaignAudio),
-    countOf(campaignSessions, eq(campaignSessions.status, 'played')),
-    countOf(initiativeEncounters),
-    db
-      .select({ createdAt: users.createdAt })
-      .from(users)
-      .where(gte(users.createdAt, fortnightAgo)),
+    countOf(users, eq(users.isSuperAdmin, true)),
   ]);
 
-  const byDay = new Map<string, number>();
-  for (let i = 13; i >= 0; i--) {
-    const day = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
-    byDay.set(day, 0);
-  }
-  for (const row of recent) {
-    const day = String(row.createdAt).slice(0, 10);
-    if (byDay.has(day)) byDay.set(day, (byDay.get(day) ?? 0) + 1);
-  }
+  /*
+   * "Active" means *wrote something*, not "held a session open": sessions are
+   * JWTs and there is no row to count. Three tables cover nearly everything a
+   * person does — rolling at a table, touching a sheet, forging something —
+   * and somebody who did none of the three in a month is fairly called quiet.
+   */
+  const activeSince = async (since: string): Promise<number> => {
+    const [rolled, sheets, forged] = await Promise.all([
+      db
+        .selectDistinct({ id: campaignRolls.actorUserId })
+        .from(campaignRolls)
+        .where(gte(campaignRolls.createdAt, since)),
+      db
+        .selectDistinct({ id: characters.ownerId })
+        .from(characters)
+        .where(gte(characters.updatedAt, since)),
+      db
+        .selectDistinct({ id: homebrew.ownerId })
+        .from(homebrew)
+        .where(gte(homebrew.updatedAt, since)),
+    ]);
+    const seen = new Set<string>();
+    for (const row of [...rolled, ...sheets, ...forged]) {
+      if (row.id) seen.add(row.id);
+    }
+    return seen.size;
+  };
+  const [active7, active30] = await Promise.all([
+    activeSince(since7),
+    activeSince(since30),
+  ]);
+
+  /* --- campaigns ------------------------------------------------------- */
+
+  const [
+    campaignCount,
+    campaignsActive,
+    campaignsPaused,
+    campaignsCompleted,
+    campaignsArchived,
+    sittingNow,
+    fightingNow,
+    memberCount,
+  ] = await Promise.all([
+    countOf(campaigns),
+    countOf(campaigns, eq(campaigns.status, 'active')),
+    countOf(campaigns, eq(campaigns.status, 'paused')),
+    countOf(campaigns, eq(campaigns.status, 'completed')),
+    countOf(campaigns, eq(campaigns.status, 'archived')),
+    countOf(campaignSessions, eq(campaignSessions.status, 'live')),
+    countOf(initiativeEncounters, eq(initiativeEncounters.isActive, true)),
+    countOf(campaignMembers),
+  ]);
+
+  /* --- play ------------------------------------------------------------ */
+
+  const [
+    sessionsPlanned,
+    sessionsPlayed,
+    sessionsCancelled,
+    fights,
+    combatants,
+    plans,
+    rollsAll,
+    rolls30,
+    checksAsked,
+    whispers,
+    handouts,
+    awards,
+  ] = await Promise.all([
+    countOf(campaignSessions, eq(campaignSessions.status, 'planned')),
+    countOf(campaignSessions, eq(campaignSessions.status, 'played')),
+    countOf(campaignSessions, eq(campaignSessions.status, 'cancelled')),
+    countOf(initiativeEncounters),
+    countOf(initiativeEntries),
+    countOf(encounterPlans),
+    countOf(campaignRolls),
+    countOf(campaignRolls, gte(campaignRolls.createdAt, since30)),
+    countOf(campaignChecks),
+    countOf(campaignWhispers),
+    countOf(campaignHandouts),
+    countOf(sessionAwards),
+  ]);
+
+  /* --- characters ------------------------------------------------------ */
+
+  const [
+    characterCount,
+    drafts,
+    seated,
+    blueprints,
+    withHomebrew,
+    avgLevelRows,
+  ] = await Promise.all([
+    countOf(characters),
+    countOf(characters, eq(characters.status, 'draft')),
+    countOf(characters, isNotNull(characters.campaignId)),
+    countOf(characters, isNull(characters.campaignId)),
+    countOf(characters, eq(characters.hasHomebrew, true)),
+    db.select({ v: avg(characters.level) }).from(characters),
+  ]);
+  const avgLevel = Number(avgLevelRows[0]?.v ?? 0);
+
+  /* --- the world ------------------------------------------------------- */
+
+  const [quests, clocks, canon, notes, journals, downtime, maps, loot, shops] =
+    await Promise.all([
+      countOf(campaignQuests),
+      countOf(campaignClocks),
+      countOf(canonEntries),
+      countOf(campaignNotes),
+      countOf(playerJournals),
+      countOf(downtimeActions),
+      countOf(campaignMaps),
+      countOf(partyLoot),
+      countOf(campaignShops),
+    ]);
+
+  /* --- boards ---------------------------------------------------------- */
+
+  const [boards, boardsInPlay, boardsShared, tokens] = await Promise.all([
+    countOf(battleMaps),
+    countOf(battleMaps, eq(battleMaps.isActive, true)),
+    countOf(battleMaps, eq(battleMaps.visibility, 'shared')),
+    countOf(battleMapTokens),
+  ]);
+
+  /* --- content --------------------------------------------------------- */
+
+  const [
+    forgedCount,
+    forgedPublic,
+    pendingApprovals,
+    approvedApprovals,
+    deniedApprovals,
+    published,
+    adopted,
+  ] = await Promise.all([
+    countOf(homebrew),
+    countOf(homebrew, eq(homebrew.visibility, 'public')),
+    countOf(homebrewApprovals, eq(homebrewApprovals.status, 'pending')),
+    countOf(homebrewApprovals, eq(homebrewApprovals.status, 'approved')),
+    countOf(homebrewApprovals, eq(homebrewApprovals.status, 'denied')),
+    countOf(publications),
+    countOf(adoptions),
+  ]);
+
+  /* --- breakdowns ------------------------------------------------------ */
+
+  const groupRows = async (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    table: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    column: any
+  ): Promise<{ label: string; value: number }[]> => {
+    const rows = await db
+      .select({ k: column, n: count() })
+      .from(table)
+      .groupBy(column)
+      .orderBy(desc(count()));
+    return rows
+      .map(r => ({
+        label: String(r.k ?? '').trim() || 'Not chosen',
+        value: r.n,
+      }))
+      .filter(r => r.value > 0);
+  };
+
+  const [byType, byClass, bySpecies, byPublicationKind] = await Promise.all([
+    groupRows(homebrew, homebrew.type),
+    groupRows(characters, characters.class),
+    groupRows(characters, characters.species),
+    groupRows(publications, publications.kind),
+  ]);
+
+  const levelRows = await db
+    .select({ k: characters.level, n: count() })
+    .from(characters)
+    .groupBy(characters.level)
+    .orderBy(characters.level);
+
+  /* --- series ---------------------------------------------------------- */
+
+  const days30 = lastDays(30);
+  const months12 = lastMonths(12);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dayOf = (column: any) => sql<string>`substr(${column}, 1, 10)`;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const monthOf = (column: any) => sql<string>`substr(${column}, 1, 7)`;
+
+  const signupDay = dayOf(users.createdAt);
+  const rollDay = dayOf(campaignRolls.createdAt);
+  const sessionMonth = monthOf(campaignSessions.createdAt);
+
+  const [signupRows, rollRows, sessionRows] = await Promise.all([
+    db
+      .select({ bucket: signupDay, n: count() })
+      .from(users)
+      .where(gte(users.createdAt, since30))
+      .groupBy(signupDay),
+    db
+      .select({ bucket: rollDay, n: count() })
+      .from(campaignRolls)
+      .where(gte(campaignRolls.createdAt, since30))
+      .groupBy(rollDay),
+    db
+      .select({ bucket: sessionMonth, n: count() })
+      .from(campaignSessions)
+      .where(eq(campaignSessions.status, 'played'))
+      .groupBy(sessionMonth),
+  ]);
+
+  /* --- storage --------------------------------------------------------- */
+
+  const sizeOf = async (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    table: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    column: any
+  ): Promise<{ bytes: number; files: number }> => {
+    const rows = await db
+      .select({ b: sql<number>`coalesce(sum(${column}), 0)`, n: count() })
+      .from(table);
+    return { bytes: Number(rows[0]?.b ?? 0), files: rows[0]?.n ?? 0 };
+  };
+
+  const [images, audioFiles, portraits, libraryAssets, onDisk] =
+    await Promise.all([
+      sizeOf(campaignImages, campaignImages.bytes),
+      sizeOf(campaignAudio, campaignAudio.bytes),
+      sizeOf(characterPortraits, characterPortraits.bytes),
+      sizeOf(publicationAssets, publicationAssets.bytes),
+      directorySize(UPLOADS_DIR),
+    ]);
+  const database = await stat(DB_PATH)
+    .then(s => s.size)
+    .catch(() => 0);
+
+  /* --- the busiest campaigns -------------------------------------------- */
 
   const campaignRows = await db
     .select({ id: campaigns.id, name: campaigns.name })
     .from(campaigns);
-  const played = await db
-    .select({ campaignId: campaignSessions.campaignId, n: count() })
-    .from(campaignSessions)
-    .where(eq(campaignSessions.status, 'played'))
-    .groupBy(campaignSessions.campaignId);
-  const members = await db
-    .select({ campaignId: campaignMembers.campaignId, n: count() })
-    .from(campaignMembers)
-    .groupBy(campaignMembers.campaignId);
-  const playedBy = new Map(played.map(r => [r.campaignId, r.n]));
-  const membersBy = new Map(members.map(r => [r.campaignId, r.n]));
+  const [playedBy, membersBy, rollsBy] = await Promise.all([
+    db
+      .select({ id: campaignSessions.campaignId, n: count() })
+      .from(campaignSessions)
+      .where(eq(campaignSessions.status, 'played'))
+      .groupBy(campaignSessions.campaignId),
+    db
+      .select({ id: campaignMembers.campaignId, n: count() })
+      .from(campaignMembers)
+      .groupBy(campaignMembers.campaignId),
+    db
+      .select({ id: campaignRolls.campaignId, n: count() })
+      .from(campaignRolls)
+      .groupBy(campaignRolls.campaignId),
+  ]);
+  const played = new Map(playedBy.map(r => [r.id, r.n]));
+  const members = new Map(membersBy.map(r => [r.id, r.n]));
+  const rolled = new Map(rollsBy.map(r => [r.id, r.n]));
 
-  const busiest = campaignRows
+  const busiestCampaigns = campaignRows
     .map(c => ({
       id: c.id,
       name: c.name,
-      sessions: playedBy.get(c.id) ?? 0,
-      members: membersBy.get(c.id) ?? 0,
+      sessions: played.get(c.id) ?? 0,
+      members: members.get(c.id) ?? 0,
+      rolls: rolled.get(c.id) ?? 0,
     }))
-    .sort((a, b) => b.sessions - a.sessions || b.members - a.members)
-    .slice(0, 8);
+    .sort(
+      (a, b) =>
+        b.sessions - a.sessions || b.rolls - a.rolls || b.members - a.members
+    )
+    .slice(0, 10);
+
+  /* --- assembled ------------------------------------------------------- */
+
+  const unverified = accounts - verified;
 
   return {
-    stats: [
-      { key: 'accounts', label: 'accounts', value: accounts },
+    generatedAt: new Date().toISOString(),
+    groups: [
       {
-        key: 'unverified',
-        label: 'never verified an address',
-        value: unverified,
-        note: 'They cannot sign in until they do.',
+        key: 'people',
+        title: 'People',
+        line: 'Accounts, and how many of them are doing anything.',
+        metrics: [
+          { key: 'accounts', label: 'Accounts', value: accounts },
+          { key: 'verified', label: 'Verified', value: verified },
+          {
+            key: 'unverified',
+            label: 'Unverified',
+            value: unverified,
+            hint: 'Cannot sign in until the address is confirmed.',
+            ...(unverified > 0 ? { tone: 'warn' as const } : {}),
+          },
+          {
+            key: 'disabled',
+            label: 'Disabled',
+            value: disabled,
+            ...(disabled > 0 ? { tone: 'bad' as const } : {}),
+          },
+          { key: 'admins', label: 'Super admins', value: admins },
+          {
+            key: 'active7',
+            label: 'Active, 7 days',
+            value: active7,
+            hint: 'Rolled, edited a sheet, or forged something.',
+          },
+          { key: 'active30', label: 'Active, 30 days', value: active30 },
+        ],
       },
-      { key: 'disabled', label: 'accounts shut off', value: disabled },
-      { key: 'tables', label: 'campaigns', value: tables },
-      { key: 'heroes', label: 'characters', value: heroes },
-      { key: 'sessions', label: 'sessions played', value: sessionsPlayed },
-      { key: 'fights', label: 'fights run', value: fightsRun },
-      { key: 'forged', label: 'pieces of homebrew forged', value: forged },
       {
-        key: 'approvals',
-        label: 'submissions waiting on a DM',
-        value: pendingApprovals,
+        key: 'campaigns',
+        title: 'Campaigns',
+        line: 'Tables, what state they are in, and who is at them.',
+        metrics: [
+          { key: 'total', label: 'Campaigns', value: campaignCount },
+          { key: 'active', label: 'Active', value: campaignsActive },
+          { key: 'paused', label: 'Paused', value: campaignsPaused },
+          { key: 'completed', label: 'Completed', value: campaignsCompleted },
+          { key: 'archived', label: 'Archived', value: campaignsArchived },
+          { key: 'members', label: 'Seats taken', value: memberCount },
+          { key: 'sitting', label: 'In session now', value: sittingNow },
+          { key: 'fighting', label: 'In a fight now', value: fightingNow },
+        ],
       },
-      { key: 'published', label: 'things in the library', value: published },
-      { key: 'boards', label: 'battle boards built', value: boards },
-      { key: 'tracks', label: 'sounds uploaded', value: tracks },
+      {
+        key: 'play',
+        title: 'Play',
+        line: 'What has actually happened at those tables.',
+        metrics: [
+          { key: 'played', label: 'Sessions played', value: sessionsPlayed },
+          { key: 'planned', label: 'Sessions planned', value: sessionsPlanned },
+          {
+            key: 'cancelled',
+            label: 'Sessions cancelled',
+            value: sessionsCancelled,
+          },
+          { key: 'fights', label: 'Fights run', value: fights },
+          { key: 'combatants', label: 'Combatants in them', value: combatants },
+          { key: 'plans', label: 'Encounters prepared', value: plans },
+          { key: 'rollsAll', label: 'Dice rolled, all time', value: rollsAll },
+          { key: 'rolls30', label: 'Dice rolled, 30 days', value: rolls30 },
+          { key: 'checks', label: 'Checks asked for', value: checksAsked },
+          { key: 'whispers', label: 'Whispers sent', value: whispers },
+          { key: 'handouts', label: 'Handouts', value: handouts },
+          { key: 'awards', label: 'Awards given', value: awards },
+        ],
+      },
+      {
+        key: 'characters',
+        title: 'Characters',
+        line: 'Sheets, and how far along they are.',
+        metrics: [
+          { key: 'total', label: 'Characters', value: characterCount },
+          {
+            key: 'seated',
+            label: 'Seated at a table',
+            value: seated,
+            hint: 'A table copy. The original stays on its owner’s shelf.',
+          },
+          { key: 'blueprints', label: 'Unseated originals', value: blueprints },
+          {
+            key: 'drafts',
+            label: 'Unfinished drafts',
+            value: drafts,
+            ...(drafts > 0 ? { tone: 'warn' as const } : {}),
+          },
+          {
+            key: 'avgLevel',
+            label: 'Average level',
+            value: Math.round(avgLevel * 10) / 10,
+          },
+          { key: 'homebrewed', label: 'Using homebrew', value: withHomebrew },
+        ],
+      },
+      {
+        key: 'world',
+        title: 'World and records',
+        line: 'Everything the tables have written down.',
+        metrics: [
+          { key: 'quests', label: 'Quests', value: quests },
+          { key: 'clocks', label: 'Clocks', value: clocks },
+          { key: 'canon', label: 'Canon entries', value: canon },
+          { key: 'notes', label: 'Notebook pages', value: notes },
+          { key: 'journals', label: 'Journal entries', value: journals },
+          { key: 'downtime', label: 'Downtime actions', value: downtime },
+          { key: 'maps', label: 'Region maps', value: maps },
+          { key: 'loot', label: 'Loot entries', value: loot },
+          { key: 'shops', label: 'Shops', value: shops },
+        ],
+      },
+      {
+        key: 'boards',
+        title: 'Battle boards',
+        line: 'Rooms built, and what is standing on them.',
+        metrics: [
+          { key: 'boards', label: 'Boards', value: boards },
+          { key: 'inPlay', label: 'In play', value: boardsInPlay },
+          { key: 'shared', label: 'Visible to a party', value: boardsShared },
+          { key: 'tokens', label: 'Tokens placed', value: tokens },
+        ],
+      },
+      {
+        key: 'content',
+        title: 'Content and library',
+        line: 'What people have forged, and where it has gone.',
+        metrics: [
+          { key: 'forged', label: 'Homebrew pieces', value: forgedCount },
+          { key: 'public', label: 'Marked public', value: forgedPublic },
+          {
+            key: 'pending',
+            label: 'Waiting on a DM',
+            value: pendingApprovals,
+            ...(pendingApprovals > 0 ? { tone: 'warn' as const } : {}),
+          },
+          { key: 'approved', label: 'Approved', value: approvedApprovals },
+          { key: 'denied', label: 'Denied', value: deniedApprovals },
+          { key: 'published', label: 'Library listings', value: published },
+          { key: 'adopted', label: 'Adoptions', value: adopted },
+        ],
+      },
     ],
-    uploads: await directorySize(UPLOADS_DIR),
-    signups: [...byDay].map(([day, n]) => ({ day, count: n })),
-    busiest,
+    breakdowns: [
+      {
+        key: 'homebrew-type',
+        title: 'Homebrew by type',
+        line: 'Every forged piece, by what it is.',
+        unit: 'pieces',
+        rows: byType,
+      },
+      {
+        key: 'character-class',
+        title: 'Characters by class',
+        line: 'The fifteen commonest.',
+        unit: 'characters',
+        rows: byClass.slice(0, 15),
+      },
+      {
+        key: 'character-species',
+        title: 'Characters by species',
+        line: 'The fifteen commonest.',
+        unit: 'characters',
+        rows: bySpecies.slice(0, 15),
+      },
+      {
+        key: 'character-level',
+        title: 'Characters by level',
+        line: 'Where this install actually plays.',
+        unit: 'characters',
+        rows: levelRows.map(r => ({ label: `Level ${r.k}`, value: r.n })),
+      },
+      {
+        key: 'publication-kind',
+        title: 'Library listings by kind',
+        line: 'What people are publishing.',
+        unit: 'listings',
+        rows: byPublicationKind,
+      },
+    ],
+    series: [
+      {
+        key: 'signups',
+        title: 'New accounts',
+        line: 'One bar a day, for the last thirty.',
+        unit: 'accounts',
+        points: fill(days30, signupRows, d => d.slice(8)),
+      },
+      {
+        key: 'rolls',
+        title: 'Dice rolled',
+        line: 'The closest thing this install has to “is anybody playing”.',
+        unit: 'rolls',
+        points: fill(days30, rollRows, d => d.slice(8)),
+      },
+      {
+        key: 'sessions',
+        title: 'Sessions played',
+        line: 'One bar a month, for the last twelve.',
+        unit: 'sessions',
+        points: fill(months12, sessionRows, m => m.slice(5)),
+      },
+    ],
+    storage: {
+      kinds: [
+        { label: 'Campaign images', ...images },
+        { label: 'Character portraits', ...portraits },
+        { label: 'Sound', ...audioFiles },
+        { label: 'Library assets', ...libraryAssets },
+      ],
+      onDisk,
+      database,
+    },
+    busiestCampaigns,
   };
 }
 
@@ -289,6 +816,10 @@ export interface AdminUserRow {
   campaigns: number;
   /** Campaigns they own, which is what makes an account load-bearing. */
   runs: number;
+  /** Pieces of homebrew they have forged. */
+  forged: number;
+  /** The most recent thing they wrote, across rolls, sheets and homebrew. */
+  lastSeen: string | null;
 }
 
 /** Every account, newest first, with what hangs off it. */
@@ -315,23 +846,67 @@ export async function listUsers(query = ''): Promise<AdminUserRow[]> {
     .orderBy(desc(users.createdAt))
     .limit(500);
 
-  const [charCounts, memberships, gmShips] = await Promise.all([
+  const [
+    charCounts,
+    memberships,
+    owned,
+    forged,
+    lastRoll,
+    lastSheet,
+    lastForge,
+  ] = await Promise.all([
     db
-      .select({ ownerId: characters.ownerId, n: count() })
+      .select({ id: characters.ownerId, n: count() })
       .from(characters)
       .groupBy(characters.ownerId),
     db
-      .select({ userId: campaignMembers.userId, n: count() })
+      .select({ id: campaignMembers.userId, n: count() })
       .from(campaignMembers)
       .groupBy(campaignMembers.userId),
     db
-      .select({ userId: campaigns.gmId, n: count() })
+      .select({ id: campaigns.gmId, n: count() })
       .from(campaigns)
       .groupBy(campaigns.gmId),
+    db
+      .select({ id: homebrew.ownerId, n: count() })
+      .from(homebrew)
+      .groupBy(homebrew.ownerId),
+    db
+      .select({
+        id: campaignRolls.actorUserId,
+        at: sql<string>`max(${campaignRolls.createdAt})`,
+      })
+      .from(campaignRolls)
+      .groupBy(campaignRolls.actorUserId),
+    db
+      .select({
+        id: characters.ownerId,
+        at: sql<string>`max(${characters.updatedAt})`,
+      })
+      .from(characters)
+      .groupBy(characters.ownerId),
+    db
+      .select({
+        id: homebrew.ownerId,
+        at: sql<string>`max(${homebrew.updatedAt})`,
+      })
+      .from(homebrew)
+      .groupBy(homebrew.ownerId),
   ]);
-  const chars = new Map(charCounts.map(r => [r.ownerId, r.n]));
-  const inTables = new Map(memberships.map(r => [r.userId, r.n]));
-  const runs = new Map(gmShips.map(r => [r.userId, r.n]));
+
+  const chars = new Map(charCounts.map(r => [r.id, r.n]));
+  const inTables = new Map(memberships.map(r => [r.id, r.n]));
+  const runs = new Map(owned.map(r => [r.id, r.n]));
+  const forgedBy = new Map(forged.map(r => [r.id, r.n]));
+
+  const seen = new Map<string, string>();
+  for (const list of [lastRoll, lastSheet, lastForge]) {
+    for (const row of list) {
+      if (!row.id || !row.at) continue;
+      const current = seen.get(row.id);
+      if (!current || row.at > current) seen.set(row.id, row.at);
+    }
+  }
 
   return rows.map(r => ({
     id: r.id,
@@ -344,16 +919,18 @@ export async function listUsers(query = ''): Promise<AdminUserRow[]> {
     characters: chars.get(r.id) ?? 0,
     campaigns: inTables.get(r.id) ?? 0,
     runs: runs.get(r.id) ?? 0,
+    forged: forgedBy.get(r.id) ?? 0,
+    lastSeen: seen.get(r.id) ?? null,
   }));
 }
 
-/** Shut an account off, or turn it back on. Never the operator's own. */
+/** Disable an account, or enable it again. Never the operator's own. */
 export async function setUserDisabled(
   userId: string,
   disabled: boolean
 ): Promise<void> {
   const me = await requireSuperAdmin();
-  // Locking yourself out of the box you run is not a feature.
+  // Locking yourself out of the install you run is not a feature.
   if (userId === me) throw new Error('NOT_YOURSELF');
   await db
     .update(users)
@@ -361,23 +938,41 @@ export async function setUserDisabled(
     .where(eq(users.id, userId));
 }
 
-/** Hand the keys to somebody else, or take them back. */
+/**
+ * Grant or revoke super admin.
+ *
+ * Revoking does not stick for an address named in `ADMIN_EMAILS`:
+ * `syncEnvAdmins` grants it back on the next check, by design. The caller is
+ * told, so the page can say so rather than appearing to have done nothing.
+ */
 export async function setUserSuperAdmin(
   userId: string,
   isAdmin: boolean
-): Promise<void> {
+): Promise<{ overriddenByEnv: boolean }> {
   const me = await requireSuperAdmin();
   if (userId === me && !isAdmin) throw new Error('NOT_YOURSELF');
+
+  const row = await db.query.users.findFirst({
+    columns: { email: true },
+    where: eq(users.id, userId),
+  });
+  if (!row) throw new Error('NOT_FOUND');
+
   await db
     .update(users)
     .set({ isSuperAdmin: isAdmin })
     .where(eq(users.id, userId));
+
+  return {
+    overriddenByEnv:
+      !isAdmin && envAdmins().includes(row.email.trim().toLowerCase()),
+  };
 }
 
 /**
  * Mark an address verified by hand.
  *
- * Self-hosted installs often have no outbound mail at all — the `mail-outbox`
+ * Self-hosted installs often have no outbound mail at all — the mail outbox
  * exists for exactly that — so "the verification email never arrived" is the
  * ordinary case rather than the exception, and the operator needs a way to
  * say "yes, that is them" without a SQLite prompt.

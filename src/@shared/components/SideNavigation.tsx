@@ -402,8 +402,8 @@ export function SideNavigation() {
         {admin && (
           <Link
             href="/admin"
-            title="Running the box"
-            aria-label={collapsed ? 'Running the box' : undefined}
+            title="Admin"
+            aria-label={collapsed ? 'Admin' : undefined}
             className={`mt-1 flex items-center gap-2 rounded-md py-1.5 text-sm transition-colors ${
               collapsed ? 'h-8 w-8 justify-center' : 'px-2'
             } ${
@@ -413,7 +413,7 @@ export function SideNavigation() {
             }`}
           >
             <Glyph name="gavel" size={16} />
-            {!collapsed && <span>Running the box</span>}
+            {!collapsed && <span>Admin</span>}
           </Link>
         )}
         <Button

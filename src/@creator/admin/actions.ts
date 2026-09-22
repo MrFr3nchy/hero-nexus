@@ -20,8 +20,9 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
   const messages: Record<string, string> = {
     NOT_AUTHENTICATED: 'You are not signed in.',
     SESSION_STALE: 'Your session is out of date. Sign in again.',
-    FORBIDDEN: 'You do not run this box.',
-    NOT_YOURSELF: 'Not to your own account. Ask another admin.',
+    FORBIDDEN: 'You do not run this install.',
+    NOT_YOURSELF: 'Not to your own account. Ask another super admin.',
+    NOT_FOUND: 'That account no longer exists.',
   };
   if (!messages[code]) console.error('[admin-action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
@@ -60,13 +61,17 @@ export async function setUserDisabledAction(
   }
 }
 
+/**
+ * Grant or revoke super admin. `overriddenByEnv` is true when a revoke was
+ * undone at once because `ADMIN_EMAILS` names that address.
+ */
 export async function setUserSuperAdminAction(
   userId: string,
   isAdmin: boolean
-): Promise<Result> {
+): Promise<Result<{ overriddenByEnv: boolean }>> {
   try {
-    await setUserSuperAdmin(userId, isAdmin);
-    return { ok: true };
+    const data = await setUserSuperAdmin(userId, isAdmin);
+    return { ok: true, data };
   } catch (err) {
     return fail(err, 'Could not change that account.');
   }
