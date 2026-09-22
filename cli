@@ -1,0 +1,834 @@
+#!/usr/bin/env bash
+#
+# Hero Nexus operator CLI.
+#
+# One command to run on the droplet, from the DigitalOcean web console or over
+# ssh. It knows where the app lives, which user owns it, and what has to
+# happen in which order; you do not.
+#
+#   cd /opt/hero-nexus
+#   ./cli deploy --branch main
+#
+# Everything it does by hand is still possible by hand — `docs/ops/deploy.md`
+# spells each step out — but the order matters and getting it wrong on a live
+# table is the kind of mistake that is only obvious afterwards.
+#
+# Run `./cli help` for the full list.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------- where things are
+
+# The checkout this script is in, not the working directory: the console drops
+# you in /root, and `bash /opt/hero-nexus/cli deploy` should still work.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="${APP_DIR:-$SCRIPT_DIR}"
+SERVICE="${HERO_NEXUS_SERVICE:-hero-nexus}"
+PORT="${HERO_NEXUS_PORT:-3000}"
+HEALTH_URL="http://127.0.0.1:${PORT}/"
+
+# How long to wait for the server to answer after a restart. A cold Next start
+# on a 1 GB droplet under swap is slow; 60s is generous rather than optimistic.
+HEALTH_TIMEOUT="${HERO_NEXUS_HEALTH_TIMEOUT:-60}"
+
+# How many database snapshots to keep in the data directory.
+KEEP_BACKUPS="${HERO_NEXUS_KEEP_BACKUPS:-10}"
+
+# ---------------------------------------------------------------- output
+
+if [[ -t 1 ]]; then
+	BOLD=$'\033[1m'
+	DIM=$'\033[2m'
+	RED=$'\033[31m'
+	GREEN=$'\033[32m'
+	YELLOW=$'\033[33m'
+	RESET=$'\033[0m'
+else
+	BOLD='' DIM='' RED='' GREEN='' YELLOW='' RESET=''
+fi
+
+step() { printf '\n%s== %s%s\n' "$BOLD" "$*" "$RESET"; }
+info() { printf '   %s\n' "$*"; }
+note() { printf '   %s%s%s\n' "$DIM" "$*" "$RESET"; }
+warn() { printf '   %s! %s%s\n' "$YELLOW" "$*" "$RESET" >&2; }
+good() { printf '   %s%s%s\n' "$GREEN" "$*" "$RESET"; }
+die() {
+	printf '\n%serror: %s%s\n' "$RED" "$*" "$RESET" >&2
+	exit 1
+}
+
+# ---------------------------------------------------------------- environment
+
+have_systemd() {
+	command -v systemctl >/dev/null 2>&1 &&
+		systemctl list-unit-files "${SERVICE}.service" >/dev/null 2>&1 &&
+		systemctl cat "${SERVICE}.service" >/dev/null 2>&1
+}
+
+is_root() { [[ $EUID -eq 0 ]]; }
+
+# Who owns the checkout. On a droplet that is `hero`; in a developer's own
+# clone it is them, and everything below then runs without sudo.
+app_owner() { stat -c '%U' "$APP_DIR"; }
+
+# Run a shell command in the app directory as whoever owns it.
+#
+# Takes **one string**, which is passed to a shell. Quoting inside it
+# survives; splitting the command across arguments does not, because they are
+# joined before evaluation — `as_owner git log --format='%h %s'` would reach
+# git as two words and %s would be read as a revision.
+#
+# `sudo -u ... -H` rather than `runuser`: the `hero` account is a system user
+# with no login shell, and `-H` is what gives npm a HOME to put its cache in —
+# without it every `npm ci` warns and writes to /.npm.
+as_owner() {
+	local owner
+	owner="$(app_owner)"
+	if [[ "$owner" == "$(id -un)" ]]; then
+		(cd "$APP_DIR" && eval "$*")
+	elif is_root; then
+		sudo -u "$owner" -H bash -c "cd '$APP_DIR' && $*"
+	else
+		die "$APP_DIR is owned by '$owner' and you are '$(id -un)'. Run with sudo."
+	fi
+}
+
+# The env file the app actually reads, preferring the production one. Both are
+# optional here; `doctor` is what complains about a missing one.
+env_file() {
+	if [[ -f "$APP_DIR/.env" ]]; then
+		echo "$APP_DIR/.env"
+	elif [[ -f "$APP_DIR/.env.local" ]]; then
+		echo "$APP_DIR/.env.local"
+	fi
+}
+
+# Read one key out of the env file without sourcing it into this shell.
+env_value() {
+	local file key
+	file="$(env_file)"
+	key="$1"
+	[[ -n "$file" ]] || return 0
+	sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" |
+		tail -n 1 | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"
+}
+
+db_path() {
+	local p
+	p="$(env_value HERO_NEXUS_DB_PATH)"
+	echo "${p:-$APP_DIR/data/hero-nexus.db}"
+}
+
+# Run an npm script with the env file loaded, the way a one-off task needs it:
+# systemd supplies the environment to the service, and nothing supplies it to
+# a command you type.
+run_with_env() {
+	local file
+	file="$(env_file)"
+	if [[ -n "$file" ]]; then
+		as_owner "set -a && . '$file' && set +a && $*"
+	else
+		as_owner "$*"
+	fi
+}
+
+require_repo() {
+	[[ -d "$APP_DIR/.git" ]] || die "$APP_DIR is not a git checkout"
+}
+
+confirm() {
+	local prompt="$1"
+	[[ "${ASSUME_YES:-0}" == 1 ]] && return 0
+	# No terminal (a web console pipe, a cron) means nobody to ask. Refusing is
+	# safer than assuming yes for anything that reaches this.
+	[[ -t 0 ]] || die "$prompt — rerun with --yes to confirm without a prompt"
+	local reply
+	read -r -p "   $prompt [y/N] " reply
+	[[ "$reply" == [yY] || "$reply" == [yY][eE][sS] ]]
+}
+
+# ---------------------------------------------------------------- health
+
+wait_for_health() {
+	local waited=0
+	while ((waited < HEALTH_TIMEOUT)); do
+		if curl -fsS -o /dev/null --max-time 5 "$HEALTH_URL" 2>/dev/null; then
+			return 0
+		fi
+		# A unit that has given up restarting will never answer; stop waiting
+		# out the full timeout for an answer that is not coming.
+		if have_systemd && ! systemctl is-active -q "$SERVICE"; then
+			return 1
+		fi
+		sleep 2
+		waited=$((waited + 2))
+	done
+	return 1
+}
+
+show_failure_logs() {
+	if have_systemd; then
+		systemctl --no-pager --lines=0 status "$SERVICE" || true
+		echo
+		journalctl -u "$SERVICE" --no-pager -n 80 -o cat >&2 || true
+	fi
+}
+
+# ---------------------------------------------------------------- backup
+
+# A consistent copy of the SQLite file, taken with the server still running.
+#
+# `sqlite3 .backup` rather than `cp`: SQLite in WAL mode is three files and a
+# plain copy of the main one can miss committed pages. Falls back to the
+# VACUUM INTO form, and then to a copy with a loud warning, so a droplet
+# without the sqlite3 CLI still gets something.
+do_backup() {
+	local db dir stamp out
+	db="$(db_path)"
+	[[ -f "$db" ]] || {
+		note "no database at $db yet — nothing to back up"
+		return 0
+	}
+	dir="$(dirname "$db")/backups"
+	stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+	out="$dir/hero-nexus-${stamp}.db"
+
+	mkdir -p "$dir"
+	chown "$(app_owner)":"$(stat -c '%G' "$APP_DIR")" "$dir" 2>/dev/null || true
+
+	if command -v sqlite3 >/dev/null 2>&1; then
+		sqlite3 "$db" ".backup '$out'"
+	else
+		warn "sqlite3 is not installed — copying the file instead."
+		warn "A copy taken while the server is writing can be short. Install sqlite3."
+		cp "$db" "$out"
+	fi
+	chown "$(app_owner)" "$out" 2>/dev/null || true
+	good "backed up to $out ($(du -h "$out" | cut -f1))"
+
+	# Keep the last N. Sorted by name, which is sorted by time: the stamp is
+	# ISO-8601 in UTC precisely so that is true.
+	local count
+	count="$(find "$dir" -maxdepth 1 -name 'hero-nexus-*.db' | wc -l)"
+	if ((count > KEEP_BACKUPS)); then
+		find "$dir" -maxdepth 1 -name 'hero-nexus-*.db' | sort |
+			head -n "$((count - KEEP_BACKUPS))" | xargs -r rm -f
+		note "keeping the newest $KEEP_BACKUPS"
+	fi
+	BACKUP_PATH="$out"
+}
+
+# ---------------------------------------------------------------- deploy
+
+cmd_deploy() {
+	local ref='' pull=1 backup=1 seed=0 force=0 build=1
+	while (($#)); do
+		case "$1" in
+		--branch | --ref | -b)
+			ref="${2:?--branch needs a name}"
+			shift 2
+			;;
+		--branch=* | --ref=*)
+			ref="${1#*=}"
+			shift
+			;;
+		--no-pull) pull=0 && shift ;;
+		--no-backup) backup=0 && shift ;;
+		--no-build) build=0 && shift ;;
+		--seed) seed=1 && shift ;;
+		--force | -f) force=1 && shift ;;
+		--yes | -y) ASSUME_YES=1 && shift ;;
+		-h | --help)
+			usage_deploy
+			return 0
+			;;
+		*) die "unknown option for deploy: $1 (try ./cli deploy --help)" ;;
+		esac
+	done
+
+	require_repo
+	local owner
+	owner="$(app_owner)"
+
+	if have_systemd && ! is_root; then
+		die "run as root — this restarts ${SERVICE}. Try: sudo ./cli deploy ${ref:+--branch $ref}"
+	fi
+
+	step "Hero Nexus deploy"
+	info "checkout   $APP_DIR (owned by $owner)"
+	info "service    $(have_systemd && echo "$SERVICE" || echo 'none — build only')"
+
+	# ------------------------------------------------ 1. what is here now
+	local before dirty
+	before="$(as_owner 'git rev-parse HEAD')"
+	dirty="$(as_owner 'git status --porcelain')"
+	if [[ -n "$dirty" ]]; then
+		warn "the working tree has uncommitted changes:"
+		echo "$dirty" | sed 's/^/     /' >&2
+		if ((force)); then
+			warn "--force given; a pull will overwrite them"
+		else
+			die "commit, stash or discard them — or rerun with --force"
+		fi
+	fi
+
+	# ------------------------------------------------ 2. fetch and move
+	local after
+	if ((pull)); then
+		: "${ref:=$(as_owner 'git rev-parse --abbrev-ref HEAD')}"
+		[[ "$ref" != "HEAD" ]] || die "the checkout is detached — pass --branch <name>"
+		step "fetching origin"
+		as_owner "git fetch --prune --tags origin"
+
+		step "checking out $ref"
+		as_owner "git checkout -q '$ref'"
+		# A branch tracks the remote; a tag or a sha is left where it is.
+		if as_owner "git show-ref -q --verify 'refs/remotes/origin/$ref'"; then
+			as_owner "git reset -q --hard 'origin/$ref'"
+		fi
+	else
+		note "--no-pull: deploying whatever is checked out"
+	fi
+	after="$(as_owner 'git rev-parse HEAD')"
+
+	info "$(as_owner "git --no-pager log -1 --format='%h %s (%an, %ar)'")"
+
+	if [[ "$before" == "$after" ]]; then
+		note "already at ${after:0:8} — rebuilding anyway"
+	else
+		info "${before:0:8} -> ${after:0:8}"
+	fi
+
+	# ------------------------------------------------ 3. what changed
+	local migrations=''
+	if [[ "$before" != "$after" ]]; then
+		migrations="$(as_owner "git diff --name-only '$before' '$after' -- src/db/migrations" || true)"
+		local changed
+		changed="$(as_owner "git diff --shortstat '$before' '$after'" || true)"
+		[[ -n "$changed" ]] && note "$changed" || :
+	fi
+	if [[ -n "$migrations" ]]; then
+		step "this release applies migrations"
+		echo "$migrations" | sed 's/^/     /'
+		warn "there are no down migrations. Rolling the code back afterwards"
+		warn "only works if the old code can read the new schema —"
+		warn "see docs/ops/deploy.md § Rollback."
+		confirm "Apply them?" || die "stopped before building"
+	fi
+
+	# ------------------------------------------------ 4. a copy first
+	BACKUP_PATH=''
+	if ((backup)); then
+		step "backing up the database"
+		do_backup
+	else
+		note "--no-backup: skipping the snapshot"
+	fi
+
+	# ------------------------------------------------ 5. dependencies
+	step "npm ci"
+	as_owner "npm ci --no-audit --no-fund" ||
+		die "npm ci failed — nothing was changed, the old build is still serving"
+
+	# Two dependencies are native, and `npm ci` does not always finish them:
+	# npm 12 blocks lifecycle scripts unless they are allow-listed, and a
+	# platform with no prebuilt binary needs the compile that script runs.
+	# The failure otherwise surfaces two minutes later as "Could not locate
+	# the bindings file" in the middle of the build, which reads as a Next
+	# problem and is not one.
+	step "checking native modules"
+	if as_owner "node deploy/check-native.js"; then
+		: # both load
+	else
+		warn "a native module did not load after npm ci — rebuilding it"
+		as_owner "npm rebuild better-sqlite3 @node-rs/argon2" ||
+			die "the rebuild failed. Is build-essential + python3 installed?"
+		as_owner "node deploy/check-native.js" ||
+			die "still cannot load them — nothing was changed, the old build is still serving"
+		good "rebuilt"
+	fi
+
+	# ------------------------------------------------ 6. build beside the running one
+	#
+	# Into .next.new, so the server keeps serving the old build for the whole
+	# of it. The swap below is a rename.
+	if ((build)); then
+		step "building"
+		as_owner "rm -rf .next.new"
+		# `next build` rewrites tsconfig.json's `include` to name whatever dist
+		# directory it just used — so building into .next.new leaves the
+		# checkout dirty and the *next* deploy refuses to pull over it. Keep a
+		# byte-for-byte copy and put it back. A copy rather than a shell
+		# variable: command substitution eats trailing newlines, and a file
+		# that differs from HEAD by one missing newline is still dirty.
+		local tsconfig="$APP_DIR/tsconfig.json" tsconfig_copy=''
+		if [[ -f "$tsconfig" ]]; then
+			tsconfig_copy="$(mktemp)"
+			cp -p "$tsconfig" "$tsconfig_copy"
+		fi
+		restore_tsconfig() {
+			[[ -n "$tsconfig_copy" && -f "$tsconfig_copy" ]] || return 0
+			if ! cmp -s "$tsconfig_copy" "$tsconfig"; then
+				cp -p "$tsconfig_copy" "$tsconfig"
+				note "tsconfig.json was rewritten by the build; put back"
+			fi
+			rm -f "$tsconfig_copy"
+		}
+		if ! as_owner "NEXT_DIST_DIR=.next.new NODE_ENV=production npm run build"; then
+			as_owner "rm -rf .next.new"
+			restore_tsconfig
+			die "the build failed — nothing was changed, the old build is still serving"
+		fi
+		restore_tsconfig
+		if [[ ! -f "$APP_DIR/.next.new/BUILD_ID" ]]; then
+			as_owner "rm -rf .next.new"
+			die "the build produced no BUILD_ID — nothing was swapped in"
+		fi
+	else
+		note "--no-build: leaving .next as it is"
+	fi
+
+	# ------------------------------------------------ 7. swap and restart
+	local rolled_back=0
+	if ((build)); then
+		step "swapping the build in"
+		as_owner "rm -rf .next.old"
+		if [[ -d "$APP_DIR/.next" ]]; then
+			as_owner "mv .next .next.old"
+		fi
+		as_owner "mv .next.new .next"
+		good "swapped (previous build kept as .next.old)"
+	fi
+
+	if have_systemd; then
+		step "restarting $SERVICE"
+		systemctl restart "$SERVICE"
+		note "migrations run on boot (src/instrumentation.ts)"
+
+		step "waiting for $HEALTH_URL"
+		if wait_for_health; then
+			good "up: ${after:0:8} is serving on 127.0.0.1:${PORT}"
+		else
+			warn "it is not answering."
+			show_failure_logs
+
+			# Put the old build back. Only the code: a migration that has
+			# already run cannot be undone here, and pretending otherwise is
+			# how a half-rolled-back droplet happens.
+			if ((build)) && [[ -d "$APP_DIR/.next.old" ]]; then
+				step "rolling the build back"
+				as_owner "rm -rf .next && mv .next.old .next"
+				as_owner "git checkout -q '$before'" || true
+				systemctl restart "$SERVICE" || true
+				rolled_back=1
+				if wait_for_health; then
+					good "rolled back to ${before:0:8} and serving again"
+				else
+					warn "the previous build is not answering either"
+				fi
+			fi
+
+			if [[ -n "$migrations" ]]; then
+				warn "this release applied migrations, so the code rollback above"
+				warn "may not be enough. The snapshot from before it is at:"
+				warn "  ${BACKUP_PATH:-<none — --no-backup was given>}"
+				warn "See docs/ops/deploy.md § Rollback."
+			fi
+			if ((rolled_back)); then
+				die "deploy failed — rolled back to ${before:0:8}"
+			fi
+			die "deploy failed"
+		fi
+	else
+		note "no systemd unit named $SERVICE — built, but nothing was restarted"
+	fi
+
+	# ------------------------------------------------ 8. optional seed
+	if ((seed)); then
+		step "seeding reference data"
+		note "this fetches the SRD from api.open5e.com and takes a few minutes"
+		run_with_env "npm run db:seed"
+	fi
+
+	step "done"
+	cmd_status
+}
+
+usage_deploy() {
+	cat <<'USAGE'
+./cli deploy [options]
+
+  --branch, -b <ref>   branch, tag or sha to deploy (default: the current branch)
+  --no-pull            deploy what is already checked out; do not fetch
+  --no-build           skip `next build` (restart and health-check only)
+  --no-backup          skip the database snapshot taken before building
+  --seed               re-fetch the SRD afterwards (slow; rarely needed)
+  --force, -f          continue even though the working tree is dirty
+  --yes, -y            answer every prompt with yes (for a non-interactive shell)
+
+Order: fetch, check out, report migrations, snapshot the database, npm ci,
+build into .next.new, swap it in, restart, wait for the health check. A failed
+health check puts the previous build and commit back.
+USAGE
+}
+
+# ---------------------------------------------------------------- other commands
+
+cmd_status() {
+	step "status"
+	if [[ -d "$APP_DIR/.git" ]]; then
+		local branch
+		branch="$(as_owner 'git rev-parse --abbrev-ref HEAD')"
+		info "commit     $(as_owner "git --no-pager log -1 --format='%h %s'")"
+		info "ref        $branch"
+		local behind
+		behind="$(as_owner "git rev-list --count 'HEAD..origin/$branch' 2>/dev/null" || echo '')"
+		if [[ -n "$behind" && "$behind" != 0 ]]; then
+			warn "$behind commit(s) behind origin/$branch — ./cli deploy"
+		fi
+	fi
+
+	if have_systemd; then
+		local state since
+		state="$(systemctl is-active "$SERVICE" || true)"
+		since="$(systemctl show -p ActiveEnterTimestamp --value "$SERVICE" 2>/dev/null || true)"
+		if [[ "$state" == active ]]; then
+			good "service    active since ${since:-unknown}"
+		else
+			warn "service    $state"
+		fi
+	fi
+
+	if curl -fsS -o /dev/null --max-time 5 "$HEALTH_URL" 2>/dev/null; then
+		good "health     answering on $HEALTH_URL"
+	else
+		warn "health     no answer on $HEALTH_URL"
+	fi
+
+	local db
+	db="$(db_path)"
+	if [[ -f "$db" ]]; then
+		info "database   $db ($(du -h "$db" | cut -f1))"
+	else
+		warn "database   $db is missing"
+	fi
+	local uploads
+	uploads="$(env_value HERO_NEXUS_UPLOADS_DIR)"
+	uploads="${uploads:-$APP_DIR/data/uploads}"
+	if [[ -d "$uploads" ]]; then
+		info "uploads    $uploads ($(du -sh "$uploads" 2>/dev/null | cut -f1))"
+	fi
+
+	info "disk       $(df -h "$(dirname "$db")" | awk 'NR==2 {print $4" free of "$2" ("$5" used)"}')"
+	local envf
+	envf="$(env_file)"
+	info "env        ${envf:-none found}"
+}
+
+cmd_logs() {
+	have_systemd || die "no systemd unit named $SERVICE"
+	local n=100 follow=0
+	while (($#)); do
+		case "$1" in
+		-n)
+			n="${2:?-n needs a number}"
+			shift 2
+			;;
+		-f | --follow) follow=1 && shift ;;
+		*) die "unknown option for logs: $1" ;;
+		esac
+	done
+	if ((follow)); then
+		journalctl -u "$SERVICE" -n "$n" -f -o cat
+	else
+		journalctl -u "$SERVICE" --no-pager -n "$n" -o cat
+	fi
+}
+
+cmd_restart() {
+	have_systemd || die "no systemd unit named $SERVICE"
+	is_root || die "run as root"
+	step "restarting $SERVICE"
+	systemctl restart "$SERVICE"
+	if wait_for_health; then
+		good "up"
+	else
+		show_failure_logs
+		die "it is not answering"
+	fi
+}
+
+cmd_service() {
+	local action="$1"
+	have_systemd || die "no systemd unit named $SERVICE"
+	is_root || die "run as root"
+	systemctl "$action" "$SERVICE"
+	good "$SERVICE $action"
+}
+
+cmd_migrate() {
+	step "running migrations"
+	run_with_env "npm run db:migrate"
+}
+
+cmd_seed() {
+	step "seeding reference data from api.open5e.com"
+	note "the only outbound call this app makes, and it takes a few minutes"
+	run_with_env "npm run db:seed"
+}
+
+cmd_sync() {
+	step "re-syncing reference data"
+	run_with_env "npm run db:sync"
+}
+
+cmd_backup() {
+	step "backing up the database"
+	do_backup
+}
+
+cmd_rollback() {
+	local ref="${1:-}"
+	[[ -n "$ref" ]] || die "which one? ./cli rollback <tag-or-sha>  (./cli releases lists them)"
+	step "rolling back to $ref"
+	warn "there are no down migrations. If the version being rolled away from"
+	warn "added one, the old code may not read the new schema — deploy.md § Rollback."
+	confirm "Continue?" || die "stopped"
+	ASSUME_YES=1 cmd_deploy --branch "$ref" --no-backup
+}
+
+cmd_releases() {
+	require_repo
+	step "recent commits on origin"
+	as_owner "git fetch -q --tags origin" || true
+	as_owner "git --no-pager log --oneline -n 15 origin/HEAD 2>/dev/null || git --no-pager log --oneline -n 15"
+	step "tags"
+	as_owner "git --no-pager tag --sort=-creatordate | head -n 15"
+}
+
+# Everything that ought to be true before anybody plays on this droplet.
+#
+# A developer's clone fails half of these *correctly* — no mail transport, no
+# replication, an env file that is mode 664 because git made it. So the checks
+# that only matter in production are notes there and complaints on a droplet,
+# and a droplet is recognised by having the systemd unit. `--prod` forces the
+# strict reading for checking a server from somewhere odd.
+cmd_doctor() {
+	local problems=0 prod=0
+	if have_systemd; then prod=1; fi
+	while (($#)); do
+		case "$1" in
+		--prod) prod=1 && shift ;;
+		--dev) prod=0 && shift ;;
+		*) die "unknown option for doctor: $1" ;;
+		esac
+	done
+
+	complain() {
+		warn "$*"
+		problems=$((problems + 1))
+	}
+	# A complaint on a droplet; a remark on a laptop.
+	in_prod() {
+		if ((prod)); then complain "$*"; else note "$*"; fi
+	}
+
+	step "checkout"
+	if [[ -d "$APP_DIR/.git" ]]; then
+		good "$APP_DIR is a git checkout"
+	else
+		complain "$APP_DIR is not a git checkout"
+	fi
+	info "owned by $(app_owner)"
+
+	step "node"
+	if command -v node >/dev/null; then
+		local major
+		major="$(node -p 'process.versions.node.split(".")[0]')"
+		if ((major >= 20)); then
+			good "node $(node --version)"
+		else
+			complain "node $(node --version) — package.json wants >= 20"
+		fi
+	else
+		complain "node is not installed"
+	fi
+	if command -v sqlite3 >/dev/null; then
+		good "sqlite3 $(sqlite3 --version | cut -d' ' -f1)"
+	else
+		complain "sqlite3 is not installed — ./cli backup falls back to a plain copy"
+	fi
+
+	step "environment"
+	local envf
+	envf="$(env_file)"
+	if [[ -z "$envf" ]]; then
+		complain "no .env or .env.local in $APP_DIR"
+	else
+		good "reading $envf"
+		local perms
+		perms="$(stat -c '%a' "$envf")"
+		if [[ "$perms" == 600 ]]; then
+			good "$envf is mode 600"
+		else
+			in_prod "$envf is mode $perms — it holds AUTH_SECRET; chmod 600 it"
+		fi
+		# AUTH_SECRET is the one every install needs; the rest have defaults
+		# that are right locally and wrong on a server.
+		if [[ -n "$(env_value AUTH_SECRET)" ]]; then
+			good "AUTH_SECRET is set"
+		else
+			complain "AUTH_SECRET is not set — no session can be signed"
+		fi
+		local key
+		for key in APP_URL HERO_NEXUS_DB_PATH HERO_NEXUS_UPLOADS_DIR; do
+			if [[ -n "$(env_value "$key")" ]]; then
+				good "$key is set"
+			else
+				in_prod "$key is not set"
+			fi
+		done
+		# Mail is load-bearing in production: without it nobody can finish
+		# registering. Locally the outbox catches it at /dev/mail instead.
+		if [[ -n "$(env_value RESEND_API_KEY)" && -n "$(env_value MAIL_FROM)" ]]; then
+			good "mail is configured ($(env_value MAIL_FROM))"
+		else
+			in_prod "RESEND_API_KEY / MAIL_FROM are not both set — no account can verify its address"
+		fi
+		if [[ -n "$(env_value ADMIN_EMAILS)" ]]; then
+			good "ADMIN_EMAILS is set"
+		else
+			note "ADMIN_EMAILS is unset — /admin is unreachable for everyone"
+		fi
+	fi
+
+	step "data"
+	local db uploads
+	db="$(db_path)"
+	uploads="$(env_value HERO_NEXUS_UPLOADS_DIR)"
+	uploads="${uploads:-$APP_DIR/data/uploads}"
+	if [[ -f "$db" ]]; then
+		good "database $db ($(du -h "$db" | cut -f1))"
+	else
+		complain "no database at $db"
+	fi
+	if [[ -d "$uploads" ]]; then
+		good "uploads $uploads"
+	else
+		complain "no uploads directory at $uploads"
+	fi
+	if mountpoint -q "$(dirname "$db")" 2>/dev/null; then
+		good "$(dirname "$db") is a mounted volume"
+	else
+		note "$(dirname "$db") is not a mount — the data lives on the root disk"
+	fi
+	local used
+	used="$(df -P "$(dirname "$db")" | awk 'NR==2 {gsub("%","",$5); print $5}')"
+	if [[ -z "$used" ]]; then
+		note "could not read disk usage for $(dirname "$db")"
+	elif ((used < 80)); then
+		good "disk ${used}% used"
+	else
+		complain "disk ${used}% used — SQLite, uploads and logs share it"
+	fi
+
+	step "service"
+	if have_systemd; then
+		if [[ "$(systemctl is-active "$SERVICE" || true)" == active ]]; then
+			good "$SERVICE is active"
+		else
+			complain "$SERVICE is $(systemctl is-active "$SERVICE" || true)"
+		fi
+		if [[ "$(systemctl is-enabled "$SERVICE" 2>/dev/null || true)" == enabled ]]; then
+			good "$SERVICE starts on boot"
+		else
+			complain "$SERVICE is not enabled — it will not survive a reboot"
+		fi
+	else
+		note "no systemd unit named $SERVICE (fine on a developer's machine)"
+	fi
+	if curl -fsS -o /dev/null --max-time 5 "$HEALTH_URL" 2>/dev/null; then
+		good "answering on $HEALTH_URL"
+	else
+		complain "nothing answering on $HEALTH_URL"
+	fi
+
+	step "backups"
+	local backups
+	backups="$(dirname "$db")/backups"
+	if [[ -d "$backups" ]]; then
+		good "$(find "$backups" -name 'hero-nexus-*.db' | wc -l) snapshot(s) in $backups"
+	else
+		note "no snapshots yet — ./cli deploy takes one, or ./cli backup now"
+	fi
+	if systemctl is-active -q litestream 2>/dev/null; then
+		good "litestream is replicating"
+	else
+		in_prod "litestream is not running — docs/ops/restore.md § Setup"
+	fi
+
+	echo
+	if ((problems == 0)); then
+		good "nothing to report"
+	else
+		warn "$problems thing(s) to look at"
+		((prod)) || note "(reading as a developer checkout — ./cli doctor --prod is the strict one)"
+		return 1
+	fi
+}
+
+usage() {
+	cat <<'USAGE'
+Hero Nexus operator CLI.
+
+  ./cli deploy [--branch main]   fetch, build beside the running app, swap, restart
+  ./cli status                   commit, service, health, database, disk
+  ./cli doctor [--prod]          everything that ought to be true before anybody plays
+  ./cli logs [-n 100] [-f]       the service journal
+  ./cli restart                  restart and wait for the health check
+  ./cli start | stop             the service, without a health check
+  ./cli backup                   snapshot the database now
+  ./cli migrate                  run pending migrations by hand
+  ./cli seed | sync              reference data from api.open5e.com
+  ./cli releases                 recent commits on origin, and tags
+  ./cli rollback <tag-or-sha>    deploy an older ref (read deploy.md § Rollback first)
+  ./cli help                     this
+
+On the droplet, from the DigitalOcean console:
+
+  cd /opt/hero-nexus && ./cli deploy --branch main
+
+Environment: APP_DIR, HERO_NEXUS_SERVICE, HERO_NEXUS_PORT,
+HERO_NEXUS_HEALTH_TIMEOUT, HERO_NEXUS_KEEP_BACKUPS.
+USAGE
+}
+
+# ---------------------------------------------------------------- dispatch
+
+main() {
+	local cmd="${1:-help}"
+	shift || true
+	case "$cmd" in
+	deploy) cmd_deploy "$@" ;;
+	status) cmd_status ;;
+	doctor) cmd_doctor "$@" ;;
+	logs) cmd_logs "$@" ;;
+	restart) cmd_restart ;;
+	start | stop) cmd_service "$cmd" ;;
+	backup) cmd_backup ;;
+	migrate) cmd_migrate ;;
+	seed) cmd_seed ;;
+	sync) cmd_sync ;;
+	releases) cmd_releases ;;
+	rollback) cmd_rollback "$@" ;;
+	help | -h | --help) usage ;;
+	*)
+		echo "unknown command: $cmd" >&2
+		echo >&2
+		usage >&2
+		exit 1
+		;;
+	esac
+}
+
+main "$@"

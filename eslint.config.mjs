@@ -45,6 +45,14 @@ const eslintConfig = [
     ignores: [
       'node_modules/**',
       '.next/**',
+      // `./cli deploy` builds into .next.new and keeps .next.old for a
+      // one-rename rollback. Both are build output; linting them takes
+      // minutes and reports nothing.
+      '.next.*/**',
+      // Ops scripts, run by node on the droplet rather than bundled: plain
+      // CommonJS, and the TypeScript ruleset has nothing useful to say
+      // about them.
+      'deploy/**',
       'out/**',
       'build/**',
       'next-env.d.ts',

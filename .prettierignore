@@ -6,6 +6,8 @@ data/
 
 # Build outputs
 .next/
+# `./cli deploy` builds into .next.new and keeps the old build as .next.old
+.next.*/
 out/
 build/
 dist/

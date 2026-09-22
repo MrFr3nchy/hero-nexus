@@ -15,10 +15,15 @@ hero-nexus.example.com {
 	# X-Forwarded-For in the app safe (see src/server/http.ts).
 	reverse_proxy 127.0.0.1:3000
 
-	# Cap upload bodies. Handout uploads are validated to 10 MB in the app;
-	# stop anything larger at the edge.
+	# Cap upload bodies at the edge, above the largest the app accepts.
+	#
+	# The app's own ceiling is a sound track at 20 MB (`MAX_AUDIO_BYTES`);
+	# images are 8 MB and portraits 4. This was 12 MB, which silently 413'd
+	# every track between 12 and 20 before the app could say anything about
+	# it. 24 MB leaves room for multipart overhead and nothing more: the app
+	# is still the thing that refuses an upload, with a sentence.
 	request_body {
-		max_size 12MB
+		max_size 24MB
 	}
 
 	log {
