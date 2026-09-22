@@ -57,6 +57,8 @@ apt-get install -y -q git curl ca-certificates gnupg build-essential python3 sql
 
 # `next build` needs ~2 GB. On a 1 GB droplet it is OOM-killed with no
 # message but "Killed". A swapfile is cheaper than the next droplet size up.
+# Swap alone is not enough: Node caps its heap at half of *physical* RAM, so
+# the build below also raises that ceiling or it never reaches the swap.
 if [[ -z "$(swapon --show --noheadings)" ]]; then
 	log "no swap — creating a 2 GB swapfile"
 	fallocate -l 2G /swapfile
@@ -144,7 +146,8 @@ fi
 # ---------------------------------------------------------------- 4. build + database
 log "npm ci + build"
 sudo -u hero -H npm --prefix "$APP_DIR" ci
-sudo -u hero -H bash -c "cd '$APP_DIR' && npm run build"
+# Same heap ceiling as `./cli deploy` — see BUILD_HEAP_MB there.
+sudo -u hero -H bash -c "cd '$APP_DIR' && NODE_OPTIONS=--max-old-space-size=1536 npm run build"
 
 log "migrate + seed"
 # The seed pulls the SRD from api.open5e.com — the only outbound call the app

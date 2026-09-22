@@ -58,7 +58,12 @@ overwrites it, and a client that could reach :3000 directly could spoof it.
   including you — can log in. Do this before the bootstrap, not after.
 - **Droplet size**: `next build` needs about 2 GB of memory. The bootstrap
   adds a 2 GB swapfile if there is no swap, which gets a 1 GB droplet through
-  a build, slowly. 2 GB is the comfortable minimum.
+  a build, slowly. 2 GB is the comfortable minimum. The swap is only usable
+  because every build on the droplet runs with
+  `NODE_OPTIONS=--max-old-space-size=1536`: Node otherwise caps its heap at
+  half of physical RAM (~480 MB on 1 GB) regardless of swap, and the webpack
+  compile needs close to 1 GB, so it dies with "JavaScript heap out of
+  memory". `./cli deploy` reads the ceiling from `HERO_NEXUS_BUILD_HEAP_MB`.
 - **A volume** attached and mounted at `/mnt/hero-nexus-data`, so the database
   and uploads outlive the droplet. The bootstrap warns and continues on the
   root disk if it is missing.

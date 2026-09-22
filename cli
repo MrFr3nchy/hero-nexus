@@ -34,6 +34,14 @@ HEALTH_TIMEOUT="${HERO_NEXUS_HEALTH_TIMEOUT:-60}"
 # How many database snapshots to keep in the data directory.
 KEEP_BACKUPS="${HERO_NEXUS_KEEP_BACKUPS:-10}"
 
+# The V8 heap ceiling for `next build`, in MB. Node sizes its heap from
+# physical RAM alone — half of it, so ~480 MB on a 1 GB droplet — and never
+# counts swap. The webpack compile needs close to 1 GB, so without this it
+# dies with "JavaScript heap out of memory" however much swap there is. The
+# ceiling is what lets the build spill into the swapfile instead; it is a
+# limit, not an allocation, so a bigger box pays nothing for it.
+BUILD_HEAP_MB="${HERO_NEXUS_BUILD_HEAP_MB:-1536}"
+
 # ---------------------------------------------------------------- output
 
 if [[ -t 1 ]]; then
@@ -279,6 +287,25 @@ do_backup() {
 
 # ---------------------------------------------------------------- deploy
 
+# Say, before a build of several minutes, whether it can fit. What it really
+# touches is ~1 GB of heap plus native memory, beside a server still serving
+# the old build; under ~2.5 GB of RAM and swap together the kernel kills it
+# partway, with nothing but "Killed". A warning, not a refusal: the numbers
+# are an estimate and the build is the real test.
+check_build_memory() {
+	local ram swap
+	ram="$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || true)"
+	swap="$(awk '/^SwapTotal:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || true)"
+	[[ -n "$ram" && -n "$swap" ]] || return 0
+	note "${ram} MB RAM + ${swap} MB swap, build heap up to ${BUILD_HEAP_MB} MB"
+	if ((ram + swap < 2560)); then
+		warn "under 2.5 GB of RAM + swap — the build will probably be killed partway."
+		warn "Add a swapfile first (as root):"
+		warn "  fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
+		warn "  echo '/swapfile none swap sw 0 0' >>/etc/fstab"
+	fi
+}
+
 cmd_deploy() {
 	local ref='' pull=1 backup=1 seed=0 force=0 build=1
 	while (($#)); do
@@ -444,9 +471,12 @@ cmd_deploy() {
 		if [[ -n "$tsconfig_copy" ]]; then
 			sed -i 's#\.next/types/#.next.new/types/#g' "$tsconfig"
 		fi
-		if ! as_owner "NEXT_DIST_DIR=.next.new NODE_ENV=production npm run build"; then
+		check_build_memory
+		if ! as_owner "NODE_OPTIONS=--max-old-space-size=$BUILD_HEAP_MB NEXT_DIST_DIR=.next.new NODE_ENV=production npm run build"; then
 			as_owner "rm -rf .next.new"
 			restore_tsconfig
+			note "\"heap out of memory\": raise HERO_NEXUS_BUILD_HEAP_MB (now $BUILD_HEAP_MB)"
+			note "\"Killed\" with no message: the box ran out of RAM + swap — see \`free -m\`"
 			die "the build failed — nothing was changed, the old build is still serving"
 		fi
 		restore_tsconfig
@@ -889,7 +919,7 @@ On the droplet, from the DigitalOcean console:
   cd /opt/hero-nexus && ./cli deploy --branch main
 
 Environment: APP_DIR, HERO_NEXUS_SERVICE, HERO_NEXUS_PORT,
-HERO_NEXUS_HEALTH_TIMEOUT, HERO_NEXUS_KEEP_BACKUPS.
+HERO_NEXUS_HEALTH_TIMEOUT, HERO_NEXUS_KEEP_BACKUPS, HERO_NEXUS_BUILD_HEAP_MB.
 USAGE
 }
 
