@@ -151,13 +151,34 @@ ensure_owned() {
 	local owner group stray
 	owner="$(app_owner)"
 	group="$(stat -c '%G' "$APP_DIR")"
+
+	# No `| head` on this. `head` closing the pipe early kills `find` with
+	# SIGPIPE; `set -o pipefail` then makes the assignment fail and `set -e`
+	# ends the script with no output at all. On a checkout small enough for
+	# find to finish first it looks fine, and on a real one — where `.git`
+	# alone is thousands of objects — the deploy printed its header and
+	# vanished. The trimming happens in bash, below, where nothing can be
+	# killed by a closed pipe.
 	stray="$(find "$APP_DIR" \
 		\( -name node_modules -o -name '.next' -o -name '.next.*' \) -prune -o \
-		! -user "$owner" -print 2>/dev/null | head -20)"
+		! -user "$owner" -print 2>/dev/null || true)"
 	[[ -n "$stray" ]] || return 0
 
-	warn "files in the checkout are not owned by '$owner' — git will fail as that user:"
-	echo "$stray" | sed -e "s#^${APP_DIR}\$#     . (the checkout itself)#" -e "s#^${APP_DIR}/#     #" >&2
+	local -a strays=()
+	mapfile -t strays <<<"$stray"
+	warn "${#strays[@]} file(s) in the checkout are not owned by '$owner' — git fails as that user:"
+	local i limit=${#strays[@]}
+	((limit > 12)) && limit=12
+	for ((i = 0; i < limit; i++)); do
+		local path="${strays[i]}"
+		if [[ "$path" == "$APP_DIR" ]]; then
+			warn "  . (the checkout itself)"
+		else
+			warn "  ${path#"$APP_DIR"/}"
+		fi
+	done
+	((${#strays[@]} > limit)) && warn "  …and $((${#strays[@]} - limit)) more" || :
+
 	if ! is_root; then
 		die "run as root to have this repaired, or: chown -R $owner:$group $APP_DIR"
 	fi
@@ -242,8 +263,15 @@ do_backup() {
 	local count
 	count="$(find "$dir" -maxdepth 1 -name 'hero-nexus-*.db' | wc -l)"
 	if ((count > KEEP_BACKUPS)); then
-		find "$dir" -maxdepth 1 -name 'hero-nexus-*.db' | sort |
-			head -n "$((count - KEEP_BACKUPS))" | xargs -r rm -f
+		# Sorted into an array and sliced in bash, for the SIGPIPE reason
+		# `ensure_owned` explains: `sort | head -n` leaves sort writing into
+		# a closed pipe, and pipefail turns that into a failed deploy.
+		local -a snaps=()
+		mapfile -t snaps < <(find "$dir" -maxdepth 1 -name 'hero-nexus-*.db' | sort)
+		local i
+		for ((i = 0; i < count - KEEP_BACKUPS; i++)); do
+			rm -f "${snaps[i]}"
+		done
 		note "keeping the newest $KEEP_BACKUPS"
 	fi
 	BACKUP_PATH="$out"
@@ -691,9 +719,11 @@ cmd_doctor() {
 	fi
 	info "owned by $(app_owner)"
 	local stray_owner
+	# `-quit` rather than `| head -1`: a closed pipe kills find with SIGPIPE,
+	# and under `set -o pipefail` that takes the whole script with it.
 	stray_owner="$(find "$APP_DIR" \
 		\( -name node_modules -o -name '.next' -o -name '.next.*' \) -prune -o \
-		! -user "$(app_owner)" -print 2>/dev/null | head -1)"
+		! -user "$(app_owner)" -print -quit 2>/dev/null || true)"
 	if [[ -z "$stray_owner" ]]; then
 		good "every file belongs to $(app_owner)"
 	else
