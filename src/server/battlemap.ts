@@ -725,14 +725,6 @@ export async function setBattleMapVisibility(
 }
 
 /**
- * Put a board on the table, or take it off. At most one is active, cleared
- * first — the same shape `spotlightMap` and `createEncounter` use.
- *
- * Activating also binds the board to the campaign's active encounter, if one
- * is running and the board has none: "the fight on the table" and "the board
- * on the table" are usually the same evening.
- */
-/**
  * Bind a board to the fight that is running now, and clear the last one off
  * it.
  *
@@ -824,9 +816,23 @@ export async function setBattleMapActive(
         eq(initiativeEncounters.isActive, true)
       ),
     });
+    /*
+     * In play means the party can see it.
+     *
+     * These were two switches — `isActive` and `visibility` — and the state
+     * they could reach between them that nobody ever wanted was "the board
+     * the table is playing on, which the table cannot see". A first-timer
+     * got there by pressing one button and not the other. Putting a board in
+     * play shows it; hiding it again is the odd case and stays its own,
+     * quieter switch.
+     */
     await db
       .update(battleMaps)
-      .set({ isActive: true, updatedAt: new Date().toISOString() })
+      .set({
+        isActive: true,
+        visibility: 'shared',
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(battleMaps.id, mapId));
     if (fight) await bindBoardToFight(mapId, fight.id);
     // A board with a track starts it when lit (12); the fight ending stops
@@ -1489,7 +1495,19 @@ export async function dealEncounterIn(mapId: string): Promise<number> {
       level: doc.id,
       footprint,
       visionFeet: visions.get(e.id) ?? null,
-      visibility: e.side === 'foe' ? 'dm' : 'shared',
+      /*
+       * Dealt shared, and hidden by the fog rather than by a flag.
+       *
+       * Foes used to be dealt `dm`-only, which meant six foes were six
+       * presses of *Show them* before the party could see any of them —
+       * and the fog was already hiding them, because a player is served no
+       * token whose footprint is not on a revealed tile. Two mechanisms
+       * hiding one thing meant the DM had to remember to undo one of them
+       * mid-fight. `dm` is still there for the exception the DM marks by
+       * hand: the assassin on the balcony, in plain sight and not to be
+       * seen.
+       */
+      visibility: 'shared',
     });
     dealt += 1;
   }
@@ -2886,6 +2904,59 @@ async function nudgeNearHidden(
       'staff'
     );
   }
+}
+
+/**
+ * Show, or hide, every token on a board at once — optionally only one side
+ * of the fight.
+ *
+ * The one-at-a-time control is still there and is what a single hidden
+ * assassin wants. This is for the other case: a fight of six whose ambush
+ * is over, where six presses said nothing six times.
+ */
+export async function setAllTokenVisibility(
+  mapId: string,
+  visibility: 'dm' | 'shared',
+  side: 'foe' | 'party' | 'all' = 'foe'
+): Promise<number> {
+  const { map } = await staffForMap(mapId);
+
+  let ids: string[] | null = null;
+  if (side !== 'all' && map.encounterId) {
+    const entries = await db
+      .select({ id: initiativeEntries.id })
+      .from(initiativeEntries)
+      .where(
+        and(
+          eq(initiativeEntries.encounterId, map.encounterId),
+          eq(initiativeEntries.side, side)
+        )
+      );
+    const wanted = new Set(entries.map(e => e.id));
+    const tokens = await db
+      .select({ id: battleMapTokens.id, entryId: battleMapTokens.entryId })
+      .from(battleMapTokens)
+      .where(eq(battleMapTokens.mapId, mapId));
+    ids = tokens
+      .filter(t => t.entryId !== null && wanted.has(t.entryId))
+      .map(t => t.id);
+    if (ids.length === 0) return 0;
+  }
+
+  await db
+    .update(battleMapTokens)
+    .set({ visibility })
+    .where(
+      ids
+        ? and(
+            eq(battleMapTokens.mapId, mapId),
+            inArray(battleMapTokens.id, ids)
+          )
+        : eq(battleMapTokens.mapId, mapId)
+    );
+
+  bumpVersion(map.campaignId);
+  return ids ? ids.length : 1;
 }
 
 export async function removeToken(tokenId: string): Promise<void> {

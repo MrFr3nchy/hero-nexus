@@ -262,7 +262,7 @@ export function RollPanel({
 
   return (
     <SectionCard
-      title="The dice"
+      title="Dice"
       description="Rolled on the server, so the log is what happened."
       actions={
         isStaff &&

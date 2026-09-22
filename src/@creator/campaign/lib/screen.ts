@@ -17,8 +17,7 @@ export const SCREEN_PANEL_KEYS = [
   'initiative',
   'mine',
   'vitals',
-  'dice',
-  'checks',
+  'rolls',
   'attacks',
   'spells',
   'statblock',
@@ -35,9 +34,6 @@ export const SCREEN_PANEL_KEYS = [
   'timers',
   'ledger',
   'canon',
-  'chronicle',
-  'downtime',
-  'encounters',
 ] as const;
 
 export type ScreenPanelKey = (typeof SCREEN_PANEL_KEYS)[number];
@@ -56,14 +52,14 @@ export interface ScreenPanelMeta {
 export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
   sitting: {
     key: 'sitting',
-    label: 'The table',
+    label: 'Session',
     glyph: 'person',
     description: 'Whether the evening has been called, and who is looking.',
     players: true,
   },
   board: {
     key: 'board',
-    label: 'The sand table',
+    label: 'Battle board',
     glyph: 'map',
     description:
       'The battlefield: a room painted on a grid, with the fight on it.',
@@ -89,26 +85,21 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
   },
   vitals: {
     key: 'vitals',
-    label: 'The party',
+    label: 'Party',
     glyph: 'person',
     description: 'Every character’s hit points, slots and passive scores.',
     players: true,
   },
-  dice: {
-    key: 'dice',
-    label: 'Dice',
+  rolls: {
+    key: 'rolls',
+    label: 'Rolls',
     glyph: 'die',
     description:
-      'The shared roll log, and rolling in the open or behind the screen.',
-    players: true,
-  },
-  checks: {
-    key: 'checks',
-    label: 'The asking',
-    glyph: 'target',
-    description: 'Rolls the DM has put to the table, and what came back.',
-    // A player needs to see what they were asked at least as much as the DM
-    // needs to see who has answered.
+      'What the DM has asked for, and every die the table has thrown.',
+    // The asking and the dice were two boxes in two columns, and a DM asking
+    // for a Perception check watched the answers land somewhere other than
+    // where they roll for the sexton's Deception. One box: the ask at the
+    // top, the log under it, everybody's dice interleaved.
     players: true,
   },
   attacks: {
@@ -143,14 +134,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
   },
   spotlight: {
     key: 'spotlight',
-    label: 'On the table',
+    label: 'Shared map',
     glyph: 'map',
     description: 'The map the DM has put in front of everybody.',
     players: true,
   },
   feed: {
     key: 'feed',
-    label: 'The evening',
+    label: 'Table log',
     // Not the candle: `reveals` already carries that, and two boxes wearing
     // one mark is the failure the glyph set exists to prevent.
     glyph: 'tankard',
@@ -159,7 +150,7 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
   },
   reveals: {
     key: 'reveals',
-    label: 'What they know',
+    label: 'Revealed',
     glyph: 'candle',
     description: 'Everything handed over, in the order it was told.',
     players: true,
@@ -173,7 +164,7 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
   },
   quests: {
     key: 'quests',
-    label: 'Threads',
+    label: 'Quests',
     glyph: 'scroll',
     description: 'What the party is pulling on, and what is still hidden.',
     players: true,
@@ -194,7 +185,7 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
   },
   shop: {
     key: 'shop',
-    label: 'The shop',
+    label: 'Shop',
     glyph: 'coins',
     description:
       'What the merchant has on the shelf, what it costs, and what they will pay.',
@@ -202,7 +193,7 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
   },
   rules: {
     key: 'rules',
-    label: 'Rules at hand',
+    label: 'Rules',
     glyph: 'gavel',
     description:
       'What this table plays by, its house rules, and the book to search.',
@@ -210,14 +201,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
   },
   timers: {
     key: 'timers',
-    label: 'The hourglass',
+    label: 'Timers',
     glyph: 'hourglass',
     description: 'What is running out, and how long is left of it.',
     players: true,
   },
   ledger: {
     key: 'ledger',
-    label: 'The haul',
+    label: 'Loot',
     glyph: 'coins',
     description: 'Loot, who is carrying it, and the common purse.',
     players: true,
@@ -229,100 +220,66 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     description: 'The people, places and things this world is made of.',
     players: true,
   },
-  chronicle: {
-    key: 'chronicle',
-    label: 'Sittings',
-    glyph: 'notebook',
-    description: 'Sessions, prep, recaps and who was there.',
-    players: true,
-  },
-  downtime: {
-    key: 'downtime',
-    label: 'Downtime',
-    glyph: 'hourglass',
-    description: 'What the party is doing between sittings.',
-    players: true,
-  },
-  encounters: {
-    key: 'encounters',
-    label: 'Fights planned',
-    glyph: 'crossed-swords',
-    description: 'Ambushes built ahead of time, ready to deal out.',
-    // Prep, not play: the ambush the party has not walked into yet.
-    players: false,
-  },
 };
 
 /**
  * How many columns of boxes the screen is built from.
  *
- * Two is a phone-sized desk, four is a real one. More than four and a box is
- * too narrow to read a stat block in, which is the thing this page exists to
- * stop you doing in another window.
+ * Two is a phone-sized screen, four is a real one. More than four and a box
+ * is too narrow to read a stat block in, which is the thing this page exists
+ * to stop you doing in another window.
  */
 export const SCREEN_COLUMN_COUNTS = [2, 3, 4] as const;
 export type ScreenColumnCount = (typeof SCREEN_COLUMN_COUNTS)[number];
 
 /**
- * The screen: a fixed number of columns, each holding an ordered stack of
- * boxes.
+ * A screen state built from columns: a fixed number, each holding an ordered
+ * stack of boxes.
  *
- * Columns rather than the old `{ main, rail }` because a DM screen is not a
- * page with a sidebar — it is a row of panels of equal standing, creased
- * between each pair, and the thing that made the first version tiring was that
- * everything below the fold of a long left column needed scrolling to reach.
+ * Columns rather than `{ main, rail }` because a session screen is not a page
+ * with a sidebar — it is a row of panels of equal standing, creased between
+ * each pair.
  */
 export interface ScreenLayout {
   columns: ScreenPanelKey[][];
 }
 
 /**
- * What a screen looks like before anyone has arranged one.
+ * What the session screen looks like before anyone has arranged one.
  *
- * A DM opens on the fight and their own prep; a player on their party and what
- * they have been told. Neither default is empty, because an empty screen with
- * a "choose some panels" prompt is a worse first impression than a sensible
- * one somebody then edits.
- *
- * Two boxes per column, not three: three thirds of a laptop screen is a box
- * eight lines tall, and a box you have to scroll is the thing this replaced.
- *
- * Both defaults now carry `checks` and `feed`, which is the whole reason the
- * room works out of the box: `checks` is where a player answers the DM without
- * hunting for it, and `feed` is where anybody finding the corner too busy goes
- * to turn it down. A player also opens on their own hero rather than on the
- * party's hit points — they have the party in the corner now, and what they
- * did not have was their own spell slots.
- *
- * A player's table opens on `whispers` where it used to open on the
- * spotlight: the table is where "I pocket the key" gets said, and a lit map
- * announces itself and can be added back. The DM's default is unchanged —
- * every whisper reaches them in the corner and the feed regardless.
+ * A DM opens on the order and their own prep; a player on their own hero and
+ * what they have been asked. Neither default is empty, because an empty
+ * screen with a "choose some panels" prompt is a worse first impression than
+ * a sensible one somebody then edits.
  */
 export function defaultLayout(isStaff: boolean): ScreenLayout {
   return isStaff
     ? {
         columns: [
           ['initiative', 'vitals'],
-          ['notebook', 'checks'],
-          ['dice', 'feed'],
+          ['notebook', 'rolls'],
+          ['rolls', 'feed'],
         ],
       }
     : {
         columns: [
           ['mine', 'initiative'],
-          ['checks', 'whispers'],
+          ['rolls', 'whispers'],
           ['handouts', 'feed'],
         ],
       };
 }
 
-/* --- the three tables ---------------------------------------------------- */
+/* --- the two states of the session screen -------------------------------- */
 
 /**
- * Which of the three tables a campaign is at. **Derived, never stored.**
- * A sitting and an active fight
- * already say which; a column would only drift from them.
+ * Which of the three tables a campaign is at. **Derived, never stored.** A
+ * session and an active fight already say which; a column would only drift
+ * from them.
+ *
+ * `desk` means nobody is sitting. It is a fact about the campaign, not a
+ * screen state: managing a campaign happens on the campaign page, and the
+ * session screen at the desk shows the door in rather than a second record.
  */
 export type TableKind = 'desk' | 'table' | 'battle';
 
@@ -332,137 +289,136 @@ export function isTableKind(value: unknown): value is TableKind {
   return (TABLE_KINDS as readonly unknown[]).includes(value);
 }
 
-/** How each table reads, in one word, and the glyph the ribbon wears. */
+/**
+ * The two states the session screen actually draws. The desk is not one:
+ * there is nothing to run.
+ */
+export type ScreenState = 'table' | 'battle';
+export const SCREEN_STATES: readonly ScreenState[] = ['table', 'battle'];
+export function isScreenState(value: unknown): value is ScreenState {
+  return (SCREEN_STATES as readonly unknown[]).includes(value);
+}
+
+/** How each state reads, in one word, and the glyph the segment wears. */
 export const TABLE_META: Record<
   TableKind,
   { label: string; glyph: GlyphName; line: string }
 > = {
   desk: {
-    label: 'The desk',
+    label: 'Not sitting',
     glyph: 'quill',
-    line: 'Between sittings. Notes, canon, the chronicle.',
+    line: 'Nobody is at the table. Prep happens on the campaign page.',
   },
   table: {
-    label: 'The table',
+    label: 'At the table',
     glyph: 'tankard',
-    line: 'Sitting. Talk, search, trade, roll.',
+    line: 'A session is running. Talk, search, trade, roll.',
   },
   battle: {
-    label: 'The sand table',
+    label: 'In a fight',
     glyph: 'sword',
-    line: 'A fight is running. The board in front.',
+    line: 'A fight is running. The battle board in front.',
   },
 };
 
 /**
- * The battle arrangement is a different shape from the other two: not
- * columns of equal standing but one main region — the board — and one shelf
- * beside it holding the panels the viewer chose, collapsible to a strip.
+ * The fight is a different shape from the table: not columns of equal
+ * standing but one board in the middle with panels around it.
+ *
+ * Three regions rather than one shelf, because one column beside the board
+ * was never enough for a DM — the order, the stat block, the dice and the
+ * party do not fit in a stack you have to scroll mid-round. Left and right
+ * flank the board; the rail runs under it, for the short wide panels (the
+ * order as a strip, the timers, the dice).
  */
 export interface BattleLayout {
-  shelf: ScreenPanelKey[];
-  shelfOpen: boolean;
+  left: ScreenPanelKey[];
+  right: ScreenPanelKey[];
+  /** Under the board, full width. Short panels only, by convention. */
+  rail: ScreenPanelKey[];
+  /**
+   * Whether the flanks are drawn at all. Folded away, the board takes the
+   * window and the panels become a strip of marks.
+   */
+  open: boolean;
   /**
    * Panels folded to their title bar. Remembered with the layout: a fold
    * was component state, and a DM who folded the whispers away lost the
-   * fold on every reload, which is how a shelf starts to feel cluttered.
+   * fold on every reload, which is how a screen starts to feel cluttered.
    */
   folded: ScreenPanelKey[];
-  /**
-   * One shelf on the right, or one each side of the board on a wide screen
-   * so the board keeps its square rather than a letterbox. With `both`, the
-   * odd panels take the left.
-   */
-  shelfSide: 'right' | 'both';
 }
-
-export const SHELF_SIDES: readonly BattleLayout['shelfSide'][] = [
-  'right',
-  'both',
-];
 
 /** Everything one person has arranged at one campaign. */
 export interface ScreenLayouts {
-  desk: ScreenLayout;
+  /** A session with no fight running. */
   table: ScreenLayout;
+  /** A fight, on a battle board. */
   battle: BattleLayout;
   /**
-   * The sand table when the table's board is a real one (`rules.board` is
-   * `'in-person'`): columns like the desk and the table, because there is no
-   * board to lead with, and the order leads instead. A fourth arrangement
-   * rather than a reuse of `table`, so a DM's in-session and in-fight screens
-   * can differ — which is the point of having three tables.
+   * A fight at a table with a real map (`rules.board` is `'in-person'`):
+   * columns, because there is no board to lead with, and the order leads
+   * instead.
    */
   battleInPerson: ScreenLayout;
   /**
-   * Pin the screen to one table regardless of what the campaign is at: a
+   * Hold the screen in one state regardless of what the campaign is at: a
    * player who wants the board up between fights, a DM checking a note
-   * mid-sitting. A preference, not a fact about the campaign — which is why it
-   * lives here and not on `campaigns`.
+   * mid-session. A preference, not a fact about the campaign — which is why
+   * it lives here and not on `campaigns`.
    */
-  pin: TableKind | null;
+  pin: ScreenState | null;
 }
 
 /**
- * The desk is the app as it stood before any of this: prep and record. Its
- * screen leads with the notebook and the chronicle for a DM, and with what
- * the party knows for a player.
+ * What sits around the board before anybody has arranged it.
+ *
+ * A DM gets the order and the party on the left, the selected foe and the
+ * dice on the right, and the timers under the board. A player gets their own
+ * hero and the order on the left, their weapons and spells on the right.
+ * Nothing here is a stack you scroll before the first round.
  */
-export function defaultDeskLayout(isStaff: boolean): ScreenLayout {
+export function defaultBattleLayout(isStaff: boolean): BattleLayout {
   return isStaff
     ? {
-        columns: [
-          ['notebook', 'quests'],
-          ['chronicle', 'canon'],
-          ['downtime', 'ledger'],
-        ],
+        left: ['initiative', 'vitals'],
+        right: ['statblock', 'rolls'],
+        rail: ['timers'],
+        open: true,
+        folded: [],
       }
     : {
-        columns: [
-          ['reveals', 'quests'],
-          ['chronicle', 'canon'],
-          ['ledger', 'downtime'],
-        ],
+        left: ['initiative', 'mine'],
+        right: ['attacks', 'rolls'],
+        rail: ['rolls'],
+        open: true,
+        folded: [],
       };
 }
 
-/**
- * What sits beside the board before anybody has arranged it.
- *
- * Three panels, not six. A DM gets the order, the foe in hand and the dice;
- * a player their own numbers, their weapons and the dice. Six was a shelf
- * you scrolled before the first round, and the strip's badges — an ask
- * waiting, a whisper unread — are what pull people into the rest.
- */
-export function defaultBattleLayout(isStaff: boolean): BattleLayout {
-  return {
-    shelf: isStaff
-      ? ['initiative', 'statblock', 'dice']
-      : ['mine', 'attacks', 'dice'],
-    shelfOpen: true,
-    folded: [],
-    shelfSide: 'right',
-  };
+/** Every panel on a battle layout, in reading order. */
+export function panelsAround(layout: BattleLayout): ScreenPanelKey[] {
+  return [...layout.left, ...layout.right, ...layout.rail];
 }
 
 /**
  * The fight at a table with a real map: the order and the party's numbers
- * lead, with the hourglass, the asking and what the party knows beside them.
- * Explicitly not the board — nobody at this table is looking at one.
+ * lead, with the timers, the checks and what the party has been shown beside
+ * them. Explicitly not the board — nobody at this table is looking at one.
  */
 export function defaultInPersonBattleLayout(isStaff: boolean): ScreenLayout {
   return isStaff
     ? {
         columns: [
           ['initiative', 'vitals'],
-          ['statblock', 'checks'],
+          ['statblock', 'rolls'],
           ['timers', 'reveals'],
         ],
       }
     : {
         columns: [
           ['initiative', 'mine'],
-          ['attacks', 'checks'],
+          ['attacks', 'rolls'],
           ['timers', 'reveals'],
         ],
       };
@@ -470,7 +426,6 @@ export function defaultInPersonBattleLayout(isStaff: boolean): ScreenLayout {
 
 export function defaultLayouts(isStaff: boolean): ScreenLayouts {
   return {
-    desk: defaultDeskLayout(isStaff),
     table: defaultLayout(isStaff),
     battle: defaultBattleLayout(isStaff),
     battleInPerson: defaultInPersonBattleLayout(isStaff),
@@ -486,9 +441,8 @@ export function defaultLayouts(isStaff: boolean): ScreenLayouts {
  * (asserted, not assumed — see `scripts/`). A DM mid-session wants a choice,
  * not a canvas; arranging by hand is the escape hatch behind it.
  *
- * Each preset sets all four arrangements. The pin is left alone: it is the
- * viewer's, and a preset is about what the boxes hold, not which table the
- * screen is held at.
+ * The pin is left alone: it is the viewer's, and a preset is about what the
+ * boxes hold, not which state the screen is held at.
  */
 export interface ScreenPreset {
   key: string;
@@ -499,132 +453,108 @@ export interface ScreenPreset {
 }
 
 const withoutPin = (layouts: ScreenLayouts): Omit<ScreenLayouts, 'pin'> => {
-  const { desk, table, battle, battleInPerson } = layouts;
-  return { desk, table, battle, battleInPerson };
+  const { table, battle, battleInPerson } = layouts;
+  return { table, battle, battleInPerson };
 };
 
 export const SCREEN_PRESETS: readonly ScreenPreset[] = [
   {
     key: 'default',
     label: 'The house screen',
-    line: 'Where every screen starts. Prep at the desk, the room at the table, the board in a fight.',
+    line: 'Where every screen starts. The room at the table, the board in a fight.',
     layouts: isStaff => withoutPin(defaultLayouts(isStaff)),
   },
   {
     key: 'combat',
     label: 'Combat forward',
-    line: 'The order, the foe and the numbers up front at every table.',
+    line: 'The order, the foe and the numbers up front, in and out of a fight.',
     layouts: isStaff => ({
-      desk: isStaff
-        ? {
-            columns: [
-              ['encounters', 'notebook'],
-              ['quests', 'chronicle'],
-              ['canon', 'ledger'],
-            ],
-          }
-        : {
-            columns: [
-              ['mine', 'quests'],
-              ['reveals', 'chronicle'],
-              ['ledger', 'canon'],
-            ],
-          },
       table: isStaff
         ? {
             columns: [
               ['initiative', 'vitals'],
-              ['statblock', 'checks'],
-              ['dice', 'whispers'],
+              ['statblock', 'rolls'],
+              ['rolls', 'whispers'],
             ],
           }
         : {
-            columns: [
-              ['initiative', 'mine'],
-              ['attacks', 'spells'],
-              ['dice', 'checks'],
-            ],
+            columns: [['initiative', 'mine'], ['attacks', 'spells'], ['rolls']],
           },
-      battle: {
-        shelf: isStaff
-          ? ['initiative', 'statblock', 'vitals', 'dice']
-          : ['initiative', 'mine', 'attacks', 'spells', 'dice'],
-        shelfOpen: true,
-        folded: [],
-        shelfSide: 'right',
-      },
+      battle: isStaff
+        ? {
+            left: ['initiative', 'vitals'],
+            right: ['statblock', 'attacks'],
+            rail: ['rolls', 'timers'],
+            open: true,
+            folded: [],
+          }
+        : {
+            left: ['initiative', 'mine'],
+            right: ['attacks', 'spells'],
+            rail: ['rolls'],
+            open: true,
+            folded: [],
+          },
       battleInPerson: isStaff
         ? {
             columns: [
               ['initiative', 'vitals'],
               ['statblock', 'conditions'],
-              ['dice', 'checks'],
+              ['rolls'],
             ],
           }
         : {
-            columns: [
-              ['initiative', 'mine'],
-              ['attacks', 'spells'],
-              ['dice', 'checks'],
-            ],
+            columns: [['initiative', 'mine'], ['attacks', 'spells'], ['rolls']],
           },
     }),
   },
   {
     key: 'roleplay',
     label: 'Roleplay forward',
-    line: 'Whispers, what the party knows and the notebook lead; the dice wait their turn.',
+    line: 'Whispers, what the party has been shown and the notebook lead; the dice wait their turn.',
     layouts: isStaff => ({
-      desk: isStaff
-        ? {
-            columns: [
-              ['notebook', 'canon'],
-              ['quests', 'reveals'],
-              ['chronicle', 'downtime'],
-            ],
-          }
-        : {
-            columns: [
-              ['reveals', 'canon'],
-              ['quests', 'chronicle'],
-              ['downtime', 'ledger'],
-            ],
-          },
       table: isStaff
         ? {
             columns: [
               ['notebook', 'whispers'],
               ['spotlight', 'reveals'],
-              ['checks', 'feed'],
+              ['rolls', 'feed'],
             ],
           }
         : {
             columns: [
               ['whispers', 'reveals'],
-              ['spotlight', 'checks'],
+              ['spotlight', 'rolls'],
               ['handouts', 'feed'],
             ],
           },
-      battle: {
-        shelf: isStaff
-          ? ['initiative', 'whispers', 'notebook', 'dice']
-          : ['initiative', 'mine', 'whispers', 'dice'],
-        shelfOpen: true,
-        folded: [],
-        shelfSide: 'right',
-      },
+      battle: isStaff
+        ? {
+            left: ['initiative', 'notebook'],
+            right: ['whispers', 'rolls'],
+            rail: ['feed'],
+            open: true,
+            folded: [],
+          }
+        : {
+            left: ['initiative', 'mine'],
+            right: ['whispers', 'rolls'],
+            rail: ['feed'],
+            open: true,
+            folded: [],
+          },
       battleInPerson: isStaff
         ? {
             columns: [
               ['initiative', 'whispers'],
-              ['notebook', 'checks'],
+              ['notebook', 'rolls'],
               ['timers', 'reveals'],
             ],
           }
         : {
             columns: [
               ['initiative', 'mine'],
-              ['whispers', 'checks'],
+              ['whispers', 'rolls'],
               ['timers', 'reveals'],
             ],
           },
@@ -633,39 +563,45 @@ export const SCREEN_PRESETS: readonly ScreenPreset[] = [
   {
     key: 'in-person',
     label: 'Around a real map',
-    line: 'Built for a table with a physical board: the order and the timer lead, and nothing draws a grid.',
+    line: 'Built for a table with a physical board: the order and the timers lead, and nothing draws a grid.',
     layouts: isStaff => ({
-      desk: defaultDeskLayout(isStaff),
       table: isStaff
         ? {
             columns: [
               ['initiative', 'vitals'],
-              ['notebook', 'checks'],
+              ['notebook', 'rolls'],
               ['timers', 'reveals'],
             ],
           }
         : {
             columns: [
               ['mine', 'initiative'],
-              ['checks', 'whispers'],
+              ['rolls', 'whispers'],
               ['timers', 'reveals'],
             ],
           },
-      battle: {
-        shelf: isStaff
-          ? ['initiative', 'vitals', 'timers', 'checks']
-          : ['initiative', 'mine', 'timers', 'checks'],
-        shelfOpen: true,
-        folded: [],
-        shelfSide: 'right',
-      },
+      battle: isStaff
+        ? {
+            left: ['initiative', 'vitals'],
+            right: ['timers', 'rolls'],
+            rail: [],
+            open: true,
+            folded: [],
+          }
+        : {
+            left: ['initiative', 'mine'],
+            right: ['timers', 'rolls'],
+            rail: [],
+            open: true,
+            folded: [],
+          },
       battleInPerson: defaultInPersonBattleLayout(isStaff),
     }),
   },
   {
     key: 'everything',
     label: 'Everything',
-    line: 'Every box you may have, four columns, at every table. For a big monitor.',
+    line: 'Every box you may have, four columns at the table and both flanks in a fight. For a big monitor.',
     layouts: isStaff => {
       const keys = SCREEN_PANEL_KEYS.filter(
         k => (isStaff || SCREEN_PANELS[k].players) && k !== 'board'
@@ -675,22 +611,19 @@ export const SCREEN_PRESETS: readonly ScreenPreset[] = [
         order.forEach((k, i) => columns[i % 4].push(k));
         return { columns };
       };
-      // The desk leads with prep, the table with the room, the fight with the
-      // order; the rest follows in registry order.
       const lead = (first: readonly ScreenPanelKey[]) => [
         ...first.filter(k => keys.includes(k)),
         ...keys.filter(k => !first.includes(k)),
       ];
+      const around = lead(['initiative', 'statblock', 'mine', 'rolls']);
       return {
-        desk: four(
-          lead(['notebook', 'encounters', 'quests', 'chronicle', 'canon'])
-        ),
-        table: four(lead(['sitting', 'initiative', 'vitals', 'checks'])),
+        table: four(lead(['sitting', 'initiative', 'vitals', 'rolls'])),
         battle: {
-          shelf: lead(['initiative', 'statblock', 'mine', 'dice']),
-          shelfOpen: true,
+          left: around.filter((_, i) => i % 2 === 0),
+          right: around.filter((_, i) => i % 2 === 1),
+          rail: [],
+          open: true,
           folded: [],
-          shelfSide: 'both',
         },
         battleInPerson: four(
           lead(['initiative', 'vitals', 'statblock', 'timers'])
@@ -705,11 +638,13 @@ export function screenPreset(key: string): ScreenPreset | undefined {
 }
 
 /**
- * Coerce whatever was stored into the three arrangements.
+ * Coerce whatever was stored into the arrangements this build draws.
  *
- * Reads the shape before this work — one arrangement, `{ columns }` or the
- * older `{ main, rail }` — as the **table** arrangement, so a screen somebody
- * arranged when there was only one survives as the one they will see most.
+ * Three shapes have been stored over time and all three still read: the
+ * original single `{ columns }` (or `{ main, rail }`) arrangement, the
+ * desk/table/battle triple with a one-sided `shelf`, and this one. A `desk`
+ * arrangement is dropped rather than migrated: the session screen no longer
+ * has a desk, and the panels that only made sense there are gone with it.
  */
 export function normalizeLayouts(
   raw: unknown,
@@ -723,50 +658,117 @@ export function normalizeLayouts(
     return { ...base, table: normalizeLayout(src, isStaff) };
   }
 
-  const battleRaw = (src.battle ?? {}) as Partial<BattleLayout>;
+  return {
+    table: src.table ? normalizeLayout(src.table, isStaff) : base.table,
+    battleInPerson: src.battleInPerson
+      ? normalizeLayout(src.battleInPerson, isStaff, base.battleInPerson)
+      : base.battleInPerson,
+    battle: normalizeBattleLayout(src.battle, isStaff),
+    // A pin at the desk was a pin at a state that no longer draws; it reads
+    // as no pin, which is what following the campaign means.
+    pin: isScreenState(src.pin) ? src.pin : null,
+  };
+}
+
+/**
+ * Coerce a stored battle arrangement into three regions.
+ *
+ * Reads the one-shelf shape that came before — `{ shelf, shelfSide }` — by
+ * putting the shelf on the right, or splitting it between the flanks when it
+ * was set to `both`, which is what `both` drew.
+ */
+export function normalizeBattleLayout(
+  raw: unknown,
+  isStaff: boolean
+): BattleLayout {
+  const base = defaultBattleLayout(isStaff);
+  const src = (raw ?? {}) as Record<string, unknown>;
   const seen = new Set<string>();
-  const shelf: ScreenPanelKey[] = [];
-  for (const item of Array.isArray(battleRaw.shelf) ? battleRaw.shelf : []) {
-    const key = String(item);
-    if (!isScreenPanelKey(key)) continue;
-    if (!isStaff && !SCREEN_PANELS[key].players) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    shelf.push(key);
+
+  const clean = (value: unknown): ScreenPanelKey[] => {
+    const out: ScreenPanelKey[] = [];
+    for (const item of Array.isArray(value) ? value : []) {
+      const key = readKey(String(item));
+      if (!key) continue;
+      if (!isStaff && !SCREEN_PANELS[key].players) continue;
+      // The board is the middle; it is never a panel around itself.
+      if (key === 'board') continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(key);
+    }
+    return out;
+  };
+
+  let left: ScreenPanelKey[];
+  let right: ScreenPanelKey[];
+  let rail: ScreenPanelKey[];
+
+  if ('shelf' in src) {
+    const shelf = clean(src.shelf);
+    if (src.shelfSide === 'both') {
+      // `both` put the odd panels on the left, which is what it drew.
+      left = shelf.filter((_, i) => i % 2 === 1);
+      right = shelf.filter((_, i) => i % 2 === 0);
+    } else {
+      left = [];
+      right = shelf;
+    }
+    rail = [];
+  } else {
+    left = clean(src.left);
+    right = clean(src.right);
+    rail = clean(src.rail);
   }
-  const kept = shelf.length > 0 ? shelf : base.battle.shelf;
-  // A fold only means something for a panel that is on the shelf.
+
+  if (left.length === 0 && right.length === 0 && rail.length === 0) {
+    return { ...base, open: src.open === false ? false : base.open };
+  }
+
+  const kept = new Set<ScreenPanelKey>([...left, ...right, ...rail]);
   const folded: ScreenPanelKey[] = [];
-  for (const item of Array.isArray(battleRaw.folded) ? battleRaw.folded : []) {
+  for (const item of Array.isArray(src.folded) ? src.folded : []) {
     const key = String(item);
-    if (!isScreenPanelKey(key) || !kept.includes(key)) continue;
+    if (!isScreenPanelKey(key) || !kept.has(key)) continue;
     if (!folded.includes(key)) folded.push(key);
   }
 
   return {
-    desk: src.desk ? normalizeLayout(src.desk, isStaff, base.desk) : base.desk,
-    table: src.table ? normalizeLayout(src.table, isStaff) : base.table,
-    // A row written before the in-person arrangement existed reads as the
-    // default one, the same way a missing `desk` does.
-    battleInPerson: src.battleInPerson
-      ? normalizeLayout(src.battleInPerson, isStaff, base.battleInPerson)
-      : base.battleInPerson,
-    battle: {
-      shelf: kept,
-      shelfOpen: battleRaw.shelfOpen ?? true,
-      folded,
-      shelfSide: (SHELF_SIDES as readonly unknown[]).includes(
-        battleRaw.shelfSide
-      )
-        ? (battleRaw.shelfSide as BattleLayout['shelfSide'])
-        : 'right',
-    },
-    pin: isTableKind(src.pin) ? src.pin : null,
+    left,
+    right,
+    rail,
+    // `shelfOpen` was the old name for the same switch.
+    open:
+      typeof src.open === 'boolean'
+        ? src.open
+        : typeof src.shelfOpen === 'boolean'
+          ? src.shelfOpen
+          : true,
+    folded,
   };
 }
 
 export function isScreenPanelKey(value: string): value is ScreenPanelKey {
   return (SCREEN_PANEL_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * Keys that were two panels and are now one.
+ *
+ * A layout is a preference and an unknown key is ordinarily dropped, but
+ * `dice` and `checks` were not removed — they were merged into `rolls`, and
+ * dropping them would silently take the dice off a screen somebody arranged.
+ * The dedup in `clean` turns the pair into one box wherever both were on.
+ */
+const MERGED: Record<string, ScreenPanelKey> = {
+  dice: 'rolls',
+  checks: 'rolls',
+};
+
+/** What a stored key means today, or null when nothing draws it any more. */
+function readKey(raw: string): ScreenPanelKey | null {
+  if (isScreenPanelKey(raw)) return raw;
+  return MERGED[raw] ?? null;
 }
 
 /** Every panel on a layout, in reading order. */
@@ -789,8 +791,7 @@ export function panelsOn(layout: ScreenLayout): ScreenPanelKey[] {
 export function normalizeLayout(
   raw: unknown,
   isStaff: boolean,
-  /** What an arrangement with nothing left on it becomes. The table's, unless
-   *  the caller is reading a different arrangement. */
+  /** What an arrangement with nothing left on it becomes. */
   fallback: ScreenLayout = defaultLayout(isStaff)
 ): ScreenLayout {
   const source = (raw ?? {}) as {
@@ -807,8 +808,8 @@ export function normalizeLayout(
   const clean = (value: unknown): ScreenPanelKey[] => {
     const out: ScreenPanelKey[] = [];
     for (const item of Array.isArray(value) ? value : []) {
-      const key = String(item);
-      if (!isScreenPanelKey(key)) continue;
+      const key = readKey(String(item));
+      if (!key) continue;
       if (!isStaff && !SCREEN_PANELS[key].players) continue;
       if (seen.has(key)) continue;
       seen.add(key);

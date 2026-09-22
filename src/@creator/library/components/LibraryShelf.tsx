@@ -119,7 +119,7 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
       <div className="flex flex-col gap-2">
         <Ledger
           items={[
-            { value: cards.length, label: 'on the shelf' },
+            { value: cards.length, label: 'in the library' },
             { value: taken, label: 'you have taken' },
             { value: mine, label: 'yours' },
           ]}
@@ -221,11 +221,11 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
       </div>
 
       {refreshing && cards.length === 0 ? (
-        <DiceSpinner label="Reading the shelf…" />
+        <DiceSpinner label="Reading the library…" />
       ) : cards.length === 0 ? (
         <EmptyState
           scene={<TomeScene />}
-          title="The shelf is bare"
+          title="The library is bare"
           description="Nobody has left anything here yet. Publish something from the Forge and it will be the first thing on it."
           action={
             <Button as={Link} href="/creator/homebrew" color="primary">

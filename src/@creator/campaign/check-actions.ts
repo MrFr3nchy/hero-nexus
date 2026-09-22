@@ -60,6 +60,7 @@ const checkSchema = z
     prompt: z.string().trim().max(200).optional(),
     dc: z.number().int().min(1).max(40).nullable().optional(),
     dcVisibility: z.enum(['hidden', 'shown']).optional(),
+    mode: z.enum(['straight', 'advantage', 'disadvantage']).optional(),
     targetUserIds: z.array(z.string().min(1)).max(50).optional(),
   })
   .refine(

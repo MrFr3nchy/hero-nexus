@@ -96,6 +96,20 @@ const MAX_ON_SCREEN = 4;
 /** Ids remembered for dedup, so a reconnect replay does not double-announce. */
 const SEEN_LIMIT = 400;
 
+/**
+ * How long two identical moments count as one.
+ *
+ * An id catches a replayed frame. It does not catch the other kind of
+ * double: one act that reached the server twice — a button pressed twice, a
+ * form submitted on both Enter and the click — which produces two events
+ * with different ids saying exactly the same thing. Two slips for one act is
+ * what "the notifications show up more than once" looks like from the
+ * reader's chair, so the corner treats a repeat inside this window as the
+ * same moment. The feed keeps both, because the record should not lie about
+ * what the server did.
+ */
+const ECHO_MS = 2_500;
+
 /** How much of the evening the feed panel can scroll back through. */
 const HISTORY_LIMIT = 200;
 
@@ -148,6 +162,8 @@ export function TableProvider({ children }: { children: ReactNode }) {
 
   const refs = useRef(new Map<string, number>());
   const seen = useRef(new Set<string>());
+  /** The last time each distinct moment was shown, for the echo window. */
+  const echoes = useRef(new Map<string, number>());
   /*
    * The tab title while hidden (12): "⚔ (2) Hero Nexus" until the reader
    * comes back, then the plain title again. The count is what arrived aimed
@@ -257,6 +273,23 @@ export function TableProvider({ children }: { children: ReactNode }) {
       setHistory(list => [announcement, ...list].slice(0, HISTORY_LIMIT));
       if (event.by && event.by === currentUser?.id) return;
       if (!reading.asks && !prefsRef.current.announce[event.kind]) return;
+
+      /*
+       * The same moment twice. Different ids, identical reading: one act
+       * that reached the server twice. The corner shows it once.
+       */
+      const now = Date.now();
+      const fingerprint = `${campaignId}:${event.kind}:${event.by ?? ''}:${
+        reading.title
+      }:${reading.detail ?? ''}`;
+      const lastSeen = echoes.current.get(fingerprint);
+      if (lastSeen !== undefined && now - lastSeen < ECHO_MS) return;
+      echoes.current.set(fingerprint, now);
+      if (echoes.current.size > SEEN_LIMIT) {
+        for (const [key, at] of echoes.current) {
+          if (now - at > ECHO_MS) echoes.current.delete(key);
+        }
+      }
 
       /*
        * Aimed at this reader (12): their turn, an ask, a whisper to them —

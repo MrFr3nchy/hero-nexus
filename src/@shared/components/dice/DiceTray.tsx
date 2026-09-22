@@ -168,11 +168,16 @@ function signed(n: number): string {
 }
 
 /** Dice get smaller as the handful grows, so a full set still fits one screen. */
+/**
+ * How big a die is drawn. Smaller than it was, because the tray is a corner
+ * tray now rather than a window-wide modal — a d20 at 78px in a 28rem panel
+ * is one die and a scrollbar.
+ */
 function dieSize(groups: CastGroup[]): number {
   const widest = Math.max(...groups.map(g => g.dice.length));
-  if (groups.length > 3 || widest > 6) return 44;
-  if (groups.length > 1 || widest > 3) return 58;
-  return 78;
+  if (groups.length > 3 || widest > 6) return 34;
+  if (groups.length > 1 || widest > 3) return 44;
+  return 58;
 }
 
 function GroupRow({
@@ -301,31 +306,36 @@ function TrayOverlay({
     cast.groups.length === 1 ? (cast.groups[0].tone ?? 'plain') : 'plain';
   const line = TONE_LINE[tone];
 
+  /*
+   * The tray is a tray, not a modal.
+   *
+   * It used to fill the window behind a blurred scrim, which meant every
+   * roll — a DM rolling a goblin's attack mid-turn, a player checking a
+   * save — stopped the table from touching anything until it cleared.
+   * Rolling is the loudest verb in the app and still gets the loudest
+   * animation, but it happens *beside* the work now: bottom-right, the
+   * width of a panel, and the page underneath stays live. Escape, Done and
+   * the hold-to-keep all still work.
+   */
   return (
     <motion.div
-      className="fixed inset-0 z-[120] flex items-center justify-center overflow-hidden p-4"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[120] flex justify-center p-3 sm:inset-x-auto sm:right-4 sm:justify-end"
+      initial={{ opacity: 0, y: reduce ? 0 : 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: reduce ? 0 : 12 }}
       transition={{ duration: reduce ? 0 : 0.18 }}
-      onClick={onDismiss}
     >
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 bg-ink/45 backdrop-blur-[3px]"
-      />
-
       {/* Candlelight behind the tray, brightening as the dice come to rest. */}
       {!reduce && (
         <motion.div
           aria-hidden="true"
-          className="pointer-events-none absolute h-[46rem] w-[46rem] rounded-full"
+          className="pointer-events-none absolute -z-10 h-[28rem] w-[28rem] self-center rounded-full"
           style={{
             background:
-              'radial-gradient(circle, color-mix(in srgb, var(--gold) 40%, transparent) 0%, transparent 66%)',
+              'radial-gradient(circle, color-mix(in srgb, var(--gold) 34%, transparent) 0%, transparent 66%)',
           }}
           initial={{ opacity: 0.1, scale: 0.8 }}
-          animate={{ opacity: [0.1, 0.34, 0.2], scale: [0.8, 1.05, 1] }}
+          animate={{ opacity: [0.1, 0.3, 0.16], scale: [0.8, 1.05, 1] }}
           transition={{
             duration: (lastSettle + 500) / 1000,
             times: [0, 0.86, 1],
@@ -334,16 +344,12 @@ function TrayOverlay({
         />
       )}
 
-      {/* The hold lives on the panel, not the backdrop: the backdrop fills the
-          window, so the pointer is already inside it the instant the tray
-          opens and the auto-clear would never fire. */}
       <div
         role="status"
         aria-live="polite"
-        onClick={e => e.stopPropagation()}
         onPointerEnter={() => setHeld(true)}
         onPointerLeave={() => setHeld(false)}
-        className="relative w-full max-w-2xl rounded-[var(--radius-card)] border-2 border-gold/50 bg-surface px-6 pb-6 pt-5 [box-shadow:0_28px_60px_-24px_rgb(0_0_0/0.55)]"
+        className="pointer-events-auto relative max-h-[70vh] w-full max-w-md overflow-y-auto rounded-[var(--radius-card)] border-2 border-gold/50 bg-surface px-4 pb-4 pt-3 [box-shadow:0_28px_60px_-24px_rgb(0_0_0/0.55)]"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -369,8 +375,8 @@ function TrayOverlay({
             A full ability set is six groups: stacked they run off a laptop
             screen, so past three they pair up into two columns. */}
         <div
-          className={`mt-4 grid justify-items-center gap-6 rounded-md border border-line bg-gradient-to-b from-surface-2 to-surface px-4 py-8 [box-shadow:inset_0_12px_24px_-16px_rgb(43_38_32/0.5)] ${
-            cast.groups.length > 3 ? 'sm:grid-cols-2' : 'grid-cols-1'
+          className={`mt-3 grid justify-items-center gap-5 rounded-md border border-line bg-gradient-to-b from-surface-2 to-surface px-3 py-6 [box-shadow:inset_0_12px_24px_-16px_rgb(43_38_32/0.5)] ${
+            cast.groups.length > 3 ? 'grid-cols-2' : 'grid-cols-1'
           }`}
         >
           {cast.groups.map((group, i) => (

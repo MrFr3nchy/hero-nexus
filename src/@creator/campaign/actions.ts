@@ -30,9 +30,11 @@ import {
   removeEntry,
   rollForCampaign,
   rollInitiative,
+  startFight,
   setHandoutVisibility,
   updateEntry,
   type EntryInput,
+  type FightSpoils,
   type InitiativeRoll,
   type LiveState,
   type RollInput,
@@ -436,17 +438,39 @@ async function sessionAction(fn: () => Promise<unknown>): Promise<Result> {
 
 export async function createEncounterAction(
   campaignId: string,
-  name: string
+  name: string,
+  /** `setup` lays it out without starting it. The default. */
+  phase: 'setup' | 'fighting' = 'setup'
 ): Promise<Result<{ id: string }>> {
   try {
-    const id = await createEncounter(campaignId, name);
+    const id = await createEncounter(campaignId, name, phase);
     return { ok: true, data: { id } };
   } catch (err) {
-    return fail(err, 'Failed to start the encounter.');
+    return fail(err, 'Failed to lay the fight out.');
   }
 }
-export async function endEncounterAction(id: string): Promise<Result> {
-  return sessionAction(() => endEncounter(id));
+
+/** One press: the party in, everybody rolled, round one, the table told. */
+export async function startFightAction(
+  encounterId: string
+): Promise<Result<InitiativeRoll[]>> {
+  try {
+    const data = await startFight(encounterId);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Could not start the fight.');
+  }
+}
+/** Ends the fight, and hands back what it was worth so the DM can hand it out. */
+export async function endEncounterAction(
+  id: string
+): Promise<Result<FightSpoils | null>> {
+  try {
+    const data = await endEncounter(id);
+    return { ok: true, data };
+  } catch (err) {
+    return fail(err, 'Could not end the fight.');
+  }
 }
 export async function deleteEncounterAction(id: string): Promise<Result> {
   return sessionAction(() => deleteEncounter(id));

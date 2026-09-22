@@ -12,8 +12,17 @@ import { useState } from 'react';
 
 import { Glyph, StatusMark, useConfirm } from '@/@shared/components/ui';
 import type { LiveState } from '@/server/session';
-import { TABLE_KINDS, TABLE_META, type TableKind } from '../../lib/screen';
-import { createEncounterAction, endEncounterAction } from '../../actions';
+import {
+  SCREEN_STATES,
+  TABLE_META,
+  type ScreenState,
+  type TableKind,
+} from '../../lib/screen';
+import {
+  createEncounterAction,
+  endEncounterAction,
+  startFightAction,
+} from '../../actions';
 import { closeSittingAction, openSittingAction } from '../../chronicle-actions';
 import { setTableModeAction } from '../../rules-actions';
 import { undoLastAction } from '../../monster-actions';
@@ -24,20 +33,18 @@ import { AmbienceControl } from './AmbienceControl';
 import { SHORTCUTS, type Typing } from './useDmShortcuts';
 
 /**
- * The mode bar: the three tables in a row, the one the campaign is at lit,
- * and the verbs that move it.
+ * The mode bar: the screen's two states in a row, the one the campaign is
+ * at lit, and the verbs that move it.
  *
- * The table is derived — a sitting and a running fight already say which —
- * so there is no "switch to battle" here. What there is: *Take your seats*
- * / *Rise* and *Call for initiative* / *End the fight*, the verbs the DM
- * already had, put where the room is so changing the room is one press from
- * inside it. The same four server actions the ribbon this replaces called.
+ * The state is derived — an open session and a running fight already say
+ * which — so there is no "switch to battle" here. What there is: *Start the
+ * session* / *End the session* and *Roll for initiative* / *End the fight*,
+ * put where the room is so changing the room is one press from inside it.
  *
- * The three segments say the flow — desk, then table, then sand table — and
- * the lit one says where the campaign is, in the status language: a filled
- * dot for the table the campaign is actually at. Pressing another segment
+ * The lit segment says where the campaign is, in the status language: a
+ * filled dot for the state the campaign is actually at. Pressing the other
  * pins the screen there: a player who wants the board up between fights, a
- * DM checking a note mid-sitting. A pin is the viewer's own, stored with
+ * DM checking a note mid-session. A pin is the viewer's own, stored with
  * their layouts, and says nothing to anybody else; the segment they pinned
  * takes the ink bar that means *yours*.
  *
@@ -63,9 +70,9 @@ export function ModeBar({
   state: LiveState;
   isStaff: boolean;
   /** What the screen is showing, pin included. */
-  current: TableKind;
-  pinned: TableKind | null;
-  onPin: (pin: TableKind | null) => void | Promise<void>;
+  current: ScreenState;
+  pinned: ScreenState | null;
+  onPin: (pin: ScreenState | null) => void | Promise<void>;
   refresh: () => void | Promise<void>;
   onError: (message: string) => void;
   /** A D/H number being typed (11), shown so nothing is applied blind. */
@@ -86,7 +93,7 @@ export function ModeBar({
     {
       key: 'blank',
       label: 'From nothing',
-      description: 'An empty order — add the party and the foes yourself.',
+      description: 'An empty order — seat the party and add the foes yourself.',
       planned: false,
     },
     ...(plans === null
@@ -103,11 +110,14 @@ export function ModeBar({
           label: plan.name,
           description: `${plan.maths.bodyCount} ${
             plan.maths.bodyCount === 1 ? 'body' : 'bodies'
-          } · dealt onto its board, standing where you put them`,
+          } · placed on its board, where you put them`,
           planned: true,
         }))),
   ];
-  const actual = state.table;
+  // The campaign's own state. `desk` is not one of the screen's two, so no
+  // segment is lit while nobody is sitting — which is true, and the body of
+  // the screen says so in full.
+  const actual: TableKind = state.table;
   const inPerson = state.rules.board === 'in-person';
   // While a fight overrides the mode, the campaign's switch changes nothing
   // at the table; the pill says what is in force and points at the fight.
@@ -127,60 +137,66 @@ export function ModeBar({
     <>
       {dialog}
       <div className="flex flex-wrap items-center gap-2">
-        <div
-          role="group"
-          aria-label="Which table the screen is set for"
-          className="flex max-w-full overflow-x-auto rounded-[5px] border border-line"
-        >
-          {TABLE_KINDS.map((kind, i) => {
-            const meta = TABLE_META[kind];
-            const isActual = kind === actual;
-            const isCurrent = kind === current;
-            const isPinned = pinned === kind;
-            const title = isActual
-              ? isPinned
-                ? `Pinned here. Unpin to follow the campaign.`
-                : `The campaign is at ${meta.label.toLowerCase()}. ${meta.line}`
-              : isPinned
-                ? `Pinned. The campaign is at ${TABLE_META[actual].label.toLowerCase()}. Unpin to follow it.`
-                : `Hold the screen at ${meta.label.toLowerCase()} for now`;
-            return (
-              <Tooltip key={kind} content={title}>
-                <button
-                  type="button"
-                  aria-pressed={isCurrent}
-                  onClick={() => onPin(isPinned || isActual ? null : kind)}
-                  className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-1 text-[0.6rem] uppercase tracking-[0.12em] transition-colors ${
-                    i > 0 ? 'border-l border-line' : ''
-                  } ${
-                    isCurrent
-                      ? kind === 'battle'
-                        ? 'bg-surface-2 text-danger'
-                        : 'bg-surface-2 text-gold-strong dark:text-gold'
-                      : 'text-ink-subtle hover:text-ink'
-                  } ${isPinned ? 'border-l-4 border-l-ink' : ''}`}
-                >
-                  {isActual ? (
-                    <StatusMark kind="live" size={7} />
-                  ) : (
-                    <Glyph name={meta.glyph} size={11} />
-                  )}
-                  <span>{meta.label}</span>
-                  {kind === 'battle' && inPerson && (
-                    <span className="normal-case tracking-normal text-ink-subtle">
-                      · in person
-                    </span>
-                  )}
-                  {isPinned && (
-                    <span className="text-[0.5625rem] font-bold text-ink">
-                      yours
-                    </span>
-                  )}
-                </button>
-              </Tooltip>
-            );
-          })}
-        </div>
+        {/* Nobody is sitting: neither state applies, and a lit segment
+            beside "the table is not sitting" is the screen arguing with
+            itself. The verbs below still work — that is how a session
+            starts. */}
+        {actual !== 'desk' && (
+          <div
+            role="group"
+            aria-label="Which state the screen is set for"
+            className="flex max-w-full overflow-x-auto rounded-[5px] border border-line"
+          >
+            {SCREEN_STATES.map((kind, i) => {
+              const meta = TABLE_META[kind];
+              const isActual = kind === actual;
+              const isCurrent = kind === current;
+              const isPinned = pinned === kind;
+              const title = isActual
+                ? isPinned
+                  ? `Pinned here. Unpin to follow the campaign.`
+                  : `The campaign is at ${meta.label.toLowerCase()}. ${meta.line}`
+                : isPinned
+                  ? `Pinned. ${TABLE_META[actual].line} Unpin to follow the campaign.`
+                  : `Hold the screen ${meta.label.toLowerCase()} for now`;
+              return (
+                <Tooltip key={kind} content={title}>
+                  <button
+                    type="button"
+                    aria-pressed={isCurrent}
+                    onClick={() => onPin(isPinned || isActual ? null : kind)}
+                    className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-1 text-[0.6rem] uppercase tracking-[0.12em] transition-colors ${
+                      i > 0 ? 'border-l border-line' : ''
+                    } ${
+                      isCurrent
+                        ? kind === 'battle'
+                          ? 'bg-surface-2 text-danger'
+                          : 'bg-surface-2 text-gold-strong dark:text-gold'
+                        : 'text-ink-subtle hover:text-ink'
+                    } ${isPinned ? 'border-l-4 border-l-ink' : ''}`}
+                  >
+                    {isActual ? (
+                      <StatusMark kind="live" size={7} />
+                    ) : (
+                      <Glyph name={meta.glyph} size={11} />
+                    )}
+                    <span>{meta.label}</span>
+                    {kind === 'battle' && inPerson && (
+                      <span className="normal-case tracking-normal text-ink-subtle">
+                        · in person
+                      </span>
+                    )}
+                    {isPinned && (
+                      <span className="text-[0.5625rem] font-bold text-ink">
+                        yours
+                      </span>
+                    )}
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+        )}
 
         {/* The world's clock (10): read by everyone, moved by staff. */}
         <WorldClockControl
@@ -292,35 +308,67 @@ export function ModeBar({
                 isDisabled={busy}
                 onPress={() => act(openSittingAction(campaignId))}
               >
-                Take your seats
+                Start the session
               </Button>
             ) : (
               <>
                 {state.encounter?.isActive ? (
-                  <Button
-                    size="sm"
-                    variant="flat"
-                    className="h-7 min-w-0 px-2.5 text-xs"
-                    isDisabled={busy}
-                    onPress={async () => {
-                      const ok = await confirm({
-                        title: 'End the fight?',
-                        body: 'The order is kept as a record. The board stays where it is.',
-                        confirmLabel: 'End it',
-                      });
-                      if (!ok) return;
-                      await act(endEncounterAction(state.encounter!.id));
-                    }}
-                  >
-                    End the fight
-                  </Button>
+                  <>
+                    {/*
+                      The fight is laid out but nobody has rolled. This is
+                      the loudest button on the bar on purpose: it is what
+                      the whole staging phase is waiting for.
+                    */}
+                    {state.encounter.phase === 'setup' && (
+                      <Button
+                        size="sm"
+                        color="danger"
+                        className="h-7 min-w-0 px-2.5 text-xs font-semibold uppercase tracking-[0.1em]"
+                        isDisabled={busy}
+                        startContent={<Glyph name="crossed-swords" size={13} />}
+                        onPress={() =>
+                          act(startFightAction(state.encounter!.id))
+                        }
+                      >
+                        Roll for initiative
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      className="h-7 min-w-0 px-2.5 text-xs"
+                      isDisabled={busy}
+                      onPress={async () => {
+                        const staging = state.encounter!.phase === 'setup';
+                        const ok = await confirm({
+                          title: staging
+                            ? 'Put the fight away?'
+                            : 'End the fight?',
+                          body: staging
+                            ? 'Nobody has rolled, so nothing is lost but the order you built. The board stays where it is.'
+                            : 'The order is kept as a record. The board stays where it is.',
+                          confirmLabel: staging ? 'Put it away' : 'End it',
+                        });
+                        if (!ok) return;
+                        // The arithmetic the card wants is handed back by
+                        // the initiative panel's own End, which is where
+                        // the card is drawn. From here the fight just ends.
+                        await act(endEncounterAction(state.encounter!.id));
+                      }}
+                    >
+                      {state.encounter.phase === 'setup'
+                        ? 'Put it away'
+                        : 'End the fight'}
+                    </Button>
+                  </>
                 ) : (
                   /*
-                   * Not "Call for initiative": the plan's button says that,
-                   * and this one used to as well, so a DM who had planned a
-                   * fight pressed this, got an empty one, and could not see
-                   * why the ghouls were not there. This one starts a fight —
-                   * from a plan, or from nothing — and says which.
+                   * Lays a fight out; it does not start one. A DM who had
+                   * planned a fight used to press this, get an empty order,
+                   * and not see why the ghouls were not there — so it names
+                   * the planned ones, and neither choice tells the table
+                   * anything. *Roll for initiative* is the separate press
+                   * that does.
                    */
                   <Dropdown
                     placement="bottom"
@@ -340,11 +388,11 @@ export function ModeBar({
                         isDisabled={busy}
                         endContent={<Glyph name="chevron-down" size={12} />}
                       >
-                        Start a fight
+                        Lay out a fight
                       </Button>
                     </DropdownTrigger>
                     <DropdownMenu
-                      aria-label="Start a fight"
+                      aria-label="Lay out a fight"
                       items={fightChoices}
                       disabledKeys={plans === null ? ['loading'] : []}
                       onAction={key => {
@@ -387,7 +435,7 @@ export function ModeBar({
                     await act(closeSittingAction(campaignId));
                   }}
                 >
-                  Rise
+                  End the session
                 </Button>
               </>
             )}

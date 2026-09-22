@@ -452,8 +452,8 @@ export function WorkshopRail({
                 }
               >
                 {selectedToken.visibility === 'shared'
-                  ? 'Hide it'
-                  : 'Show them'}
+                  ? 'Hide from the party'
+                  : 'Show the party'}
               </Button>
               <Button
                 size="sm"
@@ -527,7 +527,7 @@ export function WorkshopRail({
           </Select>
         </div>
         <div className="flex justify-between">
-          <span className="text-ink-muted">On the table</span>
+          <span className="text-ink-muted">In play</span>
           <span>{bench.isActive ? 'Yes' : 'On the shelf'}</span>
         </div>
       </section>

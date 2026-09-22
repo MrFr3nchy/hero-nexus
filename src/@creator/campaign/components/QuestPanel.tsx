@@ -350,8 +350,8 @@ function QuestEntry({
               }
             >
               {quest.visibility === 'shared'
-                ? 'Take it back'
-                : 'Tell the party'}
+                ? 'Hide from the party'
+                : 'Show the party'}
             </Button>
             <Button
               size="sm"

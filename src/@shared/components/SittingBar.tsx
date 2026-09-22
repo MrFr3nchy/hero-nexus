@@ -171,7 +171,7 @@ export function SittingBar() {
         />
         <span className="text-ink">
           <span className="font-medium">{sitting.campaignName}</span>{' '}
-          {fighting ? 'is at the sand table' : 'is sitting'}
+          {fighting ? 'is in a fight' : 'is sitting'}
         </span>
         <span className="text-ink-subtle">
           Session {sitting.number}
@@ -188,7 +188,7 @@ export function SittingBar() {
             }`}
           >
             {fighting
-              ? 'To the sand table'
+              ? 'To the fight'
               : sitting.isStaff
                 ? 'Behind the screen'
                 : 'Take your seat'}

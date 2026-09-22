@@ -367,12 +367,12 @@ function Shop({
         <ShopEditor campaignId={campaignId} shop={shop} act={act} />
       )}
 
-      {/* The shelf. A long one gets a filter, so "the rope" is one word away. */}
+      {/* The stock. A long list gets a filter, so "the rope" is one word away. */}
       {shop.stock.length > 8 && (
         <div className="px-3 pt-2">
           <Input
             size="sm"
-            aria-label="Find on the shelf"
+            aria-label="Find in the stock"
             placeholder="Find on the shelf…"
             value={filter}
             onValueChange={setFilter}
@@ -592,7 +592,7 @@ function ShopEditor({
       <div className="flex flex-wrap items-end gap-2">
         <Autocomplete
           size="sm"
-          label="Put something on the shelf"
+          label="Add to the stock"
           placeholder={
             choices ? 'Potion of Healing' : 'Reading the compendium…'
           }
@@ -714,7 +714,7 @@ function StockEditor({
       />
       <button
         type="button"
-        aria-label={`Take ${row.name} off the shelf`}
+        aria-label={`Remove ${row.name} from the stock`}
         onClick={() => act(removeStockAction(row.id))}
         className="px-1 text-ink-subtle hover:text-danger"
       >

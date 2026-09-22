@@ -274,7 +274,7 @@ export function CampaignContentPanel({
       >
         {loading ? (
           <div className="flex justify-center py-8">
-            <DiceSpinner label="Reading the shelf…" />
+            <DiceSpinner label="Reading what is allowed…" />
           </div>
         ) : items.length === 0 ? (
           <EmptyState

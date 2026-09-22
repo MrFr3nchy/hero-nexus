@@ -45,6 +45,18 @@ export function useCampaignLive(campaignId: string) {
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const inFlight = useRef(false);
   const missed = useRef(false);
+  /**
+   * The last answer, serialised.
+   *
+   * The floor re-reads every thirty seconds whether or not anything moved,
+   * and a new object for an unchanged table re-rendered every panel on the
+   * screen — which is what "the sidebar keeps refreshing and it is not
+   * obvious what is happening" looked like from the DM's chair, and what
+   * threw away a half-typed damage number while they were typing it. The
+   * state is a plain JSON document (it crosses a server action, so it has
+   * to be), which makes this comparison both cheap and exact.
+   */
+  const fingerprint = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     /*
@@ -61,8 +73,15 @@ export function useCampaignLive(campaignId: string) {
     try {
       do {
         missed.current = false;
-        setState(await getLiveStateAction(campaignId));
+        const next = await getLiveStateAction(campaignId);
+        const mark = JSON.stringify(next);
+        // `updatedAt` still moves: the answer did land, and the status
+        // language's "stale 40s" is about the answer, not about change.
         setUpdatedAt(Date.now());
+        if (mark !== fingerprint.current) {
+          fingerprint.current = mark;
+          setState(next);
+        }
       } while (missed.current);
       setError(null);
     } catch {

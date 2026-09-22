@@ -33,10 +33,14 @@ export const AUDIO_EXTENSIONS: Record<string, string> = {
 /** Twenty megabytes: a long loop at a modest bitrate, not an album. */
 export const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 
+export type AudioKind = 'ambience' | 'effect';
+
 export interface CampaignAudioRow {
   id: string;
   campaignId: string;
   title: string;
+  /** `ambience` loops under the room; `effect` is one press of a soundboard. */
+  kind: AudioKind;
   mime: string;
   bytes: number;
   durationSeconds: number | null;
@@ -63,6 +67,7 @@ function toRow(r: typeof campaignAudio.$inferSelect): CampaignAudioRow {
     id: r.id,
     campaignId: r.campaignId,
     title: r.title,
+    kind: r.kind,
     mime: r.mime,
     bytes: r.bytes,
     durationSeconds: r.durationSeconds,
@@ -111,7 +116,8 @@ export async function saveCampaignAudio(
   campaignId: string,
   file: File,
   title: string,
-  durationSeconds: number | null
+  durationSeconds: number | null,
+  kind: AudioKind = 'ambience'
 ): Promise<string> {
   const { userId } = await requireCampaignRole(campaignId, ['gm', 'co-gm']);
   const ext = AUDIO_EXTENSIONS[file.type];
@@ -128,6 +134,7 @@ export async function saveCampaignAudio(
     .values({
       campaignId,
       title: title.trim().slice(0, 120) || file.name.slice(0, 120),
+      kind,
       filePath: `${campaignId}/audio/${name}`,
       mime: file.type,
       bytes: file.size,
@@ -204,6 +211,33 @@ export async function setAmbience(
     title,
   });
   return next;
+}
+
+/**
+ * Press a sound effect for the table. Staff only.
+ *
+ * Nothing is stored. A one-shot is a moment — the door bangs and it is over
+ * — and a column saying "the door banged eleven seconds ago" would be a
+ * cache with a staleness bug in its future, which is the reasoning the
+ * events channel exists on. Every browser with sound on plays it once; a
+ * browser that was not listening simply missed it, which is what missing a
+ * sound means.
+ */
+export async function playSoundEffect(
+  campaignId: string,
+  audioId: string
+): Promise<void> {
+  const { userId } = await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  const track = await getCampaignAudio(audioId);
+  if (!track || track.campaignId !== campaignId) throw new Error('NOT_FOUND');
+  publish(campaignId, {
+    kind: 'sound',
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    by: userId,
+    audioId,
+    title: track.title,
+  });
 }
 
 /** Name the track a board starts when lit, or none. Staff only. */

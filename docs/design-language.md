@@ -76,6 +76,10 @@ element merely because one of them is on screen.
   never a second client roll, never no animation. A surface that rolls on the
   server and animates nothing is a bug. The finish says whose die it was: solid
   for the app's, hollow for a face read off real dice, screened behind the DM's.
+  **It is a tray, not a modal.** It sits in the corner and the page underneath
+  stays live: a DM rolling a goblin's attack mid-turn, or a player checking a
+  save, must not stop the table from touching anything until it clears. Escape
+  and _Done_ dismiss it; hovering it holds it.
 - **The table's announcements** (`@shared/table`). Raised by something _somebody else_
   did — a roll landing, a countdown starting, the DM asking you for a check. The
   quieter of the two on purpose: a slip arriving in the corner, nothing behind it
@@ -177,10 +181,12 @@ page that is _operated_ for four hours while a fight is running. On those, a cou
 a readout and an arriving event has to announce itself, or the surface is not doing
 its job.
 
-**Which is which.** A reading surface is any route in the archetype table. An
-operating surface is the screen (`/campaigns/[id]/screen`) and every panel rendered
-inside it, in all three of its states. Nothing else is one; a component that wants
-the exemption has to be on the screen to get it.
+**Which is which.** A reading surface is any route in the archetype table — the
+campaign page included, which is where a table is _managed_. An operating surface
+is the session screen (`/campaigns/[id]/screen`) and every panel rendered inside
+it, in both of its states, plus `/admin`, which is read while something is going
+wrong. Nothing else is one; a component that wants the exemption has to be on one
+of those to get it.
 
 On an operating surface:
 

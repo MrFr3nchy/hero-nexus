@@ -45,6 +45,7 @@ export const TABLE_EVENT_KINDS = [
   'levelup',
   'undo',
   'ambience',
+  'sound',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -90,11 +91,32 @@ export interface TurnEvent extends BaseEvent {
   characterId: string | null;
 }
 
-/** A fight started or finished. */
+/**
+ * A fight was laid out, started or finished.
+ *
+ * `staged` is the DM putting the ghouls where they wait. It is published to
+ * `'staff'` — the table being told to brace itself while scenery is still
+ * being placed is exactly the false alarm this split exists to stop.
+ */
 export interface EncounterEvent extends BaseEvent {
   kind: 'encounter';
   encounterName: string;
-  state: 'started' | 'ended';
+  state: 'staged' | 'started' | 'ended';
+}
+
+/**
+ * A sound effect the DM pressed (0064).
+ *
+ * A moment, not a state: it carries the file to play and nothing else, and
+ * the browser that hears it plays it once if its reader has sound on. It is
+ * on the events channel rather than a column for exactly the reason the
+ * header gives — missing one is acceptable, and there is no state to be
+ * stale about afterwards.
+ */
+export interface SoundEvent extends BaseEvent {
+  kind: 'sound';
+  audioId: string;
+  title: string;
 }
 
 /** Sand started falling. Expiry is a state and deliberately fires nothing. */
@@ -375,7 +397,8 @@ export type TableEvent =
   | RestEvent
   | LevelUpEvent
   | UndoEvent
-  | AmbienceEvent;
+  | AmbienceEvent
+  | SoundEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -407,6 +430,7 @@ function ordinal(n: number): string {
 }
 
 const GLYPHS: Record<TableEventKind, GlyphName> = {
+  sound: 'speaker',
   roll: 'die',
   turn: 'sword',
   encounter: 'sword',
@@ -486,7 +510,13 @@ export function describe(
         title:
           event.state === 'started'
             ? `Roll for initiative — ${event.encounterName}`
-            : `${event.encounterName} is over`,
+            : event.state === 'staged'
+              ? `${event.encounterName} is laid out`
+              : `${event.encounterName} is over`,
+        detail:
+          event.state === 'staged'
+            ? 'Place them, show what they should see, then roll for it.'
+            : undefined,
         tone: event.state === 'started' ? 'danger' : 'gold',
       };
 
@@ -774,6 +804,14 @@ export function describe(
         tone: event.state === 'done' ? 'success' : 'danger',
       };
     }
+
+    case 'sound':
+      return {
+        glyph,
+        title: event.title || 'A sound',
+        detail: 'Turn sound on from the mode bar to hear these.',
+        tone: 'gold',
+      };
 
     case 'ambience':
       return {

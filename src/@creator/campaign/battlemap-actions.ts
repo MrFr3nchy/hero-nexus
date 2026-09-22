@@ -26,6 +26,7 @@ import {
   revealTiles,
   saveTerrain,
   setBattleMapActive,
+  setAllTokenVisibility,
   setBattleMapVisibility,
   updateToken,
   setThingEffect,
@@ -223,6 +224,20 @@ export async function setBattleMapVisibilityAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Could not change who sees it.');
+  }
+}
+
+/** Show, or hide, every foe on the board at once. */
+export async function setAllTokenVisibilityAction(
+  mapId: string,
+  visibility: 'dm' | 'shared',
+  side: 'foe' | 'party' | 'all' = 'foe'
+): Promise<Result<{ changed: number }>> {
+  try {
+    const changed = await setAllTokenVisibility(mapId, visibility, side);
+    return { ok: true, data: { changed } };
+  } catch (err) {
+    return fail(err, 'Could not change who sees them.');
   }
 }
 

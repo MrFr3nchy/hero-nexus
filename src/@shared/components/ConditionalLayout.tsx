@@ -33,9 +33,13 @@ const publicRoutes = [
  * The extras below are the private routes that deliberately have no nav row of
  * their own — they are reached from inside the app. Matching is by prefix, so
  * `/campaigns` covers `/campaigns/[id]/manage` and `/creator` covers both
- * creators.
+ * creators. `/admin` is here rather than in `NAV_HREFS` because its nav row
+ * only exists for the person who runs the box, and the route 404s for
+ * everybody else anyway.
  */
-const privateRoutes = [...new Set([...NAV_HREFS, '/creator', '/account'])];
+const privateRoutes = [
+  ...new Set([...NAV_HREFS, '/creator', '/account', '/admin']),
+];
 
 export function ConditionalLayout({ children }: ConditionalLayoutProps) {
   const { currentUser, loading } = useAuth();

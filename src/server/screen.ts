@@ -12,7 +12,7 @@ import { requireCampaignRole, type CampaignRole } from './campaigns';
 
 export interface ScreenState {
   role: CampaignRole;
-  /** All three arrangements and the pin. One row, one read. */
+  /** Both arrangements and the pin. One row, one read. */
   layouts: ScreenLayouts;
 }
 

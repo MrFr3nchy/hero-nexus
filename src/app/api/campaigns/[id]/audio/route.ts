@@ -24,6 +24,8 @@ export async function POST(
   const file = form.get('file');
   const title = String(form.get('title') ?? '');
   const duration = Number(form.get('duration') ?? '');
+  // `ambience` loops under the room; `effect` is a soundboard press.
+  const kind = form.get('kind') === 'effect' ? 'effect' : 'ambience';
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: 'No file.' }, { status: 400 });
@@ -46,7 +48,8 @@ export async function POST(
       campaignId,
       file,
       title,
-      Number.isFinite(duration) ? duration : null
+      Number.isFinite(duration) ? duration : null,
+      kind
     );
     return NextResponse.json(
       { ok: true, id, url: audioUrl(campaignId, id) },

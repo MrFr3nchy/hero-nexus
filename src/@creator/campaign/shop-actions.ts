@@ -38,7 +38,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_IN_PLAY:
       'That homebrew is not in play at this table. Approve it into the library first.',
     NO_SUCH_ITEM: 'That item no longer resolves.',
-    SOLD_OUT: 'The shelf is empty.',
+    SOLD_OUT: 'There is none of that left.',
     CANNOT_AFFORD: 'Not enough in the purse.',
     ATTUNED: 'Break the attunement first, then sell it.',
     WORTHLESS:

@@ -157,8 +157,8 @@ export function PlanSpots({
               classNames={{ trigger: 'h-9 min-h-9' }}
             >
               {boards.map(b => (
-                <SelectItem key={b.id} textValue={b.name || 'The sand table'}>
-                  {b.name || 'The sand table'}
+                <SelectItem key={b.id} textValue={b.name || 'Battle board'}>
+                  {b.name || 'Battle board'}
                   {b.isActive ? ' · on the table' : ''}
                 </SelectItem>
               ))}

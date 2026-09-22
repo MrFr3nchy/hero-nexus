@@ -67,7 +67,7 @@ export function PartySecrets({ campaignId }: { campaignId: string }) {
               </span>
             }
             tone="gold"
-            badges={<Pill tone="gold">Told to the party</Pill>}
+            badges={<Pill tone="gold">Shown to the party</Pill>}
             summary={secret.body}
           />
         ))}

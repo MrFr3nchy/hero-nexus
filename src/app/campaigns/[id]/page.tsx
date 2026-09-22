@@ -19,7 +19,10 @@ export default async function CampaignPage({
   // Which table the campaign is at decides which tab the page opens on. Read
   // here, once, so the strip is right on first paint rather than reordering
   // itself under the reader a moment later.
-  const table = await tableAt(id);
+  const table = await tableAt(
+    id,
+    campaign.role === 'gm' || campaign.role === 'co-gm'
+  );
 
   return (
     <ProtectedRoute>

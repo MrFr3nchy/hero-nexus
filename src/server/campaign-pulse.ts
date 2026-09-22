@@ -1,14 +1,19 @@
 import 'server-only';
 
-import { and, asc, count, eq } from 'drizzle-orm';
+import { and, asc, count, eq, isNull } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
+  battleMaps,
+  campaignInvites,
+  campaignMembers,
   campaignQuests,
   campaignSessions,
   downtimeActions,
   downtimePeriods,
+  encounterPlans,
   homebrewApprovals,
+  initiativeEncounters,
 } from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
 
@@ -37,6 +42,23 @@ export interface CampaignPulse {
   openDowntime: number;
   /** Recaps written but not yet handed to the party. Staff-facing. */
   unsentRecaps: number;
+
+  /* --- what the overview needs to say what to do next ------------------- */
+
+  /** A session is open right now. */
+  sitting: boolean;
+  /** A fight is running right now. */
+  fighting: boolean;
+  /** Seats at the table with nobody's hero in them. Staff-facing. */
+  emptySeats: number;
+  /** Invitations sent and not yet answered. Staff-facing. */
+  pendingInvites: number;
+  /** Battle boards built. Staff-facing. */
+  boardsBuilt: number;
+  /** The board in play, if one is. Staff-facing. */
+  boardInPlay: { id: string; name: string } | null;
+  /** Encounters planned and ready to run. Staff-facing. */
+  encountersReady: number;
 }
 
 export async function getCampaignPulse(
@@ -73,6 +95,23 @@ export async function getCampaignPulse(
           )
     );
 
+  const [openSession, runningFight] = await Promise.all([
+    db.query.campaignSessions.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(campaignSessions.campaignId, campaignId),
+        eq(campaignSessions.status, 'live')
+      ),
+    }),
+    db.query.initiativeEncounters.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(initiativeEncounters.campaignId, campaignId),
+        eq(initiativeEncounters.isActive, true)
+      ),
+    }),
+  ]);
+
   const base: CampaignPulse = {
     sessionsPlayed: sessions.filter(s => s.status === 'played').length,
     next: next
@@ -87,34 +126,76 @@ export async function getCampaignPulse(
     pendingApprovals: 0,
     openDowntime: 0,
     unsentRecaps: 0,
+    sitting: Boolean(openSession),
+    fighting: Boolean(runningFight),
+    emptySeats: 0,
+    pendingInvites: 0,
+    boardsBuilt: 0,
+    boardInPlay: null,
+    encountersReady: 0,
   };
 
   if (!isStaff) return base;
 
-  const [approvals, downtime] = await Promise.all([
-    db
-      .select({ n: count() })
-      .from(homebrewApprovals)
-      .where(
-        and(
-          eq(homebrewApprovals.campaignId, campaignId),
-          eq(homebrewApprovals.status, 'pending')
+  const [approvals, downtime, seats, invites, boards, active, plans] =
+    await Promise.all([
+      db
+        .select({ n: count() })
+        .from(homebrewApprovals)
+        .where(
+          and(
+            eq(homebrewApprovals.campaignId, campaignId),
+            eq(homebrewApprovals.status, 'pending')
+          )
+        ),
+      db
+        .select({ n: count() })
+        .from(downtimeActions)
+        .innerJoin(
+          downtimePeriods,
+          eq(downtimePeriods.id, downtimeActions.periodId)
         )
-      ),
-    db
-      .select({ n: count() })
-      .from(downtimeActions)
-      .innerJoin(
-        downtimePeriods,
-        eq(downtimePeriods.id, downtimeActions.periodId)
-      )
-      .where(
-        and(
-          eq(downtimePeriods.campaignId, campaignId),
-          eq(downtimeActions.status, 'submitted')
-        )
-      ),
-  ]);
+        .where(
+          and(
+            eq(downtimePeriods.campaignId, campaignId),
+            eq(downtimeActions.status, 'submitted')
+          )
+        ),
+      db
+        .select({ n: count() })
+        .from(campaignMembers)
+        .where(
+          and(
+            eq(campaignMembers.campaignId, campaignId),
+            eq(campaignMembers.role, 'player'),
+            isNull(campaignMembers.characterId)
+          )
+        ),
+      db
+        .select({ n: count() })
+        .from(campaignInvites)
+        .where(
+          and(
+            eq(campaignInvites.campaignId, campaignId),
+            eq(campaignInvites.status, 'pending')
+          )
+        ),
+      db
+        .select({ n: count() })
+        .from(battleMaps)
+        .where(eq(battleMaps.campaignId, campaignId)),
+      db.query.battleMaps.findFirst({
+        columns: { id: true, name: true },
+        where: and(
+          eq(battleMaps.campaignId, campaignId),
+          eq(battleMaps.isActive, true)
+        ),
+      }),
+      db
+        .select({ n: count() })
+        .from(encounterPlans)
+        .where(eq(encounterPlans.campaignId, campaignId)),
+    ]);
 
   return {
     ...base,
@@ -123,5 +204,12 @@ export async function getCampaignPulse(
     unsentRecaps: sessions.filter(
       s => s.recapVisibility === 'dm' && s.recapBody.trim().length > 0
     ).length,
+    emptySeats: seats[0]?.n ?? 0,
+    pendingInvites: invites[0]?.n ?? 0,
+    boardsBuilt: boards[0]?.n ?? 0,
+    boardInPlay: active
+      ? { id: active.id, name: active.name || 'A battle board' }
+      : null,
+    encountersReady: plans[0]?.n ?? 0,
   };
 }

@@ -1,11 +1,20 @@
 'use client';
 
-import { Avatar, Button, Input, Link, Select, SelectItem } from '@heroui/react';
+import {
+  Avatar,
+  Button,
+  Input,
+  Link,
+  Select,
+  SelectItem,
+  Snippet,
+} from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { listCharactersAction } from '@/@creator/character/actions';
 import {
   DiceSpinner,
+  Marginalia,
   Ribbon,
   SectionCard,
   useConfirm,
@@ -33,14 +42,26 @@ const roleLabel: Record<CampaignRole, string> = {
   player: 'Player',
 };
 
+/**
+ * Who is at the table, and the one card that fills the empty chairs.
+ *
+ * Seating used to be three cards — the join code, the invite field and the
+ * per-row character select — on one tab, and a DM could not see at a glance
+ * who was coming, who had sat and who had no hero. It is one card now: the
+ * code big enough to read out, the invite under it, and the pending invites
+ * and the empty chairs listed together.
+ */
 export function MembersPanel({
   campaignId,
   viewerId,
   viewerRole,
+  joinCode,
 }: {
   campaignId: string;
   viewerId: string;
   viewerRole: CampaignRole;
+  /** Staff only: the code a player types to seat themselves. */
+  joinCode?: string | null;
 }) {
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
 
@@ -133,6 +154,11 @@ export function MembersPanel({
     }
   };
 
+  /** Players sitting with nobody's hero in the chair. */
+  const emptyChairs = members.filter(
+    m => m.role === 'player' && !m.characterId
+  );
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -156,7 +182,7 @@ export function MembersPanel({
         </p>
       )}
 
-      <SectionCard title={`Members (${members.length})`}>
+      <SectionCard title={`At the table (${members.length})`}>
         <ul className="divide-y divide-line">
           {members.map(m => {
             const isMe = m.userId === viewerId;
@@ -366,54 +392,90 @@ export function MembersPanel({
       </SectionCard>
 
       {isStaff && (
-        <SectionCard title="Invite a player">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Input
-              type="email"
-              size="sm"
-              placeholder="player@example.com"
-              value={inviteEmail}
-              onValueChange={setInviteEmail}
-              className="flex-1"
-            />
-            <Button
-              size="sm"
-              color="primary"
-              isLoading={inviting}
-              onPress={handleInvite}
-            >
-              Send invite
-            </Button>
-          </div>
-          <p className="mt-2 text-xs text-ink-muted">
-            They need a Hero Nexus account first. Or hand them the join code
-            below and let them seat themselves.
-          </p>
-
-          {invites.length > 0 && (
-            <ul className="mt-4 divide-y divide-line border-t border-line">
-              {invites.map(inv => (
-                <li
-                  key={inv.id}
-                  className="flex items-center justify-between py-2 text-sm"
+        <SectionCard
+          title="Seat the party"
+          description="Two ways in: hand out the code, or send an invitation by email."
+        >
+          <div className="flex flex-col gap-4">
+            {joinCode && (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+                  Join code
+                </span>
+                <Snippet
+                  symbol=""
+                  variant="flat"
+                  className="bg-surface-2 font-mono text-lg tracking-[0.2em]"
                 >
-                  <span className="text-ink-muted">
-                    {inv.invitedName || inv.invitedEmail} — pending
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="light"
-                    className="text-ink-muted data-[hover=true]:text-danger"
-                    onPress={() =>
-                      run(() => revokeInviteAction(campaignId, inv.id))
-                    }
+                  {joinCode}
+                </Snippet>
+                <Marginalia dash>they type this at /campaigns/join</Marginalia>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Input
+                type="email"
+                size="sm"
+                aria-label="Invite a player by email"
+                placeholder="player@example.com"
+                value={inviteEmail}
+                onValueChange={setInviteEmail}
+                className="flex-1"
+              />
+              <Button
+                size="sm"
+                color="primary"
+                isLoading={inviting}
+                onPress={handleInvite}
+              >
+                Send invite
+              </Button>
+            </div>
+
+            {/* Who is coming, who has sat, who has no hero — one list, so
+                the answer is not spread over three cards. */}
+            {(invites.length > 0 || emptyChairs.length > 0) && (
+              <ul className="divide-y divide-line border-t border-line">
+                {invites.map(inv => (
+                  <li
+                    key={inv.id}
+                    className="flex items-center justify-between gap-2 py-2 text-sm"
                   >
-                    Revoke
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
+                    <span className="min-w-0 truncate text-ink-muted">
+                      <span className="text-ink">
+                        {inv.invitedName || inv.invitedEmail}
+                      </span>{' '}
+                      — invited, not yet sitting
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="light"
+                      className="text-ink-muted data-[hover=true]:text-danger"
+                      onPress={() =>
+                        run(() => revokeInviteAction(campaignId, inv.id))
+                      }
+                    >
+                      Revoke
+                    </Button>
+                  </li>
+                ))}
+                {emptyChairs.map(m => (
+                  <li
+                    key={m.userId}
+                    className="flex items-center justify-between gap-2 py-2 text-sm"
+                  >
+                    <span className="min-w-0 truncate text-ink-muted">
+                      <span className="text-ink">
+                        {m.name || m.email || 'A player'}
+                      </span>{' '}
+                      — sitting, no hero yet
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </SectionCard>
       )}
     </div>

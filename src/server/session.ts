@@ -106,6 +106,11 @@ export interface EncounterRow {
   id: string;
   name: string;
   isActive: boolean;
+  /**
+   * `setup` while the fight is being laid out — tokens placed, foes shown,
+   * nobody's turn — and `fighting` once somebody has rolled for initiative.
+   */
+  phase: 'setup' | 'fighting';
   round: number;
   turnIndex: number;
   /** What this fight does differently from the campaign. `{}` is nothing. */
@@ -314,7 +319,14 @@ export interface LiveState {
  * (`getLiveState`, the campaign page, the sitting bar) have each already
  * established the reader belongs here.
  */
-export async function tableAt(campaignId: string): Promise<TableKind> {
+export async function tableAt(
+  campaignId: string,
+  /**
+   * Staff see a fight being laid out as a fight; players do not, until
+   * somebody rolls for initiative. Same rule as `getLiveState`.
+   */
+  isStaff = false
+): Promise<TableKind> {
   const [sitting, fight] = await Promise.all([
     db.query.campaignSessions.findFirst({
       columns: { id: true },
@@ -324,14 +336,15 @@ export async function tableAt(campaignId: string): Promise<TableKind> {
       ),
     }),
     db.query.initiativeEncounters.findFirst({
-      columns: { id: true },
+      columns: { id: true, phase: true },
       where: and(
         eq(initiativeEncounters.campaignId, campaignId),
         eq(initiativeEncounters.isActive, true)
       ),
     }),
   ]);
-  return !sitting ? 'desk' : fight ? 'battle' : 'table';
+  const fighting = fight && (fight.phase === 'fighting' || isStaff);
+  return !sitting ? 'desk' : fighting ? 'battle' : 'table';
 }
 
 /** The default a monster walks at when its block is not to hand. */
@@ -475,9 +488,13 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
         }) as EntryRow
     )
   );
-  const turnEntryIds = encounter
-    ? turnMembers(rawEntries, encounter.turnIndex).map(i => rawEntries[i].id)
-    : [];
+  // Nobody's turn while the fight is still being laid out: an order that
+  // has not been rolled has no top, and a player told it was their turn
+  // before anybody rolled has been told the fight started.
+  const turnEntryIds =
+    encounter && encounter.phase === 'fighting'
+      ? turnMembers(rawEntries, encounter.turnIndex).map(i => rawEntries[i].id)
+      : [];
 
   const entries = isStaff
     ? rawEntries
@@ -680,9 +697,15 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
     ),
   });
 
+  /*
+   * A fight being laid out puts the DM at the board and leaves everybody
+   * else at the table. The DM needs the board to place the ghouls; a player
+   * whose screen rearranged itself into a fight the moment the DM started
+   * placing scenery has been told something they were not told.
+   */
   const table: TableKind = !sittingRow
     ? 'desk'
-    : encounter?.isActive
+    : encounter?.isActive && (encounter.phase === 'fighting' || isStaff)
       ? 'battle'
       : 'table';
 
@@ -703,6 +726,7 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
           id: encounter.id,
           name: encounter.name,
           isActive: encounter.isActive,
+          phase: encounter.phase,
           round: encounter.round,
           turnIndex: encounter.turnIndex,
           ruleOverrides: sanitizeTableRulesPatch(encounter.ruleOverrides),
@@ -802,7 +826,16 @@ async function staff(campaignId: string) {
 
 export async function createEncounter(
   campaignId: string,
-  name: string
+  name: string,
+  /**
+   * `setup` lays the fight out without starting it: the order exists, foes
+   * can be placed on the board and shown to the party, and nothing advances
+   * until *Roll for initiative*. That is the default now, because putting
+   * the ghouls where they wait is prep and starting the fight is play, and
+   * doing both in one press is what made the board feel like it only
+   * existed during combat.
+   */
+  phase: 'setup' | 'fighting' = 'setup'
 ): Promise<string> {
   const { userId } = await staff(campaignId);
   await db
@@ -811,22 +844,83 @@ export async function createEncounter(
     .where(eq(initiativeEncounters.campaignId, campaignId));
   const [row] = await db
     .insert(initiativeEncounters)
-    .values({ campaignId, name: name.trim() || 'Encounter', isActive: true })
+    .values({
+      campaignId,
+      name: name.trim() || 'Encounter',
+      isActive: true,
+      phase,
+    })
     .returning({ id: initiativeEncounters.id });
   // The board on the table follows the fight: last week's tokens come off it
   // now, not when the DM next presses "Deal them in".
   const boardId = await activeBoardId(campaignId);
   if (boardId) await bindBoardToFight(boardId, row.id);
   bumpVersion(campaignId);
+  publish(
+    campaignId,
+    {
+      kind: 'encounter',
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      by: userId,
+      encounterName: name.trim() || 'Encounter',
+      // Laying a fight out is not a fight starting, and the table should not
+      // be told to brace itself while the DM is still placing scenery.
+      state: phase === 'setup' ? 'staged' : 'started',
+    },
+    phase === 'setup' ? 'staff' : 'everyone'
+  );
+  return row.id;
+}
+
+/**
+ * Roll for initiative: the one press that turns a fight being laid out into
+ * a fight.
+ *
+ * Everything it does is something the DM used to do by hand in some order or
+ * other — add the party if nobody added them, roll for whoever has no
+ * number, go to the top of the order, say so to the table. Doing them
+ * together is the point: a fight with no party in it is not a fight, and a
+ * table that is not told the fight has started finds out when somebody's
+ * turn banner appears.
+ */
+export async function startFight(
+  encounterId: string
+): Promise<InitiativeRoll[]> {
+  const campaignId = await encounterCampaign(encounterId);
+  const { userId } = await staff(campaignId);
+  const enc = await db.query.initiativeEncounters.findFirst({
+    where: eq(initiativeEncounters.id, encounterId),
+  });
+  if (!enc) throw new Error('NOT_FOUND');
+
+  // A fight with nobody in it on the party's side: put them in rather than
+  // refusing, which is what the DM was about to do anyway.
+  const present = await db
+    .select({ side: initiativeEntries.side })
+    .from(initiativeEntries)
+    .where(eq(initiativeEntries.encounterId, encounterId));
+  if (!present.some(r => r.side === 'party')) {
+    await addPartyToEncounter(encounterId);
+  }
+
+  const rolled = await rollInitiative(encounterId);
+
+  await db
+    .update(initiativeEncounters)
+    .set({ phase: 'fighting', round: 1, turnIndex: 0 })
+    .where(eq(initiativeEncounters.id, encounterId));
+
+  bumpVersion(campaignId);
   publish(campaignId, {
     kind: 'encounter',
     id: randomUUID(),
     at: new Date().toISOString(),
     by: userId,
-    encounterName: name.trim() || 'Encounter',
+    encounterName: enc.name,
     state: 'started',
   });
-  return row.id;
+  return rolled;
 }
 
 async function encounterCampaign(encounterId: string): Promise<string> {
@@ -837,12 +931,49 @@ async function encounterCampaign(encounterId: string): Promise<string> {
   return enc.campaignId;
 }
 
-export async function endEncounter(encounterId: string): Promise<void> {
+/**
+ * What a fight turned out to be worth.
+ *
+ * Handed back by `endEncounter` so the bookkeeping happens while it is
+ * fresh: the DM used to end the fight, and then find the award card a
+ * section away, by which time the table had moved on and the experience was
+ * handed out next week or not at all.
+ *
+ * Everything here is a sum over what was actually in the order — foes that
+ * were dealt in and did not leave — not what a plan said before it started.
+ */
+export interface FightSpoils {
+  /** The fight's name, for the card's line. */
+  name: string;
+  /** Foes in the order, counting copies. */
+  foes: number;
+  /** How many of them were left standing. */
+  standing: number;
+  /** Sum of the foes' experience, where the block says. */
+  experience: number;
+  /** Seated heroes on the party's side, for the split. */
+  partySize: number;
+  /** The split, rounded down. Zero when nobody was seated. */
+  perCharacter: number;
+  /** The characters who were in it, for the award's recipients. */
+  characterIds: string[];
+  /** True when a foe's block no longer resolves, so the total is short. */
+  incomplete: boolean;
+}
+
+export async function endEncounter(
+  encounterId: string
+): Promise<FightSpoils | null> {
   const campaignId = await encounterCampaign(encounterId);
   await staff(campaignId);
   const enc = await db.query.initiativeEncounters.findFirst({
     where: eq(initiativeEncounters.id, encounterId),
   });
+
+  // What it was worth, read before the fight is closed — the rows do not
+  // move, but reading first keeps the summary about the fight that ran.
+  const spoils = enc ? await fightSpoils(enc.id, enc.name) : null;
+
   await db
     .update(initiativeEncounters)
     .set({ isActive: false })
@@ -859,6 +990,69 @@ export async function endEncounter(encounterId: string): Promise<void> {
     encounterName: enc?.name ?? 'The fight',
     state: 'ended',
   });
+  return spoils;
+}
+
+/** The arithmetic behind `FightSpoils`. Staff-only by its one caller. */
+async function fightSpoils(
+  encounterId: string,
+  name: string
+): Promise<FightSpoils> {
+  const rows = await db
+    .select({
+      id: initiativeEntries.id,
+      side: initiativeEntries.side,
+      characterId: initiativeEntries.characterId,
+      creatureRef: initiativeEntries.creatureRef,
+      hpCurrent: initiativeEntries.hpCurrent,
+    })
+    .from(initiativeEntries)
+    .where(eq(initiativeEntries.encounterId, encounterId));
+
+  const foes = rows.filter(r => r.side === 'foe');
+  const party = rows.filter(r => r.side === 'party' && r.characterId);
+
+  const refs = foes
+    .map(f => f.creatureRef as ContentRef | null)
+    .filter((r): r is ContentRef => r !== null);
+  const resolved = refs.length > 0 ? await resolveContentRefs(refs) : new Map();
+
+  let experience = 0;
+  let incomplete = false;
+  for (const foe of foes) {
+    const ref = foe.creatureRef as ContentRef | null;
+    if (!ref) {
+      // A hand-typed foe has no block and so no experience the app can
+      // claim. That is not the same as being worth nothing, so the card
+      // says the total is short rather than pretending it is complete.
+      incomplete = true;
+      continue;
+    }
+    const entry = resolved.get(refKey(ref));
+    const data = entry
+      ? (parseContentData('creature', entry.data) as CreatureData)
+      : null;
+    const xp = data?.experience_points ?? null;
+    if (xp === null) {
+      incomplete = true;
+      continue;
+    }
+    experience += xp;
+  }
+
+  const partySize = party.length;
+  return {
+    name,
+    foes: foes.length,
+    standing: foes.filter(f => f.hpCurrent === null || f.hpCurrent > 0).length,
+    experience,
+    partySize,
+    perCharacter: partySize > 0 ? Math.floor(experience / partySize) : 0,
+    characterIds: party
+      .map(p => p.characterId)
+      .filter((id): id is string => id !== null),
+    incomplete,
+  };
 }
 
 export async function deleteEncounter(encounterId: string): Promise<void> {
@@ -954,11 +1148,24 @@ export async function advanceTurn(
    * the end of somebody else's turn, and the DM is the one who forgets.
    */
   if (direction === 1) {
-    for (const row of ordered) {
-      if (!row.legendary || row.legendary.actions.max === 0) continue;
-      if (upMembers.some(m => m.id === row.id)) continue;
-      const left = legendaryLeft(row.legendary.actions);
-      if (left === 0) continue;
+    /*
+     * One slip, not one per creature. Three legendary creatures used to
+     * mean three near-identical nudges in the corner at the end of every
+     * turn, which reads as the same notification arriving again and again.
+     */
+    const waiting = ordered
+      .filter(
+        row =>
+          row.legendary &&
+          row.legendary.actions.max > 0 &&
+          !upMembers.some(m => m.id === row.id) &&
+          legendaryLeft(row.legendary.actions) > 0
+      )
+      .map(row => ({
+        label: row.label,
+        left: legendaryLeft(row.legendary!.actions),
+      }));
+    if (waiting.length > 0) {
       publish(
         campaignId,
         {
@@ -966,10 +1173,13 @@ export async function advanceTurn(
           id: randomUUID(),
           at: new Date().toISOString(),
           by: userId,
-          actorLabel: row.label,
+          actorLabel:
+            waiting.length === 1
+              ? waiting[0].label
+              : `${waiting.length} creatures`,
           action: 'Legendary action',
           cost: 'free',
-          note: `${left} left`,
+          note: waiting.map(w => `${w.label} · ${w.left} left`).join(' · '),
           again: false,
           ruling: false,
           what: 'legendary',

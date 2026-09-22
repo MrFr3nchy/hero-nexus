@@ -12,7 +12,9 @@ import {
 
 import { listCharactersAction } from '@/@creator/character/actions';
 import {
+  CandleScene,
   DiceSpinner,
+  Marginalia,
   Panel,
   Ribbon,
   staleFor,
@@ -22,6 +24,7 @@ import {
 import { useCampaignLive } from '@/@shared/hooks/useCampaignLive';
 import { AtTable, useTable } from '@/@shared/table';
 import type { SessionRow } from '@/server/campaign-sessions';
+import type { FightSpoils } from '@/server/session';
 import type { CampaignRole, CampaignRow } from '@/server/campaigns';
 import type { CharacterRow } from '@/server/characters';
 import {
@@ -35,6 +38,7 @@ import {
   type ScreenLayout,
   type ScreenLayouts,
   type ScreenPanelKey,
+  type ScreenState,
   type TableKind,
 } from '../../lib/screen';
 import { BattleArrangement } from './BattleArrangement';
@@ -51,18 +55,19 @@ import { YourTurnBanner } from './YourTurnBanner';
 import {
   fileUnderSessionAction,
   listSessionsAction,
+  openSittingAction,
 } from '../../chronicle-actions';
 import { getScreenAction, saveScreenAction } from '../../screen-actions';
+import { listPlansAction, runPlanAction } from '../../encounter-actions';
+import type { PlanRow } from '@/server/encounter-plans';
 import { CanonPanel } from '../CanonPanel';
-import { ChroniclePanel } from '../ChroniclePanel';
-import { DowntimePanel } from '../DowntimePanel';
-import { EncounterPlanner } from '../EncounterPlanner';
 import { LedgerPanel } from '../LedgerPanel';
 import { NotebookPanel } from '../NotebookPanel';
 import { PartyPlayPanel } from '../PartyPlayPanel';
 import { QuestPanel } from '../QuestPanel';
 import { RevealTimeline } from '../RevealTimeline';
 import { HandoutsPanel } from '../session/HandoutsPanel';
+import { AfterTheFight } from '../session/AfterTheFight';
 import { InitiativeTracker } from '../session/InitiativeTracker';
 import { BattleBoard } from '../session/BattleBoard';
 import { ChecksPanel } from '../session/ChecksPanel';
@@ -93,12 +98,13 @@ function SessionChoice({ session }: { session: SessionRow }) {
 /**
  * What the initiative box shows when nothing is trying to kill anybody.
  *
- * This is the one place a fight starts from now — the Session tab that used
- * to carry a copy is gone — so it also carries the filing: a fight can be put
- * under the sitting it belongs to as it is called, the way the tab allowed,
- * rather than found and filed from the chronicle afterwards.
+ * Two ways in, and both of them lay the fight *out* rather than starting it:
+ * a planned encounter deals its monsters onto its board where they were
+ * placed, and a blank one is an empty order to fill by hand. Neither tells
+ * the table anything. *Roll for initiative* does that, and it is on the
+ * panel once there is a fight to start.
  */
-function CallForInitiative({
+function LayOutAFight({
   campaignId,
   sessions,
   refresh,
@@ -112,10 +118,60 @@ function CallForInitiative({
   const [name, setName] = useState('');
   const [sessionId, setSessionId] = useState('');
   const [busy, setBusy] = useState(false);
+  const [plans, setPlans] = useState<PlanRow[] | null>(null);
+
+  useEffect(() => {
+    listPlansAction(campaignId)
+      .then(setPlans)
+      .catch(() => setPlans([]));
+  }, [campaignId]);
+
+  const run = async (planId: string) => {
+    setBusy(true);
+    const res = await runPlanAction(campaignId, planId);
+    setBusy(false);
+    if (!res.ok) {
+      onError(res.error ?? 'Could not lay that one out.');
+      return;
+    }
+    await refresh();
+  };
 
   return (
-    <div className="flex h-full flex-col justify-center gap-2 px-1">
+    <div className="flex h-full flex-col justify-center gap-3 px-1">
       <p className="text-sm text-ink-muted">Nothing is trying to kill you.</p>
+
+      {/* The encounters already built, so the common case is one press. */}
+      {plans && plans.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <span className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+            Ready to lay out
+          </span>
+          <ul className="flex flex-col gap-1">
+            {plans.slice(0, 4).map(plan => (
+              <li key={plan.id}>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  fullWidth
+                  className="justify-start"
+                  isDisabled={busy}
+                  onPress={() => run(plan.id)}
+                >
+                  <span className="min-w-0 truncate text-left">
+                    {plan.name}
+                    <span className="ml-1.5 text-ink-subtle">
+                      {plan.maths.bodyCount}{' '}
+                      {plan.maths.bodyCount === 1 ? 'body' : 'bodies'}
+                    </span>
+                  </span>
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-end gap-2">
         <Input
           size="sm"
@@ -162,16 +218,20 @@ function CallForInitiative({
             }
             setBusy(false);
             if (!res.ok) {
-              onError(res.error ?? 'Failed to start the encounter.');
+              onError(res.error ?? 'Failed to lay the fight out.');
               return;
             }
             setName('');
             await refresh();
           }}
         >
-          Roll for it
+          Lay it out
         </Button>
       </div>
+      <p className="text-xs text-ink-subtle">
+        Laying a fight out puts the monsters on the board without telling the
+        table. Roll for initiative when you are ready.
+      </p>
     </div>
   );
 }
@@ -222,6 +282,71 @@ function FileFightUnder({
   );
 }
 
+/**
+ * What the session screen is when nobody is sitting.
+ *
+ * The screen runs a session; it is not a second campaign record. With no
+ * session open there is nothing to run, so rather than drawing a screenful
+ * of empty boxes it says so and offers the two doors: start the session, or
+ * go back to the campaign page where everything is prepared.
+ */
+function NotSitting({
+  campaignId,
+  isStaff,
+  busy,
+  onStart,
+}: {
+  campaignId: string;
+  isStaff: boolean;
+  busy: boolean;
+  onStart: () => Promise<void>;
+}) {
+  const [working, setWorking] = useState(false);
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+      <div className="max-w-md text-center">
+        <CandleScene className="mx-auto mb-4 h-28 w-28 text-ink-subtle" />
+        <h2 className="font-display text-2xl text-ink">
+          The table is not sitting
+        </h2>
+        <p className="mt-2 text-sm text-ink-muted">
+          {isStaff
+            ? 'This screen runs a session. Start one and the order, the dice and the battle board come up here.'
+            : 'Nothing is running yet. When the DM starts the session this screen fills.'}
+        </p>
+        <Marginalia className="mt-2" dash>
+          everything you prepare lives on the campaign page
+        </Marginalia>
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          {isStaff && (
+            <Button
+              size="md"
+              color="primary"
+              isDisabled={busy || working}
+              isLoading={working}
+              onPress={async () => {
+                setWorking(true);
+                await onStart();
+                setWorking(false);
+              }}
+            >
+              Start the session
+            </Button>
+          )}
+          <Button
+            as={Link}
+            href={`/campaigns/${campaignId}`}
+            size="md"
+            variant="flat"
+          >
+            Back to the campaign
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Everything the panels share, gathered once rather than per panel. */
 interface ScreenContext {
   campaignId: string;
@@ -235,6 +360,14 @@ interface ScreenContext {
   onError: (message: string) => void;
   revealSeq: number;
   bumpReveals: () => void;
+  /**
+   * What the fight that just ended was worth, until the DM has dealt with
+   * it. Lifted out of the initiative panel because the panel unmounts the
+   * moment the fight stops being the running one — which is exactly when
+   * the card has something to say.
+   */
+  spoils: FightSpoils | null;
+  setSpoils: (next: FightSpoils | null) => void;
 }
 
 /**
@@ -260,11 +393,25 @@ function PanelContents({
       // panels that each poll would be three requests every three seconds for
       // one answer.
       if (!live.state) return null;
-      // A staff tracker with no encounter renders nothing at all, which on a
-      // screen is a box that looks broken.
-      if (!live.state.encounter && ctx.isStaff) {
+      /*
+       * No fight *running*. `live.state.encounter` falls back to the last
+       * one ever fought so the order survives as a record, which meant the
+       * box kept offering Next turn on a fight that ended an hour ago.
+       * Running is `isActive`; the record lives under Sessions.
+       */
+      if (!live.state.encounter?.isActive && ctx.isStaff) {
+        if (ctx.spoils) {
+          return (
+            <AfterTheFight
+              campaignId={ctx.campaignId}
+              spoils={ctx.spoils}
+              onDone={() => ctx.setSpoils(null)}
+              onError={ctx.onError}
+            />
+          );
+        }
         return (
-          <CallForInitiative
+          <LayOutAFight
             campaignId={ctx.campaignId}
             sessions={ctx.sessions}
             refresh={async () => {
@@ -276,7 +423,7 @@ function PanelContents({
       }
       return (
         <>
-          {ctx.isStaff && live.state.encounter && (
+          {ctx.isStaff && live.state.encounter?.isActive && (
             <FileFightUnder
               campaignId={ctx.campaignId}
               encounterId={live.state.encounter.id}
@@ -290,6 +437,7 @@ function PanelContents({
             isStaff={ctx.isStaff}
             refresh={live.refresh}
             onError={ctx.onError}
+            onEnded={ctx.setSpoils}
           />
         </>
       );
@@ -349,16 +497,43 @@ function PanelContents({
         />
       ) : null;
 
-    case 'dice':
+    case 'rolls':
+      /*
+       * One box, two halves: what the DM has asked for, and every die the
+       * table has thrown. They were two panels in two columns, so a DM
+       * asking for a Perception check watched the answers land somewhere
+       * other than where they roll for the sexton's Deception. The ask is
+       * on top because it is the half that wants an answer.
+       */
       return live.state ? (
-        <RollPanel
-          campaignId={ctx.campaignId}
-          state={live.state}
-          isStaff={ctx.isStaff}
-          myCharacters={ctx.myCharacters}
-          refresh={live.refresh}
-          onError={ctx.onError}
-        />
+        <div className="space-y-3">
+          {/* Two halves of one box need saying apart; `SectionCard` drops
+              its own heading inside a `Panel` (rule 9), so the eyebrow is
+              the only thing naming them. */}
+          <p className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+            Asked for
+          </p>
+          <ChecksPanel
+            campaignId={ctx.campaignId}
+            state={live.state}
+            isStaff={ctx.isStaff}
+            refresh={live.refresh}
+            onError={ctx.onError}
+          />
+          <div className="border-t border-line pt-3">
+            <p className="mb-1 font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+              Thrown
+            </p>
+            <RollPanel
+              campaignId={ctx.campaignId}
+              state={live.state}
+              isStaff={ctx.isStaff}
+              myCharacters={ctx.myCharacters}
+              refresh={live.refresh}
+              onError={ctx.onError}
+            />
+          </div>
+        </div>
       ) : null;
 
     case 'handouts':
@@ -387,17 +562,6 @@ function PanelContents({
     case 'sitting':
       return live.state ? (
         <SittingCard
-          campaignId={ctx.campaignId}
-          state={live.state}
-          isStaff={ctx.isStaff}
-          refresh={live.refresh}
-          onError={ctx.onError}
-        />
-      ) : null;
-
-    case 'checks':
-      return live.state ? (
-        <ChecksPanel
           campaignId={ctx.campaignId}
           state={live.state}
           isStaff={ctx.isStaff}
@@ -524,30 +688,6 @@ function PanelContents({
           viewerRole={ctx.viewerRole}
         />
       );
-
-    case 'chronicle':
-      return (
-        <ChroniclePanel
-          campaignId={ctx.campaignId}
-          viewerId={ctx.viewerId}
-          viewerRole={ctx.viewerRole}
-        />
-      );
-
-    case 'downtime':
-      return (
-        <DowntimePanel
-          campaignId={ctx.campaignId}
-          viewerId={ctx.viewerId}
-          viewerRole={ctx.viewerRole}
-        />
-      );
-
-    case 'encounters':
-      // Staff only by `SCREEN_PANELS`, so a player's layout never stores it.
-      return ctx.isStaff ? (
-        <EncounterPlanner campaignId={ctx.campaignId} />
-      ) : null;
   }
 }
 
@@ -595,8 +735,7 @@ const LIVE_PANELS: ReadonlySet<ScreenPanelKey> = new Set<ScreenPanelKey>([
   'initiative',
   'mine',
   'vitals',
-  'dice',
-  'checks',
+  'rolls',
   'attacks',
   'spells',
   'statblock',
@@ -613,7 +752,6 @@ const LIVE_PANELS: ReadonlySet<ScreenPanelKey> = new Set<ScreenPanelKey>([
 const HIDDEN_PANELS: ReadonlySet<ScreenPanelKey> = new Set<ScreenPanelKey>([
   'statblock',
   'notebook',
-  'encounters',
 ]);
 
 /**
@@ -629,7 +767,7 @@ function panelStatus(
   }
 ): { status: PanelStatus; detail?: ReactNode; badge?: number } {
   const badge = ctx.badges[key];
-  if (key === 'checks' && badge) {
+  if (key === 'rolls' && badge) {
     return { status: 'waiting', badge };
   }
   if (key === 'mine') return { status: 'yours' };
@@ -646,8 +784,13 @@ function panelStatus(
  *  order while a fight runs. */
 function panelTitle(key: ScreenPanelKey, ctx: ScreenContext): string {
   const label = SCREEN_PANELS[key].label;
-  if (key === 'initiative' && ctx.live.state?.encounter?.isActive) {
-    return `${label} · Round ${ctx.live.state.encounter.round}`;
+  const enc = ctx.live.state?.encounter;
+  if (key === 'initiative' && enc?.isActive) {
+    // A fight being laid out has no round: nobody has rolled, and "Round 1"
+    // over a board the DM is still placing scenery on is a lie.
+    return enc.phase === 'setup'
+      ? `${label} · being laid out`
+      : `${label} · Round ${enc.round}`;
   }
   return label;
 }
@@ -685,6 +828,8 @@ export function DmScreen({
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [myCharacters, setMyCharacters] = useState<CharacterRow[]>([]);
   const [revealSeq, setRevealSeq] = useState(0);
+  /** What the fight that just ended was worth; the initiative box draws it. */
+  const [spoils, setSpoils] = useState<FightSpoils | null>(null);
 
   const [dragged, setDragged] = useState<ScreenPanelKey | null>(null);
   const [dropAt, setDropAt] = useState<DropAt | null>(null);
@@ -780,7 +925,7 @@ export function DmScreen({
         if (!layouts) return;
         const merged = {
           ...layouts,
-          battle: { ...layouts.battle, shelfOpen: !layouts.battle.shelfOpen },
+          battle: { ...layouts.battle, open: !layouts.battle.open },
         };
         setLayouts(merged);
         void save(merged);
@@ -808,19 +953,20 @@ export function DmScreen({
    * real one on a real table: then the fight is columns too, with the order
    * where the board would be.
    */
-  const current: TableKind = layouts.pin ?? live.state?.table ?? 'table';
+  /*
+   * The session screen has two states — at the table and in a fight — and
+   * the campaign has three. `desk` is the third: nobody is sitting, so
+   * there is nothing here to run and the screen shows the door back to the
+   * campaign page rather than a second copy of the record.
+   */
+  const at: TableKind = live.state?.table ?? 'table';
+  const current: ScreenState = layouts.pin ?? (at === 'desk' ? 'table' : at);
   const inPerson = live.state?.rules.board === 'in-person';
-  const arrangementKey: 'desk' | 'table' | 'battleInPerson' =
-    current === 'battle'
-      ? inPerson
-        ? 'battleInPerson'
-        : // The board-and-shelf branch renders below; this is only the
-          // fallback the grid code reads while it is not on screen.
-          'table'
-      : current;
+  const arrangementKey: 'table' | 'battleInPerson' =
+    current === 'battle' && inPerson ? 'battleInPerson' : 'table';
   const layout: ScreenLayout = layouts[arrangementKey];
 
-  const setPin = async (pin: TableKind | null) => {
+  const setPin = async (pin: ScreenState | null) => {
     const next = { ...layouts, pin };
     setLayouts(next);
     await save(next);
@@ -851,6 +997,8 @@ export function DmScreen({
     onError: setError,
     revealSeq,
     bumpReveals: () => setRevealSeq(n => n + 1),
+    spoils,
+    setSpoils,
   };
 
   /*
@@ -861,7 +1009,7 @@ export function DmScreen({
    */
   const badges: Partial<Record<ScreenPanelKey, number>> = live.state
     ? {
-        checks: live.state.checks.filter(c => c.mine).length,
+        rolls: live.state.checks.filter(c => c.mine).length,
         whispers: unreadWhispers(
           live.state.whispers,
           preferences.whispersReadAt[campaign.id]
@@ -942,7 +1090,7 @@ export function DmScreen({
       <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-surface px-3 py-2">
         <h1 className="font-display text-base text-ink">{campaign.name}</h1>
         <Ribbon tone={isStaff ? 'gold' : 'neutral'}>
-          {isStaff ? 'Behind the screen' : 'At the table'}
+          {isStaff ? 'Running the session' : 'At the table'}
         </Ribbon>
         {live.state && (
           <ModeBar
@@ -1073,7 +1221,7 @@ export function DmScreen({
               setArranging(!arranging);
             }}
           >
-            {arranging ? (dirty ? 'Save the screen' : 'Done') : 'Customize'}
+            {arranging ? (dirty ? 'Save the screen' : 'Done') : 'Arrange'}
           </Button>
           <Button
             as={Link}
@@ -1081,7 +1229,7 @@ export function DmScreen({
             size="sm"
             variant="light"
           >
-            Back
+            The campaign
           </Button>
         </div>
       </header>
@@ -1094,7 +1242,18 @@ export function DmScreen({
         />
       )}
 
-      {current === 'battle' && live.state && !inPerson ? (
+      {at === 'desk' && live.state ? (
+        <NotSitting
+          campaignId={campaign.id}
+          isStaff={isStaff}
+          busy={false}
+          onStart={async () => {
+            const res = await openSittingAction(campaign.id);
+            if (!res.ok) setError(res.error ?? 'Could not start the session.');
+            await live.refresh();
+          }}
+        />
+      ) : current === 'battle' && live.state && !inPerson ? (
         <BattleArrangement
           layout={layouts.battle}
           arranging={arranging}

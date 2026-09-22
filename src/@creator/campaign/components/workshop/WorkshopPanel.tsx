@@ -24,18 +24,25 @@ import {
   type Stamp,
 } from '@/@creator/campaign/lib/stamps';
 import {
+  FACINGS,
   LEVEL_SEENS,
   MATERIALS,
   VOID,
   WALL_HEIGHT,
+  WEATHERS,
+  WEATHER_META,
   type Ambient,
   type BoardDoc,
+  type Facing,
   type ItemState,
   type LevelDoc,
   type WallKind,
+  type Weather,
 } from '@/@shared/battlemap/types';
 import { Marginalia } from '@/@shared/components/ui';
+import { ImagePicker } from '../ImagePicker';
 import {
+  ERASE_WHATS,
   ROOM_SIZES,
   type HeightMode,
   type PaintMode,
@@ -178,8 +185,10 @@ export function WorkshopPanel({
   onRemove,
   onSaveStamp,
   onAmbient,
+  onWeather,
   onRevealRooms,
   onHideFloor,
+  campaignId,
 }: {
   tool: WorkshopTool;
   settings: Settings;
@@ -195,8 +204,10 @@ export function WorkshopPanel({
   onRemove: () => void;
   onSaveStamp: () => void;
   onAmbient: (a: Ambient) => void;
+  onWeather: (w: Weather) => void;
   onRevealRooms: () => void;
   onHideFloor: () => void;
+  campaignId: string;
 }) {
   const swatch = (i: number) =>
     i === VOID
@@ -433,8 +444,24 @@ export function WorkshopPanel({
       const modes: { id: HeightMode; label: string }[] = [
         { id: 'raise', label: 'Raise' },
         { id: 'lower', label: 'Lower' },
-        { id: 'set', label: 'Set' },
+        { id: 'set', label: 'Set to' },
       ];
+      /*
+       * The step, in feet, with the whole range reachable.
+       *
+       * The pair of arrows used to move by 5 and clamp at 1, so a DM who
+       * went down to 1 ft and pressed + landed on 6 and could never get
+       * back to 5. The arrows snap to the 5-ft grid the game thinks in,
+       * the row of sizes is the fast path, and the field takes any number
+       * — including 0, which the Set mode needs to flatten ground back to
+       * the datum.
+       */
+      const nudge = (by: 1 | -1) => {
+        const v = settings.step;
+        const snapped =
+          by > 0 ? Math.floor(v / 5) * 5 + 5 : Math.ceil(v / 5) * 5 - 5;
+        set({ step: Math.max(0, Math.min(200, snapped)) });
+      };
       return (
         <div className="flex flex-col gap-[18px]">
           <Segment
@@ -442,37 +469,81 @@ export function WorkshopPanel({
             options={modes}
             onChange={heightMode => set({ heightMode })}
           />
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[13px]">Step</span>
-            <div className="flex items-center rounded-lg border border-line">
-              <button
-                type="button"
-                aria-label="Less"
-                onClick={() => set({ step: Math.max(1, settings.step - 5) })}
-                className="h-9 w-9 text-base text-ink"
-              >
-                −
-              </button>
-              <span className="w-14 text-center text-[13px] tabular-nums">
-                {settings.step} ft
-              </span>
-              <button
-                type="button"
-                aria-label="More"
-                onClick={() => set({ step: Math.min(100, settings.step + 5) })}
-                className="h-9 w-9 text-base text-ink"
-              >
-                +
-              </button>
+          <div className="flex flex-col gap-2">
+            <Label>
+              {settings.heightMode === 'set' ? 'HEIGHT' : 'STEP'} · FEET
+            </Label>
+            <div className="flex items-center gap-1.5">
+              <div className="flex grow items-center rounded-lg border border-line">
+                <button
+                  type="button"
+                  aria-label="Five feet less"
+                  onClick={() => nudge(-1)}
+                  className="h-9 w-9 text-base text-ink"
+                >
+                  −
+                </button>
+                <Input
+                  size="sm"
+                  type="number"
+                  aria-label="Feet"
+                  classNames={{
+                    inputWrapper: 'h-9 min-h-9 bg-transparent shadow-none',
+                    input: 'text-center tabular-nums',
+                  }}
+                  value={String(settings.step)}
+                  onValueChange={v => {
+                    const n = Math.trunc(Number(v));
+                    if (v.trim() === '') return set({ step: 0 });
+                    if (!Number.isFinite(n)) return;
+                    set({ step: Math.max(0, Math.min(200, n)) });
+                  }}
+                />
+                <button
+                  type="button"
+                  aria-label="Five feet more"
+                  onClick={() => nudge(1)}
+                  className="h-9 w-9 text-base text-ink"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-5 gap-1">
+              {[0, 1, 5, 10, 20].map(ft => (
+                <button
+                  key={ft}
+                  type="button"
+                  aria-pressed={settings.step === ft}
+                  onClick={() => set({ step: ft })}
+                  className={`h-8 rounded-lg border text-xs ${
+                    settings.step === ft
+                      ? 'border-gold bg-gold font-semibold text-bg'
+                      : 'border-line text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {ft}
+                </button>
+              ))}
             </div>
           </div>
+          {settings.heightMode !== 'set' && (
+            <button
+              type="button"
+              onClick={() => set({ heightMode: 'set', step: 0 })}
+              className="h-10 rounded-lg border border-line bg-surface-2 text-[13px] text-ink hover:border-ink-subtle"
+            >
+              Flatten back to the ground
+            </button>
+          )}
           <BrushPicker
             brush={settings.brush}
             onChange={brush => set({ brush })}
           />
           <p className="text-xs leading-relaxed text-ink-muted">
             Height is measured from this floor, not from the garden. A dais in
-            the great hall is +5 ft on the ground floor.
+            the great hall is +5 ft on the ground floor. 1-ft steps are legal;
+            the arrows move in 5s because the game does.
           </p>
         </div>
       );
@@ -673,7 +744,14 @@ export function WorkshopPanel({
         { label: 'Save as a stamp', key: 'S', on: onSaveStamp, disabled: !box },
         { label: 'Turn it', key: 'R', on: onTurn, disabled: !box },
         {
-          label: 'Remove it',
+          label: `Remove ${
+            selection?.kind === 'box'
+              ? (
+                  ERASE_WHATS.find(w => w.id === settings.eraseWhat)?.label ??
+                  'it'
+                ).toLowerCase()
+              : 'it'
+          }`,
           key: 'Del',
           on: onRemove,
           disabled: !selection,
@@ -716,6 +794,31 @@ export function WorkshopPanel({
                     {l.name}
                   </button>
                 ))}
+            </div>
+          )}
+          {/* What "Remove" takes. It used to take the whole tile — floor,
+              height, walls and all — and a DM deleting a hedge lost the
+              lawn. The choice is the Erase tool's, so the two agree. */}
+          {box && (
+            <div className="flex flex-col gap-1.5">
+              <Label>REMOVE TAKES</Label>
+              <div className="grid grid-cols-3 gap-1">
+                {ERASE_WHATS.map(w => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    aria-pressed={settings.eraseWhat === w.id}
+                    onClick={() => set({ eraseWhat: w.id })}
+                    className={`h-8 rounded-lg border text-[11px] ${
+                      settings.eraseWhat === w.id
+                        ? 'border-gold bg-gold font-semibold text-bg'
+                        : 'border-line text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    {w.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {!box && (
@@ -848,8 +951,156 @@ export function WorkshopPanel({
             Each floor keeps its own light, so the cellar can be pitch dark
             under a sunny garden.
           </p>
+
+          {/* Weather is per floor for the same reason light is: it rains on
+              the roof and not in the crypt. */}
+          <div className="flex flex-col gap-2 border-t border-line pt-[18px]">
+            <Label>WEATHER</Label>
+            <div className="grid grid-cols-3 gap-1">
+              {WEATHERS.map(w => (
+                <button
+                  key={w}
+                  type="button"
+                  aria-pressed={(terrain.weather ?? 'clear') === w}
+                  onClick={() => onWeather(w)}
+                  className={`h-9 rounded-lg border text-xs ${
+                    (terrain.weather ?? 'clear') === w
+                      ? 'border-gold bg-gold font-semibold text-bg'
+                      : 'border-line text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {WEATHER_META[w].name}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs leading-relaxed text-ink-muted">
+              {WEATHER_META[terrain.weather ?? 'clear'].line}
+              {WEATHER_META[terrain.weather ?? 'clear'].rule
+                ? ` ${WEATHER_META[terrain.weather ?? 'clear'].rule}`
+                : ''}
+            </p>
+          </div>
         </div>
       );
+
+    case 'erase':
+      return (
+        <div className="flex flex-col gap-[18px]">
+          <div className="flex flex-col gap-2">
+            <Label>RUB OUT</Label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {ERASE_WHATS.map(w => (
+                <button
+                  key={w.id}
+                  type="button"
+                  aria-pressed={settings.eraseWhat === w.id}
+                  onClick={() => set({ eraseWhat: w.id })}
+                  className={`flex flex-col items-start gap-0.5 px-2.5 py-[9px] ${card(
+                    settings.eraseWhat === w.id
+                  )}`}
+                >
+                  <span className="text-[13px] font-semibold">{w.label}</span>
+                  <span className="text-[11px] text-ink-muted">{w.sub}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <BrushPicker
+            brush={settings.brush}
+            onChange={brush => set({ brush })}
+          />
+          <p className="text-xs leading-relaxed text-ink-muted">
+            One kind at a time, so a hedge can go without taking the lawn it
+            stood on. Everything is the whole tile — floor, height, walls and
+            all.
+          </p>
+        </div>
+      );
+
+    case 'pictures': {
+      const facings: { id: Facing; label: string }[] = [
+        { id: 'camera', label: 'Faces you' },
+        { id: 'n', label: 'North' },
+        { id: 'e', label: 'East' },
+        { id: 's', label: 'South' },
+        { id: 'w', label: 'West' },
+      ];
+      void FACINGS;
+      return (
+        <div className="flex flex-col gap-[18px]">
+          {/* The campaign's own pictures, and an upload beside them: one
+              fountain uploaded once and stood up in six places. */}
+          <ImagePicker
+            campaignId={campaignId}
+            label="THE PICTURE"
+            library
+            hint={false}
+            value={settings.pictureImageId}
+            onChange={pictureImageId => set({ pictureImageId })}
+          />
+          <div className="flex flex-col gap-2">
+            <Label>HOW TALL · FEET</Label>
+            <div className="grid grid-cols-5 gap-1">
+              {[3, 6, 10, 20, 40].map(ft => (
+                <button
+                  key={ft}
+                  type="button"
+                  aria-pressed={settings.pictureHeight === ft}
+                  onClick={() => set({ pictureHeight: ft })}
+                  className={`h-9 rounded-lg border text-xs ${
+                    settings.pictureHeight === ft
+                      ? 'border-gold bg-gold font-semibold text-bg'
+                      : 'border-line text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {ft}
+                </button>
+              ))}
+            </div>
+            <Input
+              size="sm"
+              type="number"
+              aria-label="How tall, in feet"
+              value={String(settings.pictureHeight)}
+              onValueChange={v => {
+                const n = Math.trunc(Number(v));
+                if (!Number.isFinite(n)) return;
+                set({ pictureHeight: Math.max(1, Math.min(100, n)) });
+              }}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>WHICH WAY IT FACES</Label>
+            <div className="grid grid-cols-3 gap-1">
+              {facings.map(f => (
+                <button
+                  key={f.id}
+                  type="button"
+                  aria-pressed={settings.pictureFacing === f.id}
+                  onClick={() => set({ pictureFacing: f.id })}
+                  className={`h-9 rounded-lg border text-xs ${
+                    settings.pictureFacing === f.id
+                      ? 'border-gold bg-gold font-semibold text-bg'
+                      : 'border-line text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Toggle
+            label="It blocks the tile"
+            on={settings.pictureBlocks}
+            onChange={pictureBlocks => set({ pictureBlocks })}
+          />
+          <Marginalia dash>
+            tap a tile to stand it up · the wheel turns a fixed one · erase it
+            with the rubber, set to Things
+          </Marginalia>
+        </div>
+      );
+    }
 
     case 'fog':
       return (
@@ -873,8 +1124,8 @@ export function WorkshopPanel({
             Hide this floor again
           </button>
           <p className="text-xs leading-relaxed text-ink-muted">
-            Fog is kept per floor. Revealing the landing shows nothing of the
-            cellar.
+            Fog of war is kept per floor. Showing the landing shows nothing of
+            the cellar.
           </p>
           <Marginalia dash>
             the party sees this floor{' '}

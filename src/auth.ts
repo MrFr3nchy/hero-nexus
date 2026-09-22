@@ -62,6 +62,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const row = await db.query.users.findFirst({
         where: eq(users.id, user.id),
       });
+      // An account the operator has shut off (0065) is refused here too. It
+      // reads to the login form as the same `AccessDenied` an unverified
+      // address gets, which is deliberate: "that account cannot sign in" is
+      // all a sign-in screen has any business saying.
+      if (row?.disabledAt) return false;
       return Boolean(row?.emailVerified);
     },
   },

@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Tooltip } from '@heroui/react';
+import { Button, Select, SelectItem, Tooltip } from '@heroui/react';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -114,16 +114,37 @@ export function StatBlockPanel({
    * attacker — the block being read — so the other one is who it swings at;
    * with none, the swing rolls and compares nothing, as it always did.
    */
-  const targetEntryId = useMemo(() => {
+  const boardTargetId = useMemo(() => {
     const other = selectedIds.find(id => id !== selectedId);
     const token = other
       ? state.battlemap?.tokens.find(t => t.id === other)
       : null;
     return token?.entryId ?? null;
   }, [selectedIds, selectedId, state.battlemap]);
+
+  /*
+   * Who it swings at.
+   *
+   * Shift-tapping a second token on the board still aims, and is the fast
+   * path — but it was the *only* path, said once in the hand face, and a DM
+   * who missed it pressed Attack, hit nothing, and had no way to tell
+   * whether they had hit or missed because there had been nobody to hit.
+   * The picker is the way in that does not have to be discovered; the board
+   * feeds it, and it feeds the board back nothing, so the two never fight.
+   */
+  const [pickedTarget, setPickedTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (boardTargetId) setPickedTarget(boardTargetId);
+  }, [boardTargetId]);
+  const targetEntryId = pickedTarget ?? boardTargetId;
   const targetLabel = useMemo(
     () => state.entries.find(e => e.id === targetEntryId)?.label ?? null,
     [state.entries, targetEntryId]
+  );
+  /** Everyone else in the fight, as things to swing at. */
+  const targets = useMemo(
+    () => state.entries.filter(e => e.id !== combatant?.id),
+    [state.entries, combatant?.id]
   );
 
   /**
@@ -297,11 +318,74 @@ export function StatBlockPanel({
         </div>
       </div>
 
+      {/* Who it is aimed at, as a control rather than a hint. */}
+      <div className="flex items-center gap-2">
+        <Select
+          aria-label="Who it swings at"
+          size="sm"
+          className="flex-1"
+          classNames={{ trigger: 'h-8 min-h-8' }}
+          placeholder="Nobody — the swing rolls against nothing"
+          selectedKeys={targetEntryId ? [targetEntryId] : []}
+          onSelectionChange={keys => {
+            const key = Array.from(keys)[0];
+            setPickedTarget(key ? String(key) : null);
+          }}
+        >
+          {targets.map(e => (
+            <SelectItem key={e.id} textValue={e.label}>
+              <span className="flex items-baseline gap-2">
+                <span>{e.label}</span>
+                {e.armorClass !== null && (
+                  <span className="text-xs tabular-nums text-ink-subtle">
+                    AC {e.armorClass}
+                  </span>
+                )}
+              </span>
+            </SelectItem>
+          ))}
+        </Select>
+        {targetEntryId && (
+          <Button
+            size="sm"
+            variant="light"
+            className="h-8 min-w-0 px-2 text-xs text-ink-subtle"
+            onPress={() => setPickedTarget(null)}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
       <Marginalia dash>
         {targetLabel
-          ? `swinging at ${targetLabel}`
-          : 'shift-tap a second token to aim'}
+          ? `swinging at ${targetLabel} — or shift-tap a token on the board`
+          : 'pick somebody, or shift-tap a second token on the board'}
       </Marginalia>
+
+      {/* What the last swing did, where the eye already is rather than
+          buried under whichever action was pressed. */}
+      {last && (
+        <div
+          className={`rounded-md border px-2.5 py-1.5 text-sm ${
+            last.outcome.hit === true
+              ? 'border-success/50 bg-success/[0.08] text-success'
+              : last.outcome.hit === false
+                ? 'border-danger/40 bg-danger/[0.06] text-danger'
+                : 'border-line bg-surface-2 text-ink-muted'
+          }`}
+        >
+          <span className="font-medium">{last.name}</span>
+          {last.outcome.targetLabel
+            ? ` vs ${last.outcome.targetLabel}`
+            : ''} — {outcomeWords(last.outcome, last.total)}
+          {last.outcome.applied ? ' · damage applied' : ''}
+          {last.outcome.hit === null && !last.outcome.targetLabel && (
+            <span className="block text-xs text-ink-subtle">
+              Nobody was aimed at, so there was nothing to hit or miss.
+            </span>
+          )}
+        </div>
+      )}
       {refusal && (
         <Refused refusal={refusal} onDismiss={() => setRefusal(null)} />
       )}
