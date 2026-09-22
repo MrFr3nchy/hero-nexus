@@ -136,6 +136,37 @@ require_repo() {
 	[[ -d "$APP_DIR/.git" ]] || die "$APP_DIR is not a git checkout"
 }
 
+# Everything in the checkout has to be writable by the user the app runs as.
+#
+# It stops being so the moment anybody runs git here as root — `git pull` in
+# the console is the usual way — because the files git then writes are
+# root-owned. The next deploy runs git as `hero` and dies on the first of
+# them, which reads as "error: cannot open '.git/FETCH_HEAD': Permission
+# denied" and says nothing about why.
+#
+# Cheap to check and deterministic to repair, so as root it just repairs it.
+# node_modules and the build directories are skipped: they are large, and
+# `npm ci` and the build rewrite them as the owner anyway.
+ensure_owned() {
+	local owner group stray
+	owner="$(app_owner)"
+	group="$(stat -c '%G' "$APP_DIR")"
+	stray="$(find "$APP_DIR" \
+		\( -name node_modules -o -name '.next' -o -name '.next.*' \) -prune -o \
+		! -user "$owner" -print 2>/dev/null | head -20)"
+	[[ -n "$stray" ]] || return 0
+
+	warn "files in the checkout are not owned by '$owner' — git will fail as that user:"
+	echo "$stray" | sed -e "s#^${APP_DIR}\$#     . (the checkout itself)#" -e "s#^${APP_DIR}/#     #" >&2
+	if ! is_root; then
+		die "run as root to have this repaired, or: chown -R $owner:$group $APP_DIR"
+	fi
+	step "repairing ownership"
+	chown -R "$owner":"$group" "$APP_DIR"
+	good "$APP_DIR is $owner:$group again"
+	note "something ran git here as root. Use ./cli rather than git directly."
+}
+
 confirm() {
 	local prompt="$1"
 	[[ "${ASSUME_YES:-0}" == 1 ]] && return 0
@@ -257,6 +288,9 @@ cmd_deploy() {
 	step "Hero Nexus deploy"
 	info "checkout   $APP_DIR (owned by $owner)"
 	info "service    $(have_systemd && echo "$SERVICE" || echo 'none — build only')"
+
+	# ------------------------------------------------ 0. can the owner write?
+	ensure_owned
 
 	# ------------------------------------------------ 1. what is here now
 	local before dirty
@@ -587,6 +621,14 @@ cmd_backup() {
 	do_backup
 }
 
+cmd_fix_permissions() {
+	require_repo
+	is_root || die "run as root"
+	if ensure_owned; then
+		good "nothing to repair"
+	fi
+}
+
 cmd_rollback() {
 	local ref="${1:-}"
 	[[ -n "$ref" ]] || die "which one? ./cli rollback <tag-or-sha>  (./cli releases lists them)"
@@ -640,6 +682,15 @@ cmd_doctor() {
 		complain "$APP_DIR is not a git checkout"
 	fi
 	info "owned by $(app_owner)"
+	local stray_owner
+	stray_owner="$(find "$APP_DIR" \
+		\( -name node_modules -o -name '.next' -o -name '.next.*' \) -prune -o \
+		! -user "$(app_owner)" -print 2>/dev/null | head -1)"
+	if [[ -z "$stray_owner" ]]; then
+		good "every file belongs to $(app_owner)"
+	else
+		complain "some files are not owned by $(app_owner) (e.g. ${stray_owner#"$APP_DIR"/}) — git will fail as that user. ./cli fix-permissions"
+	fi
 
 	step "node"
 	if command -v node >/dev/null; then
@@ -788,6 +839,7 @@ Hero Nexus operator CLI.
   ./cli restart                  restart and wait for the health check
   ./cli start | stop             the service, without a health check
   ./cli backup                   snapshot the database now
+  ./cli fix-permissions          give the checkout back to the user the app runs as
   ./cli migrate                  run pending migrations by hand
   ./cli seed | sync              reference data from api.open5e.com
   ./cli releases                 recent commits on origin, and tags
@@ -816,6 +868,7 @@ main() {
 	restart) cmd_restart ;;
 	start | stop) cmd_service "$cmd" ;;
 	backup) cmd_backup ;;
+	fix-permissions) cmd_fix_permissions ;;
 	migrate) cmd_migrate ;;
 	seed) cmd_seed ;;
 	sync) cmd_sync ;;

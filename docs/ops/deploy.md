@@ -220,6 +220,23 @@ migration is backward-compatible with the old code.
 Always rehearse a migration against a copy of the production DB before deploying
 it (`restore.md` § Migration rehearsal).
 
+## "cannot open '.git/FETCH_HEAD': Permission denied"
+
+Something ran `git` in `/opt/hero-nexus` as **root** — `git pull` in the
+console is the usual way — and the files git wrote are root-owned. The app
+runs as `hero`, so the next deploy runs git as `hero` and dies on the first of
+them.
+
+`hero-nexus deploy` checks for this before it touches git and repairs it when
+run as root, so the same command again is usually the whole fix. On its own:
+
+```
+sudo hero-nexus fix-permissions      # or: chown -R hero:hero /opt/hero-nexus
+```
+
+`hero-nexus doctor` reports it too. Prefer `hero-nexus deploy` over `git pull`
+here: it does the pull as the right user, and the rest of the release with it.
+
 ## Checking a droplet
 
 ```
