@@ -408,6 +408,14 @@ cmd_deploy() {
 			fi
 			rm -f "$tsconfig_copy"
 		}
+		# Point the typecheck at the build being made, not the one still
+		# serving. `.next/types` holds a generated module per route, and the
+		# previous release's copy is still on disk — so a release that
+		# *removes* a route fails to build against types for a page that no
+		# longer exists. Restored with the rest of the file afterwards.
+		if [[ -n "$tsconfig_copy" ]]; then
+			sed -i 's#\.next/types/#.next.new/types/#g' "$tsconfig"
+		fi
 		if ! as_owner "NEXT_DIST_DIR=.next.new NODE_ENV=production npm run build"; then
 			as_owner "rm -rf .next.new"
 			restore_tsconfig
