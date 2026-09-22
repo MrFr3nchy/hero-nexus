@@ -17,6 +17,7 @@ import {
   MATERIALS,
   VOID,
   WALL_HEIGHT,
+  type Facing,
   type Light,
   type LinkKind,
   type Prop,
@@ -238,6 +239,89 @@ export function toggleProp(
   const at = next.props.findIndex(p => p.x === x && p.y === y);
   if (at >= 0) next.props.splice(at, 1);
   else next.props.push({ x, y, ...prop });
+  return next;
+}
+
+/**
+ * Put a picture standing on a tile, replacing whatever prop was there.
+ *
+ * Not `toggleProp`: a second tap with a different picture should swap the
+ * standee, not take the first one away and leave the tile bare.
+ */
+export function putPicture(
+  doc: TerrainDoc,
+  x: number,
+  y: number,
+  picture: { imageId: string; height: number; facing?: Facing; blocks: boolean }
+): TerrainDoc {
+  if (!inBounds(doc, x, y)) return doc;
+  const next = open(doc);
+  const at = next.props.findIndex(p => p.x === x && p.y === y);
+  const prop: Prop = {
+    x,
+    y,
+    kind: 'image',
+    blocks: picture.blocks,
+    imageId: picture.imageId,
+    height: Math.max(1, Math.min(100, Math.trunc(picture.height) || 10)),
+    ...(picture.facing && picture.facing !== 'camera'
+      ? { facing: picture.facing }
+      : {}),
+  };
+  if (at >= 0) next.props[at] = prop;
+  else next.props.push(prop);
+  return next;
+}
+
+/** What `eraseTiles` rubs out. One kind, so the floor survives the hedge. */
+export type EraseKind =
+  | 'props'
+  | 'walls'
+  | 'lights'
+  | 'floor'
+  | 'height'
+  | 'all';
+
+/**
+ * Rub out one kind of thing over a set of tiles.
+ *
+ * The reason this exists: removing a tree, a hedge or a wall used to mean
+ * `clearRegion`, which takes the floor, the height, the walls, the props and
+ * the lights together — so a DM who wanted the hedge gone lost the lawn it
+ * stood on and had to repaint it. Each kind is its own verb now, and
+ * `'all'` is still there for the DM who did mean the whole tile.
+ *
+ * Walls count as "on" a tile when either side of the edge is in the set, so
+ * dragging along the inside of a room knocks its walls down without needing
+ * to drag over the tiles outside it.
+ */
+export function eraseTiles(
+  doc: TerrainDoc,
+  tiles: readonly number[],
+  kind: EraseKind
+): TerrainDoc {
+  const set = new Set(tiles);
+  if (kind === 'all') {
+    let next = paintTiles(doc, tiles, VOID);
+    next = setHeight(next, tiles, 0);
+    next = knockDown(next, tiles);
+    next.props = next.props.filter(p => !set.has(p.y * doc.w + p.x));
+    next.lights = next.lights.filter(l => !set.has(l.y * doc.w + l.x));
+    if (next.rooms) {
+      next.rooms = next.rooms.filter(r => !set.has(r.y * doc.w + r.x));
+    }
+    return next;
+  }
+  if (kind === 'floor') return paintTiles(doc, tiles, VOID);
+  if (kind === 'height') return setHeight(doc, tiles, 0);
+  if (kind === 'walls') return knockDown(doc, tiles);
+
+  const next = open(doc);
+  if (kind === 'props') {
+    next.props = next.props.filter(p => !set.has(p.y * doc.w + p.x));
+  } else {
+    next.lights = next.lights.filter(l => !set.has(l.y * doc.w + l.x));
+  }
   return next;
 }
 

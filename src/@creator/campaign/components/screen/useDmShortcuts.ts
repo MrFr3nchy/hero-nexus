@@ -20,7 +20,7 @@ export const SHORTCUTS: { keys: string; does: string }[] = [
   { keys: 'C', does: 'conditions on the highlighted' },
   { keys: '1 – 6', does: 'board: select, floor, height, build, things, fog' },
   { keys: 'F', does: 'the fog reveal tool' },
-  { keys: 'Space', does: 'the shelf' },
+  { keys: 'Space', does: 'fold the panels away' },
   { keys: 'Ctrl / ⌘ Z', does: 'undo' },
   { keys: 'Esc', does: 'let go of a number' },
   { keys: '?', does: 'this list' },

@@ -116,7 +116,9 @@ function MapSheet({
                 )
               }
             >
-              {map.visibility === 'shared' ? 'Take it back' : 'Show the party'}
+              {map.visibility === 'shared'
+                ? 'Hide from the party'
+                : 'Show the party'}
             </Button>
             {/* Sharing puts a map where the party can find it; lighting one
                 puts it in front of them. Two different sentences at a table,

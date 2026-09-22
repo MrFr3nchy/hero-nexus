@@ -29,6 +29,7 @@ function clock(at: number): string {
 
 /** How each kind reads in the volume control. Two words, in the table's voice. */
 const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
+  sound: 'Sound effects',
   roll: 'Dice',
   turn: 'Turns',
   encounter: 'Fights',

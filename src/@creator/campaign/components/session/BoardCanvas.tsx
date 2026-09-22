@@ -292,6 +292,33 @@ export function BoardCanvas({
           ctx.fillRect(px, py, size, size);
           ctx.globalAlpha = 1;
         }
+
+        /*
+         * Difficult ground, marked rather than only costed.
+         *
+         * Water and rubble have always cost double to enter, but nothing on
+         * the board said so, and a player counting squares had no way to
+         * know their six became three. A hatch of short diagonals is the
+         * mark: greyscale-safe, and it reads as "rough going" rather than
+         * as a colour that has to be learnt.
+         */
+        if (m.difficult && size >= 10) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(px, py, size, size);
+          ctx.clip();
+          ctx.strokeStyle = dark ? '#ffffff' : '#2b2620';
+          ctx.globalAlpha = 0.16;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let k = -size; k < size; k += Math.max(4, size / 4)) {
+            ctx.moveTo(px + k, py + size);
+            ctx.lineTo(px + k + size, py);
+          }
+          ctx.stroke();
+          ctx.restore();
+          ctx.globalAlpha = 1;
+        }
       }
     }
 
@@ -1359,6 +1386,84 @@ export function BoardCanvas({
       ctx.textBaseline = 'middle';
       ctx.fillText(label, lx + 5, ly + th / 2);
       ctx.textBaseline = 'alphabetic';
+    }
+
+    /*
+     * Weather, over everything and under nothing.
+     *
+     * Still: design rule 4 allows one animated moment on a page and a
+     * fight already spends it on whose turn it is, so rain is drawn as
+     * streaks rather than falling. Seeded off the tile grid, so it is the
+     * same rain on every redraw and does not shimmer as the board pans.
+     */
+    const weather = terrain.weather ?? 'clear';
+    if (weather !== 'clear') {
+      const rnd = (n: number) => {
+        const v = Math.sin(n * 12.9898) * 43758.5453;
+        return v - Math.floor(v);
+      };
+      ctx.save();
+      if (weather === 'mist') {
+        const g = ctx.createLinearGradient(0, 0, 0, H);
+        g.addColorStop(
+          0,
+          dark ? 'rgba(200,210,220,0.10)' : 'rgba(255,255,255,0.30)'
+        );
+        g.addColorStop(
+          0.5,
+          dark ? 'rgba(200,210,220,0.22)' : 'rgba(255,255,255,0.46)'
+        );
+        g.addColorStop(
+          1,
+          dark ? 'rgba(200,210,220,0.10)' : 'rgba(255,255,255,0.30)'
+        );
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      } else if (weather === 'rain' || weather === 'storm') {
+        const drops = Math.round((W * H) / (weather === 'storm' ? 900 : 2200));
+        const lean = weather === 'storm' ? 7 : 3;
+        const len = weather === 'storm' ? 16 : 11;
+        ctx.strokeStyle = dark
+          ? 'rgba(190,210,230,0.5)'
+          : 'rgba(90,120,150,0.45)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 0; i < drops; i++) {
+          const x = rnd(i * 3.7) * W;
+          const y = rnd(i * 7.1 + 11) * H;
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + lean, y + len);
+        }
+        ctx.stroke();
+        if (weather === 'storm') {
+          ctx.fillStyle = dark
+            ? 'rgba(20,28,38,0.28)'
+            : 'rgba(90,105,125,0.20)';
+          ctx.fillRect(0, 0, W, H);
+        }
+      } else {
+        const flakes = Math.round(
+          (W * H) / (weather === 'blizzard' ? 700 : 2000)
+        );
+        ctx.fillStyle = dark
+          ? 'rgba(235,242,248,0.75)'
+          : 'rgba(255,255,255,0.9)';
+        for (let i = 0; i < flakes; i++) {
+          const x = rnd(i * 5.3) * W;
+          const y = rnd(i * 9.7 + 3) * H;
+          const r = 1 + rnd(i * 2.1) * (weather === 'blizzard' ? 1.8 : 1.1);
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (weather === 'blizzard') {
+          ctx.fillStyle = dark
+            ? 'rgba(210,220,235,0.16)'
+            : 'rgba(255,255,255,0.32)';
+          ctx.fillRect(0, 0, W, H);
+        }
+      }
+      ctx.restore();
     }
 
     // Whatever the surface on top wants drawn last: a stamp's ghost, a tag.

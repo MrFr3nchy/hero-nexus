@@ -1,12 +1,17 @@
 'use client';
 
-import { Button, Link, Snippet, Tab, Tabs } from '@heroui/react';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Button, Link } from '@heroui/react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import {
   Fleuron,
   Glyph,
-  Ledger,
   Marginalia,
   PageHeader,
   PageShell,
@@ -14,7 +19,6 @@ import {
   SectionCard,
   type GlyphName,
 } from '@/@shared/components/ui';
-import { countdownWords, formatCalendarDate } from '@/@shared/lib/dates';
 import { AtTable } from '@/@shared/table';
 import type { CampaignPulse } from '@/server/campaign-pulse';
 import type { CampaignRow } from '@/server/campaigns';
@@ -22,7 +26,8 @@ import { getCampaignPulseAction } from '../chronicle-actions';
 import { describeRules } from '../lib/rules';
 import type { TableKind } from '../lib/screen';
 import { describeTableRules } from '../lib/table-rules';
-import { CampaignSearch } from './CampaignSearch';
+import { CampaignOverview } from './CampaignOverview';
+import { CaptureBox } from './CaptureBox';
 import { CanonPanel } from './CanonPanel';
 import { AwardsPanel } from './AwardsPanel';
 import { ChroniclePanel } from './ChroniclePanel';
@@ -44,67 +49,39 @@ import { BoardShelf } from './workshop/BoardShelf';
 const ROLE_LABEL = { gm: 'DM', 'co-gm': 'Co-DM', player: 'Player' } as const;
 const ROLE_TONE = { gm: 'gold', 'co-gm': 'arcane', player: 'neutral' } as const;
 
-/** "1 thread" / "3 threads" — a count line that reads as a sentence. */
-function plural(count: number, one: string, many: string): string {
-  return count === 1 ? one : many;
-}
-
 /**
- * A tab title: a glyph, a one-word name, and a count of things wanting
- * attention.
+ * One entry in the rail.
  *
- * The glyph is what makes seven tabs scannable rather than a wall of words,
- * and it is the part that survives the horizontal scroll on a phone. The
- * count only ever appears when there is something to do — a tab wearing a "0"
- * is furniture — and `getCampaignPulse` already returns zero for the
- * staff-facing queues when a player is asking, so a player never sees a badge
- * for someone else's pending submission.
+ * `group` is the heading it sits under. Ten flat tabs in a horizontal
+ * scroller is what "I cannot find anything" felt like: nothing said which
+ * of them a thing was on, the order was arbitrary, and half of them fell off
+ * the right edge. Five headings and a named list under each is the same
+ * content, sorted by the question a person is actually asking.
  */
-function TabTitle({
-  glyph,
-  label,
-  count,
-}: {
-  glyph: GlyphName;
+interface Section {
+  key: string;
+  group: string;
   label: string;
-  count?: number;
-}) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <Glyph name={glyph} size={15} className="opacity-70" />
-      {label}
-      {!!count && count > 0 && (
-        <span className="rounded-full bg-gold/20 px-1.5 text-[0.65rem] font-medium tabular-nums text-gold-strong dark:text-gold">
-          {count}
-        </span>
-      )}
-    </span>
-  );
+  glyph: GlyphName;
+  /** One line under the heading of the pane. */
+  line: string;
+  staffOnly?: boolean;
+  /** Read from the pulse: something here wants attention. */
+  badge?: (pulse: CampaignPulse) => number;
+  content: ReactNode;
 }
 
-/**
- * Which tab opens at each of the three tables.
- *
- * The desk opens on the chronicle — between sittings a campaign is a record.
- * While the table is sitting, or a fight is running, play happens on the
- * screen and this page is the record behind it, so it opens on the party.
- * The strip's order never changes: a tab that is first on Tuesday and fourth
- * on Friday costs muscle memory, which is the main thing a four-hour tool has.
- */
-const LEADING_TAB: Record<TableKind, string> = {
-  desk: 'chronicle',
-  table: 'party',
-  battle: 'party',
-};
+/** The order the headings appear in, which is the order a table gets built. */
+const GROUPS = ['The table', 'The world', 'Play', 'Battle', 'Content'] as const;
 
 /**
  * The campaign, as a single object (design language: Single object archetype).
  *
- * The page opens on whichever of the three tables the campaign is at — the
- * chronicle between sittings, the session while one is sitting, the board
- * while a fight is running — and the numbers under the title are set as a
- * sentence rather than a row of tiles, because they are context for the page
- * and not its subject.
+ * Everything a campaign is managed with lives here: the party, the world, the
+ * sessions, the battle boards, the encounters and the content. The session
+ * screen at `/campaigns/[id]/screen` is for *running* an evening and nothing
+ * else — it has no second copy of the record on it, and this page does not
+ * send anybody there to prepare.
  */
 export function CampaignDetail({
   campaign,
@@ -117,16 +94,20 @@ export function CampaignDetail({
   table: TableKind;
 }) {
   const isStaff = campaign.role === 'gm' || campaign.role === 'co-gm';
-  const ruleLines = [
-    ...describeTableRules(campaign.settings.table, { omit: ['mode'] }),
-    ...describeRules(campaign.settings.rules, {
-      allowHomebrew: campaign.settings.allowHomebrew,
-    }),
-  ];
+  const ruleLines = useMemo(
+    () => [
+      ...describeTableRules(campaign.settings.table, { omit: ['mode'] }),
+      ...describeRules(campaign.settings.rules, {
+        allowHomebrew: campaign.settings.allowHomebrew,
+      }),
+    ],
+    [campaign.settings]
+  );
   const [pulse, setPulse] = useState<CampaignPulse | null>(null);
-  // Bumped when the notebook reveals something, so the timeline beside it
-  // re-reads without the DM having to leave the tab and come back.
+  // Bumped when the notebook shows something to the party, so the timeline
+  // beside it re-reads without the DM having to leave and come back.
   const [revealSeq, setRevealSeq] = useState(0);
+  const [section, setSection] = useState('overview');
 
   const loadPulse = useCallback(async () => {
     setPulse(await getCampaignPulseAction(campaign.id));
@@ -136,142 +117,194 @@ export function CampaignDetail({
     loadPulse();
   }, [loadPulse]);
 
-  const soon = pulse?.next ? countdownWords(pulse.next.date) : null;
-
   /*
-   * The tabs, in the order they have always had. Play is not among them: the
-   * screen at `/campaigns/[id]/screen` is the one surface a table plays from,
-   * and the Session and Board tabs that used to copy it are gone.
+   * Deep links. The overview points at sections, the search results point at
+   * sections, and a DM who bookmarks "the boards" should land on the boards.
+   * The hash rather than a query string: no server round trip, and the page
+   * is one component either way.
    */
-  const tabs: { key: string; title: ReactNode; content: ReactNode }[] = [
+  useEffect(() => {
+    const read = () => {
+      const key = window.location.hash.replace(/^#/, '');
+      if (key) setSection(key);
+    };
+    read();
+    window.addEventListener('hashchange', read);
+    return () => window.removeEventListener('hashchange', read);
+  }, []);
+
+  const go = useCallback((key: string) => {
+    setSection(key);
+    window.history.replaceState(null, '', `#${key}`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  /* --- the rules card, shared by the Rules section ---------------------- */
+
+  const rulesCard = (
+    <SectionCard
+      title="This table plays by"
+      description={
+        campaign.settings.table.mode === 'enforce'
+          ? 'The app enforces these. The DM can overrule any refusal.'
+          : 'The app advises on these and refuses nothing.'
+      }
+    >
+      <div className="space-y-3">
+        {ruleLines.length > 0 && (
+          <ul className="space-y-1 text-sm text-ink-muted">
+            {ruleLines.map(line => (
+              <li key={line} className="flex gap-2">
+                <span className="text-gold">※</span>
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* The free-text house rules are a footnote to the enforced ones,
+            on the same card: three homes for house rules is how a DM ends
+            up with two lists that disagree. */}
+        {campaign.settings.customRules && (
+          <div className="border-t border-line pt-3">
+            <p className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+              In your own words
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-ink-muted">
+              {campaign.settings.customRules}
+            </p>
+          </div>
+        )}
+        {ruleLines.length === 0 && !campaign.settings.customRules && (
+          <p className="text-sm text-ink-muted">
+            The book as written — no house rules on top of it yet.
+          </p>
+        )}
+        {campaign.settings.sessionNotes && (
+          <div className="border-t border-line pt-3">
+            <p className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+              Table notes
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-ink-muted">
+              {campaign.settings.sessionNotes}
+            </p>
+          </div>
+        )}
+        {isStaff && (
+          <div className="border-t border-line pt-3">
+            <Button
+              as={Link}
+              href={`/campaigns/${campaign.id}/manage`}
+              size="sm"
+              variant="flat"
+            >
+              Change the rules
+            </Button>
+          </div>
+        )}
+      </div>
+    </SectionCard>
+  );
+
+  /* --- the sections ----------------------------------------------------- */
+
+  const sections: Section[] = [
+    {
+      key: 'overview',
+      group: 'The table',
+      label: 'Overview',
+      glyph: 'candle',
+      line: 'Where the table stands, and what wants doing next.',
+      content: (
+        <CampaignOverview
+          campaignId={campaign.id}
+          pulse={pulse}
+          memberCount={campaign.memberCount}
+          isStaff={isStaff}
+          onGo={go}
+        />
+      ),
+    },
     {
       key: 'party',
-      title: <TabTitle glyph="person" label="Party" />,
+      group: 'The table',
+      label: 'Party',
+      glyph: 'person',
+      line: 'Who is at the table, who is coming, and who is playing what.',
       content: (
         <div className="space-y-5 pt-4">
           <MembersPanel
             campaignId={campaign.id}
             viewerId={viewerId}
             viewerRole={campaign.role}
+            joinCode={isStaff ? campaign.joinCode : null}
           />
-
-          {isStaff && campaign.joinCode && (
-            <SectionCard
-              title="Join code"
-              description="Share this so players can join themselves."
-            >
-              <Snippet symbol="" variant="flat" className="bg-surface-2">
-                {campaign.joinCode}
-              </Snippet>
-            </SectionCard>
-          )}
-
           <PartySecrets campaignId={campaign.id} />
-          <LedgerPanel campaignId={campaign.id} />
-
-          {/* The same lines "Rules at hand" shows at the table, so the
-              campaign page and the screen cannot disagree about the rules. */}
-          {(ruleLines.length > 0 ||
-            campaign.settings.customRules ||
-            campaign.settings.table.mode === 'enforce') && (
-            <SectionCard
-              title="This table plays by"
-              description={
-                campaign.settings.table.mode === 'enforce'
-                  ? 'The app enforces these. The DM can overrule any refusal.'
-                  : 'The app advises on these and refuses nothing.'
-              }
-            >
-              <div className="space-y-3">
-                {ruleLines.length > 0 && (
-                  <ul className="space-y-1 text-sm text-ink-muted">
-                    {ruleLines.map(line => (
-                      <li key={line} className="flex gap-2">
-                        <span className="text-gold">※</span>
-                        <span>{line}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {campaign.settings.customRules && (
-                  <p className="whitespace-pre-wrap text-sm text-ink-muted">
-                    {campaign.settings.customRules}
-                  </p>
-                )}
-                {/* Enforcing, with nothing to enforce beyond the book: say
-                    so, rather than a card with a heading and no body. */}
-                {ruleLines.length === 0 && !campaign.settings.customRules && (
-                  <p className="text-sm text-ink-muted">
-                    The book as written — no house rules on top of it yet.
-                  </p>
-                )}
-              </div>
-            </SectionCard>
-          )}
-          {campaign.settings.sessionNotes && (
-            <SectionCard
-              title="Table notes"
-              description="Standing notes about how this table runs."
-            >
-              <p className="whitespace-pre-wrap text-sm text-ink-muted">
-                {campaign.settings.sessionNotes}
-              </p>
-            </SectionCard>
-          )}
         </div>
       ),
     },
     {
+      key: 'loot',
+      group: 'The table',
+      label: 'Loot',
+      glyph: 'coins',
+      line: 'What the party is carrying, who has it, and the common purse.',
+      content: (
+        <div className="pt-4">
+          <LedgerPanel campaignId={campaign.id} />
+        </div>
+      ),
+    },
+    {
+      key: 'rules',
+      group: 'The table',
+      label: 'Rules',
+      glyph: 'gavel',
+      line: 'What this table plays by — the enforced rules and your own words, in one list.',
+      content: <div className="pt-4">{rulesCard}</div>,
+    },
+    {
       key: 'quests',
-      title: <TabTitle glyph="scroll" label="Quests" />,
+      group: 'The world',
+      label: 'Quests',
+      glyph: 'scroll',
+      line: 'What the party is pulling on, and the deadlines they have not been told about.',
       content: (
         <div className="space-y-5 pt-4">
           <QuestPanel campaignId={campaign.id} viewerRole={campaign.role} />
-
-          {/* Threads the party pulls on, and the ones pulling back. They
-                belong on the same tab: a clock is a quest with a deadline
-                the party has not been told about. */}
+          {/* A clock is a quest with a deadline the party has not been told
+              about, so it belongs beside them and not on a section of its
+              own. */}
           <ClocksPanel campaignId={campaign.id} viewerRole={campaign.role} />
         </div>
       ),
     },
     {
-      key: 'chronicle',
-      title: (
-        <TabTitle
-          glyph="notebook"
-          label="Chronicle"
-          count={pulse?.unsentRecaps ?? 0}
-        />
-      ),
+      key: 'canon',
+      group: 'The world',
+      label: 'Canon',
+      glyph: 'tome',
+      line: 'The people, places and things this world is made of — and where they are.',
       content: (
-        <div className="pt-4">
-          <ChroniclePanel
+        <div className="space-y-5 pt-4">
+          <CanonPanel
             campaignId={campaign.id}
             viewerId={viewerId}
             viewerRole={campaign.role}
-            calendar={campaign.settings.calendar}
           />
-
-          {/* Awards belong beside the sittings they were earned at, not on
-                a tab of their own — a DM hands out experience while marking
-                the register. */}
-          <AwardsPanel campaignId={campaign.id} viewerRole={campaign.role} />
-
-          {/* Prep, not play: the ambush the party has not walked into yet
-                sits with the sittings it is being built for. The screen
-                carries it too, as the "Fights planned" box. */}
-          {isStaff && (
-            <div className="mt-5">
-              <EncounterPlanner campaignId={campaign.id} />
-            </div>
-          )}
+          {/* Maps sit with the canon because a pin is a way into it: the
+              places are already written down, this says where they are. */}
+          <MapPanel campaignId={campaign.id} viewerRole={campaign.role} />
         </div>
       ),
     },
     {
       key: 'notes',
-      title: <TabTitle glyph="quill" label="Notes" />,
+      group: 'The world',
+      label: isStaff ? 'Notebook' : 'Shared notes',
+      glyph: 'quill',
+      line: isStaff
+        ? 'Your own prep, and the control that shows a line of it to the party.'
+        : 'Everything the DM has shown the table, in the order it was told.',
       content: (
         <div className="space-y-5 pt-4">
           {isStaff ? (
@@ -284,8 +317,8 @@ export function CampaignDetail({
           )}
 
           <SectionCard
-            title="What the party knows"
-            description="Every line handed over, in the order it was told."
+            title="Shown to the party"
+            description="Everything handed over, in the order it was told."
           >
             <RevealTimeline
               campaignId={campaign.id}
@@ -298,10 +331,10 @@ export function CampaignDetail({
     },
     {
       key: 'journal',
-      // Its own mark: Notes is the DM's prep, Journal is a player's
-      // in-character log, and two boxes wearing one glyph is the failure the
-      // set exists to prevent.
-      title: <TabTitle glyph="journal" label="Journal" />,
+      group: 'The world',
+      label: 'Journal',
+      glyph: 'journal',
+      line: "The party's own log, in their own voices.",
       content: (
         <div className="pt-4">
           <JournalPanel campaignId={campaign.id} viewerRole={campaign.role} />
@@ -309,31 +342,33 @@ export function CampaignDetail({
       ),
     },
     {
-      key: 'canon',
-      title: <TabTitle glyph="tome" label="Canon" />,
+      key: 'sessions',
+      group: 'Play',
+      label: 'Sessions',
+      glyph: 'notebook',
+      line: 'Every night played and planned, the prep for each, and who can make it.',
+      badge: p => p.unsentRecaps,
       content: (
         <div className="space-y-5 pt-4">
-          <CanonPanel
+          <ChroniclePanel
             campaignId={campaign.id}
             viewerId={viewerId}
             viewerRole={campaign.role}
+            calendar={campaign.settings.calendar}
           />
-
-          {/* Maps sit with the canon because a pin is a way into it: the
-                places are already written down, this says where they are. */}
-          <MapPanel campaignId={campaign.id} viewerRole={campaign.role} />
+          {/* Awards belong beside the sessions they were earned at: a DM
+              hands out experience while marking the register. */}
+          <AwardsPanel campaignId={campaign.id} viewerRole={campaign.role} />
         </div>
       ),
     },
     {
       key: 'downtime',
-      title: (
-        <TabTitle
-          glyph="hourglass"
-          label="Downtime"
-          count={pulse?.openDowntime ?? 0}
-        />
-      ),
+      group: 'Play',
+      label: 'Downtime',
+      glyph: 'hourglass',
+      line: 'What the party is doing between sessions, and what came of it.',
+      badge: p => p.openDowntime,
       content: (
         <div className="pt-4">
           <DowntimePanel
@@ -344,27 +379,38 @@ export function CampaignDetail({
         </div>
       ),
     },
-    // The shelf of boards: prep furniture, so staff only — a player has
-    // no board of their own and `listBattleMaps` would hand them nothing.
-    // Every handle a board has is here too — into the workshop, onto the
-    // table, renamed, taken down — so the DM need not open the workshop
-    // to find out what is on the shelf.
-    ...(isStaff
-      ? [
-          {
-            key: 'boards',
-            title: <TabTitle glyph="cube" label="Boards" />,
-            content: (
-              <div className="pt-4">
-                <BoardShelf campaignId={campaign.id} />
-              </div>
-            ),
-          },
-        ]
-      : []),
+    {
+      key: 'boards',
+      group: 'Battle',
+      label: 'Battle boards',
+      glyph: 'cube',
+      line: 'Every room this table fights in. Build one in the workshop; put one in play here.',
+      staffOnly: true,
+      content: (
+        <div className="pt-4">
+          <BoardShelf campaignId={campaign.id} />
+        </div>
+      ),
+    },
+    {
+      key: 'encounters',
+      group: 'Battle',
+      label: 'Encounters',
+      glyph: 'crossed-swords',
+      line: 'Fights built ahead of time: the monsters, where they stand, and what it is worth.',
+      staffOnly: true,
+      content: (
+        <div className="pt-4">
+          <EncounterPlanner campaignId={campaign.id} />
+        </div>
+      ),
+    },
     {
       key: 'content',
-      title: <TabTitle glyph="tome" label="Content" />,
+      group: 'Content',
+      label: 'Allowed content',
+      glyph: 'tome',
+      line: 'What this table may build from, and what has been adopted into it.',
       content: (
         <div className="pt-4">
           <CampaignContentPanel campaignId={campaign.id} isStaff={isStaff} />
@@ -373,13 +419,14 @@ export function CampaignDetail({
     },
     {
       key: 'homebrew',
-      title: (
-        <TabTitle
-          glyph="orb"
-          label="Homebrew"
-          count={pulse?.pendingApprovals ?? 0}
-        />
-      ),
+      group: 'Content',
+      label: 'Homebrew',
+      glyph: 'orb',
+      // Staff only: a player has nothing to approve, and the queue was on
+      // their page wearing somebody else's count.
+      staffOnly: true,
+      line: 'Everything somebody forged and asked to use at this table.',
+      badge: p => p.pendingApprovals,
       content: (
         <div className="pt-4">
           <HomebrewApprovalPanel campaignId={campaign.id} isGM={isStaff} />
@@ -387,12 +434,14 @@ export function CampaignDetail({
       ),
     },
   ];
-  const leading = LEADING_TAB[table];
+
+  const visible = sections.filter(s => isStaff || !s.staffOnly);
+  const open = visible.find(s => s.key === section) ?? visible[0];
 
   return (
     <PageShell width="wide">
       {/* Announcements come out at the root, so they reach the reader on any
-          tab of this page — and keep reaching them after they wander off it. */}
+          section of this page — and keep reaching them after they wander. */}
       <AtTable campaignId={campaign.id} />
 
       {campaign.settings.bannerImageId && (
@@ -415,18 +464,25 @@ export function CampaignDetail({
             <Ribbon tone={ROLE_TONE[campaign.role]}>
               {ROLE_LABEL[campaign.role]}
             </Ribbon>
-            {/* Not "open the screen": the page has been the player's since it
-                was built — it filters its own panels by role and has a player
-                default layout — and a player reads "the screen" as the DM's
-                furniture and never presses it. */}
+            {/*
+              One door to the session screen, named for what is behind it
+              rather than for the furniture. Between sessions it is the
+              thing that starts one; during one it is the way in.
+            */}
             <Button
               as={Link}
               href={`/campaigns/${campaign.id}/screen`}
               size="sm"
-              variant="flat"
+              variant={table === 'desk' ? 'flat' : 'solid'}
               color="primary"
             >
-              {isStaff ? 'Behind the screen' : 'Take your seat'}
+              {table === 'desk'
+                ? isStaff
+                  ? 'Start a session'
+                  : 'The session screen'
+                : table === 'battle'
+                  ? 'Back to the fight'
+                  : 'Back to the session'}
             </Button>
             {isStaff && (
               <Button
@@ -435,64 +491,16 @@ export function CampaignDetail({
                 size="sm"
                 variant="flat"
               >
-                Manage
+                Settings
               </Button>
             )}
           </>
         }
       />
 
-      {/* The state of the table: a ledger line, not a grid of tiles. */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-        {pulse ? (
-          <Ledger
-            items={[
-              { value: campaign.memberCount, label: 'at the table' },
-              {
-                value: pulse.sessionsPlayed,
-                label: plural(
-                  pulse.sessionsPlayed,
-                  'session played',
-                  'sessions played'
-                ),
-              },
-              {
-                value: pulse.questsInHand,
-                label: plural(
-                  pulse.questsInHand,
-                  'thread in hand',
-                  'threads in hand'
-                ),
-              },
-            ]}
-          />
-        ) : (
-          <span className="h-4 w-72 animate-pulse rounded bg-surface-2" />
-        )}
-
-        {pulse?.next && (
-          <p className="text-sm text-ink-muted">
-            <span className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
-              Next
-            </span>{' '}
-            <span className="text-ink">
-              Session {pulse.next.number}
-              {pulse.next.title ? ` · ${pulse.next.title}` : ''}
-            </span>{' '}
-            <span className="text-ink-subtle">
-              {formatCalendarDate(pulse.next.date)}
-              {soon ? ` — ${soon}` : ''}
-            </span>
-          </p>
-        )}
-      </div>
-
-      <Fleuron />
-
-      {/* While the table is sitting the play surface is the screen, and this
-          page is the record behind it. Say so, once, above the record. */}
+      {/* A session is running somewhere else: say so once, near the top. */}
       {table !== 'desk' && (
-        <p className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
           <span>
             {table === 'battle'
               ? 'A fight is running.'
@@ -503,41 +511,102 @@ export function CampaignDetail({
             size="sm"
             className="text-gold-strong dark:text-gold"
           >
-            {isStaff ? 'Go behind the screen' : 'Take your seat'}
+            {isStaff ? 'Run it' : 'Take your seat'}
           </Link>
         </p>
       )}
 
-      <div className="mt-5">
-        {/* Above the tabs, because the whole point is not having to know which
-            tab the answer is on. */}
-        <CampaignSearch campaignId={campaign.id} />
+      <Fleuron />
 
-        {/* Moving tabs re-reads the counts: a quest pinned or a recap handed
-            over changes the ledger line, and a stale number is worse than a
-            slightly late one. */}
-        <Tabs
-          aria-label="Campaign sections"
-          variant="underlined"
-          defaultSelectedKey={leading}
-          onSelectionChange={() => loadPulse()}
-          classNames={{
-            // Seven tabs overflow a phone. Let the list scroll rather than
-            // wrap into a second row that pushes the panel off-screen.
-            tabList: 'max-w-full overflow-x-auto',
-          }}
-        >
-          {tabs.map(t => (
-            <Tab key={t.key} title={t.title}>
-              {t.content}
-            </Tab>
-          ))}
-        </Tabs>
+      <div className="mt-5">
+        {/* Above everything, because the whole point is not having to know
+            which section the answer is on. */}
+        <CaptureBox
+          campaignId={campaign.id}
+          isStaff={isStaff}
+          onGo={go}
+          onWrote={loadPulse}
+        />
+
+        <div className="flex flex-col gap-6 lg:flex-row">
+          {/* The rail. Grouped, because "which of these is the fight thing"
+              is the question ten flat tabs could not answer. */}
+          <nav
+            aria-label="Campaign sections"
+            className="shrink-0 lg:w-52 xl:w-56"
+          >
+            <ul className="flex gap-4 overflow-x-auto pb-2 lg:flex-col lg:gap-5 lg:overflow-visible lg:pb-0">
+              {GROUPS.map(group => {
+                const items = visible.filter(s => s.group === group);
+                if (items.length === 0) return null;
+                return (
+                  <li key={group} className="shrink-0">
+                    <p className="mb-1 font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+                      {group}
+                    </p>
+                    <ul className="flex gap-1 lg:flex-col">
+                      {items.map(item => {
+                        const count = pulse ? (item.badge?.(pulse) ?? 0) : 0;
+                        const lit = item.key === open.key;
+                        return (
+                          <li key={item.key}>
+                            <button
+                              type="button"
+                              aria-current={lit ? 'page' : undefined}
+                              onClick={() => go(item.key)}
+                              className={`flex w-full items-center gap-2 whitespace-nowrap rounded-[5px] px-2 py-1.5 text-left text-sm transition-colors ${
+                                lit
+                                  ? 'bg-surface-2 text-ink [box-shadow:inset_2px_0_0_var(--gold)]'
+                                  : 'text-ink-muted hover:bg-surface-2/60 hover:text-ink'
+                              }`}
+                            >
+                              <Glyph
+                                name={item.glyph}
+                                size={15}
+                                className={
+                                  lit
+                                    ? 'text-gold-strong dark:text-gold'
+                                    : 'opacity-70'
+                                }
+                              />
+                              <span className="min-w-0 flex-1 truncate">
+                                {item.label}
+                              </span>
+                              {count > 0 && (
+                                <span className="rounded-full bg-gold/20 px-1.5 text-[0.65rem] font-medium tabular-nums text-gold-strong dark:text-gold">
+                                  {count}
+                                </span>
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+
+          {/* The pane. One section at a time, with its own heading so the
+              reader is never guessing which one they are looking at. */}
+          <section
+            key={open.key}
+            aria-label={open.label}
+            className="min-w-0 flex-1"
+          >
+            <div className="border-b border-line pb-2">
+              <h2 className="font-display text-2xl text-ink">{open.label}</h2>
+              <p className="mt-0.5 text-sm text-ink-muted">{open.line}</p>
+            </div>
+            {open.content}
+          </section>
+        </div>
       </div>
 
-      {isStaff && pulse && !pulse.next && (
+      {isStaff && pulse && !pulse.next && open.key !== 'overview' && (
         <Marginalia className="mt-6" dash>
-          no next session on the books — open one in the chronicle
+          no next session on the books — put one there under Play
         </Marginalia>
       )}
     </PageShell>

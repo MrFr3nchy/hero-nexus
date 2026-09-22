@@ -6,7 +6,7 @@
 import type { BrushSize } from '@/@creator/campaign/lib/battlemap';
 import type { Density, ScatterKind } from '@/@creator/campaign/lib/board-edit';
 import type { StampCategory } from '@/@creator/campaign/lib/stamps';
-import type { ItemState, WallKind } from '@/@shared/battlemap/types';
+import type { Facing, ItemState, WallKind } from '@/@shared/battlemap/types';
 
 export type WorkshopTool =
   | 'select'
@@ -16,8 +16,10 @@ export type WorkshopTool =
   | 'height'
   | 'scatter'
   | 'stamps'
+  | 'pictures'
   | 'things'
   | 'light'
+  | 'erase'
   | 'fog';
 
 export interface ToolSpec {
@@ -75,6 +77,12 @@ export const TOOLS: readonly ToolSpec[] = [
     hint: 'pick one, tap to put it down, R to turn it',
   },
   {
+    id: 'pictures',
+    label: 'Pictures',
+    name: 'Pictures',
+    hint: 'stand one of your own images up on a tile — a fountain, a sign',
+  },
+  {
     id: 'things',
     label: 'Things',
     name: 'Things',
@@ -84,15 +92,50 @@ export const TOOLS: readonly ToolSpec[] = [
   {
     id: 'light',
     label: 'Light',
-    name: 'Light',
-    hint: 'tap for a torch or a brazier',
+    name: 'Light and sky',
+    hint: 'tap for a torch or a brazier; the weather is here too',
+  },
+  {
+    id: 'erase',
+    label: 'Erase',
+    name: 'Erase',
+    hint: 'drag to rub out just one kind of thing — the floor stays',
+    gap: true,
   },
   {
     id: 'fog',
-    label: 'Fog',
-    name: 'Fog',
+    label: 'Fog of war',
+    name: 'Fog of war',
     hint: 'drag to show the party what they can see',
   },
+];
+
+/**
+ * What the Erase tool rubs out.
+ *
+ * One kind at a time, because "remove it" used to mean `clearRegion` — floor,
+ * height, walls, props and lights all at once — and a DM who wanted the hedge
+ * gone lost the lawn under it.
+ */
+export type EraseWhat =
+  | 'props'
+  | 'walls'
+  | 'lights'
+  | 'floor'
+  | 'height'
+  | 'all';
+
+export const ERASE_WHATS: readonly {
+  id: EraseWhat;
+  label: string;
+  sub: string;
+}[] = [
+  { id: 'props', label: 'Things', sub: 'trees, rubble, pictures' },
+  { id: 'walls', label: 'Walls', sub: 'walls, hedges, doors' },
+  { id: 'lights', label: 'Lights', sub: 'torches and braziers' },
+  { id: 'floor', label: 'Floor', sub: 'back to nothing' },
+  { id: 'height', label: 'Height', sub: 'flat again, floor kept' },
+  { id: 'all', label: 'Everything', sub: 'the tile, bare' },
 ];
 
 export type RoomSize = 'drag' | '3 × 3' | '5 × 5' | '6 × 4' | '8 × 8';
@@ -145,6 +188,13 @@ export interface Settings {
   /** Quarter turns, 0–3, and whether it is mirrored. */
   stampTurns: number;
   stampFlip: boolean;
+  eraseWhat: EraseWhat;
+  /** The picture a standee stands up as: a `campaign_images` id. */
+  pictureImageId: string | null;
+  /** Feet tall. A tree is 20, a door 10, a mile-marker 3. */
+  pictureHeight: number;
+  pictureFacing: Facing;
+  pictureBlocks: boolean;
   thingLabel: string;
   thingState: ItemState | null;
   thingLockDc: number | null;
@@ -175,6 +225,11 @@ export const DEFAULT_SETTINGS: Settings = {
   stampSearch: '',
   stampTurns: 0,
   stampFlip: false,
+  eraseWhat: 'props',
+  pictureImageId: null,
+  pictureHeight: 10,
+  pictureFacing: 'camera',
+  pictureBlocks: false,
   thingLabel: '',
   thingState: 'closed',
   thingLockDc: 15,

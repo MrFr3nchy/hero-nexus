@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { useAuth } from '@/@auth/context';
+import { isSuperAdminAction } from '@/@creator/admin/actions';
 import { Glyph, type GlyphName, Marginalia } from './ui';
 import { ThemeToggle } from './ThemeToggle';
 
@@ -224,6 +225,25 @@ export function SideNavigation() {
   const { logout, currentUser } = useAuth();
   const pathname = usePathname();
   /*
+   * Whether this reader runs the box. Read once per sign-in rather than
+   * carried on the session: a JWT outlives the row it points at, and a nav
+   * link that survives the keys being taken away is a link to a 404.
+   */
+  const [admin, setAdmin] = useState(false);
+  useEffect(() => {
+    let live = true;
+    if (!currentUser) {
+      setAdmin(false);
+      return;
+    }
+    isSuperAdminAction().then(yes => {
+      if (live) setAdmin(yes);
+    });
+    return () => {
+      live = false;
+    };
+  }, [currentUser]);
+  /*
    * Folded to its icon strip on the screen route. The screen is the one page
    * a table operates for four hours, and a 15rem column of shelves it is not
    * reading is a fifth of a laptop given to the compendium. The hand control
@@ -377,6 +397,25 @@ export function SideNavigation() {
           </Link>
           <ThemeToggle />
         </div>
+        {/* Only whoever runs this box has this row; for everybody else the
+            route 404s and the link is never drawn. */}
+        {admin && (
+          <Link
+            href="/admin"
+            title="Admin"
+            aria-label={collapsed ? 'Admin' : undefined}
+            className={`mt-1 flex items-center gap-2 rounded-md py-1.5 text-sm transition-colors ${
+              collapsed ? 'h-8 w-8 justify-center' : 'px-2'
+            } ${
+              pathname.startsWith('/admin')
+                ? 'text-ink'
+                : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            <Glyph name="gavel" size={16} />
+            {!collapsed && <span>Admin</span>}
+          </Link>
+        )}
         <Button
           variant="light"
           size="sm"

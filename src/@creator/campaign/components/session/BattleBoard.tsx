@@ -34,7 +34,7 @@ import {
   SelectItem,
   Tooltip,
 } from '@heroui/react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import {
   useCallback,
@@ -100,6 +100,7 @@ import {
   placeTokenAction,
   removeTokenAction,
   resetFogAction,
+  setAllTokenVisibilityAction,
   revealFromPartyAction,
   revealTilesAction,
   saveTerrainAction,
@@ -115,7 +116,7 @@ import { BattleMap3DLazy } from './BattleMap3DLazy';
 import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import { withAdvantage } from '@/@shared/lib/dice';
 import { physicalDiceAllowed } from '@/@creator/campaign/lib/table-rules';
-import { rollAction } from '../../actions';
+import { applyHpAction, rollAction } from '../../actions';
 import { usePortraits } from '@/@shared/battlemap/portraits';
 import {
   setSelectedTokens,
@@ -664,6 +665,14 @@ export function BattleBoard({
     if (!res.ok) onError(res.error);
     await refresh();
   };
+  /** The same two verbs, for a combatant rather than a barrel. */
+  const hurtEntry = async (entryId: string, sign: 1 | -1) => {
+    const n = Math.abs(Math.trunc(Number(hurtAmount)) || 0);
+    if (!n) return;
+    const res = await applyHpAction(entryId, sign * n);
+    if (!res.ok) onError(res.error ?? 'That did not take.');
+    await refresh();
+  };
   /*
    * The selection lives in the store the shelf reads, not here: the attacks
    * panel aims at the last token picked and the stat block shows it, and a
@@ -815,6 +824,7 @@ export function BattleBoard({
     await refresh();
   }, [board, levelId, onError, refresh]);
   const [busy, setBusy] = useState(false);
+  const router = useRouter();
   const [newW, setNewW] = useState('20');
   const [newH, setNewH] = useState('15');
   /** What every tile of a new board starts as. Void, unless the DM says. */
@@ -1603,7 +1613,7 @@ export function BattleBoard({
 
   if (!board || !terrain) {
     return (
-      <SectionCard title="The sand table">
+      <SectionCard title="Battle board">
         {isStaff ? (
           <EmptyState
             scene={<BattlefieldScene />}
@@ -1619,8 +1629,8 @@ export function BattleBoard({
                   <div className="flex flex-wrap items-end gap-2">
                     <Select
                       size="sm"
-                      label="From the shelf"
-                      aria-label="A board from the shelf"
+                      label="Another board"
+                      aria-label="Another board from this campaign"
                       className="w-56"
                       selectedKeys={shelfPick ? [shelfPick] : []}
                       onSelectionChange={keys => {
@@ -1630,9 +1640,9 @@ export function BattleBoard({
                       {shelf.map(b => (
                         <SelectItem
                           key={b.id}
-                          textValue={b.name || 'The sand table'}
+                          textValue={b.name || 'Battle board'}
                         >
-                          {b.name || 'The sand table'}
+                          {b.name || 'Battle board'}
                         </SelectItem>
                       ))}
                     </Select>
@@ -1642,7 +1652,7 @@ export function BattleBoard({
                       isDisabled={busy || !shelfPick}
                       onPress={() => putOnTable(shelfPick)}
                     >
-                      Put it on the table
+                      Put it in play
                     </Button>
                     <span className="pb-2 text-xs text-ink-muted">or</span>
                   </div>
@@ -1755,55 +1765,26 @@ export function BattleBoard({
 
   return (
     <SectionCard
-      title={board.name || 'The sand table'}
+      title={board.name || 'Battle board'}
       description={
         isStaff
-          ? `${terrain.w}×${terrain.h} · ${doc && doc.levels.length > 1 ? `${doc.levels.length} floors · ` : ''}${board.tokens.length} on the board · ${(board.revealed[terrain.id] ?? []).length} tiles shown on the ${terrain.name.toLowerCase()}`
+          ? `${terrain.w}×${terrain.h} · ${doc && doc.levels.length > 1 ? `${doc.levels.length} floors · ` : ''}${board.tokens.length} on the board · ${(board.revealed[terrain.id] ?? []).length} tiles shown on the ${terrain.name.toLowerCase()}${board.visibility === 'shared' ? '' : ' · hidden from the party'}`
           : 'Tap your token, then tap where it goes.'
       }
       actions={
         <>
-          {isStaff && (
-            <Button
-              as={Link}
-              href={`/campaigns/${campaignId}/workshop/${board.id}`}
-              size="sm"
-              variant="flat"
-              startContent={<Glyph name="hammer" size={13} />}
-            >
-              Open the workshop
-            </Button>
-          )}
-          {isStaff && (
-            <Dropdown onOpenChange={open => open && readShelf()}>
-              <DropdownTrigger>
-                <Button size="sm" variant="flat" isDisabled={busy}>
-                  Swap board
-                </Button>
-              </DropdownTrigger>
-              <DropdownMenu
-                aria-label="Put another board on the table"
-                disabledKeys={[board.id]}
-                onAction={key => putOnTable(String(key))}
-              >
-                {shelf.map(b => (
-                  <DropdownItem
-                    key={b.id}
-                    description={
-                      b.id === board.id
-                        ? 'On the table now'
-                        : `${b.w} × ${b.h} · ${b.levels} ${b.levels === 1 ? 'floor' : 'floors'}`
-                    }
-                  >
-                    {b.name || 'The sand table'}
-                  </DropdownItem>
-                ))}
-              </DropdownMenu>
-            </Dropdown>
-          )}
+          {/*
+            Four kinds of control, not six equal buttons.
+
+            The row used to read as one row of choices when two of them were
+            navigation, one was a view, one revealed fog and two changed the
+            fight. Now: the view is a toggle, fog of war is one menu, the
+            fight is one button that only appears when there is a fight to
+            place, and everything about the board itself is behind *Board*.
+          */}
           <Tooltip
             isDisabled={canStand}
-            content="This browser has no WebGL, so the table cannot be stood up here."
+            content="This browser has no WebGL, so the board cannot be stood up here."
           >
             <span>
               <Button
@@ -1813,56 +1794,184 @@ export function BattleBoard({
                 isDisabled={!canStand}
                 onPress={toggleDimensional}
               >
-                {dimensional ? 'Back to the board' : 'Stand it up'}
+                {dimensional ? 'Lay it flat' : 'Stand it up'}
               </Button>
             </span>
           </Tooltip>
-          {isStaff && (
-            <>
-              <Tooltip content="Reveal what the party's tokens can see, forty feet around each.">
+
+          {isStaff && board.encounterId && (
+            <Dropdown>
+              <DropdownTrigger>
                 <Button
                   size="sm"
                   variant="flat"
                   isDisabled={busy}
-                  onPress={async () => {
+                  startContent={<Glyph name="crossed-swords" size={13} />}
+                  endContent={<Glyph name="chevron-down" size={12} />}
+                >
+                  The fight
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="The fight on this board"
+                onAction={async key => {
+                  const k = String(key);
+                  if (k === 'place') {
+                    const res = await dealEncounterInAction(board.id);
+                    if (!res.ok) onError(res.error);
+                  } else if (k === 'show' || k === 'hide') {
+                    const res = await setAllTokenVisibilityAction(
+                      board.id,
+                      k === 'show' ? 'shared' : 'dm',
+                      'foe'
+                    );
+                    if (!res.ok) onError(res.error);
+                  }
+                  await refresh();
+                }}
+              >
+                <DropdownItem
+                  key="place"
+                  description="Stand the monsters where the encounter put them."
+                >
+                  Place the fight
+                </DropdownItem>
+                <DropdownItem
+                  key="show"
+                  description="The fog still hides the ones they have not reached."
+                >
+                  Show every foe
+                </DropdownItem>
+                <DropdownItem
+                  key="hide"
+                  description="Behind the screen until you show them again."
+                >
+                  Hide every foe
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+          )}
+
+          {isStaff && (
+            <Dropdown>
+              <DropdownTrigger>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  isDisabled={busy}
+                  startContent={<Glyph name="fog" size={13} />}
+                  endContent={<Glyph name="chevron-down" size={12} />}
+                >
+                  Fog of war
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Fog of war"
+                onAction={async key => {
+                  if (key === 'look') {
                     const res = await revealFromPartyAction(board.id);
                     if (!res.ok) onError(res.error);
-                    await refresh();
-                  }}
+                  } else if (key === 'hide') {
+                    const res = await resetFogAction(board.id, terrain.id);
+                    if (!res.ok) onError(res.error);
+                  }
+                  await refresh();
+                }}
+              >
+                <DropdownItem
+                  key="look"
+                  description="Forty feet around each of the party's tokens."
                 >
-                  Look around
+                  Show what they can see
+                </DropdownItem>
+                <DropdownItem
+                  key="hide"
+                  description={`Everything on the ${terrain.name.toLowerCase()} goes dark again.`}
+                >
+                  Hide this floor again
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+          )}
+
+          {isStaff && (
+            <Dropdown onOpenChange={open => open && readShelf()}>
+              <DropdownTrigger>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  isDisabled={busy}
+                  startContent={<Glyph name="cube" size={13} />}
+                  endContent={<Glyph name="chevron-down" size={12} />}
+                >
+                  Board
                 </Button>
-              </Tooltip>
-              <Button
-                size="sm"
-                variant="flat"
-                isDisabled={busy || !board.encounterId}
-                onPress={async () => {
-                  const res = await dealEncounterInAction(board.id);
-                  if (!res.ok) onError(res.error);
-                  await refresh();
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="This board"
+                onAction={async key => {
+                  const k = String(key);
+                  if (k === 'workshop') {
+                    router.push(
+                      `/campaigns/${campaignId}/workshop/${board.id}`
+                    );
+                    return;
+                  }
+                  if (k === 'visibility') {
+                    const res = await setBattleMapVisibilityAction(
+                      board.id,
+                      board.visibility === 'shared' ? 'dm' : 'shared'
+                    );
+                    if (!res.ok) onError(res.error);
+                    await refresh();
+                    return;
+                  }
+                  if (k.startsWith('swap:')) putOnTable(k.slice(5));
                 }}
               >
-                Deal them in
-              </Button>
-              <Button
-                size="sm"
-                variant={board.visibility === 'shared' ? 'flat' : 'solid'}
-                color={board.visibility === 'shared' ? 'default' : 'primary'}
-                onPress={async () => {
-                  const res = await setBattleMapVisibilityAction(
-                    board.id,
-                    board.visibility === 'shared' ? 'dm' : 'shared'
-                  );
-                  if (!res.ok) onError(res.error);
-                  await refresh();
-                }}
-              >
-                {board.visibility === 'shared'
-                  ? 'Take it back'
-                  : 'Show the party'}
-              </Button>
-            </>
+                <>
+                  <DropdownItem
+                    key="workshop"
+                    startContent={<Glyph name="hammer" size={14} />}
+                    description="Build the room: floors, walls, things, weather."
+                  >
+                    Open the workshop
+                  </DropdownItem>
+                  <DropdownItem
+                    key="visibility"
+                    startContent={
+                      <Glyph
+                        name={board.visibility === 'shared' ? 'eye' : 'eye-off'}
+                        size={14}
+                      />
+                    }
+                    description={
+                      board.visibility === 'shared'
+                        ? 'The party can see this board. Hide it to plan on it.'
+                        : 'Only you can see this board right now.'
+                    }
+                  >
+                    {board.visibility === 'shared'
+                      ? 'Hide it from the party'
+                      : 'Show it to the party'}
+                  </DropdownItem>
+                  <>
+                    {shelf
+                      .filter(b => b.id !== board.id)
+                      .map(b => (
+                        <DropdownItem
+                          key={`swap:${b.id}`}
+                          description={`${b.w} × ${b.h} · ${b.levels} ${
+                            b.levels === 1 ? 'floor' : 'floors'
+                          }`}
+                        >
+                          Put {b.name || 'an unnamed board'} in play
+                        </DropdownItem>
+                      ))}
+                  </>
+                </>
+              </DropdownMenu>
+            </Dropdown>
           )}
         </>
       }
@@ -2700,6 +2809,63 @@ export function BattleBoard({
           ) : (
             <span>Not yours to move.</span>
           )}
+          {/*
+            Hit points and the two verbs, on the selected body.
+            
+            They were in the order's card and the movement was here, so a DM
+            hurting one goblin looked at two sides of the screen for it.
+            Everything about the thing that is selected is on this bar now;
+            the order's row just highlights. Staff always; a player only for
+            their own hero, whose numbers they already know.
+          */}
+          {selectedEntry &&
+            selectedEntry.hpCurrent !== null &&
+            selectedEntry.hpMax !== null &&
+            (isStaff || selectedToken.mine) && (
+              <span className="inline-flex items-center gap-1 text-xs">
+                <span className="tabular-nums text-ink-muted">
+                  {selectedEntry.hpCurrent} / {selectedEntry.hpMax} hp
+                  {selectedEntry.armorClass !== null && (
+                    <span className="text-ink-subtle">
+                      {' '}
+                      · ac {selectedEntry.armorClass}
+                    </span>
+                  )}
+                </span>
+                {isStaff && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      className="h-7 min-w-0 px-2 text-danger"
+                      aria-label={`Damage ${selectedEntry.label}`}
+                      onPress={() => hurtEntry(selectedEntry.id, -1)}
+                    >
+                      Take
+                    </Button>
+                    <Input
+                      size="sm"
+                      type="number"
+                      aria-label="How much"
+                      className="w-16"
+                      classNames={{ inputWrapper: 'h-7 min-h-7' }}
+                      min={0}
+                      value={hurtAmount}
+                      onValueChange={setHurtAmount}
+                    />
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      className="h-7 min-w-0 px-2 text-success"
+                      aria-label={`Heal ${selectedEntry.label}`}
+                      onPress={() => hurtEntry(selectedEntry.id, 1)}
+                    >
+                      Heal
+                    </Button>
+                  </>
+                )}
+              </span>
+            )}
           {/* The turn under the token: the same pips the card shows, so the
               board answers "has it acted" without a glance at the tracker. */}
           {selectedEntry && currentEntryIds.has(selectedEntry.id) && (
@@ -3056,8 +3222,8 @@ export function BattleBoard({
                 }}
               >
                 {selectedToken.visibility === 'shared'
-                  ? 'Hide it'
-                  : 'Show them'}
+                  ? 'Hide from the party'
+                  : 'Show the party'}
               </Button>
               <Button
                 size="sm"

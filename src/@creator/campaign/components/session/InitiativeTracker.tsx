@@ -17,6 +17,7 @@ import { motion } from '@/@shared/components/motion';
 import {
   BattlefieldScene,
   EmptyState,
+  Glyph,
   Marginalia,
   SectionCard,
   statusEdge,
@@ -25,7 +26,12 @@ import {
 } from '@/@shared/components/ui';
 import { formatChallenge } from '@/@shared/content';
 import type { CombatantChoice } from '@/server/content';
-import type { EntryRow, EntrySide, LiveState } from '@/server/session';
+import type {
+  EntryRow,
+  EntrySide,
+  FightSpoils,
+  LiveState,
+} from '@/server/session';
 import { listCombatantChoicesAction } from '../../content-actions';
 import {
   addCreaturesAction,
@@ -36,6 +42,7 @@ import {
   endEncounterAction,
   removeEntryAction,
   rollInitiativeAction,
+  startFightAction,
   updateEntryAction,
 } from '../../actions';
 import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
@@ -218,6 +225,15 @@ function HpControl({ entry, act }: { entry: EntryRow; act: Act }) {
     setAmount(0);
   };
 
+  /*
+   * Take and Heal, in words, either side of the number.
+   *
+   * The keyboard (`D`, digits, Enter) is the fast path and is still the
+   * fast path. Without it this was a `−`, a 40px field and a `+`, and the
+   * sign is the easy thing to get backwards when the room is waiting: two
+   * named buttons cannot be got backwards. Enter takes; shift-Enter heals,
+   * because damage is what most turns are.
+   */
   return (
     <div className="flex items-center gap-1">
       <Button
@@ -225,27 +241,34 @@ function HpControl({ entry, act }: { entry: EntryRow; act: Act }) {
         variant="flat"
         aria-label={`Damage ${entry.label}`}
         className="min-w-0 px-2 text-danger"
+        isDisabled={!amount}
         onPress={() => apply(-1)}
       >
-        −
+        Take
       </Button>
       <NumberInput
-        aria-label={`Amount for ${entry.label}`}
+        aria-label={`How much, for ${entry.label}`}
         size="sm"
         hideStepper
         minValue={0}
         className="w-16"
         value={amount}
         onValueChange={v => setAmount(Number(v) || 0)}
+        onKeyDown={event => {
+          if (event.key !== 'Enter') return;
+          event.preventDefault();
+          apply(event.shiftKey ? 1 : -1);
+        }}
       />
       <Button
         size="sm"
         variant="flat"
         aria-label={`Heal ${entry.label}`}
         className="min-w-0 px-2 text-success"
+        isDisabled={!amount}
         onPress={() => apply(1)}
       >
-        +
+        Heal
       </Button>
     </div>
   );
@@ -270,6 +293,8 @@ function EntryLine({
   onError,
   waiting,
   groupKin = [],
+  expanded,
+  onToggle,
 }: {
   campaignId: string;
   entry: EntryRow;
@@ -293,6 +318,16 @@ function EntryLine({
   onPlace: () => void;
   /** Asks put to this combatant that nobody has answered yet. */
   waiting: number;
+  /**
+   * Whether the whole card is drawn, or only the line.
+   *
+   * A six-body fight was six ~120px cards and the panel had to be scrolled
+   * to see who was next, mid-round, every round. Only one combatant is
+   * being acted on at a time, so only one card is open: whoever's turn it
+   * is, the reader's own hero, and whichever row the reader tapped.
+   */
+  expanded: boolean;
+  onToggle: () => void;
 }) {
   const showNumbers = isStaff || entry.side === 'party';
   const hp = entry.hpCurrent;
@@ -408,7 +443,7 @@ function EntryLine({
           )}
         </div>
 
-        {showNumbers && hp != null && max != null && max > 0 && (
+        {expanded && showNumbers && hp != null && max != null && max > 0 && (
           <div className="mt-1.5 flex items-center gap-2">
             <div className="h-1.5 w-28 overflow-hidden rounded-full bg-surface-2">
               <div
@@ -433,7 +468,7 @@ function EntryLine({
             </span>
           </div>
         )}
-        {!showNumbers && (
+        {expanded && !showNumbers && (
           <p className="mt-1 text-xs text-ink-subtle">
             {hpWord(entry.hpCurrent, entry.hpMax)}
           </p>
@@ -441,7 +476,7 @@ function EntryLine({
         {/* The turn, on the card whose turn it is: staff see every one, a
             player their own. Off-turn the same people see the one slot that
             is still theirs to spend — the reaction. */}
-        {(isStaff || isYours) && (
+        {expanded && (isStaff || isYours) && (
           <div className="mt-2">
             <TurnStrip
               entry={entry}
@@ -455,13 +490,50 @@ function EntryLine({
         )}
         {/* What the other side has left (11): legendary pips, recharge
             dots, the lair. Staff only — the counters are the DM's. */}
-        {isStaff && (
+        {expanded && isStaff && (
           <LegendaryControls entry={entry} act={act} onError={onError} />
         )}
       </div>
 
-      {isStaff && (
-        <div className="flex flex-wrap items-center gap-1">
+      {/* Folded: the numbers on one line, so the order still reads as an
+          order without opening anything. */}
+      {!expanded && showNumbers && hp != null && max != null && max > 0 && (
+        <span className="flex shrink-0 items-center gap-1.5">
+          <span className="h-1.5 w-14 overflow-hidden rounded-full bg-surface-2">
+            <span
+              className="block h-full rounded-full"
+              style={{
+                width: `${Math.max(0, Math.min(100, (hp / max) * 100))}%`,
+                background: hpColor(hp, max),
+              }}
+            />
+          </span>
+          <span className="text-xs tabular-nums text-ink-muted">
+            {hp}/{max}
+          </span>
+        </span>
+      )}
+      {!expanded && !showNumbers && (
+        <span className="shrink-0 text-xs text-ink-subtle">
+          {hpWord(entry.hpCurrent, entry.hpMax)}
+        </span>
+      )}
+
+      {/* The fold. Not a chevron on its own: the whole row would be a
+          better target, but the row already carries controls that must not
+          fold it when they are pressed. */}
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-label={expanded ? `Fold ${entry.label}` : `Open ${entry.label}`}
+        onClick={onToggle}
+        className="shrink-0 rounded px-1 py-0.5 text-ink-subtle hover:text-ink"
+      >
+        <Glyph name={expanded ? 'chevron-up' : 'chevron-down'} size={13} />
+      </button>
+
+      {expanded && isStaff && (
+        <div className="flex w-full flex-wrap items-center gap-1">
           {placeable && (
             <Tooltip
               content={
@@ -539,12 +611,15 @@ export function InitiativeTracker({
   isStaff,
   refresh,
   onError,
+  onEnded,
 }: {
   campaignId: string;
   state: LiveState;
   isStaff: boolean;
   refresh: () => Promise<void> | void;
   onError: (message: string) => void;
+  /** What the fight was worth, when this panel is the thing that ended it. */
+  onEnded?: (spoils: FightSpoils) => void;
 }) {
   const enc = state.encounter;
   const placement = usePlacement(campaignId);
@@ -554,6 +629,8 @@ export function InitiativeTracker({
   const [hp, setHp] = useState(0);
   const [ac, setAc] = useState(0);
   const [side, setSide] = useState<EntrySide>('foe');
+  /** Rows the reader opened by hand. The current one opens itself. */
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
 
   const act: Act = async p => {
     const res = await p;
@@ -561,7 +638,9 @@ export function InitiativeTracker({
     await refresh();
   };
 
-  if (!enc) {
+  if (!enc || !enc.isActive) {
+    // The card for what it was worth is drawn by the screen, which outlives
+    // this panel: the fight stops being the running one the instant it ends.
     if (isStaff) return null; // the panel offers the "start" card instead
     return (
       <SectionCard title="Initiative">
@@ -612,42 +691,116 @@ export function InitiativeTracker({
   ).length;
   const party = state.entries.filter(e => e.side === 'party').length;
 
+  const setup = enc.phase === 'setup';
+
+  /**
+   * Roll for initiative.
+   *
+   * Everything the DM used to do in some order — add the party, roll for
+   * whoever has no number, go to the top, tell the table — in one press,
+   * because a fight with no party in it is not a fight and a table that is
+   * not told has to work it out from somebody's turn banner.
+   */
+  const rollForIt = async () => {
+    const res = await startFightAction(enc.id);
+    if (!res.ok) {
+      onError(res.error ?? 'Could not start the fight.');
+      return;
+    }
+    await refresh();
+    // The server rolled and the DM caused it: the tray draws each
+    // combatant's die rather than the numbers appearing with nothing thrown.
+    if (res.data.length > 0) {
+      void tray.cast(
+        res.data.map(r => groupFromNotation(r.roll, r.label)),
+        { title: 'Initiative', hint: `${res.data.length} rolled` }
+      );
+    }
+  };
+
   return (
     <SectionCard
       title={enc.name}
-      description={`Round ${enc.round}`}
+      description={
+        setup ? 'Being laid out. Nobody has rolled yet.' : `Round ${enc.round}`
+      }
       actions={
         isStaff && (
           <div className="flex flex-wrap gap-1">
             <FightRules encounter={enc} state={state} act={act} />
-            <Button
-              size="sm"
-              variant="flat"
-              onPress={() => act(advanceTurnAction(enc.id, -1))}
-            >
-              Back
-            </Button>
-            <motion.div whileTap={{ rotate: [0, -6, 6, -3, 0] }}>
-              <Button
-                size="sm"
-                color="primary"
-                onPress={() => act(advanceTurnAction(enc.id, 1))}
-              >
-                Next turn
-              </Button>
-            </motion.div>
+            {!setup && (
+              <>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  onPress={() => act(advanceTurnAction(enc.id, -1))}
+                >
+                  Back
+                </Button>
+                <motion.div whileTap={{ rotate: [0, -6, 6, -3, 0] }}>
+                  <Button
+                    size="sm"
+                    color="primary"
+                    onPress={() => act(advanceTurnAction(enc.id, 1))}
+                  >
+                    Next turn
+                  </Button>
+                </motion.div>
+              </>
+            )}
             <Button
               size="sm"
               variant="light"
               className="text-ink-muted"
-              onPress={() => act(endEncounterAction(enc.id))}
+              onPress={async () => {
+                const res = await endEncounterAction(enc.id);
+                if (!res.ok) {
+                  onError(res.error ?? 'Could not end the fight.');
+                  return;
+                }
+                // A fight that never started is worth nothing and gets no
+                // card; one that ran hands its arithmetic straight back.
+                if (!setup && res.data) onEnded?.(res.data);
+                await refresh();
+              }}
             >
-              End
+              {setup ? 'Put it away' : 'End'}
             </Button>
           </div>
         )
       }
     >
+      {/*
+        The one control the whole staging phase exists for. Deliberately the
+        loudest thing on the panel — a DM reaching for it has a table waiting
+        on them — and it says what it will do underneath rather than leaving
+        the DM to discover that it also seats the party.
+      */}
+      {isStaff && setup && (
+        <div className="mb-3 rounded-[var(--radius-card)] border-2 border-danger/50 bg-danger/[0.06] p-3">
+          <Button
+            size="lg"
+            color="danger"
+            fullWidth
+            className="font-display text-lg uppercase tracking-[0.12em]"
+            startContent={<Glyph name="crossed-swords" size={20} />}
+            onPress={rollForIt}
+          >
+            Roll for initiative
+          </Button>
+          <p className="mt-2 text-xs text-ink-muted">
+            {party === 0
+              ? 'Seats the party, rolls for everybody, and tells the table the fight has begun.'
+              : 'Rolls for anybody still at 0 and tells the table the fight has begun.'}
+          </p>
+        </div>
+      )}
+      {!isStaff && setup && (
+        <p className="mb-3 text-sm text-ink-subtle">
+          The DM is setting something up. Nothing has started.
+        </p>
+      )}
+
       <ol className="divide-y divide-line">
         <CountdownRows effects={state.effects} isStaff={isStaff} act={act} />
         {state.entries.map(e => (
@@ -690,6 +843,24 @@ export function InitiativeTracker({
                   ).length
                 : 0
             }
+            expanded={
+              // Whoever's turn it is, the reader's own hero, and whatever
+              // they opened by hand. While a fight is being laid out
+              // nothing is anybody's turn, so the DM opens what they are
+              // working on.
+              state.turnEntryIds.includes(e.id) ||
+              (e.characterId != null &&
+                e.characterId === state.viewerCharacterId) ||
+              opened.has(e.id)
+            }
+            onToggle={() =>
+              setOpened(current => {
+                const next = new Set(current);
+                if (next.has(e.id)) next.delete(e.id);
+                else next.add(e.id);
+                return next;
+              })
+            }
             placing={placement?.entryId === e.id}
             onPlace={() =>
               setPlacement(
@@ -726,7 +897,7 @@ export function InitiativeTracker({
               variant="flat"
               onPress={() => act(addPartyAction(enc.id))}
             >
-              Add the party
+              Seat the party
             </Button>
             <Button
               size="sm"
@@ -749,7 +920,7 @@ export function InitiativeTracker({
                 }
               }}
             >
-              Roll for anyone at 0
+              Reroll anyone at 0
             </Button>
           </div>
 

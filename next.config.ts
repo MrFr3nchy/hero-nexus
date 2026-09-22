@@ -24,6 +24,17 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  /*
+   * Where the build lands.
+   *
+   * `.next` everywhere except during a deploy, where `./cli deploy` builds
+   * into `.next.new` and then swaps the directory into place. `next build`
+   * otherwise writes into the directory the *running* server is serving
+   * from, so a request landing mid-build can 500 for as long as the build
+   * takes. Building beside it and moving makes the window a rename, and
+   * leaves the old build on disk as `.next.old` for an instant rollback.
+   */
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   // better-sqlite3 is a native module — keep it external to the server bundle.
   serverExternalPackages: ['better-sqlite3'],
   async headers() {

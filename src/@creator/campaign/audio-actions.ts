@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   deleteCampaignAudio,
   listCampaignAudio,
+  playSoundEffect,
   setAmbience,
   setBoardAudio,
   type Ambience,
@@ -58,6 +59,19 @@ export async function setAmbienceAction(
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Could not change the music.');
+  }
+}
+
+/** Press a sound effect for the table. */
+export async function playSoundEffectAction(
+  campaignId: string,
+  audioId: string
+): Promise<Result> {
+  try {
+    await playSoundEffect(campaignId, audioId);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not play that.');
   }
 }
 

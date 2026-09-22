@@ -81,7 +81,7 @@ const MESSAGES: Record<string, string> = {
     'That copy is mid-campaign — it carries one table’s levels and loot. Publish the original instead; it is on your heroes page.',
   WRONG_KIND: 'That listing does not carry what this was asked to take.',
   OWN_PUBLICATION: 'You wrote this one — it is already yours.',
-  WITHDRAWN: 'The author has taken this off the shelf.',
+  WITHDRAWN: 'The author has taken this out of the library.',
   CONTENT_GONE: 'The author has deleted what this listing pointed at.',
   KIND_NOT_ADOPTABLE_YET:
     'Taking a bundle home is not built yet — everything else on the shelf is.',

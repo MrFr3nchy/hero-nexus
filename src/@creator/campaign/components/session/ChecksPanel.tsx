@@ -45,6 +45,18 @@ import {
 const MODES = ['disadvantage', 'straight', 'advantage'] as const;
 type Mode = (typeof MODES)[number];
 
+/** Three words, used wherever a mode is named so they never drift. */
+const MODE_LABEL: Record<Mode, string> = {
+  disadvantage: 'With disadvantage',
+  straight: 'Straight',
+  advantage: 'With advantage',
+};
+const MODE_SHORT: Record<Mode, string> = {
+  disadvantage: 'disadvantage',
+  straight: 'straight',
+  advantage: 'advantage',
+};
+
 function fmt(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`;
 }
@@ -53,9 +65,12 @@ function fmt(n: number): string {
 function TargetLine({
   target,
   dcHidden,
+  asked,
 }: {
   target: CheckTargetRow;
   dcHidden: boolean;
+  /** What the DM asked for, so an override can be named as one. */
+  asked: Mode;
 }) {
   const tone =
     target.outcome === 'pass'
@@ -97,6 +112,28 @@ function TargetLine({
             <span className={`text-xs ${tone}`}>
               {target.outcome === 'pass' ? 'passes' : 'fails'}
             </span>
+          )}
+          {/* What it was really rolled with. Only worth a word when it is
+              not a straight roll, or when the roller overruled the DM. */}
+          {target.rolledMode && target.rolledMode !== 'straight' && (
+            <span
+              className={`text-[0.65rem] ${
+                target.rolledMode === 'advantage'
+                  ? 'text-success'
+                  : 'text-warning'
+              }`}
+            >
+              {MODE_SHORT[target.rolledMode]}
+            </span>
+          )}
+          {target.rolledMode && target.rolledMode !== asked && (
+            <Tooltip
+              content={`Asked for ${MODE_SHORT[asked]}; rolled ${MODE_SHORT[target.rolledMode]}.`}
+            >
+              <span className="text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle">
+                their call
+              </span>
+            </Tooltip>
           )}
           {!target.outcome && dcHidden && (
             <span className="text-xs text-ink-subtle">—</span>
@@ -148,9 +185,16 @@ function CheckCard({
       ),
     [mine?.conditions, mine?.weight?.disadvantage, check.kind, check.ability]
   );
-  const adviceKey = `${advice.mode}:${advice.because.join('|')}`;
+  /*
+   * What the control starts on: the DM's flag, unless the reader's own
+   * conditions say otherwise — restrained on a Dexterity save outranks
+   * "straight", because the rules do. Either way it is a default and never
+   * a lock: the player may set it to anything, and what they actually
+   * rolled with is recorded beside what was asked for.
+   */
+  const adviceKey = `${advice.mode}:${advice.because.join('|')}:${check.mode}`;
   useEffect(() => {
-    setMode(advice.mode === 'flat' ? 'straight' : advice.mode);
+    setMode(advice.mode === 'flat' ? check.mode : advice.mode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adviceKey]);
 
@@ -230,6 +274,17 @@ function CheckCard({
             DC {check.dc}
           </span>
         )}
+        {check.mode !== 'straight' && (
+          <span
+            className={`rounded-sm border px-1 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] ${
+              check.mode === 'advantage'
+                ? 'border-success/50 text-success'
+                : 'border-warning/50 text-warning'
+            }`}
+          >
+            {MODE_SHORT[check.mode]}
+          </span>
+        )}
         {check.dcHidden && (
           <Tooltip
             content={
@@ -270,7 +325,12 @@ function CheckCard({
 
       <ul className="mt-1.5 divide-y divide-line">
         {check.targets.map(t => (
-          <TargetLine key={t.userId} target={t} dcHidden={check.dcHidden} />
+          <TargetLine
+            key={t.userId}
+            target={t}
+            dcHidden={check.dcHidden}
+            asked={check.mode}
+          />
         ))}
       </ul>
 
@@ -443,6 +503,7 @@ function AskForm({
 
   const [what, setWhat] = useState<string>('perception');
   const [dc, setDc] = useState('');
+  const [askMode, setAskMode] = useState<Mode>('straight');
   const [hidden, setHidden] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [who, setWho] = useState<string[]>([]);
@@ -459,6 +520,7 @@ function AskForm({
       prompt,
       dc: dc.trim() === '' ? null : Number(dc),
       dcVisibility: hidden ? 'hidden' : 'shown',
+      mode: askMode,
       targetUserIds: who,
     });
     setBusy(false);
@@ -533,6 +595,25 @@ function AskForm({
         ))}
       </Select>
 
+      {/* What the DM wants it rolled with. The player can overrule it —
+          they know about the grease and the DM does not — and every answer
+          records which it was really rolled with. */}
+      <Select
+        aria-label="With advantage or disadvantage"
+        className="w-40"
+        selectedKeys={[askMode]}
+        onSelectionChange={keys => {
+          const key = Array.from(keys)[0];
+          if (key) setAskMode(String(key) as Mode);
+        }}
+      >
+        {MODES.map(m => (
+          <SelectItem key={m} textValue={MODE_LABEL[m]}>
+            {MODE_LABEL[m]}
+          </SelectItem>
+        ))}
+      </Select>
+
       <Button color="primary" isDisabled={busy} onPress={ask}>
         Ask
       </Button>
@@ -577,7 +658,7 @@ export function ChecksPanel({
 
   return (
     <SectionCard
-      title="The asking"
+      title="Checks"
       description={
         isStaff
           ? 'Put a roll to the table, and watch what comes back.'

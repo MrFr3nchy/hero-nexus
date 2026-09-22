@@ -15,6 +15,9 @@
 
 # next.js
 /.next/
+# `./cli deploy` builds into .next.new and keeps the previous build as
+# .next.old so a failed release can be swapped back in one rename.
+/.next.*
 /out/
 
 # production
@@ -43,6 +46,8 @@ yarn-error.log*
 # local database + user uploads (data/srd/ IS committed)
 /data/hero-nexus.db
 /data/hero-nexus.db-*
+# snapshots taken by `./cli backup` and before every `./cli deploy`
+/data/backups/
 /data/uploads/*
 !/data/uploads/.gitkeep
 

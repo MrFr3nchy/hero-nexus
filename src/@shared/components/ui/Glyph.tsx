@@ -98,6 +98,10 @@ export type GlyphName =
   | 'redo'
   | 'back'
   | 'cube'
+  // the workshop's later tools: a standee, a rubber, the sky
+  | 'picture'
+  | 'eraser'
+  | 'weather'
   // ambient sound (12): a speaker, on and off
   | 'speaker'
   | 'speaker-off';
@@ -502,6 +506,29 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
     <>
       <path d="M4 8l8-4 8 4-8 4z" />
       <path d="M4 8v8l8 4 8-4V8M12 12v8" />
+    </>
+  ),
+  // A framed picture standing up: the Pictures tool.
+  picture: (
+    <>
+      <path d="M4 5h16v14H4z" />
+      <path d="M4 15l4.5-4.5L12 14l3-3 5 5" />
+      <circle cx="9" cy="9" r="1.2" />
+    </>
+  ),
+  // A rubber, set at an angle: the Erase tool.
+  eraser: (
+    <>
+      <path d="M8.5 19H20" />
+      <path d="M13.5 4.5 4.6 13.4a2 2 0 0 0 0 2.8l2.7 2.7h4.2l8.1-8.1a2 2 0 0 0 0-2.8l-3.3-3.5a2 2 0 0 0-2.8 0z" />
+      <path d="M9 9l6.5 6.5" />
+    </>
+  ),
+  // A cloud with rain under it: the weather control.
+  weather: (
+    <>
+      <path d="M7 15a4 4 0 0 1 .4-8A5 5 0 0 1 17 8.2 3.4 3.4 0 0 1 17 15z" />
+      <path d="M8 18l-1 2.5M12 18l-1 2.5M16 18l-1 2.5" />
     </>
   ),
 };

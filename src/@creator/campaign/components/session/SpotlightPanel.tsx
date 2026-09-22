@@ -70,7 +70,7 @@ export function SpotlightPanel({
 
   if (!map) {
     return (
-      <SectionCard title="On the table">
+      <SectionCard title="Shared map">
         <EmptyState
           scene={<TomeScene />}
           title="Nothing is up"
@@ -88,7 +88,7 @@ export function SpotlightPanel({
 
   return (
     <SectionCard
-      title={map.title || 'On the table'}
+      title={map.title || 'A shared map'}
       description="Everyone at the table is looking at this."
       actions={
         isStaff && (

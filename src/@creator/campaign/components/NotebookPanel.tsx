@@ -111,7 +111,9 @@ function RevealComposer({
     <div className="mt-3 rounded-[var(--radius-card)] border border-gold/40 bg-gold/[0.06] p-4">
       <div className="flex items-center gap-2">
         <Glyph name="candle" size={16} className="text-gold" />
-        <h3 className="font-display text-sm text-ink">Tell them this much</h3>
+        <h3 className="font-display text-sm text-ink">
+          Show the party this much
+        </h3>
       </div>
 
       <blockquote className="mt-3 whitespace-pre-wrap border-l-2 border-gold/50 pl-3 font-hand text-[1.1875rem] leading-snug text-ink-muted">

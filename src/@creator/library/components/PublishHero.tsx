@@ -97,7 +97,7 @@ export function PublishHero({
     <div className="flex w-full max-w-md flex-col gap-3 rounded-[var(--radius-card)] border border-line bg-surface-2 p-3">
       <Input
         size="sm"
-        label="Title on the shelf"
+        label="Title in the library"
         value={title}
         onValueChange={setTitle}
       />

@@ -14,16 +14,26 @@ import { Glyph, Panel, type PanelStatus } from '@/@shared/components/ui';
 import {
   SCREEN_PANELS,
   SCREEN_PANEL_KEYS,
+  panelsAround,
   type BattleLayout,
   type ScreenPanelKey,
 } from '../../lib/screen';
 
-/** What a panel wears on the shelf: the same answer the box grid gives. */
+/** What a panel wears beside the board: the same answer the box grid gives. */
 export interface PanelWear {
   status: PanelStatus;
   detail?: ReactNode;
   badge?: number;
 }
+
+/** Which of the three regions a panel sits in. */
+type Region = 'left' | 'right' | 'rail';
+const REGIONS: readonly Region[] = ['left', 'right', 'rail'];
+const REGION_LABEL: Record<Region, string> = {
+  left: 'Left of the board',
+  right: 'Right of the board',
+  rail: 'Under the board',
+};
 
 /** A count worn on a glyph in the strip. Only ever drawn above zero. */
 function Badge({
@@ -47,8 +57,8 @@ function Badge({
 }
 
 /**
- * A phone held sideways: wide, and too short for a shelf beside anything.
- * The board takes the screen and the shelf becomes a sheet from the bottom.
+ * A phone held sideways: wide, and too short for panels beside anything.
+ * The board takes the screen and the panels become a sheet from the bottom.
  */
 const LANDSCAPE_PHONE = '(orientation: landscape) and (max-height: 500px)';
 
@@ -65,21 +75,21 @@ function useMediaQuery(query: string): boolean {
 }
 
 /**
- * The sand table's arrangement: the board in front, a shelf beside it.
+ * The fight's arrangement: the battle board in the middle, panels around it.
  *
  * Not columns of equal standing. A fight has one thing that matters — where
  * everybody is — and everything else is something you reach for: your hit
- * points, your weapons, the dice, whose turn it is. So the board fills the
- * main region and the shelf is a column of the panels the viewer chose,
- * each collapsible, the whole shelf collapsible to a strip of glyphs. On a
- * wide screen it can be two shelves, one each side, so the board keeps its
- * square rather than a letterbox.
+ * points, your weapons, the dice, whose turn it is. So the board takes the
+ * middle and the panels flank it on the left and the right, with a rail
+ * under it for the short wide ones. One column beside the board was never
+ * enough for a DM: the order, the stat block, the dice and the party do not
+ * fit in a stack you have to scroll mid-round.
  *
- * **Function over form.** The shelf renders its panels in the same `Panel`
- * chrome the boxes use, at shelf density — tighter, `text-sm` — and the
- * board sits in one too, so the whole screen is one thing. Density is the
- * feature. On a phone the shelf drops below the board rather than beside
- * it; on a phone held sideways it is a sheet the strip pulls up.
+ * **Function over form.** Every panel renders in the same `Panel` chrome the
+ * boxes use, at panel density — tighter, `text-sm` — and the board sits in
+ * one too, so the whole screen is one thing. Density is the feature. On a
+ * phone the panels drop below the board rather than beside it; on a phone
+ * held sideways they become a sheet the strip pulls up.
  */
 export function BattleArrangement({
   layout,
@@ -96,7 +106,7 @@ export function BattleArrangement({
   arranging: boolean;
   isStaff: boolean;
   /**
-   * Counts to wear on the strip and on a folded panel's header: an ask
+   * Counts to wear on the strip and on a folded panel's header: a check
    * waiting on the viewer, a whisper unread. Nothing else earns one.
    */
   badges?: Partial<Record<ScreenPanelKey, number>>;
@@ -108,8 +118,8 @@ export function BattleArrangement({
   board: (fitHeight: number) => ReactNode;
   renderPanel: (key: ScreenPanelKey) => ReactNode;
 }) {
-  // The main region's height, so the board can fit it rather than overflow
-  // it. Measured, and re-measured when the window or the shelf changes.
+  // The board region's height, so the board can fit it rather than overflow
+  // it. Measured, and re-measured when the window or the panels change.
   const regionRef = useRef<HTMLDivElement>(null);
   const [regionHeight, setRegionHeight] = useState(0);
   useEffect(() => {
@@ -123,17 +133,20 @@ export function BattleArrangement({
   }, []);
   const sideways = useMediaQuery(LANDSCAPE_PHONE);
   const [sheetOpen, setSheetOpen] = useState(false);
-  // Which panel is being dragged along the shelf, and where it would land.
+  // Which panel is being dragged, and where it would land.
   const [dragged, setDragged] = useState<ScreenPanelKey | null>(null);
-  const [dropBefore, setDropBefore] = useState<ScreenPanelKey | 'end' | null>(
-    null
-  );
+  const [dropAt, setDropAt] = useState<{
+    region: Region;
+    before: ScreenPanelKey | 'end';
+  } | null>(null);
 
+  const all = panelsAround(layout);
   const allowed = SCREEN_PANEL_KEYS.filter(
     k => (isStaff || SCREEN_PANELS[k].players) && k !== 'board'
   );
-  const spare = allowed.filter(k => !layout.shelf.includes(k));
+  const spare = allowed.filter(k => !all.includes(k));
   const folded = new Set(layout.folded);
+  const open = layout.open;
 
   // A fold is written into the layout, so it is still folded tomorrow. The
   // caller saves when the arrangement is done or, out of arrange mode, on
@@ -145,57 +158,58 @@ export function BattleArrangement({
         ? [...layout.folded.filter(k => k !== key), key]
         : layout.folded.filter(k => k !== key),
     });
-  const toggleFold = (key: ScreenPanelKey) => setFolded(key, !folded.has(key));
 
-  const move = (key: ScreenPanelKey, by: -1 | 1) => {
-    const i = layout.shelf.indexOf(key);
-    const j = i + by;
-    if (i < 0 || j < 0 || j >= layout.shelf.length) return;
-    const shelf = [...layout.shelf];
-    [shelf[i], shelf[j]] = [shelf[j], shelf[i]];
-    onChange({ ...layout, shelf });
+  const regionOf = (key: ScreenPanelKey): Region =>
+    layout.left.includes(key)
+      ? 'left'
+      : layout.rail.includes(key)
+        ? 'rail'
+        : 'right';
+
+  /** Put `key` into `region`, in front of `before` (or at its end). */
+  const place = (
+    key: ScreenPanelKey,
+    region: Region,
+    before: ScreenPanelKey | 'end'
+  ) => {
+    const without = {
+      left: layout.left.filter(k => k !== key),
+      right: layout.right.filter(k => k !== key),
+      rail: layout.rail.filter(k => k !== key),
+    };
+    const target = [...without[region]];
+    const at = before === 'end' ? target.length : target.indexOf(before);
+    target.splice(at < 0 ? target.length : at, 0, key);
+    onChange({ ...layout, ...without, [region]: target });
   };
 
-  /** Put `key` in front of `before` (or at the end), the drag's landing. */
-  const moveBefore = (key: ScreenPanelKey, before: ScreenPanelKey | 'end') => {
-    if (key === before) return;
-    const shelf = layout.shelf.filter(k => k !== key);
-    const at = before === 'end' ? shelf.length : shelf.indexOf(before);
-    shelf.splice(at < 0 ? shelf.length : at, 0, key);
-    onChange({ ...layout, shelf });
+  const move = (key: ScreenPanelKey, by: -1 | 1) => {
+    const region = regionOf(key);
+    const list = [...layout[region]];
+    const i = list.indexOf(key);
+    const j = i + by;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    onChange({ ...layout, [region]: list });
   };
 
   const remove = (key: ScreenPanelKey) =>
     onChange({
       ...layout,
-      shelf: layout.shelf.filter(k => k !== key),
+      left: layout.left.filter(k => k !== key),
+      right: layout.right.filter(k => k !== key),
+      rail: layout.rail.filter(k => k !== key),
       folded: layout.folded.filter(k => k !== key),
     });
 
-  const add = (key: ScreenPanelKey) =>
-    onChange({ ...layout, shelf: [...layout.shelf, key] });
+  const add = (key: ScreenPanelKey, region: Region) =>
+    onChange({ ...layout, [region]: [...layout[region], key] });
 
-  const open = layout.shelfOpen;
-  // Two shelves: the odd panels take the left. Only on a wide screen — on
-  // anything narrower `left` is empty and the right shelf holds them all.
-  const [wide, setWide] = useState(false);
-  useEffect(() => {
-    const mql = window.matchMedia('(min-width: 1280px)');
-    const update = () => setWide(mql.matches);
-    update();
-    mql.addEventListener('change', update);
-    return () => mql.removeEventListener('change', update);
-  }, []);
-  const split = layout.shelfSide === 'both' && wide && open;
-  const left = split ? layout.shelf.filter((_, i) => i % 2 === 1) : [];
-  const right = split
-    ? layout.shelf.filter((_, i) => i % 2 === 0)
-    : layout.shelf;
-
-  const panel = (key: ScreenPanelKey) => {
+  const panel = (key: ScreenPanelKey, region: Region) => {
     const meta = SCREEN_PANELS[key];
     const isFolded = folded.has(key);
     const w = wear(key);
+    const over = dragged && dropAt?.region === region && dropAt.before === key;
     return (
       <div
         key={key}
@@ -203,16 +217,16 @@ export function BattleArrangement({
           if (!dragged || !arranging) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = 'move';
-          setDropBefore(key);
+          setDropAt({ region, before: key });
         }}
         onDrop={event => {
           event.preventDefault();
-          if (dragged) moveBefore(dragged, key);
+          if (dragged) place(dragged, region, key);
           setDragged(null);
-          setDropBefore(null);
+          setDropAt(null);
         }}
-        className={`px-1.5 pt-1.5 ${
-          dragged && dropBefore === key ? 'border-t-2 border-t-gold' : ''
+        className={`${region === 'rail' ? 'min-w-64 flex-1 p-1' : 'px-1.5 pt-1.5'} ${
+          over ? 'border-t-2 border-t-gold' : ''
         }`}
       >
         <Panel
@@ -233,11 +247,31 @@ export function BattleArrangement({
           }}
           onDragEnd={() => {
             setDragged(null);
-            setDropBefore(null);
+            setDropAt(null);
           }}
           onRemove={() => remove(key)}
           arrangeControls={
-            <span className="flex shrink-0 gap-0.5">
+            <span className="flex shrink-0 items-center gap-0.5">
+              <Select
+                aria-label={`Which side ${meta.label} sits on`}
+                size="sm"
+                variant="flat"
+                className="w-28"
+                classNames={{ trigger: 'h-6 min-h-6' }}
+                selectedKeys={[region]}
+                onSelectionChange={keys => {
+                  const next = Array.from(keys)[0];
+                  if (next && next !== region) {
+                    place(key, String(next) as Region, 'end');
+                  }
+                }}
+              >
+                {REGIONS.map(r => (
+                  <SelectItem key={r} textValue={REGION_LABEL[r]}>
+                    {REGION_LABEL[r]}
+                  </SelectItem>
+                ))}
+              </Select>
               <button
                 type="button"
                 onClick={() => move(key, -1)}
@@ -256,9 +290,9 @@ export function BattleArrangement({
               </button>
             </span>
           }
-          // The shelf scrolls as a column; a panel on it grows to its
-          // content rather than scrolling inside a scroller.
-          className="max-h-[60vh]"
+          // A flank scrolls as a column; a panel on it grows to its content
+          // rather than scrolling inside a scroller.
+          className={region === 'rail' ? 'max-h-[30vh]' : 'max-h-[60vh]'}
         >
           {renderPanel(key)}
         </Panel>
@@ -266,44 +300,37 @@ export function BattleArrangement({
     );
   };
 
-  /** The column of panels, with a drop zone after the last one. */
-  const column = (keys: ScreenPanelKey[]) => (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      {keys.length === 0 && layout.shelf.length === 0 && (
-        <p className="px-3 py-4 text-xs text-ink-subtle">
-          Nothing on the shelf. Press Arrange to put something here.
-        </p>
-      )}
-      {keys.map(panel)}
-      {arranging && dragged && (
-        <div
-          onDragOver={event => {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'move';
-            setDropBefore('end');
-          }}
-          onDrop={event => {
-            event.preventDefault();
-            if (dragged) moveBefore(dragged, 'end');
-            setDragged(null);
-            setDropBefore(null);
-          }}
-          className={`m-2 rounded border border-dashed border-line px-2 py-3 text-center text-xs text-ink-subtle ${
-            dropBefore === 'end' ? 'border-gold bg-gold/[0.05]' : ''
-          }`}
-        >
-          Drop it last
-        </div>
-      )}
-    </div>
-  );
+  /** A drop zone at the end of a region, so a panel can land last. */
+  const dropLast = (region: Region) =>
+    arranging && dragged ? (
+      <div
+        onDragOver={event => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          setDropAt({ region, before: 'end' });
+        }}
+        onDrop={event => {
+          event.preventDefault();
+          if (dragged) place(dragged, region, 'end');
+          setDragged(null);
+          setDropAt(null);
+        }}
+        className={`m-2 min-w-40 flex-1 rounded border border-dashed border-line px-2 py-3 text-center text-xs text-ink-subtle ${
+          dropAt?.region === region && dropAt.before === 'end'
+            ? 'border-gold bg-gold/[0.05]'
+            : ''
+        }`}
+      >
+        {REGION_LABEL[region]}
+      </div>
+    ) : null;
 
   /** The glyph strip: each a way back in, worn with its count. */
   const strip = (onPick: (key: ScreenPanelKey) => void, row: boolean) => (
     <ul
       className={`flex gap-1 p-1 ${row ? 'flex-row' : 'flex-row lg:flex-col'}`}
     >
-      {layout.shelf.map(key => (
+      {all.map(key => (
         <li key={key}>
           <button
             type="button"
@@ -323,59 +350,27 @@ export function BattleArrangement({
     </ul>
   );
 
-  const shelfHeader = (
-    <header className="flex shrink-0 items-center gap-1 border-b border-line px-1.5 py-1">
-      <button
-        type="button"
-        onClick={() => onChange({ ...layout, shelfOpen: !open })}
-        className="rounded p-1 text-ink-muted hover:text-ink"
-        aria-label={open ? 'Fold the shelf away' : 'Open the shelf'}
-        title={open ? 'Fold the shelf away' : 'Open the shelf'}
+  const addControl = (region: Region) =>
+    arranging && spare.length > 0 ? (
+      <Select
+        aria-label={`Add a panel ${REGION_LABEL[region].toLowerCase()}`}
+        size="sm"
+        className="ml-auto w-32"
+        classNames={{ trigger: 'h-7 min-h-7' }}
+        placeholder="Add"
+        selectedKeys={[]}
+        onSelectionChange={keys => {
+          const key = Array.from(keys)[0];
+          if (key) add(String(key) as ScreenPanelKey, region);
+        }}
       >
-        <Glyph name={open ? 'x' : 'plus'} size={13} />
-      </button>
-      {open && (
-        <span className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
-          The shelf
-        </span>
-      )}
-      {open && arranging && (
-        <button
-          type="button"
-          onClick={() =>
-            onChange({
-              ...layout,
-              shelfSide: layout.shelfSide === 'both' ? 'right' : 'both',
-            })
-          }
-          className="ml-1 hidden rounded border border-line px-1.5 py-0.5 text-[0.6rem] uppercase tracking-[0.12em] text-ink-subtle hover:text-ink xl:inline-block"
-          title="One shelf, or one each side of the board"
-        >
-          {layout.shelfSide === 'both' ? 'Both sides' : 'One side'}
-        </button>
-      )}
-      {open && arranging && spare.length > 0 && (
-        <Select
-          aria-label="Add to the shelf"
-          size="sm"
-          className="ml-auto w-36"
-          classNames={{ trigger: 'h-7 min-h-7' }}
-          placeholder="Add"
-          selectedKeys={[]}
-          onSelectionChange={keys => {
-            const key = Array.from(keys)[0];
-            if (key) add(String(key) as ScreenPanelKey);
-          }}
-        >
-          {spare.map(key => (
-            <SelectItem key={key} textValue={SCREEN_PANELS[key].label}>
-              {SCREEN_PANELS[key].label}
-            </SelectItem>
-          ))}
-        </Select>
-      )}
-    </header>
-  );
+        {spare.map(key => (
+          <SelectItem key={key} textValue={SCREEN_PANELS[key].label}>
+            {SCREEN_PANELS[key].label}
+          </SelectItem>
+        ))}
+      </Select>
+    ) : null;
 
   /* --- a phone held sideways ------------------------------------------- */
 
@@ -408,7 +403,7 @@ export function BattleArrangement({
             onClick={() => setSheetOpen(true)}
             className="ml-auto px-3 py-1 font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle hover:text-ink"
           >
-            The shelf
+            Panels
           </button>
         </div>
         <Drawer
@@ -420,9 +415,13 @@ export function BattleArrangement({
         >
           <DrawerContent>
             <DrawerHeader className="border-b border-line py-2 font-display-alt text-[0.65rem] uppercase tracking-[0.16em] text-ink-subtle">
-              The shelf
+              Panels
             </DrawerHeader>
-            <DrawerBody className="p-0">{column(layout.shelf)}</DrawerBody>
+            <DrawerBody className="p-0">
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {all.map(key => panel(key, regionOf(key)))}
+              </div>
+            </DrawerBody>
           </DrawerContent>
         </Drawer>
       </div>
@@ -431,62 +430,104 @@ export function BattleArrangement({
 
   /* --- everything else ------------------------------------------------- */
 
-  const shelf = (keys: ScreenPanelKey[], side: 'left' | 'right') => (
-    <aside
-      aria-label={side === 'left' ? 'The left shelf' : 'The shelf'}
-      className={`flex min-h-0 shrink-0 flex-col rounded-[var(--radius-card)] border border-line bg-surface [box-shadow:var(--shadow-card)] transition-[width] max-lg:max-h-[45vh] ${
-        open
-          ? split
-            ? 'lg:w-[18rem] xl:w-[20rem]'
-            : 'lg:w-[22rem] xl:w-[26rem]'
-          : 'lg:w-11'
-      }`}
-    >
-      {side === 'right' ? (
-        shelfHeader
-      ) : (
+  const flank = (side: 'left' | 'right') => {
+    const keys = layout[side];
+    if (!open && side === 'left') return null;
+    if (open && keys.length === 0 && !arranging) return null;
+    return (
+      <aside
+        aria-label={REGION_LABEL[side]}
+        className={`flex min-h-0 shrink-0 flex-col rounded-[var(--radius-card)] border border-line bg-surface [box-shadow:var(--shadow-card)] transition-[width] max-lg:max-h-[45vh] ${
+          open ? 'lg:w-[19rem] xl:w-[22rem]' : 'lg:w-11'
+        }`}
+      >
         <header className="flex shrink-0 items-center gap-1 border-b border-line px-1.5 py-1">
-          <span className="px-1 font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
-            The shelf
-          </span>
+          {side === 'right' && (
+            <button
+              type="button"
+              onClick={() => onChange({ ...layout, open: !open })}
+              className="rounded p-1 text-ink-muted hover:text-ink"
+              aria-label={open ? 'Fold the panels away' : 'Open the panels'}
+              title={open ? 'Fold the panels away' : 'Open the panels'}
+            >
+              <Glyph name={open ? 'x' : 'plus'} size={13} />
+            </button>
+          )}
+          {open && (
+            <span className="px-1 font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+              {side === 'left' ? 'Left' : 'Right'}
+            </span>
+          )}
+          {open && addControl(side)}
         </header>
-      )}
-      {!open &&
-        side === 'right' &&
-        strip(key => {
-          onChange({
-            ...layout,
-            shelfOpen: true,
-            folded: layout.folded.filter(k => k !== key),
-          });
-        }, false)}
-      {open && column(keys)}
-    </aside>
-  );
+        {!open &&
+          side === 'right' &&
+          strip(key => {
+            onChange({
+              ...layout,
+              open: true,
+              folded: layout.folded.filter(k => k !== key),
+            });
+          }, false)}
+        {open && (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {keys.map(key => panel(key, side))}
+            {dropLast(side)}
+            {keys.length === 0 && !dragged && (
+              <p className="px-3 py-4 text-xs text-ink-subtle">
+                Nothing here. Add a panel above.
+              </p>
+            )}
+          </div>
+        )}
+      </aside>
+    );
+  };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 p-2 lg:flex-row">
-      {split && shelf(left, 'left')}
+    <div className="flex min-h-0 flex-1 flex-col gap-2 p-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 lg:flex-row">
+        {flank('left')}
 
-      {/* The board. It owns its own scroll; the page never does. */}
-      <Panel
-        title={titleOf('board')}
-        status={wear('board').status}
-        statusDetail={wear('board').detail}
-        scroll={false}
-        padded={false}
-        className="min-h-0 flex-1"
-      >
-        <div
-          ref={regionRef}
-          data-board-region
-          className="h-full min-h-0 overflow-auto"
+        {/* The board. It owns its own scroll; the page never does. */}
+        <Panel
+          title={titleOf('board')}
+          status={wear('board').status}
+          statusDetail={wear('board').detail}
+          scroll={false}
+          padded={false}
+          className="min-h-0 flex-1"
         >
-          <div className="p-2">{board(regionHeight)}</div>
-        </div>
-      </Panel>
+          <div
+            ref={regionRef}
+            data-board-region
+            className="h-full min-h-0 overflow-auto"
+          >
+            <div className="p-2">{board(regionHeight)}</div>
+          </div>
+        </Panel>
 
-      {shelf(right, 'right')}
+        {flank('right')}
+      </div>
+
+      {/* The rail under the board: short, wide panels, side by side. */}
+      {open && (layout.rail.length > 0 || (arranging && dragged)) && (
+        <div
+          aria-label={REGION_LABEL.rail}
+          className="flex shrink-0 flex-wrap items-start gap-1 rounded-[var(--radius-card)] border border-line bg-surface p-1 [box-shadow:var(--shadow-card)]"
+        >
+          {layout.rail.map(key => panel(key, 'rail'))}
+          {dropLast('rail')}
+        </div>
+      )}
+      {open && arranging && layout.rail.length === 0 && !dragged && (
+        <div className="flex shrink-0 items-center gap-2 rounded-[var(--radius-card)] border border-dashed border-line px-2 py-1">
+          <span className="font-display-alt text-[0.6rem] uppercase tracking-[0.16em] text-ink-subtle">
+            Under the board
+          </span>
+          {addControl('rail')}
+        </div>
+      )}
     </div>
   );
 }

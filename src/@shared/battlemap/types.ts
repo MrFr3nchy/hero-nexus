@@ -85,10 +85,94 @@ export interface TerrainDoc {
    * it can see. Dark: only a light's radius or a token's own vision reveals.
    */
   ambient: Ambient;
+  /**
+   * What is falling on this floor. Absent is `clear` — every board drawn
+   * before weather existed. Per floor, not per board: it rains on the roof
+   * and not in the crypt.
+   */
+  weather?: Weather;
 }
 
 export type Ambient = 'bright' | 'dim' | 'dark';
 export const AMBIENTS: readonly Ambient[] = ['bright', 'dim', 'dark'];
+
+/**
+ * Weather over a floor.
+ *
+ * Drawn over the whole board and, for the two that the rules actually
+ * change something for, said in words beside it rather than only painted:
+ * heavy rain and heavy snow lightly obscure, which is disadvantage on sight
+ * Perception, and a downpour puts out an open flame. A renderer that only
+ * drew the particles would be decoration, which design rule 6 refuses.
+ *
+ * A floor with no `weather` is `clear`, which is every board drawn before
+ * this existed.
+ */
+export type Weather = 'clear' | 'rain' | 'storm' | 'snow' | 'blizzard' | 'mist';
+export const WEATHERS: readonly Weather[] = [
+  'clear',
+  'rain',
+  'storm',
+  'snow',
+  'blizzard',
+  'mist',
+];
+
+export interface WeatherMeta {
+  key: Weather;
+  name: string;
+  /** One line: what a DM sees out of the window. */
+  line: string;
+  /** What the rules say it does, or null when it is only weather. */
+  rule: string | null;
+  /** True when it lightly obscures: disadvantage on sight Perception. */
+  obscures: boolean;
+}
+
+export const WEATHER_META: Record<Weather, WeatherMeta> = {
+  clear: {
+    key: 'clear',
+    name: 'Clear',
+    line: 'Nothing falling.',
+    rule: null,
+    obscures: false,
+  },
+  rain: {
+    key: 'rain',
+    name: 'Rain',
+    line: 'Steady rain.',
+    rule: null,
+    obscures: false,
+  },
+  storm: {
+    key: 'storm',
+    name: 'Downpour',
+    line: 'Heavy rain, and wind with it.',
+    rule: 'Lightly obscured: disadvantage on Perception checks that rely on sight. Open flames are put out.',
+    obscures: true,
+  },
+  snow: {
+    key: 'snow',
+    name: 'Snow',
+    line: 'Falling snow.',
+    rule: null,
+    obscures: false,
+  },
+  blizzard: {
+    key: 'blizzard',
+    name: 'Blizzard',
+    line: 'Snow driven sideways.',
+    rule: 'Lightly obscured: disadvantage on Perception checks that rely on sight.',
+    obscures: true,
+  },
+  mist: {
+    key: 'mist',
+    name: 'Mist',
+    line: 'Fog on the ground.',
+    rule: 'Lightly obscured: disadvantage on Perception checks that rely on sight.',
+    obscures: true,
+  },
+};
 
 /** A named rectangle of floor. `w` × `h` tiles, anchored top-left. */
 export interface Room {
@@ -321,6 +405,58 @@ export const MATERIALS: readonly Material[] = [
     difficult: false,
     impassable: true,
   },
+  {
+    key: 'snow',
+    name: 'Snow',
+    swatch: '#e8eef2',
+    swatchDark: '#4a5560',
+    difficult: true,
+    impassable: false,
+  },
+  {
+    key: 'ice',
+    name: 'Ice',
+    swatch: '#c6dbe6',
+    swatchDark: '#33505e',
+    // Not difficult: 2024 treats ice as a surface you may be asked to save
+    // against, not one that costs double. The DM asks for the check.
+    difficult: false,
+    impassable: false,
+  },
+  {
+    key: 'mud',
+    name: 'Mud',
+    swatch: '#b09877',
+    swatchDark: '#3e3121',
+    difficult: true,
+    impassable: false,
+  },
+  {
+    key: 'sand',
+    name: 'Sand',
+    swatch: '#e3d3ad',
+    swatchDark: '#5c5136',
+    difficult: true,
+    impassable: false,
+  },
+  {
+    key: 'rock',
+    name: 'Bare rock',
+    swatch: '#a99f92',
+    swatchDark: '#45403a',
+    // A mountainside: raise it with the Height tool and this is the face of
+    // it. Climbable by a rule the DM adjudicates, not by walking.
+    difficult: true,
+    impassable: false,
+  },
+  {
+    key: 'cliff',
+    name: 'Cliff face',
+    swatch: '#8f8478',
+    swatchDark: '#33302c',
+    difficult: false,
+    impassable: true,
+  },
 ] as const;
 
 export const VOID = 0;
@@ -520,6 +656,12 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
     ambient: (AMBIENTS as readonly unknown[]).includes(src.ambient)
       ? (src.ambient as Ambient)
       : 'bright',
+    // Absent, or anything else, is clear: a board drawn before weather
+    // existed has none, and that is the same thing as none.
+    ...((WEATHERS as readonly unknown[]).includes(src.weather) &&
+    src.weather !== 'clear'
+      ? { weather: src.weather as Weather }
+      : {}),
   };
 }
 

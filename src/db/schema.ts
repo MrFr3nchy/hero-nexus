@@ -39,6 +39,24 @@ export const users = sqliteTable('user', {
   // Local extensions:
   passwordHash: text('password_hash'),
   createdAt: text('created_at').default(nowIso).notNull(),
+  /**
+   * The person who runs this box (0065).
+   *
+   * Orthogonal to a campaign role: a super admin is not a DM at every table
+   * and gets no access to anybody's canon, notebook or whispers. What they
+   * get is the shape of the install — counts, disk, signups — and the
+   * handles an operator needs: verify an address by hand, disable an
+   * account, hand the keys to somebody else.
+   */
+  isSuperAdmin: integer('is_super_admin', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+  /**
+   * When the account was shut off (0065). Null is an ordinary account. Not
+   * a delete: what they played is other people's history too, and this is
+   * reversible on purpose.
+   */
+  disabledAt: text('disabled_at'),
 });
 
 export const accounts = sqliteTable(
@@ -487,6 +505,19 @@ export const initiativeEncounters = sqliteTable(
     isActive: integer('is_active', { mode: 'boolean' })
       .notNull()
       .default(false),
+    /**
+     * Whether anybody has rolled yet (0063).
+     *
+     * `isActive` says "this is the fight on the table"; it never said
+     * whether it had started. `setup` is the fight being laid out — the
+     * order exists, foes can be placed on the board and shown to the
+     * party, and nothing advances until somebody presses *Roll for
+     * initiative*. `fighting` is a fight under way, which is every row
+     * written before this column existed.
+     */
+    phase: text('phase', { enum: ['setup', 'fighting'] })
+      .notNull()
+      .default('fighting'),
     round: integer('round').notNull().default(1),
     turnIndex: integer('turn_index').notNull().default(0),
     /** The sitting this was fought at. Null is unfiled. */
@@ -1881,6 +1912,14 @@ export const campaignChecks = sqliteTable(
     prompt: text('prompt').notNull().default(''),
     dc: integer('dc'),
     /**
+     * How the DM asked for it to be rolled (0063). The player may overrule
+     * it — they know about the grease and the DM does not — and what they
+     * actually rolled with is on the target row, so the log can say both.
+     */
+    mode: text('mode', { enum: ['straight', 'advantage', 'disadvantage'] })
+      .notNull()
+      .default('straight'),
+    /**
      * A hidden DC never travels to the target — not in a field they could
      * read, not on a surface that hides it in CSS. They see their total; the
      * DM sees the verdict. That is the whole of what hiding a DC means.
@@ -1965,6 +2004,14 @@ export const campaignCheckTargets = sqliteTable(
      */
     total: integer('total'),
     modifier: integer('modifier'),
+    /**
+     * What it was actually rolled with (0063). Null until answered. When it
+     * differs from the check's `mode`, the player overruled the DM, and the
+     * panel and the roll log both say so.
+     */
+    rolledMode: text('rolled_mode', {
+      enum: ['straight', 'advantage', 'disadvantage'],
+    }),
     answeredAt: text('answered_at'),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
@@ -2518,6 +2565,14 @@ export const campaignAudio = sqliteTable(
       .notNull()
       .references(() => campaigns.id, { onDelete: 'cascade' }),
     title: text('title').notNull().default(''),
+    /**
+     * What it is for (0064). `ambience` loops under the room; `effect` is a
+     * one-shot on the soundboard — a door, a horn, a scream — played over
+     * whatever is already going and never looped.
+     */
+    kind: text('kind', { enum: ['ambience', 'effect'] })
+      .notNull()
+      .default('ambience'),
     filePath: text('file_path').notNull(),
     mime: text('mime').notNull(),
     bytes: integer('bytes').notNull(),

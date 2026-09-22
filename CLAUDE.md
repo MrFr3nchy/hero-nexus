@@ -12,7 +12,8 @@ disagrees with the code, the code is wrong.
 
 | Document                                           | Governs                                                          |
 | -------------------------------------------------- | ---------------------------------------------------------------- |
-| [docs/design-language.md](docs/design-language.md) | How any page looks and is laid out. Eight rules, each checkable. |
+| [docs/design-language.md](docs/design-language.md) | How any page looks and is laid out. Ten rules, each checkable.   |
+| [docs/naming.md](docs/naming.md)                   | What everything is called. One thing, one name, everywhere.      |
 | [docs/content-model.md](docs/content-model.md)     | How game content is shaped, stored, referenced, and put in play. |
 | [docs/sharing-model.md](docs/sharing-model.md)     | What happens when something leaves the account that made it.     |
 | [src/db/README.md](src/db/README.md)               | Schema and migrations.                                           |

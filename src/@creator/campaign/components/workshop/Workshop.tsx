@@ -33,6 +33,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
 } from 'react';
 
 import {
@@ -44,6 +45,8 @@ import {
 } from '@/@creator/campaign/lib/battlemap';
 import {
   clearRegion,
+  eraseTiles,
+  putPicture,
   cutRegion,
   fillFrom,
   flipFragment,
@@ -73,6 +76,7 @@ import {
   TILE_FEET,
   withLevel,
   type BoardDoc,
+  type Facing,
   type LevelDoc,
   type LevelLink,
 } from '@/@shared/battlemap/types';
@@ -126,8 +130,10 @@ const TOOL_GLYPH: Record<WorkshopTool, Parameters<typeof Glyph>[0]['name']> = {
   height: 'hills',
   scatter: 'tree',
   stamps: 'stamp',
+  pictures: 'picture',
   things: 'chest',
   light: 'candle',
+  erase: 'eraser',
   fog: 'fog',
 };
 
@@ -479,6 +485,13 @@ export function Workshop({
             : raiseTiles(terrain, fresh, by),
           true
         );
+      } else if (tool === 'erase') {
+        // Once per stroke, applied as it goes: a drag over a hedge should
+        // rub it out while the pointer is on it, not when it lifts.
+        const fresh = tiles.filter(i => !touched.current.has(i));
+        if (fresh.length === 0) return;
+        for (const i of fresh) touched.current.add(i);
+        putLevel(eraseTiles(terrain, fresh, settings.eraseWhat), true);
       } else if (tool === 'scatter' || tool === 'fog') {
         let added = 0;
         for (const i of tiles) {
@@ -726,8 +739,28 @@ export function Workshop({
         setPainting(true);
         brushAt(t);
         return;
+      case 'erase':
+        beginStroke();
+        touched.current.clear();
+        setPainting(true);
+        brushAt(t);
+        return;
       case 'stamps':
         placeStamp(t);
+        return;
+      case 'pictures':
+        if (!settings.pictureImageId) {
+          setError('Pick or upload a picture first.');
+          return;
+        }
+        putLevel(
+          putPicture(terrain, t.x, t.y, {
+            imageId: settings.pictureImageId,
+            height: settings.pictureHeight,
+            facing: settings.pictureFacing,
+            blocks: settings.pictureBlocks,
+          })
+        );
         return;
       case 'things':
         void placeThing(t);
@@ -735,6 +768,31 @@ export function Workshop({
       case 'light':
         putLevel(toggleLight(terrain, t.x, t.y, settings.lightReach));
         return;
+    }
+  };
+
+  /*
+   * The wheel turns what is in hand.
+   *
+   * A stamp used to turn only from the R key or a button in the panel, which
+   * meant taking a hand off the board to rotate the thing you were about to
+   * put down. Scrolling over the board turns it instead — and only when
+   * something in hand can be turned, so the board still scrolls the rest of
+   * the time.
+   */
+  const onWheel = (ev: ReactWheelEvent<HTMLDivElement>) => {
+    const turnable =
+      tool === 'stamps' ||
+      (tool === 'pictures' && settings.pictureFacing !== 'camera');
+    if (!turnable) return;
+    ev.preventDefault();
+    const by = ev.deltaY > 0 ? 1 : 3;
+    if (tool === 'stamps') {
+      set({ stampTurns: (settings.stampTurns + by) % 4 });
+    } else {
+      const sides: Facing[] = ['n', 'e', 's', 'w'];
+      const at = sides.indexOf(settings.pictureFacing as Facing);
+      set({ pictureFacing: sides[(Math.max(0, at) + by) % 4] });
     }
   };
 
@@ -803,7 +861,9 @@ export function Workshop({
     }
     if (painting) {
       setPainting(false);
-      if (tool === 'floor' || tool === 'height') endStroke();
+      if (tool === 'floor' || tool === 'height' || tool === 'erase') {
+        endStroke();
+      }
       if (tool === 'scatter') {
         const tiles = [...gathered.current];
         gathered.current.clear();
@@ -910,7 +970,17 @@ export function Workshop({
   const removeSelection = async () => {
     if (!doc || !terrain || !selection) return;
     if (selection.kind === 'box') {
-      putLevel(clearRegion(terrain, selection.a, selection.b));
+      // What the Erase tool is set to, not the whole tile. "Remove it" used
+      // to mean `clearRegion` — floor, height, walls, props and lights all
+      // at once — so a DM who grabbed a hedge to delete it lost the lawn
+      // under it and had to repaint. `Everything` is still a choice.
+      putLevel(
+        eraseTiles(
+          terrain,
+          rectTiles(terrain, selection.a, selection.b),
+          settings.eraseWhat
+        )
+      );
     } else if (selection.kind === 'link') {
       commit({ ...doc, links: doc.links.filter(l => l.id !== selection.id) });
     } else if (selection.kind === 'token') {
@@ -1287,7 +1357,7 @@ export function Workshop({
           className="inline-flex items-center gap-1.5 text-[13px] text-ink-muted hover:text-ink"
         >
           <Glyph name="back" size={16} />
-          <span>Back to the table</span>
+          <span>Back to the campaign</span>
         </Link>
         <span className="h-7 w-px bg-line" />
         <div className="flex flex-col gap-px">
@@ -1309,7 +1379,7 @@ export function Workshop({
             </Button>
           </DropdownTrigger>
           <DropdownMenu
-            aria-label="Another board from the shelf"
+            aria-label="Another board from this campaign"
             disabledKeys={[bench.id]}
             onAction={key => {
               if (key === 'shelf') {
@@ -1329,7 +1399,7 @@ export function Workshop({
                       : `${b.w} × ${b.h} · ${b.levels} ${b.levels === 1 ? 'floor' : 'floors'}${b.isActive ? ' · on the table' : ''}`
                   }
                 >
-                  {b.name || 'The sand table'}
+                  {b.name || 'Battle board'}
                 </DropdownItem>
               )),
               <DropdownItem
@@ -1419,7 +1489,9 @@ export function Workshop({
             await load();
           }}
         >
-          {bench.visibility === 'shared' ? 'Take it back' : 'Show the party'}
+          {bench.visibility === 'shared'
+            ? 'Hide from the party'
+            : 'Show the party'}
         </Button>
         <Button
           size="sm"
@@ -1433,7 +1505,7 @@ export function Workshop({
             await load();
           }}
         >
-          {bench.isActive ? 'Take it off the table' : 'Put it on the table'}
+          {bench.isActive ? 'Take it out of play' : 'Put it in play'}
         </Button>
       </header>
 
@@ -1505,7 +1577,19 @@ export function Workshop({
               onTurn={turnSelection}
               onRemove={removeSelection}
               onSaveStamp={saveAsStamp}
+              campaignId={campaignId}
               onAmbient={a => putLevel({ ...terrain, ambient: a })}
+              onWeather={w =>
+                putLevel(
+                  // Clear is the absence of weather, not a value to store.
+                  w === 'clear'
+                    ? ({
+                        ...terrain,
+                        weather: undefined,
+                      } as typeof terrain)
+                    : { ...terrain, weather: w }
+                )
+              }
               onRevealRooms={async () => {
                 const res = await revealRoomsAroundAction(bench.id, terrain.id);
                 if (!res.ok) setError(res.error);
@@ -1565,6 +1649,7 @@ export function Workshop({
             <div
               ref={wrapRef}
               className="min-h-0 grow overflow-auto px-[26px] pb-16 pt-6"
+              onWheel={onWheel}
             >
               <BoardCanvas
                 canvasRef={canvasRef}

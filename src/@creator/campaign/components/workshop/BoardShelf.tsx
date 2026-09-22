@@ -1,14 +1,19 @@
 'use client';
 
 /**
- * The shelf of boards: every one this campaign has built, what each is,
- * and the handles on it — into the workshop, onto the table, a new name,
- * or taken down. Then a new board.
+ * Every battle board this campaign has built, what each one is, and the
+ * handles on it — into the workshop, into play, a new name, or taken down.
+ * Then a new board.
  *
- * One component, two doors: the campaign page's Boards tab and the
- * workshop's own index both show it, so a board renamed in one place is
+ * One component, two doors: the campaign page's Battle boards section and
+ * the workshop's own index both show it, so a board renamed in one place is
  * renamed in the other and there is no second list to keep in step.
  * Fetches its own rows when given none; refreshes after every handle.
+ *
+ * **In play implies visible.** Those used to be two switches, and the state
+ * they could reach between them that nobody wanted was "the board the table
+ * is playing on, which the table cannot see". Putting a board in play shows
+ * it; hiding it again is the odd case and is the quieter switch below.
  */
 import { Button, Input, Select, SelectItem } from '@heroui/react';
 import Link from 'next/link';
@@ -32,6 +37,7 @@ import {
   listBattleMapsAction,
   renameBattleMapAction,
   setBattleMapActiveAction,
+  setBattleMapVisibilityAction,
 } from '../../battlemap-actions';
 
 export type BoardRow = Awaited<ReturnType<typeof listBattleMaps>>[number];
@@ -41,7 +47,9 @@ export function describeBoard(b: BoardRow): string {
   return [
     `${b.w} × ${b.h}`,
     `${b.levels} ${b.levels === 1 ? 'floor' : 'floors'}`,
-    b.visibility === 'shared' ? 'the party sees it' : null,
+    b.visibility === 'shared'
+      ? 'the party can see it'
+      : 'hidden from the party',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -147,6 +155,7 @@ function BoardCard({
   board,
   busy,
   onActive,
+  onVisibility,
   onRename,
   onDelete,
 }: {
@@ -154,6 +163,7 @@ function BoardCard({
   board: BoardRow;
   busy: boolean;
   onActive: (active: boolean) => Promise<void>;
+  onVisibility: (shared: boolean) => Promise<void>;
   onRename: (name: string) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
@@ -179,7 +189,7 @@ function BoardCard({
               size="sm"
               autoFocus
               aria-label="Board name"
-              placeholder="The sand table"
+              placeholder="Blackwood Manor"
               className="w-56"
               value={draft}
               onValueChange={setDraft}
@@ -197,12 +207,12 @@ function BoardCard({
               href={`/campaigns/${campaignId}/workshop/${board.id}`}
               className="truncate font-display text-lg text-ink hover:text-gold-strong dark:hover:text-gold"
             >
-              {board.name || 'The sand table'}
+              {board.name || 'Battle board'}
             </Link>
           )}
           <span className="text-xs text-ink-muted">{describeBoard(board)}</span>
         </div>
-        {board.isActive && <Ribbon tone="gold">On the table</Ribbon>}
+        {board.isActive && <Ribbon tone="gold">In play</Ribbon>}
       </div>
 
       <div className="flex flex-wrap items-center gap-1">
@@ -222,7 +232,7 @@ function BoardCard({
           isDisabled={busy}
           onPress={() => onActive(!board.isActive)}
         >
-          {board.isActive ? 'Take it off the table' : 'Put it on the table'}
+          {board.isActive ? 'Take it out of play' : 'Put it in play'}
         </Button>
         <Button
           size="sm"
@@ -235,6 +245,26 @@ function BoardCard({
         >
           Rename
         </Button>
+        {/* The odd case, kept quiet: a board in play that the party may not
+            see yet, so the DM can arrange it in front of them. */}
+        {board.isActive && (
+          <Button
+            size="sm"
+            variant="light"
+            startContent={
+              <Glyph
+                name={board.visibility === 'shared' ? 'eye' : 'eye-off'}
+                size={13}
+              />
+            }
+            isDisabled={busy}
+            onPress={() => onVisibility(board.visibility !== 'shared')}
+          >
+            {board.visibility === 'shared'
+              ? 'Hide from the party'
+              : 'Show the party'}
+          </Button>
+        )}
         <Button
           size="sm"
           variant="light"
@@ -282,7 +312,7 @@ export function BoardShelf({
   if (!boards) {
     return (
       <div className="flex justify-center py-10">
-        <DiceSpinner label="Fetching them down…" />
+        <DiceSpinner label="Reading the boards…" />
       </div>
     );
   }
@@ -303,8 +333,8 @@ export function BoardShelf({
       {boards.length === 0 ? (
         <EmptyState
           scene={<BattlefieldScene />}
-          title="No board on the shelf"
-          description="Lay one out, then build the house on it."
+          title="No battle board yet"
+          description="Lay one out, then build the room on it."
           action={form}
         />
       ) : (
@@ -317,6 +347,11 @@ export function BoardShelf({
                 board={b}
                 busy={busy}
                 onActive={active => act(setBattleMapActiveAction(b.id, active))}
+                onVisibility={shared =>
+                  act(
+                    setBattleMapVisibilityAction(b.id, shared ? 'shared' : 'dm')
+                  )
+                }
                 onRename={name => act(renameBattleMapAction(b.id, name))}
                 onDelete={async () => {
                   const yes = await confirm({
@@ -332,7 +367,7 @@ export function BoardShelf({
             ))}
           </ul>
           <div className="flex flex-col gap-2">
-            <h2 className="font-display text-xl">A new board</h2>
+            <h2 className="font-display text-xl">A new battle board</h2>
             {form}
             <Marginalia dash>
               a mansion is a few floors, stacked — start with the ground

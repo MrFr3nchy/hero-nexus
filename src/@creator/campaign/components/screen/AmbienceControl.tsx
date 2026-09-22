@@ -17,6 +17,7 @@ import type { Ambience, CampaignAudioRow } from '@/server/audio';
 import {
   deleteCampaignAudioAction,
   listCampaignAudioAction,
+  playSoundEffectAction,
   setAmbienceAction,
 } from '../../audio-actions';
 
@@ -47,8 +48,12 @@ export function AmbienceControl({
   refresh: () => void | Promise<void>;
   onError: (message: string) => void;
 }) {
-  const { preferences, setPreferences } = useTable();
+  const { preferences, setPreferences, history } = useTable();
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // A second element, so a sound effect lands *over* the music rather than
+  // interrupting it: the door bangs while the rain keeps falling.
+  const effectRef = useRef<HTMLAudioElement | null>(null);
+  const lastEffect = useRef<string | null>(null);
   const [open, setOpen] = useState(false);
   const [tracks, setTracks] = useState<CampaignAudioRow[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -103,6 +108,38 @@ export function AmbienceControl({
     return () => el.removeEventListener('loadedmetadata', start);
   }, [src, listening, ambience, preferences.ambienceVolume]);
 
+  /*
+   * The soundboard's other half: whatever the DM last pressed.
+   *
+   * A one-shot is a moment on the events channel, not a state, so this
+   * watches the table's history for the newest `sound` and plays it once.
+   * The reader's own `ambience` preference governs it — one switch for "I
+   * want to hear this table", not two — and their volume sits on top, at
+   * the DM's level for effects, which is full.
+   */
+  useEffect(() => {
+    const el = effectRef.current;
+    if (!el || !listening) return;
+    const newest = history.find(a => a.event.kind === 'sound');
+    if (!newest) return;
+    if (lastEffect.current === newest.id) return;
+    lastEffect.current = newest.id;
+    // Older than the hold: this is history being read on mount, not a press
+    // that just happened, and playing it would be a sound from ten minutes
+    // ago arriving now.
+    if (Date.now() - newest.at > 15_000) return;
+    const event = newest.event as Extract<
+      typeof newest.event,
+      { kind: 'sound' }
+    >;
+    el.src = `/api/campaigns/${campaignId}/audio/${event.audioId}`;
+    el.volume = Math.max(0, Math.min(1, preferences.ambienceVolume));
+    el.currentTime = 0;
+    el.play().catch(() => {
+      // The browser wants a gesture first. The music control is the gesture.
+    });
+  }, [history, listening, campaignId, preferences.ambienceVolume]);
+
   const loadTracks = async () => {
     setTracks(await listCampaignAudioAction(campaignId));
   };
@@ -119,10 +156,11 @@ export function AmbienceControl({
     await refresh();
   };
 
-  const upload = async (file: File) => {
+  const upload = async (file: File, kind: 'ambience' | 'effect') => {
     setBusy(true);
     const form = new FormData();
     form.append('file', file);
+    form.append('kind', kind);
     form.append('title', file.name.replace(/\.[^.]+$/, ''));
     const res = await fetch(`/api/campaigns/${campaignId}/audio`, {
       method: 'POST',
@@ -137,6 +175,9 @@ export function AmbienceControl({
     await loadTracks();
   };
 
+  const music = (tracks ?? []).filter(t => t.kind !== 'effect');
+  const effects = (tracks ?? []).filter(t => t.kind === 'effect');
+
   const playingTitle = ambience
     ? (tracks?.find(t => t.id === ambience.audioId)?.title ?? 'something')
     : null;
@@ -149,6 +190,8 @@ export function AmbienceControl({
     <>
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio ref={audioRef} preload="auto" className="hidden" />
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio ref={effectRef} preload="auto" className="hidden" />
       <Popover placement="bottom-start" isOpen={open} onOpenChange={setOpen}>
         <PopoverTrigger>
           <button
@@ -175,7 +218,7 @@ export function AmbienceControl({
             {lit ? (listening ? 'Playing' : 'Music on') : 'Quiet'}
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-72 border border-line bg-surface p-3">
+        <PopoverContent className="w-80 border border-line bg-surface p-3">
           <div className="w-full space-y-3">
             <div className="space-y-1.5">
               <Tooltip content="Whether you hear it on this device. Off unless you ask.">
@@ -245,13 +288,13 @@ export function AmbienceControl({
                 </div>
                 {tracks === null ? (
                   <p className="text-xs text-ink-subtle">Fetching…</p>
-                ) : tracks.length === 0 ? (
+                ) : music.length === 0 ? (
                   <p className="text-xs text-ink-subtle">
                     Nothing uploaded yet. MP3, OGG or WAV, 20 MB or less.
                   </p>
                 ) : (
                   <ul className="max-h-48 space-y-0.5 overflow-y-auto">
-                    {tracks.map(t => {
+                    {music.map(t => {
                       const on = ambience?.audioId === t.id;
                       return (
                         <li key={t.id} className="flex items-center gap-1">
@@ -327,7 +370,68 @@ export function AmbienceControl({
                     disabled={busy}
                     onChange={e => {
                       const f = e.target.files?.[0];
-                      if (f) void upload(f);
+                      if (f) void upload(f, 'ambience');
+                      e.target.value = '';
+                    }}
+                    className="block w-full text-xs text-ink-subtle file:mr-2 file:rounded file:border file:border-line file:bg-surface-2 file:px-2 file:py-1 file:text-xs file:text-ink"
+                  />
+                </label>
+              </div>
+            )}
+
+            {/*
+              The soundboard. A grid rather than a list, because these are
+              pressed mid-sentence and a DM reaching for the horn should not
+              have to read a column to find it.
+            */}
+            {isStaff && (
+              <div className="space-y-2 border-t border-line pt-2">
+                <p className="text-[0.65rem] uppercase tracking-[0.1em] text-ink-subtle">
+                  Sound effects
+                </p>
+                {effects.length === 0 ? (
+                  <p className="text-xs text-ink-subtle">
+                    A door, a horn, a scream. Played once, over the music.
+                  </p>
+                ) : (
+                  <ul className="grid max-h-40 grid-cols-2 gap-1 overflow-y-auto">
+                    {effects.map(t => (
+                      <li key={t.id} className="flex items-stretch gap-0.5">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            act(playSoundEffectAction(campaignId, t.id))
+                          }
+                          className="min-w-0 flex-1 truncate rounded border border-line bg-surface-2 px-1.5 py-1.5 text-left text-xs text-ink hover:border-gold/50 hover:text-gold-strong dark:hover:text-gold"
+                        >
+                          {t.title}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          aria-label={`Remove ${t.title}`}
+                          onClick={async () => {
+                            await act(deleteCampaignAudioAction(t.id));
+                            await loadTracks();
+                          }}
+                          className="rounded px-1 text-xs text-ink-subtle hover:text-danger"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <label className="block">
+                  <span className="sr-only">Upload a sound effect</span>
+                  <input
+                    type="file"
+                    accept="audio/mpeg,audio/ogg,audio/wav"
+                    disabled={busy}
+                    onChange={e => {
+                      const f = e.target.files?.[0];
+                      if (f) void upload(f, 'effect');
                       e.target.value = '';
                     }}
                     className="block w-full text-xs text-ink-subtle file:mr-2 file:rounded file:border file:border-line file:bg-surface-2 file:px-2 file:py-1 file:text-xs file:text-ink"

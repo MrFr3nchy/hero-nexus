@@ -49,10 +49,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (trigger === 'signUp') return token;
       if (!token.id) return null;
       const row = await db.query.users.findFirst({
-        columns: { id: true },
+        columns: { id: true, disabledAt: true },
         where: eq(users.id, token.id as string),
       });
-      return row ? token : null;
+      /*
+       * Dropped for a deleted account, and for one the operator has disabled
+       * (0065). The `signIn` callback only runs at sign-in, so without this a
+       * disabled account kept working until its JWT expired — up to three
+       * days of an account that was supposed to be shut off. Checked on every
+       * token read instead, which costs one indexed lookup.
+       */
+      if (!row || row.disabledAt) return null;
+      return token;
     },
     async signIn({ user }) {
       // Credentials is the only provider. Block accounts that haven't confirmed
@@ -62,6 +70,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const row = await db.query.users.findFirst({
         where: eq(users.id, user.id),
       });
+      // An account the operator has shut off (0065) is refused here too. It
+      // reads to the login form as the same `AccessDenied` an unverified
+      // address gets, which is deliberate: "that account cannot sign in" is
+      // all a sign-in screen has any business saying.
+      if (row?.disabledAt) return false;
       return Boolean(row?.emailVerified);
     },
   },

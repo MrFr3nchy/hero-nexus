@@ -75,6 +75,12 @@ export interface CheckTargetRow {
   status: TargetStatus;
   total: number | null;
   modifier: number | null;
+  /**
+   * What it was actually rolled with (0063). Null until answered. The panel
+   * compares it with the check's `mode` to say when somebody overruled the
+   * DM's flag — "with advantage, as asked" against "straight, their call".
+   */
+  rolledMode: RollMode | null;
   /** Null when the reader is not allowed to know — a hidden DC, for one. */
   outcome: 'pass' | 'fail' | null;
   answeredAt: string | null;
@@ -91,6 +97,12 @@ export interface CheckRow {
   /** Null for a target when the DC is hidden. Staff always see it. */
   dc: number | null;
   dcHidden: boolean;
+  /**
+   * How the DM asked for it (0063). The player may overrule it — they know
+   * about the grease and the DM does not — and every answer records what it
+   * was really rolled with, so the log can show the disagreement.
+   */
+  mode: RollMode;
   status: CheckStatus;
   askedByName: string;
   createdAt: string;
@@ -185,6 +197,7 @@ export async function listChecks(campaignId: string): Promise<CheckRow[]> {
       status: campaignCheckTargets.status,
       total: campaignCheckTargets.total,
       modifier: campaignCheckTargets.modifier,
+      rolledMode: campaignCheckTargets.rolledMode,
       answeredAt: campaignCheckTargets.answeredAt,
       name: users.name,
       email: users.email,
@@ -250,6 +263,7 @@ export async function listChecks(campaignId: string): Promise<CheckRow[]> {
         status: t.status,
         total: t.total,
         modifier: t.modifier,
+        rolledMode: (t.rolledMode as RollMode | null) ?? null,
         // Derived, never stored: a stored verdict is a second copy of a fact
         // the total and the DC already settle between them.
         outcome:
@@ -260,6 +274,7 @@ export async function listChecks(campaignId: string): Promise<CheckRow[]> {
               : ('fail' as const),
         answeredAt: t.answeredAt,
       })),
+      mode: (check.mode as RollMode) ?? 'straight',
       mine:
         check.status === 'open' &&
         mineRows.some(t => t.userId === userId && t.status === 'waiting'),
@@ -277,6 +292,10 @@ export interface CheckInput {
   prompt?: string;
   dc?: number | null;
   dcVisibility?: 'hidden' | 'shown';
+  /**
+   * How the DM wants it rolled. The player may overrule it; both are kept.
+   */
+  mode?: RollMode;
   /** Who is asked. Empty means everybody at the table. */
   targetUserIds?: string[];
   /**
@@ -362,6 +381,7 @@ export async function requestCheckFrom(
       // A hidden DC with no DC is a contradiction that would render as a
       // permanently unanswerable verdict, so it is normalised away here.
       dcVisibility: dc === null ? 'shown' : (input.dcVisibility ?? 'shown'),
+      mode: input.mode ?? 'straight',
       status: 'open',
       askedBy: userId,
       sessionId: sitting?.id ?? null,
@@ -567,6 +587,7 @@ export async function answerCheck(
       rollId: roll.id,
       total,
       modifier,
+      rolledMode: mode,
       answeredAt: new Date().toISOString(),
     })
     .where(eq(campaignCheckTargets.id, target.id));
@@ -712,6 +733,7 @@ export async function answerConsent(
         rollId: roll.id,
         total,
         modifier,
+        rolledMode: mode,
         answeredAt: new Date().toISOString(),
       })
       .where(eq(campaignCheckTargets.id, target.id));

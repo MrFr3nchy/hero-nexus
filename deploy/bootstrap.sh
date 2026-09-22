@@ -14,16 +14,18 @@
 # What it does, in order (docs/ops/deploy.md is the prose version):
 #   1. apt packages, a swapfile if there is none, Node 22, Caddy
 #   2. the `hero` system user and the data directory
-#   3. clone to /opt/hero-nexus, write .env.local (AUTH_SECRET generated)
+#   3. clone to /opt/hero-nexus, write .env (AUTH_SECRET generated)
 #   4. npm ci, next build, migrate, seed the SRD from Open5e
 #   5. systemd unit + Caddyfile, ufw (22/80/443), journald cap
+#   6. `hero-nexus` on the PATH, so later releases are one command
 #
 # It does NOT set up backups. Litestream and the uploads mirror need bucket
 # credentials — follow docs/ops/restore.md § Setup, then do the restore drill.
 #
 # Required:  DOMAIN, REPO_URL, RESEND_API_KEY, MAIL_FROM
 # Optional:  REF (default main), DATA_DIR (default /mnt/hero-nexus-data),
-#            APP_DIR (default /opt/hero-nexus), NODE_MAJOR (default 22)
+#            APP_DIR (default /opt/hero-nexus), NODE_MAJOR (default 22),
+#            ADMIN_EMAILS (who gets /admin; blank for nobody)
 
 set -euo pipefail
 
@@ -108,7 +110,16 @@ if sudo -u hero git -C "$APP_DIR" show-ref -q --verify "refs/remotes/origin/$REF
 	sudo -u hero git -C "$APP_DIR" reset -q --hard "origin/$REF"
 fi
 
-ENV_FILE="$APP_DIR/.env.local"
+# `.env`, not `.env.local`. Next reads both and `.env.local` wins, but that
+# name is Next's convention for a *developer's* machine-local overrides, and a
+# server whose only configuration lives in a file called "local" reads as a
+# mistake every time somebody new looks at it. A droplet bootstrapped before
+# this has `.env.local` and keeps working: the systemd unit loads both.
+ENV_FILE="$APP_DIR/.env"
+if [[ -f "$APP_DIR/.env.local" && ! -f "$ENV_FILE" ]]; then
+	echo "$APP_DIR/.env.local exists — leaving it alone and using it"
+	ENV_FILE="$APP_DIR/.env.local"
+fi
 if [[ ! -f "$ENV_FILE" ]]; then
 	log "writing $ENV_FILE"
 	AUTH_SECRET="$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')"
@@ -121,6 +132,8 @@ RESEND_API_KEY=${RESEND_API_KEY}
 MAIL_FROM=${MAIL_FROM}
 HERO_NEXUS_DB_PATH=${DATA_DIR}/hero-nexus.db
 HERO_NEXUS_UPLOADS_DIR=${DATA_DIR}/uploads
+# Whoever runs this box gets /admin. Comma-separated; blank for nobody.
+ADMIN_EMAILS=${ADMIN_EMAILS:-}
 ENV
 	chown hero:hero "$ENV_FILE"
 	chmod 600 "$ENV_FILE"
@@ -137,7 +150,7 @@ log "migrate + seed"
 # The seed pulls the SRD from api.open5e.com — the only outbound call the app
 # ever makes, and it takes a few minutes (classes and spells render slowly
 # upstream). It is idempotent; re-run `npm run db:seed` to pick up changes.
-sudo -u hero -H bash -c "cd '$APP_DIR' && set -a && . ./.env.local && set +a && npm run db:migrate && npm run db:seed"
+sudo -u hero -H bash -c "cd '$APP_DIR' && set -a && . '$ENV_FILE' && set +a && npm run db:migrate && npm run db:seed"
 
 # ---------------------------------------------------------------- 5. services
 log "systemd + Caddy"
@@ -165,6 +178,12 @@ ufw allow OpenSSH
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
+
+# The operator CLI on the PATH, so a later release is one command from
+# anywhere — including the DigitalOcean web console, which starts you in /root.
+log "hero-nexus command"
+ln -sfn "$APP_DIR/cli" /usr/local/bin/hero-nexus
+chmod +x "$APP_DIR/cli"
 
 # journald otherwise grows until the disk it shares with the database fills.
 mkdir -p /etc/systemd/journald.conf.d
@@ -197,5 +216,12 @@ Still to do — none of this is optional before real players arrive:
   3. DigitalOcean: cloud firewall allowing only 22/80/443 inbound; disk-usage
      alert at 80% on the droplet and the volume.
 
-Later releases: deploy/release.sh <tag-or-branch>
+Later releases, from anywhere on this box (or the DO web console):
+
+  hero-nexus deploy --branch main     fetch, build, swap, restart, health-check
+  hero-nexus status                   what is running
+  hero-nexus doctor                   everything that ought to be true
+  hero-nexus logs -f                  follow the journal
+  hero-nexus rollback <tag>           an older release
+
 NEXT
