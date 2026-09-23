@@ -26,9 +26,14 @@ const eslintConfig = [
       'hero-nexus/one-size-per-row': 'error',
       'arrow-body-style': 'off',
       'prefer-arrow-callback': 'off',
-      // Unused variables and imports
-      'no-unused-vars': 'warn',
-      '@typescript-eslint/no-unused-vars': 'warn',
+      // Unused variables and imports. One rule owns each: the core
+      // `no-unused-vars` cannot read TypeScript and flags every parameter
+      // named in a function *type* (`onChange: (next: T) => void`), and
+      // `unused-imports/no-unused-vars` is typescript-eslint's rule with the
+      // `_` convention added, so running that one bare as well only repeats
+      // it without the convention.
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
       'unused-imports/no-unused-imports': 'error',
       'unused-imports/no-unused-vars': [
         'warn',

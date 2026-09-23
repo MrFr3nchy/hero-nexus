@@ -888,8 +888,9 @@ export function DmScreen({
    * per read, not once per render.
    */
   const selectedTokenId = useSelectedToken(campaign.id);
+  const { state: liveState, refresh: refreshLive } = live;
   const shortcutHandlers = useMemo(() => {
-    const st = live.state;
+    const st = liveState;
     const enc = st?.encounter;
     const highlighted = (() => {
       if (!st) return null;
@@ -900,7 +901,7 @@ export function DmScreen({
     const run = async (p: Promise<{ ok: boolean; error?: string }>) => {
       const res = await p;
       if (!res.ok) setError(res.error ?? 'That did not take.');
-      await live.refresh();
+      await refreshLive();
     };
     return {
       nextTurn: () => {
@@ -934,7 +935,7 @@ export function DmScreen({
         void run(undoLastAction(campaign.id));
       },
     };
-  }, [live.state, live.refresh, selectedTokenId, layouts, campaign.id, save]);
+  }, [liveState, refreshLive, selectedTokenId, layouts, campaign.id, save]);
   const shortcuts = useDmShortcuts(isStaff, shortcutHandlers);
 
   if (!layouts) {

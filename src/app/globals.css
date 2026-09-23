@@ -1,12 +1,12 @@
 @import 'tailwindcss';
-@plugin './hero.ts';
+@plugin './hero.mts';
 
 @source '../../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
 @custom-variant dark (&:is(.dark *));
 
 /* ------------------------------------------------------------------ *
  * Parchment & Ink — design tokens
- * Keep these in sync with the HeroUI palette in `src/app/hero.ts`.
+ * Keep these in sync with the HeroUI palette in `src/app/hero.mts`.
  * ------------------------------------------------------------------ */
 
 :root {

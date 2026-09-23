@@ -501,7 +501,7 @@ function CanonCard({
   shelves: CanonCollectionRow[];
   members: CampaignMemberRow[];
   isStaff: boolean;
-  act: (_p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
+  act: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
   onEdit: () => void;
 }) {
   const facts = CANON_KIND_FIELDS[entry.kind]
@@ -711,7 +711,7 @@ function ShelfControls({
 }: {
   campaignId: string;
   shelf: CanonCollectionRow;
-  act: (_p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
+  act: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(shelf.title);

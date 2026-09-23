@@ -396,7 +396,7 @@ of the product, not an illustration.
 
 ## Tokens
 
-Copied from `src/app/globals.css`. The HeroUI mirror is `src/app/hero.ts` — the two
+Copied from `src/app/globals.css`. The HeroUI mirror is `src/app/hero.mts` — the two
 files carry a comment saying they must stay in sync. This design work does not change
 colours; if you ever do, change both.
 

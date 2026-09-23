@@ -13,7 +13,7 @@ import { Control, Controller, FieldPath, FieldValues } from 'react-hook-form';
 
 /**
  * Thin react-hook-form <-> HeroUI wrappers. Styling comes from the themed
- * HeroUI palette (`src/app/hero.ts`); only light structural tweaks live here.
+ * HeroUI palette (`src/app/hero.mts`); only light structural tweaks live here.
  */
 
 const inputClassNames = {
