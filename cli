@@ -101,23 +101,27 @@ as_owner() {
 	fi
 }
 
-# The env file the app actually reads, preferring the production one. Both are
-# optional here; `doctor` is what complains about a missing one.
-env_file() {
-	if [[ -f "$APP_DIR/.env" ]]; then
-		echo "$APP_DIR/.env"
-	elif [[ -f "$APP_DIR/.env.local" ]]; then
-		echo "$APP_DIR/.env.local"
-	fi
+# The env files the service reads, in the order systemd loads them: `.env`,
+# then `.env.local`, which wins wherever both set a key (see
+# deploy/hero-nexus.service). Both, not one: reading only `.env` on a droplet
+# whose paths live in `.env.local` snapshotted a stale database on every
+# deploy while the app wrote to another. Either may be missing; `doctor` is
+# what complains when both are.
+env_files() {
+	local f
+	for f in "$APP_DIR/.env" "$APP_DIR/.env.local"; do
+		if [[ -f "$f" ]]; then echo "$f"; fi
+	done
 }
 
-# Read one key out of the env file without sourcing it into this shell.
+# Read one key the way the service sees it, without sourcing anything into
+# this shell: the last assignment across both files, in load order.
 env_value() {
-	local file key
-	file="$(env_file)"
-	key="$1"
-	[[ -n "$file" ]] || return 0
-	sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" |
+	local key="$1"
+	local -a files=()
+	mapfile -t files < <(env_files)
+	((${#files[@]})) || return 0
+	sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "${files[@]}" |
 		tail -n 1 | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"
 }
 
@@ -127,14 +131,16 @@ db_path() {
 	echo "${p:-$APP_DIR/data/hero-nexus.db}"
 }
 
-# Run an npm script with the env file loaded, the way a one-off task needs it:
+# Run an npm script with the env files loaded, the way a one-off task needs it:
 # systemd supplies the environment to the service, and nothing supplies it to
 # a command you type.
 run_with_env() {
-	local file
-	file="$(env_file)"
-	if [[ -n "$file" ]]; then
-		as_owner "set -a && . '$file' && set +a && $*"
+	local sources='' f
+	while IFS= read -r f; do
+		sources+=". '$f' && "
+	done < <(env_files)
+	if [[ -n "$sources" ]]; then
+		as_owner "set -a && ${sources}set +a && $*"
 	else
 		as_owner "$*"
 	fi
@@ -621,8 +627,8 @@ cmd_status() {
 
 	info "disk       $(df -h "$(dirname "$db")" | awk 'NR==2 {print $4" free of "$2" ("$5" used)"}')"
 	local envf
-	envf="$(env_file)"
-	info "env        ${envf:-none found}"
+	envf="$(env_files | paste -sd ' ')"
+	info "env        ${envf:-none found}${envf:+ (the last wins)}"
 }
 
 cmd_logs() {
@@ -779,19 +785,21 @@ cmd_doctor() {
 	fi
 
 	step "environment"
-	local envf
-	envf="$(env_file)"
-	if [[ -z "$envf" ]]; then
+	local -a envfs=()
+	mapfile -t envfs < <(env_files)
+	if ((${#envfs[@]} == 0)); then
 		complain "no .env or .env.local in $APP_DIR"
 	else
-		good "reading $envf"
-		local perms
-		perms="$(stat -c '%a' "$envf")"
-		if [[ "$perms" == 600 ]]; then
-			good "$envf is mode 600"
-		else
-			in_prod "$envf is mode $perms — it holds AUTH_SECRET; chmod 600 it"
-		fi
+		local envf perms
+		for envf in "${envfs[@]}"; do
+			good "reading $envf"
+			perms="$(stat -c '%a' "$envf")"
+			if [[ "$perms" == 600 ]]; then
+				good "$envf is mode 600"
+			else
+				in_prod "$envf is mode $perms — it can hold AUTH_SECRET; chmod 600 it"
+			fi
+		done
 		# AUTH_SECRET is the one every install needs; the rest have defaults
 		# that are right locally and wrong on a server.
 		if [[ -n "$(env_value AUTH_SECRET)" ]]; then
@@ -830,6 +838,14 @@ cmd_doctor() {
 		good "database $db ($(du -h "$db" | cut -f1))"
 	else
 		complain "no database at $db"
+	fi
+	# A second database at the default path, when the app is pointed elsewhere,
+	# is a leftover — and a trap for anyone who opens it with sqlite3 by hand
+	# and wonders where the latest columns and accounts went.
+	local default_db="$APP_DIR/data/hero-nexus.db"
+	if [[ "$db" != "$default_db" && -f "$default_db" ]]; then
+		warn "a second database sits at $default_db ($(du -h "$default_db" | cut -f1))"
+		warn "  the app does not read it — it uses $db. Move it aside once you are sure."
 	fi
 	if [[ -d "$uploads" ]]; then
 		good "uploads $uploads"
