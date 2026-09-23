@@ -24,7 +24,6 @@ import {
   deleteEncounter,
   deleteHandout as deleteHandoutSrv,
   endEncounter,
-  getLiveState,
   startTimer,
   stopTimer,
   removeEntry,
@@ -36,7 +35,6 @@ import {
   type EntryInput,
   type FightSpoils,
   type InitiativeRoll,
-  type LiveState,
   type RollInput,
 } from '@/server/session';
 import { unlink } from 'node:fs/promises';
@@ -385,14 +383,6 @@ export async function revokeInviteAction(
   } catch (err) {
     return fail(err, 'Failed to revoke invite.');
   }
-}
-
-/* --- live session -------------------------------------------------- */
-
-export async function getLiveStateAction(
-  campaignId: string
-): Promise<LiveState> {
-  return getLiveState(campaignId);
 }
 
 /* --- the hourglass --------------------------------------------------- */

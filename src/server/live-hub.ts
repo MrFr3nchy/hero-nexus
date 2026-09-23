@@ -83,6 +83,8 @@ interface Channel {
   subscribers: Map<string, Subscriber>;
   /** Set while a coalesced state nudge is pending. */
   flush: ReturnType<typeof setTimeout> | null;
+  /** Who the pending nudge is for: the widest of the bumps it gathered. */
+  flushFor: StateAudience;
   /** Last time anything happened here, for the sweeper. */
   touched: number;
 }
@@ -143,6 +145,7 @@ function channelFor(campaignId: string): Channel {
       buffer: [],
       subscribers: new Map(),
       flush: null,
+      flushFor: 'staff',
       touched: Date.now(),
     };
     channels.set(campaignId, channel);
@@ -172,6 +175,16 @@ export function heartbeatFrame(): string {
 /* --- state ------------------------------------------------------------ */
 
 /**
+ * Who a state nudge is for.
+ *
+ * `'staff'` is for a write no player's `getLiveState` can see — a board being
+ * painted while it is hidden or out of play. It saves every player a whole
+ * re-read that would have come back unchanged. When in doubt it is
+ * `'everyone'`: a spare read is a cost, a missed one is a frozen table.
+ */
+export type StateAudience = 'everyone' | 'staff';
+
+/**
  * Say that something changed, without saying what.
  *
  * Called from the server modules **after the write commits**, never from an
@@ -179,14 +192,27 @@ export function heartbeatFrame(): string {
  * writer forgets. The browser answers by re-reading `getLiveState`, which is
  * role-filtered, so nothing here has to know who is allowed to see what.
  */
-export function bumpVersion(campaignId: string): void {
+export function bumpVersion(
+  campaignId: string,
+  audience: StateAudience = 'everyone'
+): void {
   const channel = channelFor(campaignId);
   channel.version += 1;
-  if (channel.flush) return;
+  if (channel.flush) {
+    // One nudge carries every bump in its window, so it goes to the widest
+    // audience any of them asked for: a staff-only paint stroke and a token
+    // moved in the same forty milliseconds reach the players.
+    if (audience === 'everyone') channel.flushFor = 'everyone';
+    return;
+  }
+  channel.flushFor = audience;
   channel.flush = setTimeout(() => {
     channel.flush = null;
+    const to = channel.flushFor;
     const text = frame('state', { v: channel.version });
-    for (const sub of channel.subscribers.values()) sub.send(text);
+    for (const sub of channel.subscribers.values()) {
+      if (reaches(to, sub)) sub.send(text);
+    }
   }, COALESCE_MS);
   channel.flush.unref?.();
 }

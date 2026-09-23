@@ -695,7 +695,14 @@ export async function saveTerrain(
     .update(battleMaps)
     .set({ terrain: doc, updatedAt: new Date().toISOString() })
     .where(eq(battleMaps.id, mapId));
-  bumpVersion(map.campaignId);
+  // A player reads only the board in play, and only when it is shown
+  // (`getBattleMapState`), so painting one that is hidden or out of play
+  // changes nothing a player can see. The DM painting in the workshop
+  // used to make every player re-read the whole table every save.
+  bumpVersion(
+    map.campaignId,
+    map.isActive && map.visibility === 'shared' ? 'everyone' : 'staff'
+  );
 }
 
 export async function renameBattleMap(

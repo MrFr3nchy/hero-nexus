@@ -441,9 +441,8 @@ export async function getLiveState(campaignId: string): Promise<LiveState> {
 /**
  * `HERO_NEXUS_MEASURE_LIVE=1` logs one line per read: how long it took and
  * how many bytes it weighs. The stream carries a version number and nothing
- * else, so every nudge is one of these per connected browser; the numbers
- * are in `docs/improvements/13-live-state-cost.md`, and this is how to take
- * them again.
+ * else, so every nudge is one of these per connected browser. Take fresh
+ * numbers with it rather than trusting old ones.
  */
 const MEASURE_LIVE = process.env.HERO_NEXUS_MEASURE_LIVE === '1';
 
