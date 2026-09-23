@@ -16,7 +16,6 @@ export type WorkshopTool =
   | 'height'
   | 'scatter'
   | 'stamps'
-  | 'pictures'
   | 'things'
   | 'light'
   | 'erase'
@@ -77,16 +76,10 @@ export const TOOLS: readonly ToolSpec[] = [
     hint: 'pick one, tap to put it down, R to turn it',
   },
   {
-    id: 'pictures',
-    label: 'Pictures',
-    name: 'Pictures',
-    hint: 'stand one of your own images up on a tile — a fountain, a sign',
-  },
-  {
     id: 'things',
     label: 'Things',
     name: 'Things',
-    hint: 'a door, a chest — something the party can act on',
+    hint: 'a door, a chest, a fountain — upload its picture and put it down',
     gap: true,
   },
   {
@@ -189,13 +182,14 @@ export interface Settings {
   stampTurns: number;
   stampFlip: boolean;
   eraseWhat: EraseWhat;
-  /** The picture a standee stands up as: a `campaign_images` id. */
-  pictureImageId: string | null;
-  /** Feet tall. A tree is 20, a door 10, a mile-marker 3. */
-  pictureHeight: number;
-  pictureFacing: Facing;
-  pictureBlocks: boolean;
   thingLabel: string;
+  /**
+   * The picture the next thing stands up as: a `campaign_images` id. A
+   * picture is a thing with no state, not a separate kind of mark — the
+   * board used to have both, and the two never agreed.
+   */
+  thingImageId: string | null;
+  thingFacing: Facing;
   thingState: ItemState | null;
   thingLockDc: number | null;
   thingHp: number | null;
@@ -226,11 +220,9 @@ export const DEFAULT_SETTINGS: Settings = {
   stampTurns: 0,
   stampFlip: false,
   eraseWhat: 'props',
-  pictureImageId: null,
-  pictureHeight: 10,
-  pictureFacing: 'camera',
-  pictureBlocks: false,
   thingLabel: '',
+  thingImageId: null,
+  thingFacing: 'camera',
   thingState: 'closed',
   thingLockDc: 15,
   thingHp: 18,

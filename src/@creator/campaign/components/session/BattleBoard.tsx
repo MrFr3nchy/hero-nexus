@@ -146,14 +146,6 @@ type Tool =
   | { kind: 'wall'; wall: WallKind }
   | { kind: 'erase-wall' }
   | { kind: 'prop'; prop: PropKind; blocks: boolean }
-  /** A picture standing on a tile. Placed only once a picture is chosen. */
-  | {
-      kind: 'picture';
-      imageId: string | null;
-      height: number;
-      blocks: boolean;
-      facing: Facing;
-    }
   | { kind: 'light' }
   | { kind: 'reveal' }
   /**
@@ -298,7 +290,7 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
     mode: 'things',
     label: 'Things',
     tool: FRESH_SCENERY,
-    hint: 'a door, a chest — something the party can act on',
+    hint: 'a door, a chest, a fountain — upload its picture and put it down',
   },
   {
     mode: 'fog',
@@ -1266,24 +1258,6 @@ export function BattleBoard({
           const has = next.props.findIndex(p => p.x === x && p.y === y);
           if (has >= 0) next.props.splice(has, 1);
           else next.props.push({ x, y, kind: tool.prop, blocks: tool.blocks });
-          break;
-        }
-        case 'picture': {
-          const has = next.props.findIndex(p => p.x === x && p.y === y);
-          if (has >= 0) {
-            next.props.splice(has, 1);
-            break;
-          }
-          if (!tool.imageId) return;
-          next.props.push({
-            x,
-            y,
-            kind: 'image',
-            blocks: tool.blocks,
-            imageId: tool.imageId,
-            height: tool.height,
-            ...(tool.facing !== 'camera' ? { facing: tool.facing } : {}),
-          });
           break;
         }
         case 'light': {
@@ -2261,19 +2235,6 @@ export function BattleBoard({
                   </SelectItem>
                 ))}
               </Select>
-              {toolButton(
-                'Picture',
-                tool.kind === 'picture'
-                  ? tool
-                  : {
-                      kind: 'picture',
-                      imageId: null,
-                      height: 10,
-                      blocks: true,
-                      facing: 'camera',
-                    },
-                tool.kind === 'picture'
-              )}
               {toolButton('Brazier', { kind: 'light' }, tool.kind === 'light')}
               {doc && doc.levels.length > 1 && (
                 <>
@@ -2389,62 +2350,6 @@ export function BattleBoard({
               )}
             </div>
           )}
-        </div>
-      )}
-
-      {isStaff && tool.kind === 'picture' && (
-        <div className="mb-2 flex flex-wrap items-end gap-3 rounded-md border border-line bg-surface-2 px-3 py-2">
-          <ImagePicker
-            campaignId={campaignId}
-            value={tool.imageId}
-            onChange={imageId => setTool({ ...tool, imageId })}
-            label="A picture to stand on a tile"
-            library
-            hint={false}
-          />
-          <Input
-            size="sm"
-            type="number"
-            label="Feet tall"
-            className="w-24"
-            min={1}
-            max={100}
-            value={String(tool.height)}
-            onValueChange={v =>
-              setTool({
-                ...tool,
-                height: Math.max(1, Math.min(100, Math.trunc(Number(v)) || 10)),
-              })
-            }
-          />
-          <Checkbox
-            size="sm"
-            isSelected={tool.blocks}
-            onValueChange={blocks => setTool({ ...tool, blocks })}
-          >
-            <span className="text-sm text-ink-muted">Blocks the tile</span>
-          </Checkbox>
-          <Select
-            aria-label="Which way it faces"
-            size="sm"
-            className="w-36"
-            selectedKeys={[tool.facing]}
-            onSelectionChange={keys => {
-              const key = String(Array.from(keys)[0] ?? 'camera');
-              setTool({ ...tool, facing: key as Facing });
-            }}
-          >
-            {FACINGS.map(f => (
-              <SelectItem key={f} textValue={FACING_LABEL[f]}>
-                {FACING_LABEL[f]}
-              </SelectItem>
-            ))}
-          </Select>
-          <Marginalia dash>
-            {tool.imageId
-              ? 'tap a tile to stand it there; tap again to take it down'
-              : 'choose a picture first'}
-          </Marginalia>
         </div>
       )}
 

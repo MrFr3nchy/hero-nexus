@@ -26,6 +26,7 @@ import {
 } from '@/@shared/battlemap/types';
 import { Glyph, Marginalia } from '@/@shared/components/ui';
 import type { WorkshopBoard, WorkshopToken } from '@/server/battlemap';
+import { ImagePicker } from '../ImagePicker';
 import { AddFloorDialog } from '../session/FloorRail';
 import { ThingEffectEditor } from '../session/ThingEffectEditor';
 import { Label, Toggle } from './WorkshopPanel';
@@ -344,6 +345,16 @@ export function WorkshopRail({
             </div>
             {!selectedToken.entryId && (
               <>
+                <ImagePicker
+                  campaignId={campaignId}
+                  label="Stands up as"
+                  library
+                  hint={false}
+                  value={selectedToken.imageId}
+                  onChange={imageId =>
+                    void onTokenChange(selectedToken.id, { imageId })
+                  }
+                />
                 <Input
                   size="sm"
                   label="Called"

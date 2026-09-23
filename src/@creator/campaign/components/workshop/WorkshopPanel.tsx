@@ -24,7 +24,6 @@ import {
   type Stamp,
 } from '@/@creator/campaign/lib/stamps';
 import {
-  FACINGS,
   LEVEL_SEENS,
   MATERIALS,
   VOID,
@@ -837,13 +836,31 @@ export function WorkshopPanel({
 
     case 'things': {
       const states: { id: ItemState | null; label: string }[] = [
+        { id: null, label: 'Just a thing' },
         { id: 'open', label: 'Open' },
         { id: 'closed', label: 'Closed' },
         { id: 'locked', label: 'Locked' },
         { id: 'broken', label: 'Broken' },
       ];
+      const facings: { id: Facing; label: string }[] = [
+        { id: 'camera', label: 'Faces you' },
+        { id: 'n', label: 'North' },
+        { id: 'e', label: 'East' },
+        { id: 's', label: 'South' },
+        { id: 'w', label: 'West' },
+      ];
       return (
         <div className="flex flex-col gap-3.5">
+          {/* What it looks like: one fountain uploaded once and put down in
+              six places. A thing with a picture and no state is scenery. */}
+          <ImagePicker
+            campaignId={campaignId}
+            label="STANDS UP AS"
+            library
+            hint={false}
+            value={settings.thingImageId}
+            onChange={thingImageId => set({ thingImageId })}
+          />
           <label className="flex flex-col gap-1.5 text-[13px]">
             <span>Called</span>
             <Input
@@ -856,7 +873,7 @@ export function WorkshopPanel({
           </label>
           <div className="flex flex-col gap-1.5">
             <span className="text-[13px]">Starts</span>
-            <div className="grid grid-cols-4 gap-1">
+            <div className="grid grid-cols-3 gap-1">
               {states.map(s => (
                 <button
                   key={s.label}
@@ -906,9 +923,29 @@ export function WorkshopPanel({
               }
             />
           </div>
+          <div className="flex flex-col gap-2">
+            <Label>WHICH WAY IT FACES</Label>
+            <div className="grid grid-cols-3 gap-1">
+              {facings.map(f => (
+                <button
+                  key={f.id}
+                  type="button"
+                  aria-pressed={settings.thingFacing === f.id}
+                  onClick={() => set({ thingFacing: f.id })}
+                  className={`h-9 rounded-lg border text-xs ${
+                    settings.thingFacing === f.id
+                      ? 'border-gold bg-gold font-semibold text-bg'
+                      : 'border-line text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <Marginalia dash>
             tap a tile to put it down — it lands in the rail on the right, where
-            you say what it does when used. tap again for another.
+            you say what it does when used. the wheel turns a fixed one.
           </Marginalia>
         </div>
       );
@@ -1016,91 +1053,6 @@ export function WorkshopPanel({
           </p>
         </div>
       );
-
-    case 'pictures': {
-      const facings: { id: Facing; label: string }[] = [
-        { id: 'camera', label: 'Faces you' },
-        { id: 'n', label: 'North' },
-        { id: 'e', label: 'East' },
-        { id: 's', label: 'South' },
-        { id: 'w', label: 'West' },
-      ];
-      void FACINGS;
-      return (
-        <div className="flex flex-col gap-[18px]">
-          {/* The campaign's own pictures, and an upload beside them: one
-              fountain uploaded once and stood up in six places. */}
-          <ImagePicker
-            campaignId={campaignId}
-            label="THE PICTURE"
-            library
-            hint={false}
-            value={settings.pictureImageId}
-            onChange={pictureImageId => set({ pictureImageId })}
-          />
-          <div className="flex flex-col gap-2">
-            <Label>HOW TALL · FEET</Label>
-            <div className="grid grid-cols-5 gap-1">
-              {[3, 6, 10, 20, 40].map(ft => (
-                <button
-                  key={ft}
-                  type="button"
-                  aria-pressed={settings.pictureHeight === ft}
-                  onClick={() => set({ pictureHeight: ft })}
-                  className={`h-9 rounded-lg border text-xs ${
-                    settings.pictureHeight === ft
-                      ? 'border-gold bg-gold font-semibold text-bg'
-                      : 'border-line text-ink-muted hover:text-ink'
-                  }`}
-                >
-                  {ft}
-                </button>
-              ))}
-            </div>
-            <Input
-              size="sm"
-              type="number"
-              aria-label="How tall, in feet"
-              value={String(settings.pictureHeight)}
-              onValueChange={v => {
-                const n = Math.trunc(Number(v));
-                if (!Number.isFinite(n)) return;
-                set({ pictureHeight: Math.max(1, Math.min(100, n)) });
-              }}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label>WHICH WAY IT FACES</Label>
-            <div className="grid grid-cols-3 gap-1">
-              {facings.map(f => (
-                <button
-                  key={f.id}
-                  type="button"
-                  aria-pressed={settings.pictureFacing === f.id}
-                  onClick={() => set({ pictureFacing: f.id })}
-                  className={`h-9 rounded-lg border text-xs ${
-                    settings.pictureFacing === f.id
-                      ? 'border-gold bg-gold font-semibold text-bg'
-                      : 'border-line text-ink-muted hover:text-ink'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <Toggle
-            label="It blocks the tile"
-            on={settings.pictureBlocks}
-            onChange={pictureBlocks => set({ pictureBlocks })}
-          />
-          <Marginalia dash>
-            tap a tile to stand it up · the wheel turns a fixed one · erase it
-            with the rubber, set to Things
-          </Marginalia>
-        </div>
-      );
-    }
 
     case 'fog':
       return (
