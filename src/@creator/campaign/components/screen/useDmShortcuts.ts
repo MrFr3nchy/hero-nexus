@@ -18,8 +18,8 @@ export const SHORTCUTS: { keys: string; does: string }[] = [
   { keys: 'D, digits, Enter', does: 'damage the highlighted combatant' },
   { keys: 'H, digits, Enter', does: 'heal' },
   { keys: 'C', does: 'conditions on the highlighted' },
-  { keys: '1 – 6', does: 'board: select, floor, height, build, things, fog' },
-  { keys: 'F', does: 'the fog reveal tool' },
+  { keys: '1 – 5', does: 'board: select, ruler, area, things, fog of war' },
+  { keys: 'F', does: 'fog of war: the reveal brush' },
   { keys: 'Space', does: 'fold the panels away' },
   { keys: 'Ctrl / ⌘ Z', does: 'undo' },
   { keys: 'Esc', does: 'let go of a number' },
@@ -29,9 +29,8 @@ export const SHORTCUTS: { keys: string; does: string }[] = [
 /** Board modes by digit; the board listens for `hero-nexus:board`. */
 export const BOARD_MODE_KEYS = [
   'select',
-  'paint',
-  'shape',
-  'build',
+  'ruler',
+  'area',
   'things',
   'fog',
 ] as const;
@@ -51,7 +50,8 @@ export interface Typing {
   digits: string;
 }
 
-function typingTarget(e: KeyboardEvent): boolean {
+/** Whether a key press belongs to something that takes typing. */
+export function typingTarget(e: KeyboardEvent): boolean {
   const el = e.target as HTMLElement | null;
   if (!el) return false;
   const tag = el.tagName;
@@ -142,7 +142,7 @@ export function useDmShortcuts(
         window.dispatchEvent(
           new CustomEvent('hero-nexus:board', { detail: { mode: 'fog' } })
         );
-      } else if (/^[1-6]$/.test(e.key)) {
+      } else if (/^[1-5]$/.test(e.key)) {
         e.preventDefault();
         window.dispatchEvent(
           new CustomEvent('hero-nexus:board', {

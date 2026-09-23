@@ -16,7 +16,9 @@
  *
  * Design language: the board is the artifact (rule 1). Its one animated
  * flourish is the active-turn ring (rule 4) and nothing else on the route
- * moves — no floating props, no bobbing water, no drifting fog. Colours are
+ * moves — no floating props, no bobbing water, no drifting fog, no falling
+ * rain (weather stands still). A ping's ring is the exception rule 4 makes
+ * for a moment somebody else caused, gone in two seconds. Colours are
  * read off the CSS custom properties at build so light and dark both work,
  * and the palette is parchment and candlelight: the terrain is muted, the
  * tokens are the only saturated things, and a warm point light sits on each
@@ -46,6 +48,7 @@ import {
 } from '@/@shared/battlemap/art';
 import {
   across,
+  inBounds,
   MATERIALS,
   VOID,
   type Facing,
@@ -55,6 +58,7 @@ import {
 } from '@/@shared/battlemap/types';
 import { useReducedMotion } from '@/@shared/components/motion';
 import { webglAvailable } from '@/@shared/battlemap/webgl';
+import { PING_MS, type Ping } from '@/@shared/battlemap/pings';
 import type { BattleTokenRow } from '@/server/battlemap';
 import type { EntryRow } from '@/server/session';
 
@@ -388,6 +392,59 @@ function floorOf(doc: TerrainDoc): number {
   return low - SLAB;
 }
 
+/** Mark a mesh as one of many alike, for `batchRepeats` to fold together. */
+function batched<T extends THREE.Mesh>(mesh: T): T {
+  mesh.userData.batch = true;
+  return mesh;
+}
+
+/**
+ * Fold every marked mesh that shares a geometry and a material into one
+ * `InstancedMesh`, the way the wall bodies already are.
+ *
+ * The jambs, lintels, leaves, hedges, posts and rails of a wall, and the
+ * pieces of furniture, were a mesh each — a draw call each — and a house of
+ * three floors was hundreds of them. They are built as ordinary meshes,
+ * which keeps the building readable (a door is a hinge group with a leaf on
+ * it), and folded here: each one's transform relative to the group becomes
+ * an instance matrix. A mesh with nothing alike to join is left as it is.
+ */
+function batchRepeats(group: THREE.Group): void {
+  group.updateMatrixWorld(true);
+  const toGroup = group.matrixWorld.clone().invert();
+  const buckets = new Map<
+    string,
+    { first: THREE.Mesh; meshes: THREE.Mesh[] }
+  >();
+  group.traverse(obj => {
+    const m = obj as THREE.Mesh;
+    if (!m.isMesh || !m.userData.batch || Array.isArray(m.material)) return;
+    const key = `${m.geometry.uuid}:${m.material.uuid}:${m.castShadow}:${m.receiveShadow}`;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.meshes.push(m);
+    else buckets.set(key, { first: m, meshes: [m] });
+  });
+  const local = new THREE.Matrix4();
+  for (const { first, meshes } of buckets.values()) {
+    if (meshes.length < 2) continue;
+    const inst = new THREE.InstancedMesh(
+      first.geometry,
+      first.material,
+      meshes.length
+    );
+    inst.castShadow = first.castShadow;
+    inst.receiveShadow = first.receiveShadow;
+    meshes.forEach((m, k) => {
+      local.multiplyMatrices(toGroup, m.matrixWorld);
+      inst.setMatrixAt(k, local);
+      m.removeFromParent();
+    });
+    inst.instanceMatrix.needsUpdate = true;
+    inst.computeBoundingSphere();
+    group.add(inst);
+  }
+}
+
 /**
  * Exported for verification. The scene is built apart from any DOM except the
  * label sprites, so the geometry — where a wall lands, how tall a ledge is —
@@ -587,13 +644,13 @@ export function buildTerrain(
       // the gap reads as a gap and the door as a door.
       const jambW = 0.1;
       for (const sx of [-0.5 + jambW / 2, 0.5 - jambW / 2]) {
-        const jamb = new THREE.Mesh(unit, stoneMat);
+        const jamb = batched(new THREE.Mesh(unit, stoneMat));
         jamb.scale.set(jambW, h, WALL_T);
         jamb.position.set(sx, h / 2, 0);
         jamb.castShadow = jamb.receiveShadow = true;
         piece.add(jamb);
       }
-      const lintel = new THREE.Mesh(unit, copingMat);
+      const lintel = batched(new THREE.Mesh(unit, copingMat));
       lintel.scale.set(1.04, 0.14, WALL_T + 0.08);
       lintel.position.set(0, h - 0.07, 0);
       lintel.castShadow = true;
@@ -601,7 +658,7 @@ export function buildTerrain(
       const leafW = 1 - 2 * jambW;
       const hinge = new THREE.Group();
       hinge.position.set(-0.5 + jambW, 0, 0);
-      const leaf = new THREE.Mesh(unit, leafMat);
+      const leaf = batched(new THREE.Mesh(unit, leafMat));
       leaf.scale.set(leafW, h - 0.14, 0.07);
       leaf.position.set(leafW / 2, (h - 0.14) / 2, 0);
       leaf.castShadow = true;
@@ -611,29 +668,29 @@ export function buildTerrain(
     } else if (w.kind === 'window') {
       // A sill, a lintel, jambs, and a pane of the arcane tint between.
       const sillH = Math.min(0.5, h * 0.3);
-      const sill = new THREE.Mesh(unit, stoneMat);
+      const sill = batched(new THREE.Mesh(unit, stoneMat));
       sill.scale.set(1, sillH, WALL_T);
       sill.position.set(0, sillH / 2, 0);
       sill.castShadow = sill.receiveShadow = true;
       piece.add(sill);
-      const lintel = new THREE.Mesh(unit, stoneMat);
+      const lintel = batched(new THREE.Mesh(unit, stoneMat));
       lintel.scale.set(1, 0.16, WALL_T);
       lintel.position.set(0, h - 0.08, 0);
       lintel.castShadow = true;
       piece.add(lintel);
       for (const sx of [-0.46, 0.46]) {
-        const jamb = new THREE.Mesh(unit, stoneMat);
+        const jamb = batched(new THREE.Mesh(unit, stoneMat));
         jamb.scale.set(0.08, h, WALL_T);
         jamb.position.set(sx, h / 2, 0);
         piece.add(jamb);
       }
-      const pane = new THREE.Mesh(unit, paneMat);
+      const pane = batched(new THREE.Mesh(unit, paneMat));
       pane.scale.set(0.84, h - sillH - 0.16, 0.03);
       pane.position.set(0, sillH + (h - sillH - 0.16) / 2, 0);
       piece.add(pane);
     } else if (w.kind === 'hedge') {
       // A hedge: a green block, slightly bulging, no coping.
-      const hedge = new THREE.Mesh(unit, hedgeMat);
+      const hedge = batched(new THREE.Mesh(unit, hedgeMat));
       hedge.scale.set(1, h, WALL_T + 0.14);
       hedge.position.set(0, h / 2, 0);
       hedge.castShadow = hedge.receiveShadow = true;
@@ -643,14 +700,14 @@ export function buildTerrain(
       const mat = w.kind === 'fence' ? fenceMat : ironMat;
       const t = w.kind === 'fence' ? 0.08 : 0.06;
       for (const sx of [-0.47, 0.47]) {
-        const post = new THREE.Mesh(unit, mat);
+        const post = batched(new THREE.Mesh(unit, mat));
         post.scale.set(t, h, t);
         post.position.set(sx, h / 2, 0);
         post.castShadow = true;
         piece.add(post);
       }
       for (const y of [h, h * 0.5]) {
-        const rail = new THREE.Mesh(unit, mat);
+        const rail = batched(new THREE.Mesh(unit, mat));
         rail.scale.set(1, t * 0.8, t * 0.8);
         rail.position.set(0, y, 0);
         rail.castShadow = true;
@@ -688,6 +745,8 @@ export function buildTerrain(
   });
   const cylinder = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
   const sphere = new THREE.SphereGeometry(0.5, 12, 10);
+  // One cone for every pine, so a wood of them batches into one draw.
+  const cone = new THREE.ConeGeometry(0.5, 1, 10);
   const shadowed = (m: THREE.Mesh) => {
     m.castShadow = true;
     m.receiveShadow = true;
@@ -728,7 +787,7 @@ export function buildTerrain(
       x = 0,
       z = 0
     ) => {
-      const m = shadowed(new THREE.Mesh(geo, mat));
+      const m = batched(shadowed(new THREE.Mesh(geo, mat)));
       m.scale.set(sx, sy, sz);
       m.position.set(x, y, z);
       piece.add(m);
@@ -757,8 +816,8 @@ export function buildTerrain(
         break;
       case 'pine':
         add(cylinder, trunkMat, 0.14, 0.6, 0.14, 0.3);
-        add(new THREE.ConeGeometry(0.5, 1, 10), canopyMat, 1.1, 1.3, 1.1, 1.1);
-        add(new THREE.ConeGeometry(0.5, 1, 10), canopyMat, 0.8, 1.0, 0.8, 1.7);
+        add(cone, canopyMat, 1.1, 1.3, 1.1, 1.1);
+        add(cone, canopyMat, 0.8, 1.0, 0.8, 1.7);
         break;
       case 'bush':
         add(sphere, canopyMat, 0.8, 0.6, 0.8, 0.3);
@@ -825,26 +884,38 @@ export function buildTerrain(
   /* --- braziers ------------------------------------------------------- */
 
   // The warmth is the whole point of the palette: an iron bowl on a post,
-  // coals, a still flame, a pool of light on the floor, and the point light
-  // that does the real work. Nothing flickers.
+  // coals, a still flame and a pool of light on the floor. Nothing flickers.
+  //
+  // No light of its own. A point light per brazier made every material pay
+  // for every brazier, and a board that gained one recompiled every shader
+  // on the rebuild. The view keeps a fixed handful of lights and hangs them
+  // on the braziers nearest where the reader is looking; each brazier here
+  // leaves an anchor saying where its light would go, and how far it reaches.
+  // One without a light keeps its glow and its coals, which carry the look.
   const flame = artTexture(flameArt());
   const pool = artTexture(glowArt());
+  const bowlGeo = new THREE.CylinderGeometry(0.2, 0.1, 0.16, 12);
+  const coalsGeo = new THREE.SphereGeometry(0.13, 8, 6);
+  const coalsMat = new THREE.MeshBasicMaterial({ color: '#ff9a3c' });
+  const glowGeo = new THREE.PlaneGeometry(1, 1);
+  const glowMat = new THREE.MeshBasicMaterial({
+    map: pool,
+    color: p.gold,
+    transparent: true,
+    opacity: dark ? 0.4 : 0.28,
+    depthWrite: false,
+  });
   for (const l of doc.lights) {
     const i = l.y * doc.w + l.x;
     const top = (doc.elevation[i] ?? 0) / FEET_PER_UNIT;
     const piece = new THREE.Group();
     piece.position.set(l.x + 0.5, top, l.y + 0.5);
-    const post = shadowed(new THREE.Mesh(cylinder, ironMat));
+    const post = batched(shadowed(new THREE.Mesh(cylinder, ironMat)));
     post.scale.set(0.08, 0.5, 0.08);
     post.position.y = 0.25;
-    const bowl = shadowed(
-      new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.1, 0.16, 12), ironMat)
-    );
+    const bowl = batched(shadowed(new THREE.Mesh(bowlGeo, ironMat)));
     bowl.position.y = 0.56;
-    const coals = new THREE.Mesh(
-      new THREE.SphereGeometry(0.13, 8, 6),
-      new THREE.MeshBasicMaterial({ color: '#ff9a3c' })
-    );
+    const coals = batched(new THREE.Mesh(coalsGeo, coalsMat));
     coals.position.y = 0.6;
     const fire = new THREE.Sprite(
       new THREE.SpriteMaterial({
@@ -857,26 +928,19 @@ export function buildTerrain(
     fire.center.set(0.5, 0);
     fire.scale.set(0.34, 0.5, 1);
     fire.position.y = 0.58;
-    const glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(1, 1),
-      new THREE.MeshBasicMaterial({
-        map: pool,
-        color: p.gold,
-        transparent: true,
-        opacity: dark ? 0.4 : 0.28,
-        depthWrite: false,
-      })
-    );
+    const glow = batched(new THREE.Mesh(glowGeo, glowMat));
     glow.rotation.x = -Math.PI / 2;
     const reach = l.radius / FEET_PER_UNIT;
     glow.scale.set(reach * 1.2, reach * 1.2, 1);
     glow.position.y = 0.012;
-    const light = new THREE.PointLight(p.gold, dark ? 9 : 4, reach * 1.4, 1.7);
-    light.position.y = 0.9;
-    piece.add(post, bowl, coals, fire, glow, light);
+    const anchor = new THREE.Object3D();
+    anchor.position.y = 0.9;
+    anchor.userData.brazier = reach;
+    piece.add(post, bowl, coals, fire, glow, anchor);
     group.add(piece);
   }
 
+  batchRepeats(group);
   return group;
 }
 
@@ -1285,6 +1349,134 @@ export function buildTokens(
   return { pieces, activeRing };
 }
 
+/* --- the moving parts ---------------------------------------------------- */
+
+/** Point lights hung on braziers: always this many, so no shader recompiles. */
+const BRAZIER_LIGHTS = 4;
+
+/** While only the turn ring moves, a frame this often: about 20 fps. */
+const RING_FRAME_MS = 50;
+
+/**
+ * Grow and fade each ping's ring by its age. Returns whether any is still
+ * alive, which keeps the loop drawing. Under reduced motion a ring sits
+ * still at its middle size until the ping is gone.
+ */
+function stepPings(
+  marks: { mesh: THREE.Mesh; born: number }[],
+  still: boolean
+): boolean {
+  const now = performance.now();
+  let alive = false;
+  for (const m of marks) {
+    const age = (now - m.born) / PING_MS;
+    const mat = m.mesh.material as THREE.MeshBasicMaterial;
+    if (age >= 1) {
+      m.mesh.visible = false;
+      continue;
+    }
+    alive = true;
+    const t = still ? 0.45 : age;
+    m.mesh.scale.setScalar(0.8 + 2.4 * t);
+    mat.opacity = still ? 0.9 : 1 - t;
+  }
+  return alive && !still;
+}
+
+/** A small seeded random, so the same floor rains the same rain. */
+function seededRandom(seed: number): () => number {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+/**
+ * The weather over a floor, standing still.
+ *
+ * Design rule 4: nothing on the route moves but the turn ring, so the 3D
+ * weather is the 2D board's — seeded and still. Mist is the scene's fog
+ * pulled close and pale; rain and a storm are fixed slanted streaks; snow
+ * and a blizzard are a field of flakes hanging in the air. The fog is
+ * changed in place, never replaced: a different kind of fog is a different
+ * shader. Returns null for a clear floor, having put the fog back.
+ */
+function buildWeather(
+  doc: TerrainDoc,
+  scene: THREE.Scene,
+  dark: boolean
+): THREE.Object3D | null {
+  const span = Math.max(doc.w, doc.h);
+  const horizon = horizonColour(dark);
+  const fog = scene.fog as THREE.Fog | null;
+  const weather = doc.weather ?? 'clear';
+  if (fog) {
+    fog.color.copy(horizon);
+    fog.near = span * 2.2;
+    fog.far = span * 6;
+    if (weather === 'mist' || weather === 'blizzard') {
+      fog.color.lerp(
+        new THREE.Color(dark ? '#9aa6b2' : '#f4f6f8'),
+        weather === 'mist' ? 0.55 : 0.7
+      );
+      fog.near = span * (weather === 'mist' ? 0.5 : 0.7);
+      fog.far = span * (weather === 'mist' ? 2.6 : 3.2);
+    } else if (weather === 'storm') {
+      fog.color.lerp(new THREE.Color(dark ? '#1a2230' : '#6e7b8c'), 0.5);
+      fog.near = span * 1.2;
+      fog.far = span * 4.5;
+    }
+  }
+  if (weather === 'clear' || weather === 'mist') return null;
+
+  const rnd = seededRandom(doc.w * 7919 + doc.h * 104729);
+  const top = 4;
+  if (weather === 'rain' || weather === 'storm') {
+    const count = Math.round(doc.w * doc.h * (weather === 'storm' ? 1.4 : 0.6));
+    const lean = weather === 'storm' ? 0.28 : 0.12;
+    const len = weather === 'storm' ? 0.7 : 0.5;
+    const pts = new Float32Array(count * 6);
+    for (let k = 0; k < count; k++) {
+      const x = rnd() * doc.w;
+      const z = rnd() * doc.h;
+      const y = rnd() * top + 0.3;
+      pts.set([x, y, z, x + lean, y - len, z + lean * 0.4], k * 6);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+    return new THREE.LineSegments(
+      geo,
+      new THREE.LineBasicMaterial({
+        color: dark ? '#bed2e6' : '#5a7896',
+        transparent: true,
+        opacity: dark ? 0.45 : 0.5,
+        depthWrite: false,
+      })
+    );
+  }
+  const count = Math.round(
+    doc.w * doc.h * (weather === 'blizzard' ? 2.2 : 0.8)
+  );
+  const pts = new Float32Array(count * 3);
+  for (let k = 0; k < count; k++) {
+    pts.set([rnd() * doc.w, rnd() * top + 0.1, rnd() * doc.h], k * 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+  return new THREE.Points(
+    geo,
+    new THREE.PointsMaterial({
+      color: '#f4f8fb',
+      size: weather === 'blizzard' ? 0.09 : 0.07,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    })
+  );
+}
+
 /* --- the component ----------------------------------------------------- */
 
 export interface BattleMap3DProps {
@@ -1359,6 +1551,10 @@ export interface BattleMap3DProps {
    * a blank box.
    */
   onUnavailable?: () => void;
+  /** Pings on the floor in front, rung on their tiles for `PING_MS`. */
+  pings?: readonly Ping[];
+  /** Alt-click on a tile: point at it for the table. */
+  onPing?: (at: { x: number; y: number }) => void;
   /** The workshop's camera bar drives the orbit through this. */
   cameraRef?: MutableRefObject<{
     turn: (deg: number) => void;
@@ -1385,6 +1581,8 @@ export default function BattleMap3D({
   mode = 'advise',
   fill = false,
   stack,
+  pings,
+  onPing,
   cameraRef,
   onUnavailable,
 }: BattleMap3DProps) {
@@ -1404,6 +1602,7 @@ export default function BattleMap3D({
     mode,
     stack,
     onUnavailable,
+    onPing,
   });
   latest.current = {
     terrain,
@@ -1417,6 +1616,7 @@ export default function BattleMap3D({
     mode,
     stack,
     onUnavailable,
+    onPing,
   };
 
   // Long-lived pieces, created once per mount.
@@ -1450,6 +1650,14 @@ export default function BattleMap3D({
     press: { x: number; y: number; tokenId: string | null } | null;
     /** Light the selected token's reach again, after a rebuild or a drop. */
     relight?: () => void;
+    /** Draw a frame soon: something changed that the loop cannot see. */
+    invalidate: () => void;
+    /** Hang the brazier lights on the braziers nearest the orbit's target. */
+    relightBraziers: () => void;
+    /** Rings on the floor for the pings alive, with when each arrived. */
+    pingMarks: { mesh: THREE.Mesh; born: number }[];
+    /** What is falling, stood over the floor in front. */
+    weather: THREE.Object3D | null;
   } | null>(null);
 
   useEffect(() => {
@@ -1659,6 +1867,47 @@ export default function BattleMap3D({
     hoverMarker.renderOrder = 5;
     scene.add(hoverMarker);
 
+    /*
+     * The brazier lights: a fixed four, however many braziers the board has.
+     * A change in the number of lights recompiles every shader in the scene,
+     * so the four always exist and a spare one is simply dark. They are hung
+     * on the braziers nearest the orbit's target, and moved when the target
+     * wanders far enough to make another brazier nearer.
+     */
+    const brazierLights = Array.from({ length: BRAZIER_LIGHTS }, () => {
+      const l = new THREE.PointLight(p.gold, 0, 1, 1.7);
+      scene.add(l);
+      return l;
+    });
+    const pickedAt = new THREE.Vector3(Infinity, 0, 0);
+    const relightBraziers = () => {
+      const w = world.current;
+      pickedAt.copy(controls.target);
+      const spots: { at: THREE.Vector3; reach: number }[] = [];
+      w?.terrainGroup?.traverse(o => {
+        if (typeof o.userData.brazier !== 'number') return;
+        spots.push({
+          at: o.getWorldPosition(new THREE.Vector3()),
+          reach: o.userData.brazier as number,
+        });
+      });
+      spots.sort(
+        (a, b) =>
+          a.at.distanceToSquared(controls.target) -
+          b.at.distanceToSquared(controls.target)
+      );
+      brazierLights.forEach((l, k) => {
+        const spot = spots[k];
+        if (!spot) {
+          l.intensity = 0;
+          return;
+        }
+        l.position.copy(spot.at);
+        l.distance = spot.reach * 1.4;
+        l.intensity = dark ? 9 : 4;
+      });
+    };
+
     world.current = {
       renderer,
       scene,
@@ -1676,6 +1925,10 @@ export default function BattleMap3D({
       ghost: null,
       hoverMarker,
       press: null,
+      invalidate: () => {},
+      relightBraziers,
+      pingMarks: [],
+      weather: null,
     };
 
     // Whatever sits above the canvas inside the region is measured rather
@@ -1700,6 +1953,7 @@ export default function BattleMap3D({
         frame();
         controls.update();
       }
+      world.current?.invalidate();
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -1731,6 +1985,7 @@ export default function BattleMap3D({
         return;
       }
       w.lerp = { from: camera.position.clone(), to, t: 0 };
+      w.invalidate();
     };
     renderer.domElement.tabIndex = 0;
     renderer.domElement.addEventListener('keydown', onKey);
@@ -1870,6 +2125,7 @@ export default function BattleMap3D({
       }
       w.ghost = g;
       scene.add(g);
+      w.invalidate();
     };
     function darkenGhost() {
       const w = world.current;
@@ -1877,6 +2133,7 @@ export default function BattleMap3D({
       scene.remove(w.ghost);
       disposeGroup(w.ghost);
       w.ghost = null;
+      w.invalidate();
     }
     /** Light the selected token's reach, if it is the reader's to move. */
     const relight = () => {
@@ -1904,16 +2161,26 @@ export default function BattleMap3D({
       const top = doc.elevation[to.y * doc.w + to.x] / FEET_PER_UNIT;
       piece.at.set(to.x + token.footprint / 2, top, to.y + token.footprint / 2);
       piece.group.position.copy(piece.at);
+      world.current?.invalidate();
       const ok = await latest.current.onMove?.(tokenId, to);
       if (!ok) {
         piece.at.copy(from);
         piece.group.position.copy(from);
+        world.current?.invalidate();
       }
     };
 
     const onDown = (ev: PointerEvent) => {
       const w = world.current;
       if (!w || ev.button !== 0) return;
+      if (ev.altKey && latest.current.onPing) {
+        const tile = floorTileUnder(ev);
+        if (tile) {
+          ev.preventDefault();
+          latest.current.onPing(tile);
+          return;
+        }
+      }
       const id = tokenUnder(ev);
       w.press = { x: ev.clientX, y: ev.clientY, tokenId: id };
       if (!id) return;
@@ -1937,6 +2204,7 @@ export default function BattleMap3D({
       controls.enabled = false;
       renderer.domElement.setPointerCapture(ev.pointerId);
       ev.preventDefault();
+      w.invalidate();
     };
     const onMovePointer = (ev: PointerEvent) => {
       const w = world.current;
@@ -1953,15 +2221,22 @@ export default function BattleMap3D({
             top + 0.35,
             tile.y + token.footprint / 2
           );
+          w.invalidate();
         }
         return;
       }
+      // What a hover changes — the marker, the cursor — is drawn whenever
+      // the marker was or is now showing; a pointer idling over the room
+      // with nothing selected asks for no frames at all.
+      const shown = w.hoverMarker.visible;
+      const was = w.hoverMarker.position.clone();
       // Nothing in hand: say what a tap here would do. A hand over a token,
       // a lit square over a tile the selected token could walk to.
       const over = tokenUnder(ev);
       if (over) {
         renderer.domElement.style.cursor = 'pointer';
         w.hoverMarker.visible = false;
+        if (shown) w.invalidate();
         return;
       }
       const id = latest.current.selectedId;
@@ -1970,6 +2245,7 @@ export default function BattleMap3D({
       if (!tile || !token) {
         renderer.domElement.style.cursor = 'grab';
         w.hoverMarker.visible = false;
+        if (shown) w.invalidate();
         return;
       }
       const others = latest.current.tokens.filter(t => t.id !== token.id);
@@ -1987,6 +2263,7 @@ export default function BattleMap3D({
       );
       w.hoverMarker.visible = true;
       renderer.domElement.style.cursor = allowed ? 'pointer' : 'not-allowed';
+      if (!shown || !was.equals(w.hoverMarker.position)) w.invalidate();
     };
     const onUp = async (ev: PointerEvent) => {
       const w = world.current;
@@ -2048,6 +2325,7 @@ export default function BattleMap3D({
       const snapBack = () => {
         d.piece.group.position.copy(d.from);
         relight();
+        w.invalidate();
       };
       if (!token || !d.hover) return snapBack();
       const to = d.hover;
@@ -2067,7 +2345,9 @@ export default function BattleMap3D({
     };
     const onLeave = () => {
       const w = world.current;
-      if (w) w.hoverMarker.visible = false;
+      if (!w || !w.hoverMarker.visible) return;
+      w.hoverMarker.visible = false;
+      w.invalidate();
     };
     renderer.domElement.style.cursor = 'grab';
     renderer.domElement.addEventListener('pointerdown', onDown);
@@ -2076,19 +2356,59 @@ export default function BattleMap3D({
     renderer.domElement.addEventListener('pointercancel', onUp);
     renderer.domElement.addEventListener('pointerleave', onLeave);
 
+    /*
+     * Frames on demand.
+     *
+     * The loop used to draw sixty frames a second forever — soft shadows, a
+     * 2048 shadow map — with nothing moving, and a laptop's fan said so. Now
+     * a frame is drawn when something asks: the camera gliding or settling
+     * after a drag of the orbit (damping keeps it moving after the pointer
+     * lifts, and `controls.update()` says whether it did), a token walking,
+     * a ping ringing, or `invalidate` from anything the loop cannot see — a
+     * rebuild, the hover marker, a resize. Idle, it stops altogether.
+     *
+     * The active-turn ring is the one thing that always turns (rule 4), so
+     * during a fight there is always something to draw. While it is the only
+     * thing, the loop steps at about 20 fps: at 0.7 rad/s nobody can tell,
+     * and the GPU can.
+     */
     const clock = new THREE.Clock();
-    const loop = () => {
+    let dirty = true;
+    let slow: ReturnType<typeof setTimeout> | null = null;
+    const kick = () => {
+      const w = world.current;
+      if (!w || w.frame) return;
+      if (slow) {
+        clearTimeout(slow);
+        slow = null;
+      }
+      w.frame = requestAnimationFrame(tick);
+    };
+    const invalidate = () => {
+      dirty = true;
+      kick();
+    };
+    world.current.invalidate = invalidate;
+    // Anything the orbit does is a reason to draw; `start` wakes the loop
+    // so damping is stepped from the first frame of a drag.
+    controls.addEventListener('start', kick);
+    controls.addEventListener('change', invalidate);
+    const tick = () => {
       const w = world.current;
       if (!w) return;
-      w.frame = requestAnimationFrame(loop);
-      const dt = clock.getDelta();
+      w.frame = 0;
+      const real = Math.min(clock.getDelta(), 0.25);
+      // After an idle spell the clock's delta is the whole spell; a glide
+      // that began just now must not finish in its first frame.
+      const dt = Math.min(real, 1 / 30);
+      let busy = false;
       if (w.lerp) {
         w.lerp.t = Math.min(1, w.lerp.t + dt * 1.8);
         const e = 1 - Math.pow(1 - w.lerp.t, 3);
         camera.position.lerpVectors(w.lerp.from, w.lerp.to, e);
         if (w.lerp.t >= 1) w.lerp = null;
+        busy = true;
       }
-      if (w.activeRing && !reduce) w.activeRing.rotation.y += dt * 0.7;
       // Movement is interpolated, not teleported — for every viewer, not only
       // the one who moved it. Eight lines, and it feels like a different
       // product. Under reduced motion `moving` is never filled.
@@ -2097,15 +2417,33 @@ export default function BattleMap3D({
         const e = 1 - Math.pow(1 - m.t, 3);
         w.pieces.get(id)?.group.position.lerpVectors(m.from, m.to, e);
         if (m.t >= 1) w.moving.delete(id);
+        busy = true;
       }
-      controls.update();
-      renderer.render(scene, camera);
+      if (w.pingMarks.length > 0) {
+        busy = stepPings(w.pingMarks, Boolean(reduce)) || busy;
+      }
+      if (controls.update()) {
+        busy = true;
+        // Looking somewhere else: the braziers nearest it get the light.
+        if (pickedAt.distanceTo(controls.target) > 2) relightBraziers();
+      }
+      const turning = Boolean(w.activeRing && !reduce);
+      if (turning) w.activeRing!.rotation.y += real * 0.7;
+      if (busy || dirty || turning) {
+        dirty = false;
+        renderer.render(scene, camera);
+      }
+      if (busy) kick();
+      else if (turning) slow = setTimeout(kick, RING_FRAME_MS);
     };
-    loop();
+    kick();
 
     return () => {
       const w = world.current;
       if (w) cancelAnimationFrame(w.frame);
+      if (slow) clearTimeout(slow);
+      controls.removeEventListener('start', kick);
+      controls.removeEventListener('change', invalidate);
       ro.disconnect();
       renderer.domElement.removeEventListener('keydown', onKey);
       renderer.domElement.removeEventListener('pointerdown', onDown);
@@ -2164,7 +2502,21 @@ export default function BattleMap3D({
       w.table = buildTable(terrain, dark);
     }
     w.scene.add(w.terrainGroup, w.table);
-  }, [terrain, dark, faces, imageUrlFor, stack]);
+
+    // The weather over the floor in front, still (rule 4): mist as the
+    // scene's fog, rain as fixed streaks, snow as a field of flakes. Built
+    // into the terrain group, so the next rebuild disposes it.
+    const front = stack?.levels.find(l => l.doc.id === terrain.id);
+    const sky = buildWeather(terrain, w.scene, dark);
+    if (sky) {
+      sky.position.y += front?.y ?? 0;
+      w.terrainGroup.add(sky);
+    }
+    w.weather = sky;
+    w.relightBraziers();
+    w.invalidate();
+    // `reduce` rebuilds the world above, so the terrain is built again on it.
+  }, [terrain, dark, faces, imageUrlFor, stack, reduce]);
 
   // Tokens: rebuilt on their own, because they are what moves during a fight.
   // A token that already stood somewhere keeps its group's position as the
@@ -2249,6 +2601,7 @@ export default function BattleMap3D({
       w.scene.add(piece.group);
     }
     w.relight?.();
+    w.invalidate();
   }, [
     terrain,
     tokens,
@@ -2261,6 +2614,46 @@ export default function BattleMap3D({
     reduce,
     stack,
   ]);
+
+  // Pings: a ring on each tile somebody pointed at, rebuilt when the list
+  // changes and stepped by the loop while any is alive.
+  useEffect(() => {
+    const w = world.current;
+    if (!w) return;
+    for (const m of w.pingMarks) {
+      w.scene.remove(m.mesh);
+      disposeGroup(m.mesh);
+    }
+    w.pingMarks = [];
+    const p = readPalette(dark);
+    const front = stack?.levels.find(l => l.doc.id === terrain.id);
+    for (const pg of pings ?? []) {
+      if (!inBounds(terrain, pg.x, pg.y)) continue;
+      const tex = new THREE.CanvasTexture(ringArt());
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshBasicMaterial({
+          map: tex,
+          color: p.gold,
+          transparent: true,
+          depthWrite: false,
+        })
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.renderOrder = 6;
+      mesh.position.set(
+        pg.x + 0.5,
+        terrain.elevation[pg.y * terrain.w + pg.x] / FEET_PER_UNIT +
+          0.04 +
+          (front?.y ?? 0),
+        pg.y + 0.5
+      );
+      w.scene.add(mesh);
+      w.pingMarks.push({ mesh, born: pg.born });
+    }
+    w.invalidate();
+  }, [pings, terrain, dark, stack, reduce]);
 
   return (
     <div

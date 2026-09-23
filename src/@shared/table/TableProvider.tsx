@@ -237,6 +237,9 @@ export function TableProvider({ children }: { children: ReactNode }) {
 
   const onEvent = useCallback(
     (campaignId: string, event: TableEvent) => {
+      // A ping is the board's own moment: it draws a mark on a tile and is
+      // neither a slip in the corner nor a line in the Table log.
+      if (event.kind === 'ping') return;
       if (seen.current.has(event.id)) return;
       seen.current.add(event.id);
       if (seen.current.size > SEEN_LIMIT) {

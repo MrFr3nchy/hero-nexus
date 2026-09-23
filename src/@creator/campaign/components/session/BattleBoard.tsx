@@ -21,7 +21,6 @@
  */
 import {
   Button,
-  Checkbox,
   Dropdown,
   DropdownItem,
   DropdownMenu,
@@ -42,6 +41,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 
@@ -49,13 +49,12 @@ import {
   brushTiles,
   canStandUnder,
   distanceFeet,
-  floodFill,
   jumpLandings,
   linkCostFeet,
   linksUnder,
   reachFor,
   rectTiles,
-  roomEdits,
+  tilesAlong,
 } from '@/@creator/campaign/lib/battlemap';
 import {
   edgeKey,
@@ -68,7 +67,6 @@ import {
   MATERIALS,
   MAX_SIDE,
   MIN_SIDE,
-  shortId,
   VOID,
   withLevel,
   type BoardDoc,
@@ -77,10 +75,8 @@ import {
   type LevelDoc,
   type LevelLink,
   type LinkKind,
-  type PropKind,
   type Side,
   type TerrainDoc,
-  type WallKind,
 } from '@/@shared/battlemap/types';
 import {
   BattlefieldScene,
@@ -109,7 +105,10 @@ import {
   takeLinkAction,
   updateTokenAction,
   operateThingAction,
+  pingBoardAction,
 } from '../../battlemap-actions';
+import { typingTarget } from '../screen/useDmShortcuts';
+import { useUnsavedGuard } from '@/@shared/hooks/useUnsavedGuard';
 import { FloorRail } from './FloorRail';
 import { BoardCanvas, tileAt as tileUnder } from './BoardCanvas';
 import { BattleMap3DLazy } from './BattleMap3DLazy';
@@ -124,6 +123,7 @@ import {
   useSelectedTokens,
 } from '@/@shared/battlemap/selection';
 import { setPlacement, usePlacement } from '@/@shared/battlemap/placement';
+import { usePings } from '@/@shared/battlemap/pings';
 import { webglAvailable } from '@/@shared/battlemap/webgl';
 import { ImagePicker } from '../ImagePicker';
 import { Refused, type RefusedState } from '../Refused';
@@ -141,32 +141,9 @@ import { SightControls } from './SightControls';
 
 type Tool =
   | { kind: 'select' }
-  | { kind: 'paint'; material: number }
-  | { kind: 'raise'; by: 5 | -5 }
-  | { kind: 'wall'; wall: WallKind }
-  | { kind: 'erase-wall' }
-  | { kind: 'prop'; prop: PropKind; blocks: boolean }
-  | { kind: 'light' }
   | { kind: 'reveal' }
-  /**
-   * Two corners, one write. `apply` says which of the three brushed layers
-   * the box lands on; `value` is the material index, the feet to raise or
-   * lower by, or nothing for a reveal.
-   */
-  | { kind: 'rect'; apply: 'material' | 'elevation' | 'reveal'; value: number }
-  /** Tap a tile: every connected tile of the same floor takes this one. */
-  | { kind: 'fill'; material: number }
-  /**
-   * A room in one drag (floors): the floor painted, walls round it, a door
-   * where it meets a room already there.
-   */
-  | { kind: 'room'; material: number; door: boolean }
-  /**
-   * Stairs or a ladder in one drag (floors): the box is the footprint on
-   * this floor and on `to`, and a token that ends its move on it is
-   * offered the other floor.
-   */
-  | { kind: 'link'; link: LinkKind; to: string }
+  /** Two corners, one write: every tile in the box shown to the party. */
+  | { kind: 'reveal-box' }
   /** Two taps, feet between them. Anybody's, not only staff's. */
   | { kind: 'ruler' }
   /**
@@ -192,16 +169,7 @@ type Tool =
  * The toolbar's modes. Each opens on one tool and shows only its own row.
  * `hint` is the scrawl beside the strip: what a tap on the board does now.
  */
-type Mode =
-  | 'select'
-  | 'ruler'
-  | 'area'
-  | 'rooms'
-  | 'paint'
-  | 'shape'
-  | 'build'
-  | 'things'
-  | 'fog';
+type Mode = 'select' | 'ruler' | 'area' | 'things' | 'fog';
 
 function modeOf(tool: Tool): Mode {
   switch (tool.kind) {
@@ -211,25 +179,11 @@ function modeOf(tool: Tool): Mode {
       return 'ruler';
     case 'area':
       return 'area';
-    case 'room':
-      return 'rooms';
-    case 'paint':
-    case 'fill':
-      return 'paint';
-    case 'raise':
-      return 'shape';
-    case 'rect':
-      return tool.apply === 'material'
-        ? 'paint'
-        : tool.apply === 'elevation'
-          ? 'shape'
-          : 'fog';
     case 'scenery':
       return 'things';
     case 'reveal':
+    case 'reveal-box':
       return 'fog';
-    default:
-      return 'build';
   }
 }
 
@@ -263,30 +217,6 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
     hint: 'tap the origin, then where it points · the shelf casts on who is inside',
   },
   {
-    mode: 'rooms',
-    label: 'Rooms',
-    tool: { kind: 'room', material: 4, door: true },
-    hint: 'drag a box — floor, walls and a door in one go',
-  },
-  {
-    mode: 'paint',
-    label: 'Floor',
-    tool: { kind: 'paint', material: 1 },
-    hint: 'drag to paint the floor',
-  },
-  {
-    mode: 'shape',
-    label: 'Height',
-    tool: { kind: 'raise', by: 5 },
-    hint: 'drag to raise or lower the ground',
-  },
-  {
-    mode: 'build',
-    label: 'Build',
-    tool: { kind: 'wall', wall: 'solid' },
-    hint: 'tap an edge for a wall, a tile for the rest · drag a box for stairs',
-  },
-  {
     mode: 'things',
     label: 'Things',
     tool: FRESH_SCENERY,
@@ -294,7 +224,7 @@ const MODES: { mode: Mode; label: string; tool: Tool; hint: string }[] = [
   },
   {
     mode: 'fog',
-    label: 'Fog',
+    label: 'Fog of war',
     tool: { kind: 'reveal' },
     hint: 'drag to show the party what they can see',
   },
@@ -314,24 +244,6 @@ const STATE_LABEL: Record<ItemState, string> = {
   locked: 'Locked',
   broken: 'Broken',
 };
-
-const PROPS: { kind: PropKind; blocks: boolean; label: string }[] = [
-  { kind: 'table', blocks: true, label: 'Table' },
-  { kind: 'chest', blocks: false, label: 'Chest' },
-  { kind: 'barrel', blocks: true, label: 'Barrel' },
-  { kind: 'pillar', blocks: true, label: 'Pillar' },
-  { kind: 'tree', blocks: true, label: 'Tree' },
-  { kind: 'rubble', blocks: false, label: 'Rubble' },
-  { kind: 'altar', blocks: true, label: 'Altar' },
-  { kind: 'statue', blocks: true, label: 'Statue' },
-];
-
-const WALLS: { kind: WallKind; label: string; height: number }[] = [
-  { kind: 'solid', label: 'Wall', height: 10 },
-  { kind: 'door', label: 'Door', height: 10 },
-  { kind: 'window', label: 'Window', height: 10 },
-  { kind: 'rail', label: 'Rail', height: 3 },
-];
 
 const LINK_LABEL: Record<LinkKind, string> = {
   stairs: 'Stairs',
@@ -355,16 +267,14 @@ function levelPhrase(board: BoardDoc, id: string): string {
   return name ? `the ${name.toLowerCase()}` : 'a floor unseen';
 }
 
-/**
- * The modes the table keeps. Building — rooms, floor, height, walls,
- * things — lives in the workshop, off the fight's screen; the sand table
- * on the screen is for playing on. The board still knows the other tools
- * (the DM's keyboard names them), it just does not offer them here.
- */
-const TABLE_MODES: readonly Mode[] = ['select', 'ruler', 'area', 'fog'];
+/** Nothing revealed, as one array, so the canvas's cache sees no change. */
+const NONE: readonly number[] = [];
 
 /** How far a token may be shown to reach. The rules module prices it. */
 const DEFAULT_SPEED_FEET = 30;
+
+/** How long a finger held still on a tile takes to become a ping. */
+const HOLD_MS = 550;
 
 /** Debounce on terrain writes. Painting is a stream; the save is a document. */
 const SAVE_MS = 500;
@@ -496,7 +406,10 @@ export function BattleBoard({
    */
   const [doc, setDoc] = useState<BoardDoc | null>(board?.terrain ?? null);
   const dirty = useRef(false);
+  const edit = useRef(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The save still waiting on its debounce, sent if the board unmounts. */
+  const pendingSave = useRef<{ mapId: string; doc: BoardDoc } | null>(null);
   useEffect(() => {
     if (!board) {
       setDoc(null);
@@ -544,8 +457,7 @@ export function BattleBoard({
     if (!doc || !levelId) return;
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== 'PageUp' && ev.key !== 'PageDown') return;
-      const tag = (ev.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (typingTarget(ev)) return;
       const i = doc.levels.findIndex(l => l.id === levelId);
       const next = doc.levels[i + (ev.key === 'PageUp' ? 1 : -1)];
       if (!next) return;
@@ -575,15 +487,6 @@ export function BattleBoard({
     window.addEventListener('hero-nexus:board', onMode);
     return () => window.removeEventListener('hero-nexus:board', onMode);
   }, [isStaff]);
-  // The stairs tool points at a neighbouring floor; when the floor in
-  // front changes under it, it points at that floor's neighbour instead.
-  useEffect(() => {
-    if (!doc || !levelId || tool.kind !== 'link') return;
-    if (tool.to !== levelId && doc.levels.some(l => l.id === tool.to)) return;
-    const i = doc.levels.findIndex(l => l.id === levelId);
-    const next = doc.levels[i + 1] ?? doc.levels[i - 1];
-    if (next) setTool({ ...tool, to: next.id });
-  }, [doc, levelId, tool]);
   // Doing something to a thing: the picker's mode and last word, and the DM's
   // amount for breaking one.
   const [lockMode, setLockMode] = useState<
@@ -892,6 +795,18 @@ export function BattleBoard({
     return [...urls];
   }, [state.portraits, board?.tokens, terrain?.props, imageUrlFor]);
   const faces = usePortraits(portraitUrls);
+
+  // Pings on this board. A floor the reader's document does not hold is one
+  // they have not been shown, and a ping on it is dropped unseen.
+  const knowsLevel = useCallback(
+    (id: string) => Boolean(doc?.levels.some(l => l.id === id)),
+    [doc]
+  );
+  const pings = usePings(campaignId, board?.id ?? null, knowsLevel);
+  const pingsHere = useMemo(
+    () => pings.filter(p => p.level === terrain?.id),
+    [pings, terrain?.id]
+  );
   const faceFor = useCallback(
     (
       entry: EntryRow | undefined,
@@ -1151,14 +1066,29 @@ export function BattleBoard({
     (next: BoardDoc) => {
       if (!board) return;
       dirty.current = true;
+      // Which edit this is. A save that comes back to find a newer edit
+      // pending does not get to call the document clean: its re-read would
+      // replace the newer edit with the server's copy, which does not have
+      // it yet, and the door just opened would snap shut until its own save
+      // landed. The workshop found this first.
+      const mine = ++edit.current;
       setDoc(next);
+      pendingSave.current = { mapId: board.id, doc: next };
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
         saveTimer.current = null;
+        pendingSave.current = null;
         const res = await saveTerrainAction(board.id, next);
-        dirty.current = false;
+        if (edit.current !== mine) return;
         if (!res.ok) onError(res.error);
-        await refresh();
+        // Clean only once the read that follows the save is in: a read that
+        // started before the save and lands after it would otherwise be
+        // taken, and it is the old document.
+        try {
+          await refresh();
+        } finally {
+          if (edit.current === mine) dirty.current = false;
+        }
       }, SAVE_MS);
     },
     [board, onError, refresh]
@@ -1179,161 +1109,30 @@ export function BattleBoard({
     [doc, terrain, scheduleSave]
   );
 
+  // Leaving with an edit still waiting on its debounce sends it rather than
+  // dropping it: the edit was made, and "Back to campaign" is not "undo".
   useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      const p = pendingSave.current;
+      pendingSave.current = null;
+      if (p) void saveTerrainAction(p.mapId, p.doc);
     };
   }, []);
+  // A tab closed mid-edit cannot be trusted to finish a server action, so
+  // the browser is asked to hold the door instead.
+  useUnsavedGuard(dirty);
 
   /* --- editing --------------------------------------------------------- */
 
-  const applyTool = useCallback(
-    (x: number, y: number, side: Side | null) => {
-      if (!terrain || !isStaff) return;
-      if (!inBounds(terrain, x, y)) return;
-      const i = y * terrain.w + x;
-      const next: TerrainDoc = {
-        ...terrain,
-        elevation: [...terrain.elevation],
-        material: [...terrain.material],
-        walls: [...terrain.walls],
-        props: [...terrain.props],
-        lights: [...terrain.lights],
-      };
-
-      switch (tool.kind) {
-        case 'paint': {
-          let changed = false;
-          for (const t of brushTiles(terrain, { x, y }, brush)) {
-            if (next.material[t] === tool.material) continue;
-            next.material[t] = tool.material;
-            changed = true;
-          }
-          if (!changed) return;
-          break;
-        }
-        case 'raise':
-          for (const t of brushTiles(terrain, { x, y }, brush)) {
-            next.elevation[t] = Math.max(
-              -50,
-              Math.min(200, next.elevation[t] + tool.by)
-            );
-          }
-          break;
-        case 'fill': {
-          if (next.material[i] === tool.material) return;
-          for (const t of floodFill(terrain, { x, y })) {
-            next.material[t] = tool.material;
-          }
-          break;
-        }
-        case 'wall': {
-          if (!side) return;
-          const key = edgeKey(x, y, side);
-          const spec = WALLS.find(w => w.kind === tool.wall)!;
-          next.walls = next.walls.filter(
-            w => edgeKey(w.x, w.y, w.side) !== key
-          );
-          next.walls.push({
-            x,
-            y,
-            side,
-            kind: tool.wall,
-            height: spec.height,
-            ...(tool.wall === 'door' ? { open: false } : {}),
-          });
-          break;
-        }
-        case 'erase-wall': {
-          if (!side) return;
-          const key = edgeKey(x, y, side);
-          const before = next.walls.length;
-          next.walls = next.walls.filter(
-            w => edgeKey(w.x, w.y, w.side) !== key
-          );
-          if (next.walls.length === before) return;
-          break;
-        }
-        case 'prop': {
-          const has = next.props.findIndex(p => p.x === x && p.y === y);
-          if (has >= 0) next.props.splice(has, 1);
-          else next.props.push({ x, y, kind: tool.prop, blocks: tool.blocks });
-          break;
-        }
-        case 'light': {
-          const has = next.lights.findIndex(l => l.x === x && l.y === y);
-          if (has >= 0) next.lights.splice(has, 1);
-          else next.lights.push({ x, y, radius: 20 });
-          break;
-        }
-        default:
-          return;
-      }
-      saveLevel(next);
-    },
-    [terrain, isStaff, tool, brush, saveLevel]
-  );
-
-  /** The rectangle tool's one write, on pointer-up. */
+  /** The fog box's one write, on pointer-up. */
   const applyRect = useCallback(
     (from: { x: number; y: number }, to: { x: number; y: number }) => {
-      if (!terrain || !doc || !isStaff) return;
-      if (tool.kind === 'room') {
-        saveLevel(
-          roomEdits(terrain, from, to, tool.material, { door: tool.door })
-        );
-        return;
-      }
-      if (tool.kind === 'link') {
-        const to2 = doc.levels.find(l => l.id === tool.to);
-        if (!to2 || to2.id === terrain.id) return;
-        const link: LevelLink = {
-          id: shortId(),
-          kind: tool.link,
-          x: Math.min(from.x, to.x),
-          y: Math.min(from.y, to.y),
-          w: Math.min(6, Math.abs(to.x - from.x) + 1),
-          h: Math.min(6, Math.abs(to.y - from.y) + 1),
-          from: to2.feet < terrain.feet ? to2.id : terrain.id,
-          to: to2.feet < terrain.feet ? terrain.id : to2.id,
-        };
-        scheduleSave({ ...doc, links: [...doc.links, link] });
-        setSelectedLink(link.id);
-        return;
-      }
-      if (tool.kind !== 'rect') return;
-      const tiles = rectTiles(terrain, from, to);
-      if (tool.apply === 'reveal') {
-        revealTilesPending(tiles);
-        flushReveal();
-        return;
-      }
-      const next: TerrainDoc = {
-        ...terrain,
-        elevation: [...terrain.elevation],
-        material: [...terrain.material],
-      };
-      for (const t of tiles) {
-        if (tool.apply === 'material') next.material[t] = tool.value;
-        else {
-          next.elevation[t] = Math.max(
-            -50,
-            Math.min(200, next.elevation[t] + tool.value)
-          );
-        }
-      }
-      saveLevel(next);
+      if (!terrain || !isStaff || tool.kind !== 'reveal-box') return;
+      revealTilesPending(rectTiles(terrain, from, to));
+      void flushReveal();
     },
-    [
-      terrain,
-      doc,
-      isStaff,
-      tool,
-      revealTilesPending,
-      flushReveal,
-      saveLevel,
-      scheduleSave,
-    ]
+    [terrain, isStaff, tool, revealTilesPending, flushReveal]
   );
 
   const toggleDoor = useCallback(
@@ -1353,15 +1152,172 @@ export function BattleBoard({
 
   /* --- pointer --------------------------------------------------------- */
 
-  const tileAt = (ev: ReactPointerEvent<HTMLCanvasElement>) => {
+  const tileAt = (ev: { clientX: number; clientY: number }) => {
     const canvas = canvasRef.current;
     if (!canvas || !terrain) return null;
     return tileUnder(canvas, terrain, ev);
   };
 
+  /** Point at a tile for the table (a ping). Alt-click, or a held finger. */
+  const ping = async (at: { x: number; y: number }) => {
+    if (!board || !terrain) return;
+    const res = await pingBoardAction(board.id, {
+      level: terrain.id,
+      x: at.x,
+      y: at.y,
+    });
+    if (!res.ok) onError(res.error);
+  };
+
+  /**
+   * Move the selection to a tile: the picked token there, and the rest of
+   * a group by the same step. Shared by a tap, a drag and the arrow keys,
+   * so a refusal and its "Do it anyway" read the same whichever it was.
+   */
+  const moveSelectionTo = async (at: { x: number; y: number }) => {
+    if (!terrain || !selectedToken || !selectedToken.mine) return;
+    if (selectedToken.level !== terrain.id) return;
+    if (at.x === selectedToken.x && at.y === selectedToken.y) return;
+    // Under advise the tile may be lava and the move still goes: the board
+    // has said so in red, and saying is all advising does. Staff are never
+    // stopped here at all — the server refuses them with a way past it, and
+    // a refusal swallowed in the browser has no "Do it anyway".
+    const others = here.filter(t => t.id !== selectedToken.id && t.blocks);
+    if (
+      !canStandUnder(
+        terrain,
+        { x: at.x, y: at.y, footprint: selectedToken.footprint },
+        others,
+        isStaff ? 'advise' : state.rules.mode
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    // A group moves by the same step the picked token takes; each move is
+    // its own claim, and the server refuses each on its own.
+    const dx = at.x - selectedToken.x;
+    const dy = at.y - selectedToken.y;
+    const group = here.filter(
+      t => selectedIds.includes(t.id) && t.id !== selectedToken.id && t.mine
+    );
+    await move(selectedToken.id, { x: at.x, y: at.y });
+    for (const t of group) {
+      await move(t.id, { x: t.x + dx, y: t.y + dy });
+    }
+    setBusy(false);
+    await refresh();
+  };
+
+  /**
+   * A tap on the board that did not land on a token, in select mode: a
+   * door opened, the stairs picked, the selection moved, or let go of.
+   */
+  const tapTile = async (at: { x: number; y: number; side: Side | null }) => {
+    if (!terrain) return;
+    // A door is opened by clicking its edge, by the DM — it is the one piece
+    // of terrain a fight actually changes.
+    if (at.side && isStaff) {
+      const key = edgeKey(at.x, at.y, at.side);
+      const door = terrain.walls.find(
+        w => edgeKey(w.x, w.y, w.side) === key && w.kind === 'door'
+      );
+      if (door) {
+        toggleDoor(at.x, at.y, at.side);
+        return;
+      }
+    }
+
+    // The stairs themselves, for the DM to name, hide or take away — when
+    // nobody is picked up, so a token on the stairs still walks.
+    if (isStaff && doc && !(selectedToken && selectedToken.mine)) {
+      const i = at.y * terrain.w + at.x;
+      const stair = doc.links.find(
+        l =>
+          (l.from === terrain.id || l.to === terrain.id) &&
+          linkTiles(doc, l).includes(i)
+      );
+      if (stair) {
+        setSelectedLink(stair.id === selectedLink ? null : stair.id);
+        setSelected(null);
+        return;
+      }
+    }
+
+    // An empty tile with a token selected: move it there, if it may be.
+    if (
+      selectedToken &&
+      selectedToken.mine &&
+      selectedToken.level === terrain.id
+    ) {
+      await moveSelectionTo(at);
+      return;
+    }
+
+    setSelected(null);
+    setSelectedLink(null);
+  };
+
+  /*
+   * A press in select mode, held until it lets go.
+   *
+   * A tap is decided on release rather than on press, so the same press can
+   * become a drag (a token of yours, carried to where it goes) or a ping (a
+   * finger held still on a touch screen). `token` is set when the press
+   * landed on a token the reader may move; `wasOnly` remembers that it was
+   * already the one thing selected, so a plain tap still lets it go.
+   */
+  const press = useRef<{
+    pointerId: number;
+    at: { x: number; y: number; side: Side | null };
+    token: string | null;
+    /** The token under the press, anybody's. */
+    hit: string | null;
+    wasOnly: boolean;
+    /** It was one of a group already picked up. */
+    inGroup: boolean;
+    dragging: boolean;
+    pinged: boolean;
+    hold: ReturnType<typeof setTimeout> | null;
+  } | null>(null);
+  /** Where a dragged token would land, for the ghost and its feet. */
+  const [dragTo, setDragTo] = useState<{ x: number; y: number } | null>(null);
+  const endPress = () => {
+    const p = press.current;
+    if (p?.hold) clearTimeout(p.hold);
+    press.current = null;
+    setDragTo(null);
+  };
+  useEffect(
+    () => () => {
+      const p = press.current;
+      if (p?.hold) clearTimeout(p.hold);
+    },
+    []
+  );
+
+  /** The last tile a brush stroke touched, so a quick swipe leaves no gaps. */
+  const strokeFrom = useRef<{ x: number; y: number } | null>(null);
+  const brushAlong = (at: { x: number; y: number }) => {
+    const from = strokeFrom.current ?? at;
+    for (const t of tilesAlong(from, at)) brushAt(t.x, t.y);
+    strokeFrom.current = at;
+  };
+
   const onPointerDown = async (ev: ReactPointerEvent<HTMLCanvasElement>) => {
     const at = tileAt(ev);
     if (!at || !board || !terrain) return;
+    // Held before anything else, and before the first await: a drag that
+    // wanders past the edge keeps talking to the board instead of committing
+    // the box, or dropping the token, where the pointer left.
+    ev.currentTarget.setPointerCapture(ev.pointerId);
+
+    // Alt-click points at a tile for the whole table, whatever is in hand.
+    if (ev.altKey) {
+      ev.preventDefault();
+      void ping(at);
+      return;
+    }
 
     // The ruler is anybody's. First tap sets the origin, the second pins
     // the far end, the third clears it.
@@ -1382,13 +1338,16 @@ export function BattleBoard({
     }
 
     // Somebody the initiative panel asked to have placed: this is where.
+    // Shared, hero or foe: a hero placed hidden vanished for their own
+    // player, and a foe is hidden by the fog of war now, not by a flag.
+    // "Hide from the party" on the token is still there for an ambush.
     if (isStaff && placing && tool.kind === 'select') {
       const res = await placeTokenAction(board.id, {
         entryId: placing.entryId,
         x: at.x,
         y: at.y,
         level: terrain.id,
-        visibility: 'dm',
+        visibility: 'shared',
       });
       if (!res.ok) onError(res.error);
       else setPlacement(campaignId, null);
@@ -1396,24 +1355,15 @@ export function BattleBoard({
       return;
     }
 
-    // Staff with a building tool: paint. Everything else is selection and
-    // movement, which players and staff share.
-    if (isStaff && tool.kind !== 'select' && tool.kind !== 'scenery') {
-      if (
-        tool.kind === 'rect' ||
-        tool.kind === 'room' ||
-        tool.kind === 'link'
-      ) {
-        setMarquee({ from: at, to: at });
-        return;
-      }
-      if (tool.kind === 'reveal') {
-        setPainting(true);
-        brushAt(at.x, at.y);
-        return;
-      }
+    // Fog of war: a brush stroke, or a box.
+    if (isStaff && tool.kind === 'reveal-box') {
+      setMarquee({ from: at, to: at });
+      return;
+    }
+    if (isStaff && tool.kind === 'reveal') {
       setPainting(true);
-      applyTool(at.x, at.y, at.side);
+      strokeFrom.current = null;
+      brushAlong(at);
       return;
     }
 
@@ -1453,18 +1403,7 @@ export function BattleBoard({
       return;
     }
 
-    // A door is opened by clicking its edge, by anyone at the table — it is
-    // the one piece of terrain a fight actually changes.
-    if (at.side) {
-      const key = edgeKey(at.x, at.y, at.side);
-      const door = terrain.walls.find(
-        w => edgeKey(w.x, w.y, w.side) === key && w.kind === 'door'
-      );
-      if (door && isStaff) {
-        toggleDoor(at.x, at.y, at.side);
-        return;
-      }
-    }
+    if (tool.kind !== 'select') return;
 
     const hit = here.find(
       t =>
@@ -1473,75 +1412,52 @@ export function BattleBoard({
         at.y >= t.y &&
         at.y < t.y + t.footprint
     );
-
-    if (hit) {
-      // Shift adds to the selection, so a group can be picked up together;
-      // a plain tap on the selected token lets it go.
+    // Shift adds to the selection, so a group can be picked up together.
+    if (hit && ev.shiftKey) {
       setSelectedLink(null);
-      if (ev.shiftKey) toggleSelectedToken(campaignId, hit.id);
-      else
-        setSelected(
-          hit.id === selected && selectedIds.length === 1 ? null : hit.id
-        );
+      toggleSelectedToken(campaignId, hit.id);
       return;
     }
-
-    // The stairs themselves, for the DM to name, hide or take away — when
-    // nobody is picked up, so a token on the stairs still walks.
-    if (isStaff && doc && !(selectedToken && selectedToken.mine)) {
-      const i = at.y * terrain.w + at.x;
-      const stair = doc.links.find(
-        l =>
-          (l.from === terrain.id || l.to === terrain.id) &&
-          linkTiles(doc, l).includes(i)
-      );
-      if (stair) {
-        setSelectedLink(stair.id === selectedLink ? null : stair.id);
-        setSelected(null);
-        return;
+    endPress();
+    const wasOnly = Boolean(
+      hit && hit.id === selected && selectedIds.length === 1
+    );
+    const inGroup = Boolean(
+      hit && !wasOnly && selectedIds.length > 1 && selectedIds.includes(hit.id)
+    );
+    if (hit) {
+      // Picked up on the press, so its reach is lit while it is carried. One
+      // of a group becomes the group's lead, so a drag carries them all.
+      setSelectedLink(null);
+      if (inGroup) {
+        setSelectedTokens(campaignId, [
+          ...selectedIds.filter(id => id !== hit.id),
+          hit.id,
+        ]);
+      } else if (!wasOnly) {
+        setSelected(hit.id);
       }
     }
-
-    // An empty tile with a token selected: move it there, if it may be.
-    // Under advise the tile may be lava and the move still goes: the board
-    // has said so in red, and saying is all advising does. Staff are never
-    // stopped here at all — the server refuses them with a way past it, and
-    // a refusal swallowed in the browser has no "Do it anyway".
-    if (
-      selectedToken &&
-      selectedToken.mine &&
-      selectedToken.level === terrain.id
-    ) {
-      const others = here.filter(t => t.id !== selectedToken.id && t.blocks);
-      if (
-        !canStandUnder(
-          terrain,
-          { x: at.x, y: at.y, footprint: selectedToken.footprint },
-          others,
-          isStaff ? 'advise' : state.rules.mode
-        )
-      ) {
-        return;
-      }
-      setBusy(true);
-      // A group moves by the same step the picked token takes; each move is
-      // its own claim, and the server refuses each on its own.
-      const dx = at.x - selectedToken.x;
-      const dy = at.y - selectedToken.y;
-      const group = here.filter(
-        t => selectedIds.includes(t.id) && t.id !== selectedToken.id && t.mine
-      );
-      await move(selectedToken.id, { x: at.x, y: at.y });
-      for (const t of group) {
-        await move(t.id, { x: t.x + dx, y: t.y + dy });
-      }
-      setBusy(false);
-      await refresh();
-      return;
-    }
-
-    setSelected(null);
-    setSelectedLink(null);
+    press.current = {
+      pointerId: ev.pointerId,
+      at,
+      token: hit && hit.mine && hit.level === terrain.id ? hit.id : null,
+      hit: hit?.id ?? null,
+      wasOnly,
+      inGroup,
+      dragging: false,
+      pinged: false,
+      hold:
+        ev.pointerType === 'touch'
+          ? setTimeout(() => {
+              const p = press.current;
+              if (!p || p.dragging) return;
+              p.pinged = true;
+              p.hold = null;
+              void ping(p.at);
+            }, HOLD_MS)
+          : null,
+    };
   };
 
   const hoverToken = useMemo(() => {
@@ -1559,29 +1475,148 @@ export function BattleBoard({
 
   const onPointerMove = (ev: ReactPointerEvent<HTMLCanvasElement>) => {
     const at = tileAt(ev);
-    setHover(at);
-    if (at && ruler && !ruler.pinned) setRuler({ ...ruler, to: at });
-    if (at && areaPick && !areaPick.pinned)
-      setAreaPick({ ...areaPick, to: at });
-    if (at && marquee) setMarquee({ ...marquee, to: at });
-    if (!painting || !at || !isStaff) return;
-    if (tool.kind === 'reveal') {
-      brushAt(at.x, at.y);
-      return;
+    // Only a new tile is news: a pointer moving inside one used to redraw
+    // the whole board on every pixel.
+    setHover(prev =>
+      prev && at && prev.x === at.x && prev.y === at.y && prev.side === at.side
+        ? prev
+        : at
+    );
+    if (!at) return;
+    const p = press.current;
+    if (p && p.pointerId === ev.pointerId && !p.pinged) {
+      const moved = at.x !== p.at.x || at.y !== p.at.y;
+      if (moved && p.hold) {
+        clearTimeout(p.hold);
+        p.hold = null;
+      }
+      if (p.token && (moved || p.dragging)) {
+        p.dragging = true;
+        setDragTo(prev =>
+          prev && prev.x === at.x && prev.y === at.y
+            ? prev
+            : { x: at.x, y: at.y }
+        );
+      }
     }
-    if (tool.kind === 'paint' || tool.kind === 'raise') {
-      applyTool(at.x, at.y, at.side);
-    }
+    if (ruler && !ruler.pinned) setRuler({ ...ruler, to: at });
+    if (areaPick && !areaPick.pinned) setAreaPick({ ...areaPick, to: at });
+    if (marquee) setMarquee({ ...marquee, to: at });
+    if (painting && isStaff && tool.kind === 'reveal') brushAlong(at);
   };
 
-  const onPointerUp = () => {
-    if (painting && tool.kind === 'reveal') flushReveal();
+  const onPointerUp = (ev?: ReactPointerEvent<HTMLCanvasElement>) => {
+    const cancelled = ev?.type === 'pointercancel';
+    if (painting && tool.kind === 'reveal') void flushReveal();
+    strokeFrom.current = null;
     if (marquee) {
-      applyRect(marquee.from, marquee.to);
+      if (!cancelled) applyRect(marquee.from, marquee.to);
       setMarquee(null);
     }
     setPainting(false);
+
+    const p = press.current;
+    if (!p || (ev && ev.pointerId !== p.pointerId)) return;
+    const to = dragTo;
+    endPress();
+    if (cancelled || p.pinged) return;
+    if (p.dragging) {
+      // Dropped where it was carried: the same move a tap-tap makes.
+      if (to) void moveSelectionTo(to);
+      return;
+    }
+    if (p.hit) {
+      // A plain tap on the one selected token lets it go; on one of a group,
+      // it picks that one alone.
+      if (p.wasOnly) setSelected(null);
+      else if (p.inGroup) setSelected(p.hit);
+      return;
+    }
+    void tapTile(p.at);
   };
+
+  /**
+   * The arrow keys walk the selected token one tile, through the same move
+   * a tap makes. Only while the board has focus, so the arrows still scroll
+   * the page — and a field that takes typing never lends them to the board.
+   */
+  const onKeyDown = (ev: ReactKeyboardEvent<HTMLCanvasElement>) => {
+    const step: Record<string, [number, number]> = {
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+    };
+    const d = step[ev.key];
+    if (!d || !terrain || !selectedToken || busy) return;
+    if (typingTarget(ev.nativeEvent)) return;
+    ev.preventDefault();
+    const x = selectedToken.x + d[0];
+    const y = selectedToken.y + d[1];
+    if (!inBounds(terrain, x, y)) return;
+    void moveSelectionTo({ x, y });
+  };
+
+  /*
+   * The token being carried: a ghost of its base on the tile under the
+   * pointer, and the feet it would spend — off the lit reach when the tile
+   * is in it, and in warning ink with the straight distance when it is not.
+   */
+  const ghost = useMemo(() => {
+    if (!dragTo || !selectedToken || !terrain) return undefined;
+    const t = selectedToken;
+    const i = dragTo.y * terrain.w + dragTo.x;
+    const spent = reach?.get(i);
+    const within = spent !== undefined;
+    const feet = within
+      ? spent
+      : distanceFeet(t, dragTo, state.rules.diagonals);
+    return (
+      ctx: CanvasRenderingContext2D,
+      size: number,
+      p: { gold: string; warning: string; ink: string; surface: string }
+    ) => {
+      const cx = (dragTo.x + t.footprint / 2) * size;
+      const cy = (dragTo.y + t.footprint / 2) * size;
+      const r = Math.max(
+        4,
+        (size * t.footprint) / 2 - Math.max(4, size * 0.16)
+      );
+      const tone = within ? p.gold : p.warning;
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = tone;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = tone;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const label = within ? `${feet} ft` : `${feet} ft · out of reach`;
+      ctx.font = `600 ${Math.max(11, size * 0.36)}px Inter, system-ui, sans-serif`;
+      const tw = ctx.measureText(label).width + 10;
+      const th = Math.max(16, size * 0.5);
+      const W = size * terrain.w;
+      const lx = Math.min(W - tw - 2, Math.max(2, cx - tw / 2));
+      const ly = Math.max(2, cy - r - th - 6);
+      ctx.fillStyle = p.surface;
+      ctx.globalAlpha = 0.94;
+      ctx.fillRect(lx, ly, tw, th);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = tone;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(lx + 0.5, ly + 0.5, tw - 1, th - 1);
+      ctx.fillStyle = p.ink;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, lx + 5, ly + th / 2 + 0.5);
+      ctx.textBaseline = 'alphabetic';
+      ctx.restore();
+    };
+  }, [dragTo, selectedToken, terrain, reach, state.rules.diagonals]);
 
   /* --- no board -------------------------------------------------------- */
 
@@ -1720,22 +1755,7 @@ export function BattleBoard({
     </Button>
   );
 
-  const sameTool = (a: Tool, b: Tool) =>
-    JSON.stringify(a) === JSON.stringify(b);
   const mode = modeOf(tool);
-  /** The floor a paint, box or fill tool carries; stone for anything else. */
-  const floorOf = (t: Tool): number =>
-    t.kind === 'paint' || t.kind === 'fill'
-      ? t.material
-      : t.kind === 'rect' && t.apply === 'material'
-        ? t.value
-        : 1;
-  const withFloor = (t: Tool, material: number): Tool =>
-    t.kind === 'fill'
-      ? { kind: 'fill', material }
-      : t.kind === 'rect' && t.apply === 'material'
-        ? { kind: 'rect', apply: 'material', value: material }
-        : { kind: 'paint', material };
 
   return (
     <SectionCard
@@ -1982,6 +2002,8 @@ export function BattleBoard({
           onSelect={setSelected}
           selectedId={selected}
           mode={isStaff ? 'advise' : state.rules.mode}
+          pings={pingsHere}
+          onPing={at => void ping(at)}
           onMove={async (tokenId, to) => {
             const ok = await move(tokenId, to);
             await refresh();
@@ -2064,12 +2086,12 @@ export function BattleBoard({
 
       {isStaff && !dimensional && (
         <div className="space-y-2">
-          {/* One row of modes, one row of the chosen mode's tools. Every
-              tool at once was twenty-five buttons across two rows, and a DM
-              painting a floor does not need the fog brush in view. */}
+          {/* One row of modes, one row of the chosen mode's tools. The
+              board on the screen is for playing on: building — rooms,
+              floors, height, walls — is the workshop's, one press away. */}
           <div className="flex flex-wrap items-center gap-1.5">
             <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5">
-              {MODES.filter(m => TABLE_MODES.includes(m.mode)).map(m => (
+              {MODES.map(m => (
                 <button
                   key={m.mode}
                   type="button"
@@ -2084,211 +2106,23 @@ export function BattleBoard({
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() =>
+                router.push(`/campaigns/${campaignId}/workshop/${board.id}`)
+              }
+              className="inline-flex items-center gap-1 rounded-md border border-line bg-surface-2 px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink"
+            >
+              <Glyph name="hammer" size={12} />
+              Open the workshop
+            </button>
             <Marginalia dash className="ml-1">
-              {TABLE_MODES.includes(mode)
-                ? MODES.find(m => m.mode === mode)?.hint
-                : 'floors, walls, trees and stamps now live in the workshop'}
+              {MODES.find(m => m.mode === mode)?.hint}
             </Marginalia>
           </div>
 
           {tool.kind === 'area' && (
             <AreaControls tool={tool} onChange={setTool} />
-          )}
-
-          {mode === 'rooms' && tool.kind === 'room' && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {MATERIALS.filter((_, i) => i !== VOID).map((m, i) => {
-                const idx = i + 1;
-                const chosen = tool.material === idx;
-                return (
-                  <Button
-                    key={m.key}
-                    size="sm"
-                    variant={chosen ? 'solid' : 'flat'}
-                    color={chosen ? 'primary' : 'default'}
-                    className="min-w-0 gap-1.5 px-2"
-                    onPress={() => setTool({ ...tool, material: idx })}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="inline-block h-3 w-3 rounded-sm border border-line"
-                      style={{ background: dark ? m.swatchDark : m.swatch }}
-                    />
-                    {m.name}
-                  </Button>
-                );
-              })}
-              <span className="mx-1 h-5 w-px bg-line" />
-              <Checkbox
-                size="sm"
-                isSelected={tool.door}
-                onValueChange={door => setTool({ ...tool, door })}
-              >
-                <span className="text-sm text-ink-muted">
-                  Put a door where it meets a room
-                </span>
-              </Checkbox>
-            </div>
-          )}
-
-          {mode === 'paint' && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {MATERIALS.map((m, i) => {
-                // The swatch picks the floor; how it goes on — brush, box
-                // or fill — is the row's own choice and survives the pick.
-                const chosen = floorOf(tool) === i;
-                return (
-                  <Button
-                    key={m.key}
-                    size="sm"
-                    variant={chosen ? 'solid' : 'flat'}
-                    color={chosen ? 'primary' : 'default'}
-                    className="min-w-0 gap-1.5 px-2"
-                    onPress={() => setTool(withFloor(tool, i))}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="inline-block h-3 w-3 rounded-sm border border-line"
-                      style={{ background: dark ? m.swatchDark : m.swatch }}
-                    />
-                    {m.name}
-                  </Button>
-                );
-              })}
-              <span className="mx-1 h-5 w-px bg-line" />
-              <BrushPicker brush={brush} onChange={setBrush} />
-              {toolButton(
-                'Box',
-                { kind: 'rect', apply: 'material', value: floorOf(tool) },
-                tool.kind === 'rect'
-              )}
-              {toolButton(
-                'Fill',
-                { kind: 'fill', material: floorOf(tool) },
-                tool.kind === 'fill'
-              )}
-            </div>
-          )}
-
-          {mode === 'shape' && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {toolButton(
-                'Raise 5 ft',
-                { kind: 'raise', by: 5 },
-                sameTool(tool, { kind: 'raise', by: 5 })
-              )}
-              {toolButton(
-                'Lower 5 ft',
-                { kind: 'raise', by: -5 },
-                sameTool(tool, { kind: 'raise', by: -5 })
-              )}
-              <span className="mx-1 h-5 w-px bg-line" />
-              <BrushPicker brush={brush} onChange={setBrush} />
-              {toolButton(
-                'Box up',
-                { kind: 'rect', apply: 'elevation', value: 5 },
-                tool.kind === 'rect' && tool.value > 0
-              )}
-              {toolButton(
-                'Box down',
-                { kind: 'rect', apply: 'elevation', value: -5 },
-                tool.kind === 'rect' && tool.value < 0
-              )}
-            </div>
-          )}
-
-          {mode === 'build' && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {WALLS.map(w =>
-                toolButton(
-                  w.label,
-                  { kind: 'wall', wall: w.kind },
-                  tool.kind === 'wall' && tool.wall === w.kind
-                )
-              )}
-              {toolButton(
-                'Erase wall',
-                { kind: 'erase-wall' },
-                tool.kind === 'erase-wall'
-              )}
-              <span className="mx-1 h-5 w-px bg-line" />
-              <Select
-                aria-label="Prop"
-                size="sm"
-                className="w-32"
-                placeholder="Prop"
-                selectedKeys={tool.kind === 'prop' ? [tool.prop] : []}
-                onSelectionChange={keys => {
-                  const key = String(Array.from(keys)[0] ?? '');
-                  const spec = PROPS.find(p => p.kind === key);
-                  if (spec)
-                    setTool({
-                      kind: 'prop',
-                      prop: spec.kind,
-                      blocks: spec.blocks,
-                    });
-                }}
-              >
-                {PROPS.map(p => (
-                  <SelectItem key={p.kind} textValue={p.label}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </Select>
-              {toolButton('Brazier', { kind: 'light' }, tool.kind === 'light')}
-              {doc && doc.levels.length > 1 && (
-                <>
-                  <span className="mx-1 h-5 w-px bg-line" />
-                  {(['stairs', 'ladder'] as const).map(kind =>
-                    toolButton(
-                      LINK_LABEL[kind],
-                      {
-                        kind: 'link',
-                        link: kind,
-                        to:
-                          tool.kind === 'link'
-                            ? tool.to
-                            : (doc.levels[
-                                doc.levels.findIndex(l => l.id === terrain.id) +
-                                  1
-                              ]?.id ??
-                              doc.levels[
-                                doc.levels.findIndex(l => l.id === terrain.id) -
-                                  1
-                              ]?.id ??
-                              terrain.id),
-                      },
-                      tool.kind === 'link' && tool.link === kind
-                    )
-                  )}
-                  {tool.kind === 'link' && (
-                    <Select
-                      aria-label="Which floor it leads to"
-                      size="sm"
-                      className="w-44"
-                      selectedKeys={[tool.to]}
-                      onSelectionChange={keys => {
-                        const key = String(Array.from(keys)[0] ?? '');
-                        if (key) setTool({ ...tool, to: key });
-                      }}
-                    >
-                      {[...doc.levels]
-                        .reverse()
-                        .filter(l => l.id !== terrain.id)
-                        .map(l => (
-                          <SelectItem key={l.id} textValue={l.name}>
-                            {l.feet > terrain.feet ? 'Up to ' : 'Down to '}
-                            {l.name.toLowerCase()} · {feetLabel(l.feet)}
-                          </SelectItem>
-                        ))}
-                    </Select>
-                  )}
-                </>
-              )}
-              {doc && doc.levels.length === 1 && (
-                <Marginalia dash>add a floor to draw stairs</Marginalia>
-              )}
-            </div>
           )}
 
           {mode === 'fog' && (
@@ -2297,8 +2131,8 @@ export function BattleBoard({
               <BrushPicker brush={brush} onChange={setBrush} />
               {toolButton(
                 'Box',
-                { kind: 'rect', apply: 'reveal', value: 0 },
-                tool.kind === 'rect'
+                { kind: 'reveal-box' },
+                tool.kind === 'reveal-box'
               )}
               <Button
                 size="sm"
@@ -2475,7 +2309,7 @@ export function BattleBoard({
           allTokens={board.tokens}
           entriesById={entriesById}
           currentEntryIds={currentEntryIds}
-          revealed={isStaff ? (board.revealed[terrain.id] ?? []) : null}
+          revealed={isStaff ? (board.revealed[terrain.id] ?? NONE) : null}
           isStaff={isStaff}
           dark={dark}
           hidden={dimensional}
@@ -2498,21 +2332,11 @@ export function BattleBoard({
           selected={selected}
           hover={hover}
           hoverShape={
-            !isStaff || tool.kind === 'select'
-              ? null
-              : tool.kind === 'wall' || tool.kind === 'erase-wall'
-                ? 'edge'
-                : tool.kind === 'rect' ||
-                    tool.kind === 'room' ||
-                    tool.kind === 'link' ||
-                    tool.kind === 'ruler' ||
-                    tool.kind === 'area'
-                  ? null
-                  : tool.kind === 'reveal' ||
-                      tool.kind === 'paint' ||
-                      tool.kind === 'raise'
-                    ? brush - 1
-                    : 0
+            isStaff && tool.kind === 'reveal'
+              ? brush - 1
+              : isStaff && tool.kind === 'scenery'
+                ? 0
+                : null
           }
           marquee={marquee}
           ruler={ruler}
@@ -2520,10 +2344,12 @@ export function BattleBoard({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerLeave={() => {
-            setHover(null);
-            onPointerUp();
-          }}
+          onPointerCancel={onPointerUp}
+          onPointerLeave={() => setHover(null)}
+          onKeyDown={onKeyDown}
+          ariaLabel={`Battle board: ${board.name || 'unnamed'}, ${terrain.name.toLowerCase()}`}
+          pings={pingsHere}
+          extras={ghost}
         />
         {/* The offer (floors): a token that ends its move on the stairs is
           asked whether it takes them. The climb is priced beside the

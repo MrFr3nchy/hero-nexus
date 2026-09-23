@@ -4,7 +4,27 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { joinTable } from '@/@shared/table/connection';
 import type { LiveState } from '@/server/session';
-import { getLiveStateAction } from '@/@creator/campaign/actions';
+
+/**
+ * One read of the table: the state, or null when it has not changed since
+ * the answer whose ETag was sent.
+ *
+ * A GET, not the server action: actions from one browser run one at a time,
+ * and a re-read queued in front of the DM's next click made the click wait.
+ */
+async function readState(
+  campaignId: string,
+  etag: string | null
+): Promise<{ text: string; etag: string | null } | null> {
+  const res = await fetch(`/api/campaigns/${campaignId}/state`, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers: etag ? { 'If-None-Match': etag } : undefined,
+  });
+  if (res.status === 304) return null;
+  if (!res.ok) throw new Error(`state ${res.status}`);
+  return { text: await res.text(), etag: res.headers.get('ETag') };
+}
 
 /**
  * How often to re-read anyway.
@@ -53,10 +73,12 @@ export function useCampaignLive(campaignId: string) {
    * screen — which is what "the sidebar keeps refreshing and it is not
    * obvious what is happening" looked like from the DM's chair, and what
    * threw away a half-typed damage number while they were typing it. The
-   * state is a plain JSON document (it crosses a server action, so it has
-   * to be), which makes this comparison both cheap and exact.
+   * state arrives as JSON text, and the text itself is compared, which is
+   * both cheap and exact.
    */
   const fingerprint = useRef<string | null>(null);
+  /** The ETag of that answer, sent back so an unchanged table is a 304. */
+  const etag = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     /*
@@ -73,14 +95,16 @@ export function useCampaignLive(campaignId: string) {
     try {
       do {
         missed.current = false;
-        const next = await getLiveStateAction(campaignId);
-        const mark = JSON.stringify(next);
+        const read = await readState(campaignId, etag.current);
         // `updatedAt` still moves: the answer did land, and the status
         // language's "stale 40s" is about the answer, not about change.
         setUpdatedAt(Date.now());
-        if (mark !== fingerprint.current) {
-          fingerprint.current = mark;
-          setState(next);
+        if (read) {
+          etag.current = read.etag;
+          if (read.text !== fingerprint.current) {
+            fingerprint.current = read.text;
+            setState(JSON.parse(read.text) as LiveState);
+          }
         }
       } while (missed.current);
       setError(null);

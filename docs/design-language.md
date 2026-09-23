@@ -65,8 +65,9 @@ collections — a spell list, a character roster — not for three feature blurb
 
 Exactly one interactive or animated moment per page. Everything else holds still.
 
-Two things are exempt, and both for the same reason: **they are not on a page.** Each
-is a moment over the whole window, mounted once at the root, gone a few seconds later.
+Three things are exempt, and for the same reason: **each is a moment, not part of
+the page.** Each is raised by an act, gone a few seconds later — the first two over
+the whole window, mounted once at the root, the third over one tile of the board.
 Neither counts against a page's one toy, and a page may not have a second animated
 element merely because one of them is on screen.
 
@@ -86,6 +87,15 @@ element merely because one of them is on screen.
   moving. It exists because the alternative was worse — a timer the DM started reached
   only whoever happened to be looking at the panel it lives in, which is the complaint
   the table's announcements were built to answer.
+
+- **A ping on the battle board.** Raised by somebody else pointing at a tile —
+  alt-click, or a finger held on it. It is the announcement's moment anchored to
+  a tile instead of a corner: a gold ring that leaves the tile twice and fades,
+  with who pointed over it, gone in two seconds. It is not a second toy for the
+  board, and nothing else on the board may borrow its licence — the turn ring
+  is still the board's one animated element. Under `prefers-reduced-motion`
+  the ring sits still for the same two seconds. A ping raises no slip and is
+  not kept in the Table log; the tile is the whole message.
 
 An announcement obeys every other rule without exception. Its title is load-bearing, so
 it is never the hand face (rule 5); its mark is a `Glyph`, never an emoji (rule 8); its
