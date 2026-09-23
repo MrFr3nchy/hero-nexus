@@ -1201,11 +1201,19 @@ export function BoardCanvas({
       // tools — is measured rather than guessed, so a DM's two tool rows and
       // a player's none both leave the board exactly filling what is left.
       const region = wrap.closest('[data-board-region]');
+      // Measured in the region's own content, so a region scrolled down a
+      // little does not read as more room and grow the board past its foot.
       const above = region
-        ? wrap.getBoundingClientRect().top - region.getBoundingClientRect().top
+        ? wrap.getBoundingClientRect().top -
+          region.getBoundingClientRect().top +
+          region.scrollTop
         : 0;
       const room = fitHeight - above - 48;
-      size = Math.max(2, Math.min(size, Math.floor(room / terrain.h)));
+      // Never fitted below the smallest tile that draws: a sixty-tile board
+      // in a short region scrolls there instead. Fitted to a size the guard
+      // below refuses, the board stopped redrawing altogether — the ruler,
+      // the hover and every move after the first frame went nowhere.
+      size = Math.min(size, Math.max(6, Math.floor(room / terrain.h)));
     }
     // Below this a token's rim is wider than its face and `arc` throws on
     // the negative radius, taking the page down — a phone held sideways
