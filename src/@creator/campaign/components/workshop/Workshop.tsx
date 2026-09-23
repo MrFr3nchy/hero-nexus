@@ -46,7 +46,6 @@ import {
 import {
   clearRegion,
   eraseTiles,
-  putPicture,
   cutRegion,
   fillFrom,
   flipFragment,
@@ -130,7 +129,6 @@ const TOOL_GLYPH: Record<WorkshopTool, Parameters<typeof Glyph>[0]['name']> = {
   height: 'hills',
   scatter: 'tree',
   stamps: 'stamp',
-  pictures: 'picture',
   things: 'chest',
   light: 'candle',
   erase: 'eraser',
@@ -623,6 +621,8 @@ export function Workshop({
       state: settings.thingState,
       lockDc: settings.thingState === 'locked' ? settings.thingLockDc : null,
       hpMax: settings.thingHp,
+      imageId: settings.thingImageId,
+      facing: settings.thingFacing,
     });
     if (!res.ok) setError(res.error);
     // Picked up in the rail so its state and effect can be set, but the tool
@@ -748,20 +748,6 @@ export function Workshop({
       case 'stamps':
         placeStamp(t);
         return;
-      case 'pictures':
-        if (!settings.pictureImageId) {
-          setError('Pick or upload a picture first.');
-          return;
-        }
-        putLevel(
-          putPicture(terrain, t.x, t.y, {
-            imageId: settings.pictureImageId,
-            height: settings.pictureHeight,
-            facing: settings.pictureFacing,
-            blocks: settings.pictureBlocks,
-          })
-        );
-        return;
       case 'things':
         void placeThing(t);
         return;
@@ -783,7 +769,7 @@ export function Workshop({
   const onWheel = (ev: ReactWheelEvent<HTMLDivElement>) => {
     const turnable =
       tool === 'stamps' ||
-      (tool === 'pictures' && settings.pictureFacing !== 'camera');
+      (tool === 'things' && settings.thingFacing !== 'camera');
     if (!turnable) return;
     ev.preventDefault();
     const by = ev.deltaY > 0 ? 1 : 3;
@@ -791,8 +777,8 @@ export function Workshop({
       set({ stampTurns: (settings.stampTurns + by) % 4 });
     } else {
       const sides: Facing[] = ['n', 'e', 's', 'w'];
-      const at = sides.indexOf(settings.pictureFacing as Facing);
-      set({ pictureFacing: sides[(Math.max(0, at) + by) % 4] });
+      const at = sides.indexOf(settings.thingFacing);
+      set({ thingFacing: sides[(Math.max(0, at) + by) % 4] });
     }
   };
 
@@ -1017,6 +1003,9 @@ export function Workshop({
     const el = stageRef.current;
     if (!el || !terrain) return;
     const measure = () => {
+      // Standing the board up unmounts this element; a detached one measures
+      // zero, and fitting to that would leave the board at its smallest.
+      if (!el.isConnected || el.clientWidth === 0) return;
       const w = el.clientWidth - 52;
       const h = el.clientHeight - 130;
       setFitPx(Math.max(6, Math.floor(Math.min(w / terrain.w, h / terrain.h))));
@@ -1025,18 +1014,32 @@ export function Workshop({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [terrain?.w, terrain?.h, terrain]);
+    // `stood` is here because the flat board is a new element when it comes
+    // back, and the old observer is still watching the one that went away.
+  }, [terrain?.w, terrain?.h, terrain, stood]);
   const px = zoom ?? fitPx;
 
-  const portraitUrls = useMemo(
-    () => tokens.map(t => t.imageUrl).filter((u): u is string => !!u),
-    [tokens]
-  );
-  const faces = usePortraits(portraitUrls);
   const imageUrlFor = useCallback(
     (imageId: string) => `/api/campaigns/${campaignId}/images/${imageId}`,
     [campaignId]
   );
+  // The pictures things stand up as, and the pictures boards made before
+  // things carried one still standing on tiles — every floor's, since the
+  // stood-up board shows them all. Left out, the board drew a dashed box
+  // where each picture should be.
+  const portraitUrls = useMemo(() => {
+    const urls = new Set<string>();
+    for (const t of tokens) if (t.imageUrl) urls.add(t.imageUrl);
+    for (const level of doc?.levels ?? []) {
+      for (const pr of level.props) {
+        if (pr.kind === 'image' && pr.imageId) {
+          urls.add(imageUrlFor(pr.imageId));
+        }
+      }
+    }
+    return [...urls];
+  }, [tokens, doc, imageUrlFor]);
+  const faces = usePortraits(portraitUrls);
   const faceFor = useCallback(
     (_entry: EntryRow | undefined, token?: { imageUrl: string | null }) =>
       token?.imageUrl ? (faces.get(token.imageUrl) ?? null) : null,
