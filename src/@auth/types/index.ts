@@ -17,21 +17,21 @@ export interface AuthError {
 export interface AuthContextType {
   currentUser: SessionUser | null;
   loading: boolean;
-  login: (_email: string, _password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   register: (
-    _email: string,
-    _password: string,
-    _displayName?: string
+    email: string,
+    password: string,
+    displayName?: string
   ) => Promise<void>;
   logout: () => Promise<void>;
-  updateProfile: (_data: {
+  updateProfile: (data: {
     displayName?: string;
     image?: string;
   }) => Promise<void>;
-  updateEmail: (_email: string, _currentPassword: string) => Promise<void>;
+  updateEmail: (email: string, currentPassword: string) => Promise<void>;
   updatePassword: (
-    _currentPassword: string,
-    _newPassword: string
+    currentPassword: string,
+    newPassword: string
   ) => Promise<void>;
 }
 

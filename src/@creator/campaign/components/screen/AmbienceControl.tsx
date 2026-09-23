@@ -188,9 +188,7 @@ export function AmbienceControl({
 
   return (
     <>
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio ref={audioRef} preload="auto" className="hidden" />
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio ref={effectRef} preload="auto" className="hidden" />
       <Popover placement="bottom-start" isOpen={open} onOpenChange={setOpen}>
         <PopoverTrigger>

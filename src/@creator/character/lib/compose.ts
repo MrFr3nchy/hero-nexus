@@ -216,7 +216,7 @@ function startingGold(sheet: CharacterSheet, refs: BuildRefs): number {
   return (fromClass?.gp ?? 0) + (fromBackground?.gp ?? 0);
 }
 
-function toolText(sheet: CharacterSheet, refs: BuildRefs): string {
+function toolText(refs: BuildRefs): string {
   return [refs.classDef?.coreTraits.tools, refs.background?.tool]
     .filter(Boolean)
     .join('; ');
@@ -339,7 +339,7 @@ export function composeSheet(
       ),
       tools: keep(
         'proficiencies.tools',
-        toolText(sheet, refs),
+        toolText(refs),
         sheet.proficiencies.tools
       ),
     },
