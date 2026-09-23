@@ -89,6 +89,7 @@ import {
 import { getCampaignImage, imageUrl } from './campaign-images';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
+import { rateLimit } from './rate-limit';
 import { recordUndo } from './undo';
 import { setAmbience } from './audio';
 import { resolveContentRefs } from './content';
@@ -2967,4 +2968,53 @@ export async function removeToken(tokenId: string): Promise<void> {
   const { map } = await staffForMap(token.mapId);
   await db.delete(battleMapTokens).where(eq(battleMapTokens.id, tokenId));
   bumpVersion(map.campaignId);
+}
+
+/**
+ * Point at a tile, for everybody looking at the board (a ping).
+ *
+ * A moment, not a fact: nothing is written, and a table that missed it has
+ * missed nothing it cannot ask about. Anybody at the table may ping the
+ * board in play; staff may ping a board the party cannot see, and then only
+ * staff are told. A floor the reader has not been shown is not in their
+ * document, and the board drops a ping aimed at one — the payload names a
+ * floor id and a tile, never what is on it.
+ */
+export async function pingBoard(
+  mapId: string,
+  at: { level: string; x: number; y: number }
+): Promise<void> {
+  const map = await db.query.battleMaps.findFirst({
+    where: eq(battleMaps.id, mapId),
+  });
+  if (!map) throw new Error('NOT_FOUND');
+  const { userId, role } = await requireCampaignRole(map.campaignId, [
+    'gm',
+    'co-gm',
+    'player',
+  ]);
+  const shared = map.isActive && map.visibility === 'shared';
+  if (!isStaffRole(role) && !shared) throw new Error('NOT_FOUND');
+  const board = normalizeBoard(map.terrain);
+  const level = board.levels.find(l => l.id === at.level);
+  if (!level || !inBounds(level, at.x, at.y)) throw new Error('NOT_FOUND');
+  // A finger held on the board is not a stream of pings.
+  if (!rateLimit(`ping:${userId}`, 6, 10_000).ok) {
+    throw new Error('SLOW_DOWN');
+  }
+  publish(
+    map.campaignId,
+    {
+      kind: 'ping',
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      by: userId,
+      mapId,
+      level: at.level,
+      x: at.x,
+      y: at.y,
+      name: await nameOf(userId, map.campaignId),
+    },
+    shared ? 'everyone' : 'staff'
+  );
 }

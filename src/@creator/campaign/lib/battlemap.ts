@@ -321,6 +321,36 @@ export function brushTiles(
 }
 
 /**
+ * Every tile on the straight line from `a` to `b`, both ends included, in
+ * order (Bresenham; `tilesBetween` below is the sight line's, which leaves
+ * the ends out and samples instead). A brush stroke is applied along this rather than only
+ * at each pointer event: a quick swipe skips tiles between two events, and
+ * painted a dotted line where the reader drew a solid one.
+ */
+export function tilesAlong(a: Tile, b: Tile): Tile[] {
+  const out: Tile[] = [];
+  let { x, y } = a;
+  const dx = Math.abs(b.x - x);
+  const sx = x < b.x ? 1 : -1;
+  const dy = -Math.abs(b.y - y);
+  const sy = y < b.y ? 1 : -1;
+  let err = dx + dy;
+  for (;;) {
+    out.push({ x, y });
+    if (x === b.x && y === b.y) return out;
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y += sy;
+    }
+  }
+}
+
+/**
  * Flood fill: every tile connected to `at` by the same material, as a list
  * of indices to repaint.
  *

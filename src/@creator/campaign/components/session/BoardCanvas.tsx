@@ -15,7 +15,7 @@
  * it. What it draws is what it is handed — the fog filter ran on the
  * server, and a player's document never held the tiles they may not see.
  */
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 
 import {
   distanceFeet,
@@ -33,7 +33,9 @@ import {
   type BoardDoc,
   type LevelDoc,
   type Side,
+  type Weather,
 } from '@/@shared/battlemap/types';
+import { PING_MS, type Ping } from '@/@shared/battlemap/pings';
 import type { BattleTokenRow } from '@/server/battlemap';
 import type { EntryRow } from '@/server/session';
 import { movementBudget } from '@/@creator/campaign/lib/turn';
@@ -118,6 +120,919 @@ export function tileAt(
   return { x, y, side: nearestEdge(fx, fy) };
 }
 
+/* --- the layers ------------------------------------------------------- */
+
+/** A carried light, off a token: it lights its pool the way a brazier does. */
+interface TorchSpot {
+  x: number;
+  y: number;
+  radiusFeet: number;
+}
+
+interface BaseArgs {
+  terrain: LevelDoc;
+  doc: BoardDoc | null;
+  revealed: readonly number[] | null;
+  isStaff: boolean;
+  onion: boolean;
+  dark: boolean;
+  size: number;
+  W: number;
+  H: number;
+  p: Palette;
+  torches: TorchSpot[];
+  faces: Map<string, HTMLImageElement>;
+  imageUrlFor: (imageId: string) => string;
+}
+
+/**
+ * Everything on the floor that stands still while a pointer moves: tiles,
+ * grid, the floor below, ledges, the fog of war hatch, the dark, lights,
+ * props, stairs and walls. Drawn once into an offscreen canvas and reused
+ * until one of its inputs changes — a pointer crossing a 60×60 board used
+ * to redraw 3,600 tiles for every pixel it moved.
+ */
+function drawBase(ctx: CanvasRenderingContext2D, a: BaseArgs): void {
+  const {
+    terrain,
+    doc,
+    revealed,
+    isStaff,
+    onion,
+    dark,
+    size,
+    W,
+    H,
+    p,
+    torches,
+    faces,
+    imageUrlFor,
+  } = a;
+  // Tiles: the same drawn surfaces the 3D view wraps onto its boxes —
+  // flagstones, planks, grass — so the board is a floor and not a swatch
+  // chart. A little seeded variation per tile keeps a room from reading as
+  // wallpaper. Void is absent, not dark: the fog filter has already
+  // removed anything a player may not see, and drawing "unknown" as a
+  // shade would leak the shape of a room the server declined to describe.
+  const elevationAt = (x: number, y: number): number | null => {
+    if (!inBounds(terrain, x, y)) return null;
+    const i = y * terrain.w + x;
+    return terrain.material[i] === VOID ? null : terrain.elevation[i];
+  };
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  for (let y = 0; y < terrain.h; y++) {
+    for (let x = 0; x < terrain.w; x++) {
+      const i = y * terrain.w + x;
+      const m = MATERIALS[terrain.material[i]] ?? MATERIALS[VOID];
+      const px = x * size;
+      const py = y * size;
+      if (terrain.material[i] === VOID) continue;
+      const art = floorArt(m.key, dark);
+      if (art) ctx.drawImage(art, px, py, size, size);
+      else {
+        ctx.fillStyle = dark ? m.swatchDark : m.swatch;
+        ctx.fillRect(px, py, size, size);
+      }
+      const v = ((i * 2654435761) % 1000) / 1000;
+      ctx.fillStyle = v < 0.5 ? '#000000' : '#ffffff';
+      ctx.globalAlpha = Math.abs(v - 0.5) * 0.14;
+      ctx.fillRect(px, py, size, size);
+      ctx.globalAlpha = 1;
+
+      // Higher ground is lit, lower ground is in shadow — a wash by
+      // height, so a stair of ledges reads as a stair.
+      const e = terrain.elevation[i];
+      if (e !== 0) {
+        ctx.fillStyle = e > 0 ? '#ffffff' : '#000000';
+        ctx.globalAlpha = Math.min(0.2, Math.abs(e) / 100);
+        ctx.fillRect(px, py, size, size);
+        ctx.globalAlpha = 1;
+      }
+
+      /*
+       * Difficult ground, marked rather than only costed.
+       *
+       * Water and rubble have always cost double to enter, but nothing on
+       * the board said so, and a player counting squares had no way to
+       * know their six became three. A hatch of short diagonals is the
+       * mark: greyscale-safe, and it reads as "rough going" rather than
+       * as a colour that has to be learnt.
+       */
+      if (m.difficult && size >= 10) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(px, py, size, size);
+        ctx.clip();
+        ctx.strokeStyle = dark ? '#ffffff' : '#2b2620';
+        ctx.globalAlpha = 0.16;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let k = -size; k < size; k += Math.max(4, size / 4)) {
+          ctx.moveTo(px + k, py + size);
+          ctx.lineTo(px + k + size, py);
+        }
+        ctx.stroke();
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  // Grid. Faint: the tiles' own edges already carry most of it.
+  ctx.strokeStyle = p.line;
+  ctx.globalAlpha = dark ? 0.55 : 0.7;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x <= terrain.w; x++) {
+    ctx.moveTo(x * size + 0.5, 0);
+    ctx.lineTo(x * size + 0.5, H);
+  }
+  for (let y = 0; y <= terrain.h; y++) {
+    ctx.moveTo(0, y * size + 0.5);
+    ctx.lineTo(W, y * size + 0.5);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Room names (the workshop), small caps across the room, quiet: the
+  // hall knows it is the hall without a sign at the door.
+  if (terrain.rooms && size >= 10) {
+    ctx.fillStyle = p.ink;
+    ctx.globalAlpha = 0.55;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const r of terrain.rooms) {
+      const px = Math.max(
+        8,
+        Math.min(
+          size * 0.42,
+          (r.w * size - 8) / Math.max(4, r.name.length * 0.62)
+        )
+      );
+      ctx.font = `600 ${px}px Cinzel, Georgia, serif`;
+      ctx.fillText(
+        r.name.toUpperCase(),
+        (r.x + r.w / 2) * size,
+        (r.y + r.h / 2) * size
+      );
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // The floor below, ghosted (floors): the outline of its rooms and its
+  // walls in dashes, so a stairwell is cut where the stair comes up and a
+  // bedroom sits over a hall rather than over the garden. Staff only —
+  // a player has not necessarily seen the floor below.
+  const belowIdx = doc ? doc.levels.findIndex(l => l.id === terrain.id) : -1;
+  const below =
+    isStaff && onion && doc && belowIdx > 0 ? doc.levels[belowIdx - 1] : null;
+  if (below) {
+    ctx.save();
+    ctx.strokeStyle = p.ink;
+    ctx.globalAlpha = dark ? 0.35 : 0.3;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    const floorBelow = (x: number, y: number) =>
+      inBounds(below, x, y) && below.material[y * below.w + x] !== VOID;
+    for (let y = 0; y < below.h; y++) {
+      for (let x = 0; x < below.w; x++) {
+        if (!floorBelow(x, y)) continue;
+        const px = x * size;
+        const py = y * size;
+        if (!floorBelow(x, y - 1)) {
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + size, py);
+        }
+        if (!floorBelow(x, y + 1)) {
+          ctx.moveTo(px, py + size);
+          ctx.lineTo(px + size, py + size);
+        }
+        if (!floorBelow(x - 1, y)) {
+          ctx.moveTo(px, py);
+          ctx.lineTo(px, py + size);
+        }
+        if (!floorBelow(x + 1, y)) {
+          ctx.moveTo(px + size, py);
+          ctx.lineTo(px + size, py + size);
+        }
+      }
+    }
+    for (const w of below.walls) {
+      const x0 = w.x * size;
+      const y0 = w.y * size;
+      switch (w.side) {
+        case 'n':
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x0 + size, y0);
+          break;
+        case 's':
+          ctx.moveTo(x0, y0 + size);
+          ctx.lineTo(x0 + size, y0 + size);
+          break;
+        case 'w':
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x0, y0 + size);
+          break;
+        case 'e':
+          ctx.moveTo(x0 + size, y0);
+          ctx.lineTo(x0 + size, y0 + size);
+          break;
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Ledges: where a tile stands higher than its neighbour, the lower side
+  // gets a shadow along the shared edge and the higher a thin lit lip. A
+  // drop reads as a drop without a number on it — the number stays, small,
+  // for anybody who wants the feet.
+  for (let y = 0; y < terrain.h; y++) {
+    for (let x = 0; x < terrain.w; x++) {
+      const here = elevationAt(x, y);
+      if (here === null) continue;
+      const px = x * size;
+      const py = y * size;
+      const lip = Math.max(2, size * 0.1);
+      const drop = Math.max(3, size * 0.22);
+      const sides: [Side, number | null][] = [
+        ['n', elevationAt(x, y - 1)],
+        ['s', elevationAt(x, y + 1)],
+        ['w', elevationAt(x - 1, y)],
+        ['e', elevationAt(x + 1, y)],
+      ];
+      for (const [side, there] of sides) {
+        if (there === null || there >= here) continue;
+        // This tile is higher: shade the low tile's edge, light this one's.
+        const depth = Math.min(1, (here - there) / 20);
+        const x0 = side === 'e' ? px + size : px;
+        const y0 = side === 's' ? py + size : py;
+        const x1 =
+          side === 'w' ? px - drop : side === 'e' ? px + size + drop : x0;
+        const y1 =
+          side === 'n' ? py - drop : side === 's' ? py + size + drop : y0;
+        const shadow = ctx.createLinearGradient(x0, y0, x1, y1);
+        shadow.addColorStop(0, `rgba(0,0,0,${0.22 + depth * 0.3})`);
+        shadow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = shadow;
+        switch (side) {
+          case 'n':
+            ctx.fillRect(px, py - drop, size, drop);
+            break;
+          case 's':
+            ctx.fillRect(px, py + size, size, drop);
+            break;
+          case 'w':
+            ctx.fillRect(px - drop, py, drop, size);
+            break;
+          case 'e':
+            ctx.fillRect(px + size, py, drop, size);
+            break;
+        }
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        switch (side) {
+          case 'n':
+            ctx.fillRect(px, py, size, lip);
+            break;
+          case 's':
+            ctx.fillRect(px, py + size - lip, size, lip);
+            break;
+          case 'w':
+            ctx.fillRect(px, py, lip, size);
+            break;
+          case 'e':
+            ctx.fillRect(px + size - lip, py, lip, size);
+            break;
+        }
+      }
+      if (here !== 0 && size >= 18) {
+        ctx.fillStyle = p.ink;
+        ctx.globalAlpha = 0.7;
+        ctx.font = `600 ${Math.max(8, size * 0.24)}px ui-sans-serif, system-ui`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(
+          `${here > 0 ? '+' : ''}${here}`,
+          px + size - 3,
+          py + size - 2
+        );
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  // Fog, for staff: what the party has *not* been shown is hatched over,
+  // and the stroke in progress is lit in gold. The first cut washed the
+  // revealed tiles gold instead, and since most of a board is revealed
+  // most of the time, the DM's whole room went mustard. The hidden part
+  // is the smaller set and the one the DM is actually deciding about.
+  if (isStaff && revealed) {
+    const shown = new Set(revealed);
+    ctx.save();
+    ctx.beginPath();
+    let any = false;
+    for (let i = 0; i < terrain.w * terrain.h; i++) {
+      if (terrain.material[i] === VOID || shown.has(i)) continue;
+      ctx.rect(
+        (i % terrain.w) * size,
+        Math.floor(i / terrain.w) * size,
+        size,
+        size
+      );
+      any = true;
+    }
+    if (any) {
+      ctx.clip();
+      ctx.fillStyle = dark ? 'rgba(0,0,0,0.45)' : 'rgba(43,38,32,0.28)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = dark ? 'rgba(0,0,0,0.5)' : 'rgba(43,38,32,0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const step = Math.max(6, size * 0.3);
+      for (let d = -H; d < W; d += step) {
+        ctx.moveTo(d, 0);
+        ctx.lineTo(d + H, H);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // A dark board (08): what nobody lights sits under a cool grey, so the
+  // party can tell "we have seen this" from "we can see this now". Torches
+  // carried by tokens light their pool the way a brazier does.
+  if (terrain.ambient === 'dark') {
+    ctx.fillStyle = dark ? 'rgba(60,70,90,0.45)' : 'rgba(70,80,100,0.35)';
+    for (let y = 0; y < terrain.h; y++) {
+      for (let x = 0; x < terrain.w; x++) {
+        const i = y * terrain.w + x;
+        if (terrain.material[i] === VOID) continue;
+        if (litAt(terrain, { x, y }, torches)) continue;
+        ctx.fillRect(x * size, y * size, size, size);
+      }
+    }
+  }
+  for (const t of torches) {
+    const cx = (t.x + 0.5) * size;
+    const cy = (t.y + 0.5) * size;
+    const r = (t.radiusFeet / 5) * size;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, dark ? 'rgba(255,196,110,0.4)' : 'rgba(217,160,70,0.3)');
+    g.addColorStop(1, 'rgba(217,176,97,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+  }
+
+  // Lights: a warm pool on the floor and a brazier standing in it.
+  // Candlelight is the palette; lean into it.
+  for (const l of terrain.lights) {
+    const cx = (l.x + 0.5) * size;
+    const cy = (l.y + 0.5) * size;
+    const r = (l.radius / 5) * size;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, dark ? 'rgba(255,196,110,0.5)' : 'rgba(217,160,70,0.4)');
+    g.addColorStop(
+      0.5,
+      dark ? 'rgba(255,180,90,0.18)' : 'rgba(217,160,70,0.14)'
+    );
+    g.addColorStop(1, 'rgba(217,176,97,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    const bowl = Math.max(3, size * 0.16);
+    ctx.fillStyle = dark ? '#2a2622' : '#3a3530';
+    ctx.beginPath();
+    ctx.arc(cx, cy, bowl, 0, Math.PI * 2);
+    ctx.fill();
+    const flame = ctx.createRadialGradient(cx, cy, 0, cx, cy, bowl * 0.8);
+    flame.addColorStop(0, '#fff2c0');
+    flame.addColorStop(0.5, '#ffb050');
+    flame.addColorStop(1, 'rgba(230,100,30,0)');
+    ctx.fillStyle = flame;
+    ctx.beginPath();
+    ctx.arc(cx, cy, bowl * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Props: drawn, never typed.
+  for (const pr of terrain.props) {
+    const cx = (pr.x + 0.5) * size;
+    const cy = (pr.y + 0.5) * size;
+    const s = size * 0.3;
+    if (pr.kind === 'image') {
+      // The picture itself, fitted inside the tile, so the top-down board
+      // shows the tree the DM stood up rather than a mark for it. A
+      // dashed square while it loads.
+      const img = pr.imageId ? faces.get(imageUrlFor(pr.imageId)) : null;
+      const box = size * 0.9;
+      if (img) {
+        const scale = Math.min(box / img.naturalWidth, box / img.naturalHeight);
+        const dw = img.naturalWidth * scale;
+        const dh = img.naturalHeight * scale;
+        ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+      } else {
+        ctx.strokeStyle = p.inkMuted;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(cx - box / 2, cy - box / 2, box, box);
+        ctx.setLineDash([]);
+      }
+      continue;
+    }
+    // Stone things in stone, wooden things in wood, a tree in leaf — the
+    // colours the 3D view builds them from, with a shadow underneath.
+    const stoneFill = dark ? '#5a5248' : '#a1968a';
+    const woodFill = dark ? MATERIALS[4].swatchDark : MATERIALS[4].swatch;
+    const leafFill = dark ? '#3f5a2e' : '#7ea35e';
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.arc(cx + size * 0.04, cy + size * 0.06, s * 1.05, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = dark ? '#1c1814' : '#3a3530';
+    const sc = pr.scale ?? 1;
+    const s2 = s * sc;
+    ctx.fillStyle =
+      pr.kind === 'tree' || pr.kind === 'pine' || pr.kind === 'bush'
+        ? leafFill
+        : pr.kind === 'mushroom'
+          ? dark
+            ? '#b5543f'
+            : '#a23b34'
+          : pr.kind === 'hearth'
+            ? dark
+              ? '#6b2f22'
+              : '#b5543f'
+            : pr.kind === 'bed'
+              ? dark
+                ? '#4a3f5c'
+                : '#c9b8dc'
+              : pr.kind === 'table' ||
+                  pr.kind === 'chest' ||
+                  pr.kind === 'barrel' ||
+                  pr.kind === 'shelf'
+                ? woodFill
+                : stoneFill;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    switch (pr.kind) {
+      case 'barrel':
+      case 'pillar':
+        ctx.arc(cx, cy, s, 0, Math.PI * 2);
+        break;
+      case 'tree':
+        ctx.arc(cx, cy, s2 * 1.15, 0, Math.PI * 2);
+        break;
+      case 'pine':
+        ctx.moveTo(cx, cy - s2 * 1.2);
+        ctx.lineTo(cx + s2, cy + s2);
+        ctx.lineTo(cx - s2, cy + s2);
+        ctx.closePath();
+        break;
+      case 'bush':
+        ctx.arc(cx, cy, s2 * 0.7, 0, Math.PI * 2);
+        break;
+      case 'boulder':
+        ctx.moveTo(cx - s2, cy + s2 * 0.4);
+        ctx.lineTo(cx - s2 * 0.5, cy - s2 * 0.7);
+        ctx.lineTo(cx + s2 * 0.6, cy - s2 * 0.6);
+        ctx.lineTo(cx + s2, cy + s2 * 0.5);
+        ctx.closePath();
+        break;
+      case 'mushroom':
+        ctx.arc(cx - s2 * 0.35, cy, s2 * 0.4, 0, Math.PI * 2);
+        ctx.moveTo(cx + s2 * 0.6, cy + s2 * 0.2);
+        ctx.arc(cx + s2 * 0.3, cy + s2 * 0.2, s2 * 0.3, 0, Math.PI * 2);
+        break;
+      case 'bed':
+        ctx.rect(cx - s, cy - s, s * 2, s * 2);
+        break;
+      case 'shelf':
+        ctx.rect(cx - s * 0.5, cy - s, s, s * 2);
+        break;
+      case 'hearth':
+        ctx.rect(cx - s, cy - s * 0.6, s * 2, s * 1.2);
+        break;
+      case 'statue':
+      case 'altar':
+        ctx.moveTo(cx, cy - s);
+        ctx.lineTo(cx + s, cy);
+        ctx.lineTo(cx, cy + s);
+        ctx.lineTo(cx - s, cy);
+        ctx.closePath();
+        break;
+      case 'rubble':
+        ctx.arc(cx - s * 0.5, cy + s * 0.3, s * 0.4, 0, Math.PI * 2);
+        ctx.moveTo(cx + s * 0.6, cy - s * 0.2);
+        ctx.arc(cx + s * 0.3, cy - s * 0.2, s * 0.3, 0, Math.PI * 2);
+        break;
+      default:
+        ctx.rect(cx - s, cy - s * 0.7, s * 2, s * 1.4);
+    }
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Stairs and ladders (floors): treads across the footprint, a gold
+  // edge, and a tag saying which way they go. They stand on both floors,
+  // so the same drawing is on the floor above, tagged the other way. A
+  // hidden stair is dashed, and only staff are drawing it at all.
+  const stairsHere = doc
+    ? doc.links.filter(l => l.from === terrain.id || l.to === terrain.id)
+    : [];
+  for (const l of stairsHere) {
+    const x0 = l.x * size;
+    const y0 = l.y * size;
+    const w = l.w * size;
+    const h = l.h * size;
+    const up = l.from === terrain.id;
+    const tall = l.h >= l.w;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, y0, w, h);
+    ctx.clip();
+    ctx.fillStyle = dark ? '#2a231a' : '#e9dfc9';
+    ctx.fillRect(x0, y0, w, h);
+    const treadFill = dark ? '#9c8763' : '#a8905e';
+    const treadGap = Math.max(4, size * (l.kind === 'ladder' ? 0.45 : 0.3));
+    ctx.fillStyle = treadFill;
+    if (l.kind === 'ladder') {
+      // Two rails and rungs between them.
+      const rail = Math.max(2, size * 0.1);
+      const inset = Math.max(3, size * 0.2);
+      if (tall) {
+        ctx.fillRect(x0 + inset, y0, rail, h);
+        ctx.fillRect(x0 + w - inset - rail, y0, rail, h);
+        for (let y = y0 + treadGap / 2; y < y0 + h; y += treadGap)
+          ctx.fillRect(x0 + inset, y, w - inset * 2, rail);
+      } else {
+        ctx.fillRect(x0, y0 + inset, w, rail);
+        ctx.fillRect(x0, y0 + h - inset - rail, w, rail);
+        for (let x = x0 + treadGap / 2; x < x0 + w; x += treadGap)
+          ctx.fillRect(x, y0 + inset, rail, h - inset * 2);
+      }
+    } else {
+      const tread = Math.max(2, treadGap * 0.45);
+      if (tall) {
+        for (let y = y0; y < y0 + h; y += treadGap)
+          ctx.fillRect(x0, y, w, tread);
+      } else {
+        for (let x = x0; x < x0 + w; x += treadGap)
+          ctx.fillRect(x, y0, tread, h);
+      }
+    }
+    ctx.restore();
+    ctx.strokeStyle = p.gold;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(l.hidden ? [4, 4] : []);
+    ctx.strokeRect(x0 + 1, y0 + 1, w - 2, h - 2);
+    ctx.setLineDash([]);
+    if (size >= 14) {
+      const tag = up ? 'UP' : 'DOWN';
+      ctx.font = `700 ${Math.max(8, size * 0.28)}px Inter, system-ui, sans-serif`;
+      const tw = ctx.measureText(tag).width + 6;
+      const th = Math.max(10, size * 0.4);
+      ctx.fillStyle = p.gold;
+      ctx.fillRect(x0 + 2, y0 + 2, tw, th);
+      ctx.fillStyle = dark ? '#16130f' : '#ffffff';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(tag, x0 + 5, y0 + 2 + th / 2 + 0.5);
+      ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  // Walls on edges, drawn with a little depth: masonry as a dark band
+  // with a lit coping, a door as its plank leaf — swung open into the
+  // room, with the arc it swept — a window as stone with the arcane pane
+  // between, a rail as posts and a line.
+  const walls = wallIndex(terrain);
+  const masonryInk = dark ? '#1c1814' : '#3a3530';
+  const masonryLit = dark ? '#8a7d6b' : '#a1968a';
+  const plank = dark ? MATERIALS[4].swatchDark : MATERIALS[4].swatch;
+  for (const w of walls.values()) {
+    const x0 = w.x * size;
+    const y0 = w.y * size;
+    let ax = x0,
+      ay = y0,
+      bx = x0,
+      by = y0;
+    switch (w.side) {
+      case 'n':
+        bx = x0 + size;
+        break;
+      case 's':
+        ay = by = y0 + size;
+        bx = x0 + size;
+        break;
+      case 'w':
+        by = y0 + size;
+        break;
+      case 'e':
+        ax = bx = x0 + size;
+        by = y0 + size;
+        break;
+    }
+    // The edge's own direction, and the way into the tile it belongs to.
+    const dx = bx - ax;
+    const dy = by - ay;
+    const inX = w.side === 'w' ? 1 : w.side === 'e' ? -1 : 0;
+    const inY = w.side === 'n' ? 1 : w.side === 's' ? -1 : 0;
+    const thick = Math.max(3, size * 0.16);
+    ctx.lineCap = 'butt';
+    ctx.setLineDash([]);
+    if (w.kind !== 'rail' && w.kind !== 'fence') {
+      // The shadow a standing wall throws, so it is not a line on paper.
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = thick * 1.6;
+      ctx.beginPath();
+      ctx.moveTo(ax + size * 0.04, ay + size * 0.06);
+      ctx.lineTo(bx + size * 0.04, by + size * 0.06);
+      ctx.stroke();
+    }
+    switch (w.kind) {
+      case 'solid':
+        ctx.strokeStyle = masonryInk;
+        ctx.lineWidth = thick;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        ctx.strokeStyle = masonryLit;
+        ctx.lineWidth = Math.max(1, thick * 0.3);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        break;
+      case 'door': {
+        // Jambs at both ends, in stone.
+        ctx.strokeStyle = masonryInk;
+        ctx.lineWidth = thick;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax + dx * 0.12, ay + dy * 0.12);
+        ctx.moveTo(bx - dx * 0.12, by - dy * 0.12);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        const hx = ax + dx * 0.12;
+        const hy = ay + dy * 0.12;
+        const len = Math.hypot(dx, dy) * 0.76;
+        ctx.lineWidth = Math.max(3, size * 0.12);
+        ctx.strokeStyle = shade(plank, dark ? 0.15 : -0.25);
+        ctx.beginPath();
+        ctx.moveTo(hx, hy);
+        if (w.open) {
+          // Swung into its tile on the hinge, and the sweep it took.
+          ctx.lineTo(hx + inX * len, hy + inY * len);
+          ctx.stroke();
+          ctx.strokeStyle = p.success;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          const start = Math.atan2(dy, dx);
+          const end = Math.atan2(inY, inX);
+          const ccw = (end - start + Math.PI * 3) % (Math.PI * 2) > Math.PI;
+          ctx.arc(hx, hy, len, start, end, ccw);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        } else {
+          ctx.lineTo(bx - dx * 0.12, by - dy * 0.12);
+          ctx.stroke();
+          // The strapping.
+          ctx.strokeStyle = dark ? '#1c1815' : '#2a2622';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          for (const f of [0.35, 0.65]) {
+            const sx = hx + dx * 0.76 * f;
+            const sy = hy + dy * 0.76 * f;
+            ctx.moveTo(sx - inX * thick * 0.5, sy - inY * thick * 0.5);
+            ctx.lineTo(sx + inX * thick * 0.5, sy + inY * thick * 0.5);
+          }
+          ctx.stroke();
+        }
+        break;
+      }
+      case 'window':
+        ctx.strokeStyle = masonryInk;
+        ctx.lineWidth = thick;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        ctx.strokeStyle = p.arcane;
+        ctx.lineWidth = Math.max(2, thick * 0.45);
+        ctx.beginPath();
+        ctx.moveTo(ax + dx * 0.15, ay + dy * 0.15);
+        ctx.lineTo(bx - dx * 0.15, by - dy * 0.15);
+        ctx.stroke();
+        break;
+      case 'hedge':
+        // A hedge: a thick green band, soft-edged.
+        ctx.strokeStyle = dark ? '#3f5a2e' : '#5f7d43';
+        ctx.lineWidth = thick * 1.3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        ctx.strokeStyle = dark ? '#6f8a4f' : '#7ea35e';
+        ctx.lineWidth = Math.max(1, thick * 0.4);
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineCap = 'butt';
+        break;
+      case 'fence':
+        // A fence: posts and a rail, in wood.
+        ctx.strokeStyle = shade(plank, dark ? 0.2 : -0.3);
+        ctx.lineWidth = Math.max(1.5, size * 0.07);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        ctx.fillStyle = shade(plank, dark ? 0.2 : -0.3);
+        for (const f of [0.1, 0.35, 0.65, 0.9]) {
+          ctx.fillRect(
+            ax + dx * f - Math.max(1, size * 0.05),
+            ay + dy * f - Math.max(1, size * 0.05),
+            Math.max(2, size * 0.1),
+            Math.max(2, size * 0.1)
+          );
+        }
+        break;
+      case 'rail':
+        ctx.strokeStyle = p.inkMuted;
+        ctx.lineWidth = Math.max(1.5, size * 0.06);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        ctx.fillStyle = p.inkMuted;
+        for (const f of [0.08, 0.5, 0.92]) {
+          ctx.beginPath();
+          ctx.arc(
+            ax + dx * f,
+            ay + dy * f,
+            Math.max(1.5, size * 0.06),
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+        }
+        break;
+    }
+  }
+  ctx.setLineDash([]);
+  ctx.lineCap = 'round';
+  ctx.setLineDash([]);
+  ctx.lineCap = 'round';
+}
+
+/*
+ * Weather, over everything and under nothing.
+ *
+ * Still: design rule 4 allows one animated moment on a page and a fight
+ * already spends it on whose turn it is, so rain is drawn as streaks rather
+ * than falling. Seeded off the tile grid, so it is the same rain on every
+ * redraw and does not shimmer as the board pans. Cached like the base.
+ */
+function drawWeather(
+  ctx: CanvasRenderingContext2D,
+  weather: Weather,
+  W: number,
+  H: number,
+  dark: boolean
+): void {
+  if (weather !== 'clear') {
+    const rnd = (n: number) => {
+      const v = Math.sin(n * 12.9898) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    ctx.save();
+    if (weather === 'mist') {
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(
+        0,
+        dark ? 'rgba(200,210,220,0.10)' : 'rgba(255,255,255,0.30)'
+      );
+      g.addColorStop(
+        0.5,
+        dark ? 'rgba(200,210,220,0.22)' : 'rgba(255,255,255,0.46)'
+      );
+      g.addColorStop(
+        1,
+        dark ? 'rgba(200,210,220,0.10)' : 'rgba(255,255,255,0.30)'
+      );
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    } else if (weather === 'rain' || weather === 'storm') {
+      const drops = Math.round((W * H) / (weather === 'storm' ? 900 : 2200));
+      const lean = weather === 'storm' ? 7 : 3;
+      const len = weather === 'storm' ? 16 : 11;
+      ctx.strokeStyle = dark
+        ? 'rgba(190,210,230,0.5)'
+        : 'rgba(90,120,150,0.45)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i < drops; i++) {
+        const x = rnd(i * 3.7) * W;
+        const y = rnd(i * 7.1 + 11) * H;
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + lean, y + len);
+      }
+      ctx.stroke();
+      if (weather === 'storm') {
+        ctx.fillStyle = dark ? 'rgba(20,28,38,0.28)' : 'rgba(90,105,125,0.20)';
+        ctx.fillRect(0, 0, W, H);
+      }
+    } else {
+      const flakes = Math.round(
+        (W * H) / (weather === 'blizzard' ? 700 : 2000)
+      );
+      ctx.fillStyle = dark ? 'rgba(235,242,248,0.75)' : 'rgba(255,255,255,0.9)';
+      for (let i = 0; i < flakes; i++) {
+        const x = rnd(i * 5.3) * W;
+        const y = rnd(i * 9.7 + 3) * H;
+        const r = 1 + rnd(i * 2.1) * (weather === 'blizzard' ? 1.8 : 1.1);
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (weather === 'blizzard') {
+        ctx.fillStyle = dark
+          ? 'rgba(210,220,235,0.16)'
+          : 'rgba(255,255,255,0.32)';
+        ctx.fillRect(0, 0, W, H);
+      }
+    }
+    ctx.restore();
+  }
+}
+
+/** Whether two cache keys hold the same inputs, by identity. */
+function sameKey(a: readonly unknown[] | undefined, b: readonly unknown[]) {
+  return Boolean(
+    a && a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
+  );
+}
+
+/** A cached layer: the inputs it was drawn from, and the drawing. */
+interface Layer {
+  key: readonly unknown[];
+  canvas: HTMLCanvasElement;
+}
+
+/**
+ * Draw a layer at device pixels, or hand back the one already drawn from
+ * the same inputs.
+ */
+function layer(
+  cache: { current: Layer | null },
+  key: readonly unknown[],
+  w: number,
+  h: number,
+  dpr: number,
+  draw: (ctx: CanvasRenderingContext2D) => void
+): HTMLCanvasElement | null {
+  if (cache.current && sameKey(cache.current.key, key)) {
+    return cache.current.canvas;
+  }
+  const canvas = cache.current?.canvas ?? document.createElement('canvas');
+  const bw = Math.round(w * dpr);
+  const bh = Math.round(h * dpr);
+  if (canvas.width !== bw) canvas.width = bw;
+  if (canvas.height !== bh) canvas.height = bh;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, bw, bh);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw(ctx);
+  cache.current = { key, canvas };
+  return canvas;
+}
+
+/**
+ * The palette, read off the page's tokens once per theme. `getComputedStyle`
+ * on every redraw was a style recalculation per pointer move. Keyed on the
+ * class next-themes puts on the root as well as `dark`, so a palette read
+ * a beat before the class flipped is not kept.
+ */
+const palettes = new Map<string, Palette>();
+function paletteFor(dark: boolean): Palette {
+  const key = `${dark}:${document.documentElement.classList.contains('dark')}`;
+  let p = palettes.get(key);
+  if (!p) {
+    p = readPalette(dark);
+    palettes.set(key, p);
+  }
+  return p;
+}
+
 export interface BoardCanvasProps {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   wrapRef: RefObject<HTMLDivElement | null>;
@@ -170,6 +1085,16 @@ export interface BoardCanvasProps {
   onPointerMove?: React.PointerEventHandler<HTMLCanvasElement>;
   onPointerUp?: React.PointerEventHandler<HTMLCanvasElement>;
   onPointerLeave?: React.PointerEventHandler<HTMLCanvasElement>;
+  onPointerCancel?: React.PointerEventHandler<HTMLCanvasElement>;
+  onKeyDown?: React.KeyboardEventHandler<HTMLCanvasElement>;
+  /**
+   * What a screen reader calls the board, e.g. "Battle board: The crypt,
+   * ground floor". Given, the canvas takes focus and is an application: the
+   * arrow keys are the surface's to handle.
+   */
+  ariaLabel?: string;
+  /** Pings on this floor, rippling on their tiles for `PING_MS`. */
+  pings?: readonly Ping[];
 }
 
 export function BoardCanvas({
@@ -210,7 +1135,55 @@ export function BoardCanvas({
   onPointerMove,
   onPointerUp,
   onPointerLeave,
+  onPointerCancel,
+  onKeyDown,
+  ariaLabel,
+  pings,
 }: BoardCanvasProps) {
+  /*
+   * The container's width, watched rather than read off the window: a side
+   * panel opening narrows the board without the window changing size, and
+   * the canvas stayed at its old width until something else redrew it.
+   */
+  const [wrapWidth, setWrapWidth] = useState(0);
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(entries => {
+      const w = Math.round(entries[0]?.contentRect.width ?? 0);
+      setWrapWidth(prev => (prev === w ? prev : w));
+    });
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [wrapRef]);
+
+  // The torches tokens carry, as a key: a token walking does not relight the
+  // room unless it is carrying the light.
+  const torchKey = here
+    .filter(t => t.lightFeet && t.lightFeet > 0)
+    .map(t => `${t.x},${t.y},${t.lightFeet}`)
+    .join(';');
+  const baseCache = useRef<Layer | null>(null);
+  const weatherCache = useRef<Layer | null>(null);
+
+  /*
+   * A ping ripples (design rule 4's exemption for a moment over the board,
+   * gone in two seconds). While one is alive the overlay redraws each
+   * animation frame — cheap, since the floor under it is a cached image.
+   * Reduced motion gets a still mark for the same two seconds.
+   */
+  const [frame, setFrame] = useState(0);
+  const livePings = pings && pings.length > 0;
+  useEffect(() => {
+    if (!livePings) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    let raf = requestAnimationFrame(function step() {
+      setFrame(n => (n + 1) % 1_000_000);
+      raf = requestAnimationFrame(step);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [livePings]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
@@ -220,8 +1193,8 @@ export function BoardCanvas({
     // tile makes every radius below negative — `arc` throws on that and the
     // whole page went down with it. Found in a browser, not by a typecheck.
     if (hidden) return;
-    const p = readPalette(dark);
-    const width = wrap.clientWidth;
+    const p = paletteFor(dark);
+    const width = wrapWidth || wrap.clientWidth;
     let size = zoom ?? Math.floor(width / terrain.w);
     if (fitHeight && !zoom) {
       // Whatever sits above the canvas inside the region — the title bar, the
@@ -242,308 +1215,64 @@ export function BoardCanvas({
     const W = size * terrain.w;
     const H = size * terrain.h;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    canvas.style.width = `${W}px`;
-    canvas.style.height = `${H}px`;
+    // Assigning a canvas's size reallocates its backing store even when the
+    // number is the same, so it is only assigned when it changed.
+    const bw = Math.round(W * dpr);
+    const bh = Math.round(H * dpr);
+    if (canvas.width !== bw) canvas.width = bw;
+    if (canvas.height !== bh) canvas.height = bh;
+    if (canvas.style.width !== `${W}px`) canvas.style.width = `${W}px`;
+    if (canvas.style.height !== `${H}px`) canvas.style.height = `${H}px`;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, bw, bh);
 
-    // Tiles: the same drawn surfaces the 3D view wraps onto its boxes —
-    // flagstones, planks, grass — so the board is a floor and not a swatch
-    // chart. A little seeded variation per tile keeps a room from reading as
-    // wallpaper. Void is absent, not dark: the fog filter has already
-    // removed anything a player may not see, and drawing "unknown" as a
-    // shade would leak the shape of a room the server declined to describe.
-    const elevationAt = (x: number, y: number): number | null => {
-      if (!inBounds(terrain, x, y)) return null;
-      const i = y * terrain.w + x;
-      return terrain.material[i] === VOID ? null : terrain.elevation[i];
-    };
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    for (let y = 0; y < terrain.h; y++) {
-      for (let x = 0; x < terrain.w; x++) {
-        const i = y * terrain.w + x;
-        const m = MATERIALS[terrain.material[i]] ?? MATERIALS[VOID];
-        const px = x * size;
-        const py = y * size;
-        if (terrain.material[i] === VOID) continue;
-        const art = floorArt(m.key, dark);
-        if (art) ctx.drawImage(art, px, py, size, size);
-        else {
-          ctx.fillStyle = dark ? m.swatchDark : m.swatch;
-          ctx.fillRect(px, py, size, size);
-        }
-        const v = ((i * 2654435761) % 1000) / 1000;
-        ctx.fillStyle = v < 0.5 ? '#000000' : '#ffffff';
-        ctx.globalAlpha = Math.abs(v - 0.5) * 0.14;
-        ctx.fillRect(px, py, size, size);
-        ctx.globalAlpha = 1;
-
-        // Higher ground is lit, lower ground is in shadow — a wash by
-        // height, so a stair of ledges reads as a stair.
-        const e = terrain.elevation[i];
-        if (e !== 0) {
-          ctx.fillStyle = e > 0 ? '#ffffff' : '#000000';
-          ctx.globalAlpha = Math.min(0.2, Math.abs(e) / 100);
-          ctx.fillRect(px, py, size, size);
-          ctx.globalAlpha = 1;
-        }
-
-        /*
-         * Difficult ground, marked rather than only costed.
-         *
-         * Water and rubble have always cost double to enter, but nothing on
-         * the board said so, and a player counting squares had no way to
-         * know their six became three. A hatch of short diagonals is the
-         * mark: greyscale-safe, and it reads as "rough going" rather than
-         * as a colour that has to be learnt.
-         */
-        if (m.difficult && size >= 10) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(px, py, size, size);
-          ctx.clip();
-          ctx.strokeStyle = dark ? '#ffffff' : '#2b2620';
-          ctx.globalAlpha = 0.16;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          for (let k = -size; k < size; k += Math.max(4, size / 4)) {
-            ctx.moveTo(px + k, py + size);
-            ctx.lineTo(px + k + size, py);
-          }
-          ctx.stroke();
-          ctx.restore();
-          ctx.globalAlpha = 1;
-        }
-      }
-    }
-
-    // Grid. Faint: the tiles' own edges already carry most of it.
-    ctx.strokeStyle = p.line;
-    ctx.globalAlpha = dark ? 0.55 : 0.7;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 0; x <= terrain.w; x++) {
-      ctx.moveTo(x * size + 0.5, 0);
-      ctx.lineTo(x * size + 0.5, H);
-    }
-    for (let y = 0; y <= terrain.h; y++) {
-      ctx.moveTo(0, y * size + 0.5);
-      ctx.lineTo(W, y * size + 0.5);
-    }
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    // Room names (the workshop), small caps across the room, quiet: the
-    // hall knows it is the hall without a sign at the door.
-    if (terrain.rooms && size >= 10) {
-      ctx.fillStyle = p.ink;
-      ctx.globalAlpha = 0.55;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      for (const r of terrain.rooms) {
-        const px = Math.max(
-          8,
-          Math.min(
-            size * 0.42,
-            (r.w * size - 8) / Math.max(4, r.name.length * 0.62)
-          )
-        );
-        ctx.font = `600 ${px}px Cinzel, Georgia, serif`;
-        ctx.fillText(
-          r.name.toUpperCase(),
-          (r.x + r.w / 2) * size,
-          (r.y + r.h / 2) * size
-        );
-      }
-      ctx.globalAlpha = 1;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-    }
-
-    // The floor below, ghosted (floors): the outline of its rooms and its
-    // walls in dashes, so a stairwell is cut where the stair comes up and a
-    // bedroom sits over a hall rather than over the garden. Staff only —
-    // a player has not necessarily seen the floor below.
-    const belowIdx = doc ? doc.levels.findIndex(l => l.id === terrain.id) : -1;
-    const below =
-      isStaff && onion && doc && belowIdx > 0 ? doc.levels[belowIdx - 1] : null;
-    if (below) {
-      ctx.save();
-      ctx.strokeStyle = p.ink;
-      ctx.globalAlpha = dark ? 0.35 : 0.3;
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      const floorBelow = (x: number, y: number) =>
-        inBounds(below, x, y) && below.material[y * below.w + x] !== VOID;
-      for (let y = 0; y < below.h; y++) {
-        for (let x = 0; x < below.w; x++) {
-          if (!floorBelow(x, y)) continue;
-          const px = x * size;
-          const py = y * size;
-          if (!floorBelow(x, y - 1)) {
-            ctx.moveTo(px, py);
-            ctx.lineTo(px + size, py);
-          }
-          if (!floorBelow(x, y + 1)) {
-            ctx.moveTo(px, py + size);
-            ctx.lineTo(px + size, py + size);
-          }
-          if (!floorBelow(x - 1, y)) {
-            ctx.moveTo(px, py);
-            ctx.lineTo(px, py + size);
-          }
-          if (!floorBelow(x + 1, y)) {
-            ctx.moveTo(px + size, py);
-            ctx.lineTo(px + size, py + size);
-          }
-        }
-      }
-      for (const w of below.walls) {
-        const x0 = w.x * size;
-        const y0 = w.y * size;
-        switch (w.side) {
-          case 'n':
-            ctx.moveTo(x0, y0);
-            ctx.lineTo(x0 + size, y0);
-            break;
-          case 's':
-            ctx.moveTo(x0, y0 + size);
-            ctx.lineTo(x0 + size, y0 + size);
-            break;
-          case 'w':
-            ctx.moveTo(x0, y0);
-            ctx.lineTo(x0, y0 + size);
-            break;
-          case 'e':
-            ctx.moveTo(x0 + size, y0);
-            ctx.lineTo(x0 + size, y0 + size);
-            break;
-        }
-      }
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Ledges: where a tile stands higher than its neighbour, the lower side
-    // gets a shadow along the shared edge and the higher a thin lit lip. A
-    // drop reads as a drop without a number on it — the number stays, small,
-    // for anybody who wants the feet.
-    for (let y = 0; y < terrain.h; y++) {
-      for (let x = 0; x < terrain.w; x++) {
-        const here = elevationAt(x, y);
-        if (here === null) continue;
-        const px = x * size;
-        const py = y * size;
-        const lip = Math.max(2, size * 0.1);
-        const drop = Math.max(3, size * 0.22);
-        const sides: [Side, number | null][] = [
-          ['n', elevationAt(x, y - 1)],
-          ['s', elevationAt(x, y + 1)],
-          ['w', elevationAt(x - 1, y)],
-          ['e', elevationAt(x + 1, y)],
-        ];
-        for (const [side, there] of sides) {
-          if (there === null || there >= here) continue;
-          // This tile is higher: shade the low tile's edge, light this one's.
-          const depth = Math.min(1, (here - there) / 20);
-          const x0 = side === 'e' ? px + size : px;
-          const y0 = side === 's' ? py + size : py;
-          const x1 =
-            side === 'w' ? px - drop : side === 'e' ? px + size + drop : x0;
-          const y1 =
-            side === 'n' ? py - drop : side === 's' ? py + size + drop : y0;
-          const shadow = ctx.createLinearGradient(x0, y0, x1, y1);
-          shadow.addColorStop(0, `rgba(0,0,0,${0.22 + depth * 0.3})`);
-          shadow.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = shadow;
-          switch (side) {
-            case 'n':
-              ctx.fillRect(px, py - drop, size, drop);
-              break;
-            case 's':
-              ctx.fillRect(px, py + size, size, drop);
-              break;
-            case 'w':
-              ctx.fillRect(px - drop, py, drop, size);
-              break;
-            case 'e':
-              ctx.fillRect(px + size, py, drop, size);
-              break;
-          }
-          ctx.fillStyle = 'rgba(255,255,255,0.35)';
-          switch (side) {
-            case 'n':
-              ctx.fillRect(px, py, size, lip);
-              break;
-            case 's':
-              ctx.fillRect(px, py + size - lip, size, lip);
-              break;
-            case 'w':
-              ctx.fillRect(px, py, lip, size);
-              break;
-            case 'e':
-              ctx.fillRect(px + size - lip, py, lip, size);
-              break;
-          }
-        }
-        if (here !== 0 && size >= 18) {
-          ctx.fillStyle = p.ink;
-          ctx.globalAlpha = 0.7;
-          ctx.font = `600 ${Math.max(8, size * 0.24)}px ui-sans-serif, system-ui`;
-          ctx.textAlign = 'right';
-          ctx.textBaseline = 'bottom';
-          ctx.fillText(
-            `${here > 0 ? '+' : ''}${here}`,
-            px + size - 3,
-            py + size - 2
-          );
-          ctx.globalAlpha = 1;
-        }
-      }
-    }
-
-    // Fog, for staff: what the party has *not* been shown is hatched over,
-    // and the stroke in progress is lit in gold. The first cut washed the
-    // revealed tiles gold instead, and since most of a board is revealed
-    // most of the time, the DM's whole room went mustard. The hidden part
-    // is the smaller set and the one the DM is actually deciding about.
-    if (isStaff && revealed) {
-      const shown = new Set(revealed);
-      ctx.save();
-      ctx.beginPath();
-      let any = false;
-      for (let i = 0; i < terrain.w * terrain.h; i++) {
-        if (terrain.material[i] === VOID || shown.has(i)) continue;
-        ctx.rect(
-          (i % terrain.w) * size,
-          Math.floor(i / terrain.w) * size,
+    const torches = torchKey
+      ? here
+          .filter(t => t.lightFeet && t.lightFeet > 0)
+          .map(t => ({ x: t.x, y: t.y, radiusFeet: t.lightFeet as number }))
+      : [];
+    const base = layer(
+      baseCache,
+      [
+        terrain,
+        doc,
+        revealed,
+        isStaff,
+        onion,
+        dark,
+        p,
+        size,
+        dpr,
+        torchKey,
+        faces,
+        imageUrlFor,
+      ],
+      W,
+      H,
+      dpr,
+      c =>
+        drawBase(c, {
+          terrain,
+          doc,
+          revealed,
+          isStaff,
+          onion,
+          dark,
           size,
-          size
-        );
-        any = true;
-      }
-      if (any) {
-        ctx.clip();
-        ctx.fillStyle = dark ? 'rgba(0,0,0,0.45)' : 'rgba(43,38,32,0.28)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.strokeStyle = dark ? 'rgba(0,0,0,0.5)' : 'rgba(43,38,32,0.3)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        const step = Math.max(6, size * 0.3);
-        for (let d = -H; d < W; d += step) {
-          ctx.moveTo(d, 0);
-          ctx.lineTo(d + H, H);
-        }
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
+          W,
+          H,
+          p,
+          torches,
+          faces,
+          imageUrlFor,
+        })
+    );
+    if (base) ctx.drawImage(base, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineCap = 'round';
+
     // The area a spell would cover, in the arcane hue.
     if (litArea) {
       ctx.fillStyle = p.arcane;
@@ -571,70 +1300,6 @@ export function BoardCanvas({
         ctx.fillRect(x * size, y * size, size, size);
       }
       ctx.globalAlpha = 1;
-    }
-
-    // A dark board (08): what nobody lights sits under a cool grey, so the
-    // party can tell "we have seen this" from "we can see this now". Torches
-    // carried by tokens light their pool the way a brazier does.
-    const torches = here
-      .filter(t => t.lightFeet && t.lightFeet > 0)
-      .map(t => ({ x: t.x, y: t.y, radiusFeet: t.lightFeet as number }));
-    if (terrain.ambient === 'dark') {
-      ctx.fillStyle = dark ? 'rgba(60,70,90,0.45)' : 'rgba(70,80,100,0.35)';
-      for (let y = 0; y < terrain.h; y++) {
-        for (let x = 0; x < terrain.w; x++) {
-          const i = y * terrain.w + x;
-          if (terrain.material[i] === VOID) continue;
-          if (litAt(terrain, { x, y }, torches)) continue;
-          ctx.fillRect(x * size, y * size, size, size);
-        }
-      }
-    }
-    for (const t of torches) {
-      const cx = (t.x + 0.5) * size;
-      const cy = (t.y + 0.5) * size;
-      const r = (t.radiusFeet / 5) * size;
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      g.addColorStop(
-        0,
-        dark ? 'rgba(255,196,110,0.4)' : 'rgba(217,160,70,0.3)'
-      );
-      g.addColorStop(1, 'rgba(217,176,97,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-    }
-
-    // Lights: a warm pool on the floor and a brazier standing in it.
-    // Candlelight is the palette; lean into it.
-    for (const l of terrain.lights) {
-      const cx = (l.x + 0.5) * size;
-      const cy = (l.y + 0.5) * size;
-      const r = (l.radius / 5) * size;
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      g.addColorStop(
-        0,
-        dark ? 'rgba(255,196,110,0.5)' : 'rgba(217,160,70,0.4)'
-      );
-      g.addColorStop(
-        0.5,
-        dark ? 'rgba(255,180,90,0.18)' : 'rgba(217,160,70,0.14)'
-      );
-      g.addColorStop(1, 'rgba(217,176,97,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-      const bowl = Math.max(3, size * 0.16);
-      ctx.fillStyle = dark ? '#2a2622' : '#3a3530';
-      ctx.beginPath();
-      ctx.arc(cx, cy, bowl, 0, Math.PI * 2);
-      ctx.fill();
-      const flame = ctx.createRadialGradient(cx, cy, 0, cx, cy, bowl * 0.8);
-      flame.addColorStop(0, '#fff2c0');
-      flame.addColorStop(0.5, '#ffb050');
-      flame.addColorStop(1, 'rgba(230,100,30,0)');
-      ctx.fillStyle = flame;
-      ctx.beginPath();
-      ctx.arc(cx, cy, bowl * 0.8, 0, Math.PI * 2);
-      ctx.fill();
     }
 
     // Reach, for the selected token: a faint gold fill and an inset outline
@@ -687,386 +1352,22 @@ export function BoardCanvas({
       ctx.setLineDash([]);
     }
 
-    // Props: drawn, never typed.
-    for (const pr of terrain.props) {
-      const cx = (pr.x + 0.5) * size;
-      const cy = (pr.y + 0.5) * size;
-      const s = size * 0.3;
-      if (pr.kind === 'image') {
-        // The picture itself, fitted inside the tile, so the top-down board
-        // shows the tree the DM stood up rather than a mark for it. A
-        // dashed square while it loads.
-        const img = pr.imageId ? faces.get(imageUrlFor(pr.imageId)) : null;
-        const box = size * 0.9;
-        if (img) {
-          const scale = Math.min(
-            box / img.naturalWidth,
-            box / img.naturalHeight
-          );
-          const dw = img.naturalWidth * scale;
-          const dh = img.naturalHeight * scale;
-          ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
-        } else {
-          ctx.strokeStyle = p.inkMuted;
-          ctx.setLineDash([3, 3]);
-          ctx.strokeRect(cx - box / 2, cy - box / 2, box, box);
-          ctx.setLineDash([]);
-        }
-        continue;
-      }
-      // Stone things in stone, wooden things in wood, a tree in leaf — the
-      // colours the 3D view builds them from, with a shadow underneath.
-      const stoneFill = dark ? '#5a5248' : '#a1968a';
-      const woodFill = dark ? MATERIALS[4].swatchDark : MATERIALS[4].swatch;
-      const leafFill = dark ? '#3f5a2e' : '#7ea35e';
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath();
-      ctx.arc(cx + size * 0.04, cy + size * 0.06, s * 1.05, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = dark ? '#1c1814' : '#3a3530';
-      const sc = pr.scale ?? 1;
-      const s2 = s * sc;
-      ctx.fillStyle =
-        pr.kind === 'tree' || pr.kind === 'pine' || pr.kind === 'bush'
-          ? leafFill
-          : pr.kind === 'mushroom'
-            ? dark
-              ? '#b5543f'
-              : '#a23b34'
-            : pr.kind === 'hearth'
-              ? dark
-                ? '#6b2f22'
-                : '#b5543f'
-              : pr.kind === 'bed'
-                ? dark
-                  ? '#4a3f5c'
-                  : '#c9b8dc'
-                : pr.kind === 'table' ||
-                    pr.kind === 'chest' ||
-                    pr.kind === 'barrel' ||
-                    pr.kind === 'shelf'
-                  ? woodFill
-                  : stoneFill;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      switch (pr.kind) {
-        case 'barrel':
-        case 'pillar':
-          ctx.arc(cx, cy, s, 0, Math.PI * 2);
-          break;
-        case 'tree':
-          ctx.arc(cx, cy, s2 * 1.15, 0, Math.PI * 2);
-          break;
-        case 'pine':
-          ctx.moveTo(cx, cy - s2 * 1.2);
-          ctx.lineTo(cx + s2, cy + s2);
-          ctx.lineTo(cx - s2, cy + s2);
-          ctx.closePath();
-          break;
-        case 'bush':
-          ctx.arc(cx, cy, s2 * 0.7, 0, Math.PI * 2);
-          break;
-        case 'boulder':
-          ctx.moveTo(cx - s2, cy + s2 * 0.4);
-          ctx.lineTo(cx - s2 * 0.5, cy - s2 * 0.7);
-          ctx.lineTo(cx + s2 * 0.6, cy - s2 * 0.6);
-          ctx.lineTo(cx + s2, cy + s2 * 0.5);
-          ctx.closePath();
-          break;
-        case 'mushroom':
-          ctx.arc(cx - s2 * 0.35, cy, s2 * 0.4, 0, Math.PI * 2);
-          ctx.moveTo(cx + s2 * 0.6, cy + s2 * 0.2);
-          ctx.arc(cx + s2 * 0.3, cy + s2 * 0.2, s2 * 0.3, 0, Math.PI * 2);
-          break;
-        case 'bed':
-          ctx.rect(cx - s, cy - s, s * 2, s * 2);
-          break;
-        case 'shelf':
-          ctx.rect(cx - s * 0.5, cy - s, s, s * 2);
-          break;
-        case 'hearth':
-          ctx.rect(cx - s, cy - s * 0.6, s * 2, s * 1.2);
-          break;
-        case 'statue':
-        case 'altar':
-          ctx.moveTo(cx, cy - s);
-          ctx.lineTo(cx + s, cy);
-          ctx.lineTo(cx, cy + s);
-          ctx.lineTo(cx - s, cy);
-          ctx.closePath();
-          break;
-        case 'rubble':
-          ctx.arc(cx - s * 0.5, cy + s * 0.3, s * 0.4, 0, Math.PI * 2);
-          ctx.moveTo(cx + s * 0.6, cy - s * 0.2);
-          ctx.arc(cx + s * 0.3, cy - s * 0.2, s * 0.3, 0, Math.PI * 2);
-          break;
-        default:
-          ctx.rect(cx - s, cy - s * 0.7, s * 2, s * 1.4);
-      }
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    // Stairs and ladders (floors): treads across the footprint, a gold
-    // edge, and a tag saying which way they go. They stand on both floors,
-    // so the same drawing is on the floor above, tagged the other way. A
-    // hidden stair is dashed, and only staff are drawing it at all.
+    // The stairs picked, ringed in ink over the cached drawing of them.
     const stairsHere = doc
       ? doc.links.filter(l => l.from === terrain.id || l.to === terrain.id)
       : [];
-    for (const l of stairsHere) {
-      const x0 = l.x * size;
-      const y0 = l.y * size;
-      const w = l.w * size;
-      const h = l.h * size;
-      const up = l.from === terrain.id;
-      const tall = l.h >= l.w;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(x0, y0, w, h);
-      ctx.clip();
-      ctx.fillStyle = dark ? '#2a231a' : '#e9dfc9';
-      ctx.fillRect(x0, y0, w, h);
-      const treadFill = dark ? '#9c8763' : '#a8905e';
-      const treadGap = Math.max(4, size * (l.kind === 'ladder' ? 0.45 : 0.3));
-      ctx.fillStyle = treadFill;
-      if (l.kind === 'ladder') {
-        // Two rails and rungs between them.
-        const rail = Math.max(2, size * 0.1);
-        const inset = Math.max(3, size * 0.2);
-        if (tall) {
-          ctx.fillRect(x0 + inset, y0, rail, h);
-          ctx.fillRect(x0 + w - inset - rail, y0, rail, h);
-          for (let y = y0 + treadGap / 2; y < y0 + h; y += treadGap)
-            ctx.fillRect(x0 + inset, y, w - inset * 2, rail);
-        } else {
-          ctx.fillRect(x0, y0 + inset, w, rail);
-          ctx.fillRect(x0, y0 + h - inset - rail, w, rail);
-          for (let x = x0 + treadGap / 2; x < x0 + w; x += treadGap)
-            ctx.fillRect(x, y0 + inset, rail, h - inset * 2);
-        }
-      } else {
-        const tread = Math.max(2, treadGap * 0.45);
-        if (tall) {
-          for (let y = y0; y < y0 + h; y += treadGap)
-            ctx.fillRect(x0, y, w, tread);
-        } else {
-          for (let x = x0; x < x0 + w; x += treadGap)
-            ctx.fillRect(x, y0, tread, h);
-        }
-      }
-      ctx.restore();
-      ctx.strokeStyle = p.gold;
+    const picked = stairsHere.find(l => l.id === selectedLink);
+    if (picked) {
+      ctx.strokeStyle = p.ink;
       ctx.lineWidth = 2;
-      ctx.setLineDash(l.hidden ? [4, 4] : []);
-      ctx.strokeRect(x0 + 1, y0 + 1, w - 2, h - 2);
       ctx.setLineDash([]);
-      if (l.id === selectedLink) {
-        ctx.strokeStyle = p.ink;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x0 - 3, y0 - 3, w + 6, h + 6);
-      }
-      if (size >= 14) {
-        const tag = up ? 'UP' : 'DOWN';
-        ctx.font = `700 ${Math.max(8, size * 0.28)}px Inter, system-ui, sans-serif`;
-        const tw = ctx.measureText(tag).width + 6;
-        const th = Math.max(10, size * 0.4);
-        ctx.fillStyle = p.gold;
-        ctx.fillRect(x0 + 2, y0 + 2, tw, th);
-        ctx.fillStyle = dark ? '#16130f' : '#ffffff';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(tag, x0 + 5, y0 + 2 + th / 2 + 0.5);
-        ctx.textBaseline = 'alphabetic';
-      }
+      ctx.strokeRect(
+        picked.x * size - 3,
+        picked.y * size - 3,
+        picked.w * size + 6,
+        picked.h * size + 6
+      );
     }
-
-    // Walls on edges, drawn with a little depth: masonry as a dark band
-    // with a lit coping, a door as its plank leaf — swung open into the
-    // room, with the arc it swept — a window as stone with the arcane pane
-    // between, a rail as posts and a line.
-    const walls = wallIndex(terrain);
-    const masonryInk = dark ? '#1c1814' : '#3a3530';
-    const masonryLit = dark ? '#8a7d6b' : '#a1968a';
-    const plank = dark ? MATERIALS[4].swatchDark : MATERIALS[4].swatch;
-    for (const w of walls.values()) {
-      const x0 = w.x * size;
-      const y0 = w.y * size;
-      let ax = x0,
-        ay = y0,
-        bx = x0,
-        by = y0;
-      switch (w.side) {
-        case 'n':
-          bx = x0 + size;
-          break;
-        case 's':
-          ay = by = y0 + size;
-          bx = x0 + size;
-          break;
-        case 'w':
-          by = y0 + size;
-          break;
-        case 'e':
-          ax = bx = x0 + size;
-          by = y0 + size;
-          break;
-      }
-      // The edge's own direction, and the way into the tile it belongs to.
-      const dx = bx - ax;
-      const dy = by - ay;
-      const inX = w.side === 'w' ? 1 : w.side === 'e' ? -1 : 0;
-      const inY = w.side === 'n' ? 1 : w.side === 's' ? -1 : 0;
-      const thick = Math.max(3, size * 0.16);
-      ctx.lineCap = 'butt';
-      ctx.setLineDash([]);
-      if (w.kind !== 'rail' && w.kind !== 'fence') {
-        // The shadow a standing wall throws, so it is not a line on paper.
-        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-        ctx.lineWidth = thick * 1.6;
-        ctx.beginPath();
-        ctx.moveTo(ax + size * 0.04, ay + size * 0.06);
-        ctx.lineTo(bx + size * 0.04, by + size * 0.06);
-        ctx.stroke();
-      }
-      switch (w.kind) {
-        case 'solid':
-          ctx.strokeStyle = masonryInk;
-          ctx.lineWidth = thick;
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          ctx.strokeStyle = masonryLit;
-          ctx.lineWidth = Math.max(1, thick * 0.3);
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          break;
-        case 'door': {
-          // Jambs at both ends, in stone.
-          ctx.strokeStyle = masonryInk;
-          ctx.lineWidth = thick;
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(ax + dx * 0.12, ay + dy * 0.12);
-          ctx.moveTo(bx - dx * 0.12, by - dy * 0.12);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          const hx = ax + dx * 0.12;
-          const hy = ay + dy * 0.12;
-          const len = Math.hypot(dx, dy) * 0.76;
-          ctx.lineWidth = Math.max(3, size * 0.12);
-          ctx.strokeStyle = shade(plank, dark ? 0.15 : -0.25);
-          ctx.beginPath();
-          ctx.moveTo(hx, hy);
-          if (w.open) {
-            // Swung into its tile on the hinge, and the sweep it took.
-            ctx.lineTo(hx + inX * len, hy + inY * len);
-            ctx.stroke();
-            ctx.strokeStyle = p.success;
-            ctx.lineWidth = 1;
-            ctx.setLineDash([3, 3]);
-            ctx.beginPath();
-            const start = Math.atan2(dy, dx);
-            const end = Math.atan2(inY, inX);
-            const ccw = (end - start + Math.PI * 3) % (Math.PI * 2) > Math.PI;
-            ctx.arc(hx, hy, len, start, end, ccw);
-            ctx.stroke();
-            ctx.setLineDash([]);
-          } else {
-            ctx.lineTo(bx - dx * 0.12, by - dy * 0.12);
-            ctx.stroke();
-            // The strapping.
-            ctx.strokeStyle = dark ? '#1c1815' : '#2a2622';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            for (const f of [0.35, 0.65]) {
-              const sx = hx + dx * 0.76 * f;
-              const sy = hy + dy * 0.76 * f;
-              ctx.moveTo(sx - inX * thick * 0.5, sy - inY * thick * 0.5);
-              ctx.lineTo(sx + inX * thick * 0.5, sy + inY * thick * 0.5);
-            }
-            ctx.stroke();
-          }
-          break;
-        }
-        case 'window':
-          ctx.strokeStyle = masonryInk;
-          ctx.lineWidth = thick;
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          ctx.strokeStyle = p.arcane;
-          ctx.lineWidth = Math.max(2, thick * 0.45);
-          ctx.beginPath();
-          ctx.moveTo(ax + dx * 0.15, ay + dy * 0.15);
-          ctx.lineTo(bx - dx * 0.15, by - dy * 0.15);
-          ctx.stroke();
-          break;
-        case 'hedge':
-          // A hedge: a thick green band, soft-edged.
-          ctx.strokeStyle = dark ? '#3f5a2e' : '#5f7d43';
-          ctx.lineWidth = thick * 1.3;
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          ctx.strokeStyle = dark ? '#6f8a4f' : '#7ea35e';
-          ctx.lineWidth = Math.max(1, thick * 0.4);
-          ctx.setLineDash([2, 3]);
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.lineCap = 'butt';
-          break;
-        case 'fence':
-          // A fence: posts and a rail, in wood.
-          ctx.strokeStyle = shade(plank, dark ? 0.2 : -0.3);
-          ctx.lineWidth = Math.max(1.5, size * 0.07);
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          ctx.fillStyle = shade(plank, dark ? 0.2 : -0.3);
-          for (const f of [0.1, 0.35, 0.65, 0.9]) {
-            ctx.fillRect(
-              ax + dx * f - Math.max(1, size * 0.05),
-              ay + dy * f - Math.max(1, size * 0.05),
-              Math.max(2, size * 0.1),
-              Math.max(2, size * 0.1)
-            );
-          }
-          break;
-        case 'rail':
-          ctx.strokeStyle = p.inkMuted;
-          ctx.lineWidth = Math.max(1.5, size * 0.06);
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-          ctx.fillStyle = p.inkMuted;
-          for (const f of [0.08, 0.5, 0.92]) {
-            ctx.beginPath();
-            ctx.arc(
-              ax + dx * f,
-              ay + dy * f,
-              Math.max(1.5, size * 0.06),
-              0,
-              Math.PI * 2
-            );
-            ctx.fill();
-          }
-          break;
-      }
-    }
-    ctx.setLineDash([]);
-    ctx.lineCap = 'round';
 
     // Tokens: the same piece the 3D view stands up, seen from above. A soft
     // ring of the side's colour on the floor, a pewter base with the side's
@@ -1388,82 +1689,69 @@ export function BoardCanvas({
       ctx.textBaseline = 'alphabetic';
     }
 
-    /*
-     * Weather, over everything and under nothing.
-     *
-     * Still: design rule 4 allows one animated moment on a page and a
-     * fight already spends it on whose turn it is, so rain is drawn as
-     * streaks rather than falling. Seeded off the tile grid, so it is the
-     * same rain on every redraw and does not shimmer as the board pans.
-     */
-    const weather = terrain.weather ?? 'clear';
-    if (weather !== 'clear') {
-      const rnd = (n: number) => {
-        const v = Math.sin(n * 12.9898) * 43758.5453;
-        return v - Math.floor(v);
-      };
-      ctx.save();
-      if (weather === 'mist') {
-        const g = ctx.createLinearGradient(0, 0, 0, H);
-        g.addColorStop(
-          0,
-          dark ? 'rgba(200,210,220,0.10)' : 'rgba(255,255,255,0.30)'
-        );
-        g.addColorStop(
-          0.5,
-          dark ? 'rgba(200,210,220,0.22)' : 'rgba(255,255,255,0.46)'
-        );
-        g.addColorStop(
-          1,
-          dark ? 'rgba(200,210,220,0.10)' : 'rgba(255,255,255,0.30)'
-        );
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, W, H);
-      } else if (weather === 'rain' || weather === 'storm') {
-        const drops = Math.round((W * H) / (weather === 'storm' ? 900 : 2200));
-        const lean = weather === 'storm' ? 7 : 3;
-        const len = weather === 'storm' ? 16 : 11;
-        ctx.strokeStyle = dark
-          ? 'rgba(190,210,230,0.5)'
-          : 'rgba(90,120,150,0.45)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let i = 0; i < drops; i++) {
-          const x = rnd(i * 3.7) * W;
-          const y = rnd(i * 7.1 + 11) * H;
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + lean, y + len);
-        }
-        ctx.stroke();
-        if (weather === 'storm') {
-          ctx.fillStyle = dark
-            ? 'rgba(20,28,38,0.28)'
-            : 'rgba(90,105,125,0.20)';
-          ctx.fillRect(0, 0, W, H);
-        }
-      } else {
-        const flakes = Math.round(
-          (W * H) / (weather === 'blizzard' ? 700 : 2000)
-        );
-        ctx.fillStyle = dark
-          ? 'rgba(235,242,248,0.75)'
-          : 'rgba(255,255,255,0.9)';
-        for (let i = 0; i < flakes; i++) {
-          const x = rnd(i * 5.3) * W;
-          const y = rnd(i * 9.7 + 3) * H;
-          const r = 1 + rnd(i * 2.1) * (weather === 'blizzard' ? 1.8 : 1.1);
+    // Pings: somebody pointing at a tile. Two rings leave it and fade, and
+    // the name of who pointed sits over it until the ping is gone.
+    if (pings && pings.length > 0) {
+      const now = performance.now();
+      const still =
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ??
+        false;
+      for (const pg of pings) {
+        const cx = (pg.x + 0.5) * size;
+        const cy = (pg.y + 0.5) * size;
+        const age = Math.min(1, Math.max(0, (now - pg.born) / PING_MS));
+        ctx.strokeStyle = p.gold;
+        ctx.lineWidth = Math.max(2, size * 0.08);
+        for (const lag of still ? [0] : [0, 0.3]) {
+          const t = still ? 0.45 : age - lag;
+          if (t < 0 || t > 1) continue;
+          ctx.globalAlpha = still ? 0.9 : 1 - t;
           ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.arc(cx, cy, size * (0.35 + 1.4 * t), 0, Math.PI * 2);
+          ctx.stroke();
         }
-        if (weather === 'blizzard') {
-          ctx.fillStyle = dark
-            ? 'rgba(210,220,235,0.16)'
-            : 'rgba(255,255,255,0.32)';
-          ctx.fillRect(0, 0, W, H);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = p.gold;
+        ctx.beginPath();
+        ctx.arc(cx, cy, Math.max(3, size * 0.14), 0, Math.PI * 2);
+        ctx.fill();
+        if (size >= 12 && pg.name) {
+          ctx.font = `600 ${Math.max(10, size * 0.34)}px Inter, system-ui, sans-serif`;
+          const tw = ctx.measureText(pg.name).width + 10;
+          const th = Math.max(16, size * 0.5);
+          const lx = Math.min(W - tw - 2, Math.max(2, cx - tw / 2));
+          const ly = Math.max(2, cy - size * 0.9 - th);
+          ctx.fillStyle = p.surface;
+          ctx.globalAlpha = 0.94;
+          ctx.fillRect(lx, ly, tw, th);
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = p.gold;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(lx + 0.5, ly + 0.5, tw - 1, th - 1);
+          ctx.fillStyle = p.ink;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(pg.name, lx + 5, ly + th / 2 + 0.5);
+          ctx.textBaseline = 'alphabetic';
         }
       }
-      ctx.restore();
+    }
+
+    const weather = terrain.weather ?? 'clear';
+    if (weather !== 'clear') {
+      const sky = layer(
+        weatherCache,
+        [weather, W, H, dark, dpr],
+        W,
+        H,
+        dpr,
+        c => drawWeather(c, weather, W, H, dark)
+      );
+      if (sky) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(sky, 0, 0);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
     }
 
     // Whatever the surface on top wants drawn last: a stamp's ghost, a tag.
@@ -1471,9 +1759,11 @@ export function BoardCanvas({
   }, [
     canvasRef,
     wrapRef,
+    wrapWidth,
     terrain,
     doc,
     here,
+    torchKey,
     allTokens,
     entriesById,
     currentEntryIds,
@@ -1501,15 +1791,9 @@ export function BoardCanvas({
     diagonals,
     extras,
     tick,
+    pings,
+    frame,
   ]);
-
-  // Redraw on resize: the canvas is sized off its container.
-  const [, bump] = useState(0);
-  useEffect(() => {
-    const onResize = () => bump(n => n + 1);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
 
   return (
     <canvas
@@ -1518,10 +1802,15 @@ export function BoardCanvas({
         className ??
         'block cursor-crosshair touch-none rounded-md border border-line bg-bg'
       }
+      tabIndex={ariaLabel ? 0 : undefined}
+      role={ariaLabel ? 'application' : undefined}
+      aria-label={ariaLabel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerLeave}
+      onPointerCancel={onPointerCancel}
+      onKeyDown={onKeyDown}
     />
   );
 }

@@ -35,6 +35,7 @@ import {
   takeLink,
   getWorkshopBoard,
   revealRoomsAround,
+  pingBoard,
 } from '@/server/battlemap';
 
 import { RuleRefusal } from '@/server/table-rules';
@@ -78,6 +79,7 @@ function fail(err: unknown, fallback: string): Refusal {
     INDESTRUCTIBLE: 'That cannot be broken.',
     PHYSICAL_DICE_OFF:
       'This table rolls in the app. Ask the DM to allow real dice.',
+    SLOW_DOWN: 'Too many pings at once. Wait a moment and try again.',
     BAD_FACES:
       'Those faces do not fit the roll — one per die, each within its die.',
   };
@@ -515,5 +517,20 @@ export async function damageThingAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'That did not land.');
+  }
+}
+
+/** Point at a tile for everybody looking at the board (a ping). */
+export async function pingBoardAction(
+  mapId: string,
+  at: { level: string; x: number; y: number }
+): Promise<Result> {
+  const parsed = tile.extend({ level: levelId }).safeParse(at);
+  if (!parsed.success) return { ok: false, error: 'Nothing to point at.' };
+  try {
+    await pingBoard(mapId, parsed.data);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'The ping did not go.');
   }
 }

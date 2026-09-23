@@ -65,7 +65,7 @@ import {
   type Fragment,
 } from '@/@creator/campaign/lib/board-edit';
 import { CELL, findStamp, type Stamp } from '@/@creator/campaign/lib/stamps';
-import { newLevelFrom } from '@/@creator/campaign/lib/battlemap';
+import { newLevelFrom, tilesAlong } from '@/@creator/campaign/lib/battlemap';
 import {
   feetLabel,
   levelOf,
@@ -89,6 +89,8 @@ import {
   Ribbon,
 } from '@/@shared/components/ui';
 import { joinTable } from '@/@shared/table/connection';
+import { useUnsavedGuard } from '@/@shared/hooks/useUnsavedGuard';
+import { typingTarget } from '../screen/useDmShortcuts';
 import type { WorkshopBoard } from '@/server/battlemap';
 import type { EntryRow } from '@/server/session';
 import {
@@ -119,6 +121,10 @@ import {
 
 /** Debounce on terrain writes. Painting is a stream; the save is a document. */
 const SAVE_MS = 600;
+
+/** Nobody's turn, and nothing revealed: one of each, so the canvas's cache holds. */
+const NO_TURN: Set<string> = new Set();
+const NONE: readonly number[] = [];
 const HISTORY = 60;
 
 const TOOL_GLYPH: Record<WorkshopTool, Parameters<typeof Glyph>[0]['name']> = {
@@ -207,6 +213,17 @@ export function Workshop({
    * snapped back by its own echo.
    */
   const [doc, setDocState] = useState<BoardDoc | null>(null);
+  /*
+   * The document as the last edit left it, readable before React has
+   * re-rendered. Two pointer moves can land between renders, and a brush
+   * that built from the rendered document drew the second stroke over the
+   * first one's floor — the first touch lost. Edits read and write this.
+   */
+  const docRef = useRef<BoardDoc | null>(null);
+  const setDoc = useCallback((next: BoardDoc) => {
+    docRef.current = next;
+    setDocState(next);
+  }, []);
   const [past, setPast] = useState<BoardDoc[]>([]);
   const [future, setFuture] = useState<BoardDoc[]>([]);
   const dirty = useRef(false);
@@ -222,6 +239,8 @@ export function Workshop({
    */
   const edit = useRef(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The save still waiting on its debounce, sent if the page unmounts. */
+  const pendingSave = useRef<BoardDoc | null>(null);
   const [saved, setSaved] = useState<'saved' | 'saving' | 'pending' | null>(
     null
   );
@@ -235,8 +254,8 @@ export function Workshop({
       return;
     }
     setBench(b);
-    if (!dirty.current && edit.current === asOf) setDocState(b.terrain);
-  }, [mapId]);
+    if (!dirty.current && edit.current === asOf) setDoc(b.terrain);
+  }, [mapId, setDoc]);
   useEffect(() => {
     load();
   }, [load]);
@@ -255,9 +274,11 @@ export function Workshop({
       dirty.current = true;
       const mine = ++edit.current;
       setSaved('pending');
+      pendingSave.current = next;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
         saveTimer.current = null;
+        pendingSave.current = null;
         setSaved('saving');
         const res = await saveTerrainAction(mapId, next);
         // A newer edit is pending its own save: this one does not get to
@@ -275,54 +296,61 @@ export function Workshop({
     },
     [mapId, load]
   );
+  // Leaving with an edit still waiting on its debounce sends it rather than
+  // dropping it: a stamp put down a beat before "Back to campaign" was lost.
   useEffect(
     () => () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      const next = pendingSave.current;
+      pendingSave.current = null;
+      if (next) void saveTerrainAction(mapId, next);
     },
-    []
+    [mapId]
   );
+  // A tab closed mid-edit cannot be trusted to finish a server action, so
+  // the browser is asked to hold the door instead.
+  useUnsavedGuard(dirty);
 
   /** One edit: the document before goes on the stack. */
   const commit = useCallback(
     (next: BoardDoc, opts: { stroke?: boolean } = {}) => {
-      setDocState(prev => {
-        if (prev && !opts.stroke) {
-          setPast(p => [...p.slice(-(HISTORY - 1)), prev]);
-          setFuture([]);
-        }
-        return next;
-      });
+      const prev = docRef.current;
+      if (prev && !opts.stroke) {
+        setPast(p => [...p.slice(-(HISTORY - 1)), prev]);
+        setFuture([]);
+      }
+      setDoc(next);
       scheduleSave(next);
     },
-    [scheduleSave]
+    [scheduleSave, setDoc]
   );
   const beginStroke = useCallback(() => {
-    strokeStart.current = doc;
-  }, [doc]);
+    strokeStart.current = docRef.current;
+  }, []);
   const endStroke = useCallback(() => {
     const before = strokeStart.current;
     strokeStart.current = null;
-    if (before && before !== doc) {
+    if (before && before !== docRef.current) {
       setPast(p => [...p.slice(-(HISTORY - 1)), before]);
       setFuture([]);
     }
-  }, [doc]);
+  }, []);
   const undo = useCallback(() => {
     if (past.length === 0 || !doc) return;
     const prev = past[past.length - 1];
     setPast(p => p.slice(0, -1));
     setFuture(f => [doc, ...f]);
-    setDocState(prev);
+    setDoc(prev);
     scheduleSave(prev);
-  }, [past, doc, scheduleSave]);
+  }, [past, doc, scheduleSave, setDoc]);
   const redo = useCallback(() => {
     if (future.length === 0 || !doc) return;
     const next = future[0];
     setFuture(f => f.slice(1));
     setPast(p => [...p, doc]);
-    setDocState(next);
+    setDoc(next);
     scheduleSave(next);
-  }, [future, doc, scheduleSave]);
+  }, [future, doc, scheduleSave, setDoc]);
 
   /* --- the floor in front ---------------------------------------------- */
 
@@ -358,8 +386,7 @@ export function Workshop({
   useEffect(() => {
     if (!doc || !terrain) return;
     const onKey = (ev: KeyboardEvent) => {
-      const tag = (ev.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (typingTarget(ev)) return;
       if (ev.key === 'PageUp' || ev.key === 'PageDown') {
         const next = doc.levels[levelIdx + (ev.key === 'PageUp' ? 1 : -1)];
         if (next) {
@@ -424,8 +451,7 @@ export function Workshop({
   useEffect(() => {
     if (tool !== 'stamps') return;
     const onKey = (ev: KeyboardEvent) => {
-      const tag = (ev.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (typingTarget(ev)) return;
       if (ev.key === 'r' || ev.key === 'R')
         set({ stampTurns: (settings.stampTurns + 1) % 4 });
       if (ev.key === 'f' || ev.key === 'F')
@@ -447,24 +473,30 @@ export function Workshop({
   /** Write one floor. */
   const putLevel = useCallback(
     (next: LevelDoc | ReturnType<typeof paintTiles>, stroke = false) => {
-      if (!doc || !terrain) return;
+      // Onto the document as the last edit left it, not as last rendered.
+      const now = docRef.current;
+      if (!now) return;
+      const here = levelOf(now, levelId);
       commit(
-        withLevel(doc, {
+        withLevel(now, {
           ...(next as LevelDoc),
-          id: terrain.id,
-          name: terrain.name,
-          feet: terrain.feet,
-          ...(terrain.seen ? { seen: terrain.seen } : {}),
+          id: here.id,
+          name: here.name,
+          feet: here.feet,
+          ...(here.seen ? { seen: here.seen } : {}),
         }),
         { stroke }
       );
     },
-    [doc, terrain, commit]
+    [levelId, commit]
   );
 
   /** A brush tool's touch at a tile, mid-stroke. */
   const brushAt = useCallback(
     (at: Tile) => {
+      // The floor as the last touch left it: a quick stroke lands several
+      // touches between renders, and each builds on the one before.
+      const terrain = docRef.current ? levelOf(docRef.current, levelId) : null;
       if (!terrain) return;
       const tiles = brushTiles(terrain, at, settings.brush);
       if (tool === 'floor' && settings.paintMode === 'brush') {
@@ -501,7 +533,7 @@ export function Workshop({
         if (added) setGatheredCount(gathered.current.size);
       }
     },
-    [terrain, tool, settings, putLevel]
+    [levelId, tool, settings, putLevel]
   );
 
   /** Where a stamp's top-left lands for a tap on a tile. */
@@ -651,9 +683,21 @@ export function Workshop({
       ? tileAt(canvasRef.current, terrain, ev)
       : null;
 
+  /** The last tile a brush stroke touched, so a quick swipe leaves no gaps. */
+  const strokeFrom = useRef<Tile | null>(null);
+  const brushAlong = (t: Tile) => {
+    const from = strokeFrom.current ?? t;
+    for (const step of tilesAlong(from, t)) brushAt(step);
+    strokeFrom.current = { x: t.x, y: t.y };
+  };
+
   const onPointerDown = (ev: ReactPointerEvent<HTMLCanvasElement>) => {
     const t = at(ev);
     if (!t || !doc || !terrain) return;
+    // Held, so a box dragged past the edge is still this board's until the
+    // button lifts, instead of landing where the pointer left.
+    ev.currentTarget.setPointerCapture(ev.pointerId);
+    strokeFrom.current = { x: t.x, y: t.y };
     setError(null);
     switch (tool) {
       case 'select': {
@@ -798,7 +842,13 @@ export function Workshop({
 
   const onPointerMove = (ev: ReactPointerEvent<HTMLCanvasElement>) => {
     const t = at(ev);
-    setHover(t);
+    // Only a new tile is news: a pointer moving inside one used to redraw
+    // the whole board on every pixel.
+    setHover(prev =>
+      prev && t && prev.x === t.x && prev.y === t.y && prev.side === t.side
+        ? prev
+        : t
+    );
     if (!t) return;
     const d = dragRef.current;
     if (d.marquee) {
@@ -809,10 +859,11 @@ export function Workshop({
       d.wall = { ...d.wall, to: t };
       setWallDrag(d.wall);
     }
-    if (painting) brushAt(t);
+    if (painting) brushAlong(t);
   };
 
   const onPointerUp = () => {
+    strokeFrom.current = null;
     if (!doc || !terrain) return;
     const marqueeNow = dragRef.current.marquee;
     const wallNow = dragRef.current.wall;
@@ -1662,9 +1713,9 @@ export function Workshop({
                 here={here}
                 allTokens={tokens}
                 entriesById={entriesById}
-                currentEntryIds={new Set()}
+                currentEntryIds={NO_TURN}
                 revealed={
-                  tool === 'fog' ? (bench.revealed[terrain.id] ?? []) : null
+                  tool === 'fog' ? (bench.revealed[terrain.id] ?? NONE) : null
                 }
                 isStaff
                 dark={dark}
@@ -1696,10 +1747,8 @@ export function Workshop({
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
-                onPointerLeave={() => {
-                  setHover(null);
-                  onPointerUp();
-                }}
+                onPointerCancel={onPointerUp}
+                onPointerLeave={() => setHover(null)}
               />
             </div>
             {/* Zoom */}

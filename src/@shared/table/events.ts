@@ -46,6 +46,7 @@ export const TABLE_EVENT_KINDS = [
   'undo',
   'ambience',
   'sound',
+  'ping',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -117,6 +118,25 @@ export interface SoundEvent extends BaseEvent {
   kind: 'sound';
   audioId: string;
   title: string;
+}
+
+/**
+ * Somebody pointed at a tile on the board (a ping).
+ *
+ * A moment on the board, not an announcement: it raises no slip and is not
+ * kept in the Table log. The board draws a mark on the tile for a couple of
+ * seconds and forgets it. A reader whose document has no floor `level` —
+ * one the party has not been shown — drops it, or the ping would say that
+ * floor exists.
+ */
+export interface PingEvent extends BaseEvent {
+  kind: 'ping';
+  mapId: string;
+  level: string;
+  x: number;
+  y: number;
+  /** Who pointed: their hero's name, or their own. */
+  name: string;
 }
 
 /** Sand started falling. Expiry is a state and deliberately fires nothing. */
@@ -398,7 +418,8 @@ export type TableEvent =
   | LevelUpEvent
   | UndoEvent
   | AmbienceEvent
-  | SoundEvent;
+  | SoundEvent
+  | PingEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -431,6 +452,7 @@ function ordinal(n: number): string {
 
 const GLYPHS: Record<TableEventKind, GlyphName> = {
   sound: 'speaker',
+  ping: 'target',
   roll: 'die',
   turn: 'sword',
   encounter: 'sword',
@@ -804,6 +826,13 @@ export function describe(
         tone: event.state === 'done' ? 'success' : 'danger',
       };
     }
+
+    case 'ping':
+      return {
+        glyph,
+        title: `${event.name} points at the board`,
+        tone: 'gold',
+      };
 
     case 'sound':
       return {

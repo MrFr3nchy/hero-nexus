@@ -30,6 +30,7 @@ function clock(at: number): string {
 /** How each kind reads in the volume control. Two words, in the table's voice. */
 const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
   sound: 'Sound effects',
+  ping: 'Pings',
   roll: 'Dice',
   turn: 'Turns',
   encounter: 'Fights',
@@ -85,7 +86,12 @@ const KIND_GROUPS: { label: string; kinds: TableEventKind[] }[] = [
   },
   { label: 'The room', kinds: ['map', 'thing', 'ambience'] },
 ];
-const FILED = new Set(KIND_GROUPS.flatMap(g => g.kinds));
+// A ping is drawn on the board and raises no slip, so there is nothing for
+// the volume control to turn down.
+const FILED = new Set<TableEventKind>([
+  ...KIND_GROUPS.flatMap(g => g.kinds),
+  'ping',
+]);
 for (const kind of TABLE_EVENT_KINDS) {
   if (!FILED.has(kind)) KIND_GROUPS[KIND_GROUPS.length - 1].kinds.push(kind);
 }
