@@ -31,6 +31,7 @@ names, they are different things; if they share a name, they are the same thing.
 | The grid a fight is fought on                | a battle board     | "the sand table", "the battle map", "the board", "the table" |
 | The editor for a battle board                | the workshop       | —                                                            |
 | Hiding what the party has not seen           | fog of war         | "fog"                                                        |
+| Pointing at a tile for the whole table       | a ping             | "a marker", "a flare", "a beacon"                            |
 | A fight, planned ahead                       | an encounter       | "a plan", "a fight planned", "an ambush"                     |
 | A fight, running                             | the fight          | —                                                            |
 | The DM asking somebody to roll               | a check            | "the asking"                                                 |
@@ -61,6 +62,7 @@ names, they are different things; if they share a name, they are the same thing.
 | Beginning a fight                                                            | **Roll for initiative** | "call for initiative", "roll for it", "start a fight"     |
 | Ending a fight                                                               | End the fight           | —                                                         |
 | Putting foes on the board before the fight                                   | **Place** them          | "deal them in" (that is now only "add them to the order") |
+| Pointing at a tile (alt-click, or hold a finger on it)                       | **Ping** it             | "mark", "flag"                                            |
 
 "Show the party" is one verb because it is one act, and one act gets one glyph
 (`candle`), one keyboard shortcut and one line in Revealed.

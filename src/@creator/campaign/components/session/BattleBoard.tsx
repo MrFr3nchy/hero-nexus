@@ -2002,6 +2002,8 @@ export function BattleBoard({
           onSelect={setSelected}
           selectedId={selected}
           mode={isStaff ? 'advise' : state.rules.mode}
+          pings={pingsHere}
+          onPing={at => void ping(at)}
           onMove={async (tokenId, to) => {
             const ok = await move(tokenId, to);
             await refresh();
