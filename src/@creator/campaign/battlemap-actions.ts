@@ -11,6 +11,7 @@ import {
 } from '@/@shared/battlemap/types';
 import {
   createBattleMap,
+  importUvttBoard,
   damageThing,
   dealEncounterIn,
   deleteBattleMap,
@@ -182,6 +183,36 @@ export async function createBattleMapAction(
     return { ok: true, data: { id } };
   } catch (err) {
     return fail(err, 'Could not lay out a board.');
+  }
+}
+
+/**
+ * A board from a Universal VTT map (7c). The browser has read the file,
+ * uploaded the picture, and sends the geometry; `normalizeBoard` on the
+ * server is what decides the shape.
+ */
+export async function importUvttBoardAction(
+  campaignId: string,
+  input: unknown
+): Promise<Result<{ id: string }>> {
+  const parsed = z
+    .object({
+      name: z.string().max(120),
+      w: z.number().int().min(MIN_SIDE).max(MAX_SIDE),
+      h: z.number().int().min(MIN_SIDE).max(MAX_SIDE),
+      walls: z.array(z.unknown()).max(MAX_SIDE * MAX_SIDE * 4),
+      lights: z.array(z.unknown()).max(300),
+      imageId: z.string().max(64).nullable(),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'That map did not read.' };
+  try {
+    return {
+      ok: true,
+      data: { id: await importUvttBoard(campaignId, parsed.data) },
+    };
+  } catch (err) {
+    return fail(err, 'Could not make a board of that map.');
   }
 }
 

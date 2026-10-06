@@ -58,24 +58,26 @@ names, they are different things; if they share a name, they are the same thing.
 | How a faction regards the party, kept over time               | standing                                  | "reputation", "renown", "favour"                                     |
 | The creature an NPC fights as                                 | its stat block                            | "monster", "stats" (as a label)                                      |
 | A hero's sheet laid out for paper                             | the printable sheet                       | "PDF export", "character PDF"                                        |
+| A painted map that is a floor of a battle board               | a backdrop                                | "background", "map image", "underlay"                                |
 
 ## The verbs
 
-| The act                                                                      | The verb                   | Never again                                               |
-| ---------------------------------------------------------------------------- | -------------------------- | --------------------------------------------------------- |
-| Letting the party see a thing (quest, canon line, note, handout, token, map) | **Show the party**         | "tell them", "reveal", "hand over", "push", "show them"   |
-| Taking it back (only where the model allows it)                              | Hide again                 | "take it back"                                            |
-| Making a battle board the one in play                                        | **Put it in play**         | "put it on the table", "take your seats" (for a board)    |
-| Taking it out of play                                                        | Take it out of play        | "take it off the table"                                   |
-| Beginning an evening                                                         | **Start the session**      | "take your seats"                                         |
-| Ending an evening                                                            | **End the session**        | "rise", "the table rises"                                 |
-| Beginning a fight                                                            | **Roll for initiative**    | "call for initiative", "roll for it", "start a fight"     |
-| Ending a fight                                                               | End the fight              | —                                                         |
-| Putting foes on the board before the fight                                   | **Place** them             | "deal them in" (that is now only "add them to the order") |
-| Pointing at a tile (alt-click, or hold a finger on it)                       | **Ping** it                | "mark", "flag"                                            |
-| Asking the DM to pause, without saying who                                   | **Tap the X-card**         | "flag", "raise the card", "X it"                          |
-| Bringing a hero in from a pasted D&D Beyond character                        | **Import from D&D Beyond** | "sync", "link your account", "convert"                    |
-| Sending a moment to the campaign's Discord channel                           | **Post to Discord**        | "notify", "announce", "send to Discord"                   |
+| The act                                                                      | The verb                       | Never again                                               |
+| ---------------------------------------------------------------------------- | ------------------------------ | --------------------------------------------------------- |
+| Letting the party see a thing (quest, canon line, note, handout, token, map) | **Show the party**             | "tell them", "reveal", "hand over", "push", "show them"   |
+| Taking it back (only where the model allows it)                              | Hide again                     | "take it back"                                            |
+| Making a battle board the one in play                                        | **Put it in play**             | "put it on the table", "take your seats" (for a board)    |
+| Taking it out of play                                                        | Take it out of play            | "take it off the table"                                   |
+| Beginning an evening                                                         | **Start the session**          | "take your seats"                                         |
+| Ending an evening                                                            | **End the session**            | "rise", "the table rises"                                 |
+| Beginning a fight                                                            | **Roll for initiative**        | "call for initiative", "roll for it", "start a fight"     |
+| Ending a fight                                                               | End the fight                  | —                                                         |
+| Putting foes on the board before the fight                                   | **Place** them                 | "deal them in" (that is now only "add them to the order") |
+| Pointing at a tile (alt-click, or hold a finger on it)                       | **Ping** it                    | "mark", "flag"                                            |
+| Asking the DM to pause, without saying who                                   | **Tap the X-card**             | "flag", "raise the card", "X it"                          |
+| Bringing a hero in from a pasted D&D Beyond character                        | **Import from D&D Beyond**     | "sync", "link your account", "convert"                    |
+| Making a battle board from a .dd2vtt/.uvtt file                              | **Import a Universal VTT map** | "upload a map", "dd2vtt import"                           |
+| Sending a moment to the campaign's Discord channel                           | **Post to Discord**            | "notify", "announce", "send to Discord"                   |
 
 "Show the party" is one verb because it is one act, and one act gets one glyph
 (`candle`), one keyboard shortcut and one line in Revealed.

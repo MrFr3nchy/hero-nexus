@@ -39,6 +39,7 @@ import {
   setBattleMapActiveAction,
   setBattleMapVisibilityAction,
 } from '../../battlemap-actions';
+import { UvttImport } from './UvttImport';
 
 export type BoardRow = Awaited<ReturnType<typeof listBattleMaps>>[number];
 
@@ -318,7 +319,10 @@ export function BoardShelf({
   }
 
   const form = (
-    <NewBoardForm campaignId={campaignId} onLaidOut={() => refresh()} />
+    <div className="flex flex-col gap-3">
+      <NewBoardForm campaignId={campaignId} onLaidOut={() => refresh()} />
+      <UvttImport campaignId={campaignId} />
+    </div>
   );
 
   return (

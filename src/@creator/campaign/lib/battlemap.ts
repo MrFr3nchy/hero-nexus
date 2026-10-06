@@ -999,6 +999,9 @@ export function fogged(
     }),
     props: doc.props.filter(p => shown(p.x, p.y)),
     lights: doc.lights.filter(l => shown(l.x, l.y)),
+    // The picture travels whole; only revealed tiles draw any of it, and an
+    // unrevealed tile is void here, so it draws none.
+    ...(doc.backdrop ? { backdrop: doc.backdrop } : {}),
     // A room's name once any of it is seen: "the great hall" is what the
     // party calls it after one look through the door.
     ...(doc.rooms

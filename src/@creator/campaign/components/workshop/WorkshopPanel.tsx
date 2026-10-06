@@ -36,6 +36,7 @@ import {
   type ItemState,
   type LevelDoc,
   type WallKind,
+  type Backdrop,
   type Weather,
 } from '@/@shared/battlemap/types';
 import { Marginalia } from '@/@shared/components/ui';
@@ -185,6 +186,7 @@ export function WorkshopPanel({
   onSaveStamp,
   onAmbient,
   onWeather,
+  onBackdrop,
   onRevealRooms,
   onHideFloor,
   campaignId,
@@ -204,6 +206,7 @@ export function WorkshopPanel({
   onSaveStamp: () => void;
   onAmbient: (a: Ambient) => void;
   onWeather: (w: Weather) => void;
+  onBackdrop: (b: Backdrop | null) => void;
   onRevealRooms: () => void;
   onHideFloor: () => void;
   campaignId: string;
@@ -1017,6 +1020,62 @@ export function WorkshopPanel({
                 : ''}
             </p>
           </div>
+        </div>
+      );
+
+    case 'backdrop':
+      return (
+        <div className="flex flex-col gap-[18px]">
+          {/* The floor's picture: a battle map painted elsewhere, stretched
+              over the whole grid. It is the floor in both views; walls,
+              doors, lights and things still go on top of it. */}
+          <ImagePicker
+            campaignId={campaignId}
+            label="THIS FLOOR IS PAINTED AS"
+            library
+            hint={false}
+            value={terrain.backdrop?.imageId ?? null}
+            onChange={imageId =>
+              onBackdrop(
+                imageId
+                  ? { imageId, opacity: terrain.backdrop?.opacity ?? 1 }
+                  : null
+              )
+            }
+          />
+          {terrain.backdrop && (
+            <>
+              <Segment
+                label="HOW MUCH OF IT"
+                value={String(terrain.backdrop.opacity)}
+                options={[
+                  { id: '1', label: 'All' },
+                  { id: '0.75', label: '¾' },
+                  { id: '0.5', label: 'Half' },
+                  { id: '0.25', label: 'A trace' },
+                ]}
+                onChange={o =>
+                  onBackdrop({ ...terrain.backdrop!, opacity: Number(o) })
+                }
+              />
+              <p className="text-xs leading-relaxed text-ink-muted">
+                Below all of it, the tiles&rsquo; own floor shows through —
+                useful for tracing walls over the painting.
+              </p>
+              <button
+                type="button"
+                onClick={() => onBackdrop(null)}
+                className="h-9 rounded-lg border border-line text-xs text-ink-muted hover:text-danger"
+              >
+                Take the picture off this floor
+              </button>
+            </>
+          )}
+          <p className="text-xs leading-relaxed text-ink-muted">
+            The picture covers the whole grid, so it should be drawn to it:
+            {` ${terrain.w} × ${terrain.h} squares.`} Only tiles with a floor
+            show their part, and the party sees only what fog of war lets them.
+          </p>
         </div>
       );
 
