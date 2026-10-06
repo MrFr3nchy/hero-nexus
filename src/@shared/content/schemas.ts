@@ -529,8 +529,12 @@ export const creatureData = z.object({
   initiative_bonus: signedBonus,
   passive_perception: count(50, 10),
 
-  speed: creatureSpeed,
-  ability_scores: creatureAbilities,
+  speed: creatureSpeed
+    .default(() => creatureSpeed.parse({}))
+    .catch(() => creatureSpeed.parse({})),
+  ability_scores: creatureAbilities
+    .default(() => creatureAbilities.parse({}))
+    .catch(() => creatureAbilities.parse({})),
   saving_throws: bonusMap(ABILITY_KEYS),
   skill_bonuses: bonusMap(SKILL_KEYS),
 
