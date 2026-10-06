@@ -232,18 +232,42 @@ export function RollPanel({
     const finished =
       mode === 'flat' ? expression : withAdvantage(expression, mode);
     setSpin(s => s + 1);
-    const res = await rollAction(campaignId, {
-      notation: finished,
-      label,
-      characterId: characterId || null,
-      visibility: hidden ? 'dm' : 'table',
-      faces,
-    });
+    const named = label.trim();
+    /*
+     * Offline, the server cannot roll and the log cannot hear it. The dice
+     * still roll — here, in this browser — and say plainly that nobody else
+     * saw them. Never pretend an offline roll reached Dice.
+     */
+    const rollHere = async () => {
+      const local = await tray.rollNotation(finished, {
+        title: named || finished,
+        hint: 'Offline roll, not logged',
+      });
+      if (!local) onError('That is not dice notation.');
+    };
+    if (typeof navigator !== 'undefined' && !navigator.onLine && !faces) {
+      await rollHere();
+      return;
+    }
+    let res: Awaited<ReturnType<typeof rollAction>>;
+    try {
+      res = await rollAction(campaignId, {
+        notation: finished,
+        label,
+        characterId: characterId || null,
+        visibility: hidden ? 'dm' : 'table',
+        faces,
+      });
+    } catch {
+      // The request never arrived: the connection dropped.
+      if (!faces) await rollHere();
+      else onError('Offline — real dice cannot be logged until you are back.');
+      return;
+    }
     if (!res.ok) {
       onError(res.error ?? 'The dice did not land.');
       return;
     }
-    const named = label.trim();
     const shown = tray.showNotationRoll(res.data, {
       title: named || res.data.notation,
       hint: named ? res.data.notation : undefined,

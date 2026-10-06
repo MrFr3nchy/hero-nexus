@@ -28,6 +28,7 @@ import type { FightSpoils } from '@/server/session';
 import type { CampaignRole, CampaignRow } from '@/server/campaigns';
 import type { CharacterRow } from '@/server/characters';
 import {
+  defaultLayouts,
   panelsOn,
   SCREEN_COLUMN_COUNTS,
   SCREEN_PANELS,
@@ -841,7 +842,7 @@ export function DmScreen({
    * clock — but only while the stream is down. Connected, nothing here
    * ticks; rule 9 keeps the screen still.
    */
-  const stale = !live.connected && live.updatedAt !== null;
+  const stale = (!live.connected || live.offline) && live.updatedAt !== null;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!stale) return;
@@ -853,8 +854,12 @@ export function DmScreen({
   useEffect(() => {
     getScreenAction(campaign.id)
       .then(s => setLayouts(s.layouts))
-      .catch(() => setError('Failed to open your screen.'));
-  }, [campaign.id]);
+      .catch(() => {
+        // Offline the arrangement cannot be read. The default one still
+        // shows the last state this device saw, which is the point.
+        setLayouts(defaultLayouts(isStaff));
+      });
+  }, [campaign.id, isStaff]);
 
   const loadSide = useCallback(async () => {
     const [list, chars] = await Promise.all([

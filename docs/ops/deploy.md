@@ -181,6 +181,12 @@ which stops the process. `hero-nexus.service` caps restarts at 3 in 5 minutes,
 so a bad migration ends in `failed` state rather than a silent crash-loop, and
 the deploy exits non-zero with the last 80 log lines.
 
+Browsers that installed Hero Nexus, or opened it with offline mode, roll
+forward by themselves. `/sw.js` is served by a route that stamps in
+`.next/BUILD_ID`, so the new build's worker differs byte-for-byte from the old
+one; the browser installs it on the next visit and it drops the old build's
+caches. Nothing in the deploy has to remember to do this.
+
 To re-sync the SRD after an upstream change:
 
 ```

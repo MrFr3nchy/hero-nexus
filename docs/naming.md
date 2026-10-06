@@ -52,6 +52,7 @@ names, they are different things; if they share a name, they are the same thing.
 | What a table has agreed stays out of the story, or off-screen | Lines & veils      | "boundaries", "limits", "safety list"                        |
 | The anonymous "pause and check in" a player can tap           | the X-card         | "safety button", "panic button", "flag"                      |
 | The session before the first, for expectations                | Session zero       | "session 0" (as a label), "kickoff"                          |
+| A roll made with no connection, on this device only           | an offline roll    | "local roll", "unlogged roll"                                |
 
 ## The verbs
 
