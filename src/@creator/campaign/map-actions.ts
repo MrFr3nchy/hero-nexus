@@ -3,16 +3,26 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
+import { FOG_CELLS, MARK_KINDS } from '@/@creator/campaign/lib/party-map';
 import {
+  addJourneyStop,
   addPin,
   createMap,
   deleteMap,
   deletePin,
   listMaps,
+  mapLinks,
+  recordsOnMaps,
+  removeJourneyStop,
+  renameJourneyStop,
+  revealMapCells,
+  setMapFog,
   setMapVisibility,
+  setMarksOpen,
   spotlightMap,
   updatePin,
   type MapRow,
+  type RecordOnMap,
 } from '@/server/maps';
 
 type Result<T = undefined> =
@@ -26,17 +36,26 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     SESSION_STALE: 'Your session is out of date. Sign in again.',
     NOT_FOUND: 'That no longer exists.',
     FORBIDDEN: 'You do not have permission to do that.',
+    MARKS_CLOSED: 'The DM has not opened this map for marks.',
+    IN_FOG: 'That part of the map is still in fog.',
   };
   if (!messages[code]) console.error('[action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
 }
 
+const link = z.string().min(1).max(64).nullable().optional();
+
 const pinSchema = z.object({
   x: z.number(),
   y: z.number(),
   label: z.string().trim().max(120).optional(),
+  kind: z.enum(MARK_KINDS).optional(),
+  note: z.string().max(2000).optional(),
   dmNote: z.string().max(2000).optional(),
-  canonEntryId: z.string().min(1).nullable().optional(),
+  canonEntryId: link,
+  questId: link,
+  sessionId: link,
+  journalId: link,
   visibility: z.enum(['dm', 'shared']).optional(),
 });
 
@@ -150,5 +169,122 @@ export async function spotlightMapAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Could not put that up.');
+  }
+}
+
+/** Let players put marks on a map, or stop them. Staff only. */
+export async function setMarksOpenAction(
+  mapId: string,
+  open: boolean
+): Promise<Result> {
+  try {
+    await setMarksOpen(mapId, open === true);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not change who may mark the map.');
+  }
+}
+
+/** Fog of war on or off. Staff only. */
+export async function setMapFogAction(
+  mapId: string,
+  fogged: boolean
+): Promise<Result> {
+  try {
+    await setMapFog(mapId, fogged === true);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not change the fog.');
+  }
+}
+
+/** Reveal cells of the map, or cover them again. Staff only. */
+export async function revealMapCellsAction(
+  mapId: string,
+  cells: unknown,
+  reveal: boolean
+): Promise<Result> {
+  const parsed = z
+    .array(
+      z
+        .number()
+        .int()
+        .min(0)
+        .max(FOG_CELLS - 1)
+    )
+    .max(FOG_CELLS)
+    .safeParse(cells);
+  if (!parsed.success) return { ok: false, error: 'Nothing to reveal.' };
+  try {
+    await revealMapCells(mapId, parsed.data, reveal === true);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not reveal that.');
+  }
+}
+
+const stopSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  label: z.string().trim().max(120).optional(),
+  pinId: z.string().min(1).max(64).nullable().optional(),
+});
+
+/** The party is here: the next stop on the journey. Staff only. */
+export async function addJourneyStopAction(
+  mapId: string,
+  input: unknown
+): Promise<Result<{ id: string }>> {
+  const parsed = stopSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'That did not read.' };
+  try {
+    return { ok: true, data: { id: await addJourneyStop(mapId, parsed.data) } };
+  } catch (err) {
+    return fail(err, 'Could not put the party there.');
+  }
+}
+
+export async function removeJourneyStopAction(stopId: string): Promise<Result> {
+  try {
+    await removeJourneyStop(stopId);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not take that stop off.');
+  }
+}
+
+/** Where on the maps each quest, session and journal page is. */
+export async function recordsOnMapsAction(
+  campaignId: string
+): Promise<RecordOnMap[]> {
+  try {
+    return await recordsOnMaps(campaignId);
+  } catch {
+    return [];
+  }
+}
+
+export async function mapLinksAction(
+  campaignId: string
+): Promise<{ records: RecordOnMap[]; canPlace: boolean }> {
+  try {
+    return await mapLinks(campaignId);
+  } catch {
+    return { records: [], canPlace: false };
+  }
+}
+
+export async function renameJourneyStopAction(
+  stopId: string,
+  label: string
+): Promise<Result> {
+  if (typeof label !== 'string' || label.length > 120) {
+    return { ok: false, error: 'A shorter name.' };
+  }
+  try {
+    await renameJourneyStop(stopId, label);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not name that stop.');
   }
 }

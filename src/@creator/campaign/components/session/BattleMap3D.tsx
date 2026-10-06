@@ -546,6 +546,67 @@ export function buildTerrain(
     group.add(mesh);
   }
 
+  /* --- the floor's picture (board v3) ------------------------------- */
+
+  // One quad per tile that exists, a hair above its top, each carrying its
+  // own slice of the picture — so a dais lifts its part of the painting and
+  // a pit drops its part, and a tile the fog of war made void carries none.
+  // One mesh, one draw call; never a raycast target, so picking a tile
+  // still lands on the floor instances above.
+  const backdropImage = doc.backdrop ? pictureFor(doc.backdrop.imageId) : null;
+  if (doc.backdrop && backdropImage) {
+    const positions: number[] = [];
+    const uvs: number[] = [];
+    const lift = 0.004;
+    for (let i = 0; i < doc.w * doc.h; i++) {
+      if (doc.material[i] === VOID) continue;
+      const x = i % doc.w;
+      const z = Math.floor(i / doc.w);
+      const y = doc.elevation[i] / FEET_PER_UNIT + lift;
+      const u0 = x / doc.w;
+      const u1 = (x + 1) / doc.w;
+      const v0 = 1 - z / doc.h;
+      const v1 = 1 - (z + 1) / doc.h;
+      // Two triangles, wound to face up (+y).
+      positions.push(x, y, z, x, y, z + 1, x + 1, y, z);
+      uvs.push(u0, v0, u0, v1, u1, v0);
+      positions.push(x + 1, y, z, x, y, z + 1, x + 1, y, z + 1);
+      uvs.push(u1, v0, u0, v1, u1, v1);
+    }
+    if (positions.length > 0) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute(
+        'position',
+        new THREE.Float32BufferAttribute(positions, 3)
+      );
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.computeVertexNormals();
+      const tex = new THREE.Texture(backdropImage);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      tex.needsUpdate = true;
+      const opacity = doc.backdrop.opacity;
+      const picture = new THREE.Mesh(
+        geo,
+        new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.95,
+          metalness: 0,
+          transparent: opacity < 1,
+          opacity,
+          // Above the tile tops it lies on, never fighting them for depth.
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
+        })
+      );
+      picture.receiveShadow = true;
+      picture.raycast = () => {};
+      picture.userData.backdrop = true;
+      group.add(picture);
+    }
+  }
+
   /* --- walls ---------------------------------------------------------- */
 
   // Where an edge sits: its centre, the height of the higher of its two

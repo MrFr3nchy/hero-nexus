@@ -18,6 +18,7 @@ import type { CampaignMemberRow, CampaignRole } from '@/server/campaigns';
 import {
   CANON_KINDS,
   CANON_KIND_FIELDS,
+  STAT_KINDS,
   CANON_KIND_GLYPHS,
   CANON_KIND_LABELS,
   type CanonCollectionRow,
@@ -41,6 +42,7 @@ import {
   updateCanonAction,
   updateCanonCollectionAction,
 } from '../canon-actions';
+import { FactionStanding, NpcDepth } from './NpcDepth';
 import { ImagePicker } from './ImagePicker';
 
 /**
@@ -599,6 +601,14 @@ function CanonCard({
               </span>
             ))}
           </div>
+        )}
+
+        {isStaff && STAT_KINDS.includes(entry.kind) && (
+          <NpcDepth campaignId={campaignId} entry={entry} act={act} />
+        )}
+
+        {entry.kind === 'faction' && (
+          <FactionStanding entry={entry} isStaff={isStaff} act={act} />
         )}
 
         {isStaff && (

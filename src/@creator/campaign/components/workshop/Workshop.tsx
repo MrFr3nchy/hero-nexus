@@ -137,6 +137,7 @@ const TOOL_GLYPH: Record<WorkshopTool, Parameters<typeof Glyph>[0]['name']> = {
   stamps: 'stamp',
   things: 'chest',
   light: 'candle',
+  backdrop: 'picture',
   erase: 'eraser',
   fog: 'fog',
 };
@@ -1082,6 +1083,7 @@ export function Workshop({
     const urls = new Set<string>();
     for (const t of tokens) if (t.imageUrl) urls.add(t.imageUrl);
     for (const level of doc?.levels ?? []) {
+      if (level.backdrop) urls.add(imageUrlFor(level.backdrop.imageId));
       for (const pr of level.props) {
         if (pr.kind === 'image' && pr.imageId) {
           urls.add(imageUrlFor(pr.imageId));
@@ -1633,6 +1635,13 @@ export function Workshop({
               onSaveStamp={saveAsStamp}
               campaignId={campaignId}
               onAmbient={a => putLevel({ ...terrain, ambient: a })}
+              onBackdrop={backdrop =>
+                putLevel(
+                  backdrop
+                    ? { ...terrain, backdrop }
+                    : ({ ...terrain, backdrop: undefined } as typeof terrain)
+                )
+              }
               onWeather={w =>
                 putLevel(
                   // Clear is the absence of weather, not a value to store.

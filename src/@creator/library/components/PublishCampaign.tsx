@@ -74,6 +74,7 @@ export function PublishCampaign({
               <li>Quests and their objectives</li>
               <li>Your prep notes</li>
               <li>Maps, their marks, and the pictures behind them</li>
+              <li>Your random tables</li>
               <li>Every piece of homebrew in play here</li>
             </ul>
           </div>

@@ -32,6 +32,7 @@ export type CaptureKind =
   | 'session'
   | 'note'
   | 'loot'
+  | 'random-table'
   | CanonKind;
 
 export interface CaptureSpec {
@@ -93,6 +94,15 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     article: 'a piece of loot',
     tail: 'quantity',
     hint: 'Something the party is carrying. After a comma: how many.',
+    players: false,
+  },
+  {
+    // Two words, always: "table" alone is the people playing (naming.md).
+    kind: 'random-table',
+    words: ['random table', 'random-table'],
+    article: 'a random table',
+    tail: null,
+    hint: 'A random table to roll on. Its entries go in on the campaign page; roll it with “roll <its name>”.',
     players: false,
   },
   {
@@ -177,12 +187,16 @@ export function parseCapture(line: string): Capture | null {
   const rest = text.slice(1).trim();
   if (!rest) return null;
 
-  const space = rest.search(/\s/);
-  if (space < 0) return null;
-  const spec = specFor(rest.slice(0, space));
-  if (!spec) return null;
+  // The longest word that the line starts with, so a two-word kind
+  // ("random table") is read whole rather than as "random".
+  const lower = rest.toLowerCase();
+  const match = CAPTURE_SPECS.flatMap(sp => sp.words.map(w => ({ sp, w })))
+    .filter(({ w }) => lower.startsWith(w) && /\s/.test(rest[w.length] ?? ''))
+    .sort((a, b) => b.w.length - a.w.length)[0];
+  if (!match) return null;
+  const spec = match.sp;
 
-  const body = rest.slice(space + 1).trim();
+  const body = rest.slice(match.w.length).trim();
   if (!body) return null;
 
   // A kind with no second field keeps its commas: "Quill, keeper of the
@@ -191,7 +205,9 @@ export function parseCapture(line: string): Capture | null {
     return { spec, title: body, tail: '', number: null };
   }
 
-  const comma = body.lastIndexOf(',');
+  // The first comma, so a summary may carry commas of its own: "Quill,
+  // keeper of the chapel, warden of the bells" is a name and one summary.
+  const comma = body.indexOf(',');
   if (comma < 0) return { spec, title: body, tail: '', number: null };
 
   const title = body.slice(0, comma).trim();
@@ -229,6 +245,16 @@ export function describeCapture(capture: Capture): string {
     default:
       return `${head} — ${tail}`;
   }
+}
+
+/**
+ * `roll Tavern names` — roll on a random table by its name. No `+`, because
+ * it writes nothing to the record but a line in Dice; `+` keeps meaning
+ * "write". Null for anything else, which stays a search.
+ */
+export function parseRollCapture(line: string): string | null {
+  const m = /^roll\s+(.+)$/i.exec(line.trim());
+  return m ? m[1].trim() : null;
 }
 
 /** Whether a canon kind is what this capture writes. */

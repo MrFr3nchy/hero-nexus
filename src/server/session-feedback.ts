@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
@@ -171,10 +171,23 @@ export async function lastFeedbackQuestions(
   campaignId: string
 ): Promise<FeedbackQuestion[] | null> {
   await requireCampaignRole(campaignId, ['gm', 'co-gm']);
-  const last = await db.query.sessionFeedbackForms.findFirst({
-    where: eq(sessionFeedbackForms.campaignId, campaignId),
-    orderBy: [desc(sessionFeedbackForms.createdAt)],
-  });
+  // Session zero's questionnaire is not an after-the-night form; never offer
+  // it as "the same questions as last time".
+  const [last] = await db
+    .select({ questions: sessionFeedbackForms.questions })
+    .from(sessionFeedbackForms)
+    .innerJoin(
+      campaignSessions,
+      eq(campaignSessions.id, sessionFeedbackForms.sessionId)
+    )
+    .where(
+      and(
+        eq(sessionFeedbackForms.campaignId, campaignId),
+        ne(campaignSessions.number, 0)
+      )
+    )
+    .orderBy(desc(sessionFeedbackForms.createdAt))
+    .limit(1);
   if (!last) return null;
   const questions = readQuestions(last.questions);
   return questions.length > 0 ? questions : null;

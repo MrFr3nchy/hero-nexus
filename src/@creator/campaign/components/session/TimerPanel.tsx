@@ -5,14 +5,20 @@ import { useEffect, useState } from 'react';
 
 import { Glyph, SectionCard } from '@/@shared/components/ui';
 import type { LiveState, TimerRow } from '@/server/session';
-import { startTimerAction, stopTimerAction } from '../../actions';
+import {
+  resumeTimersAction,
+  startTimerAction,
+  stopTimerAction,
+} from '../../actions';
 
 /**
  * Seconds left, or 0. Computed from the instant, never sent as a number —
  * a remaining-seconds count is stale before it arrives.
  */
-function secondsLeft(endsAt: string, now: number): number {
-  return Math.max(0, Math.ceil((new Date(endsAt).getTime() - now) / 1000));
+function secondsLeft(timer: TimerRow, now: number): number {
+  // A held countdown stands still at what it had when the X-card was tapped.
+  const at = timer.pausedAt ? new Date(timer.pausedAt).getTime() : now;
+  return Math.max(0, Math.ceil((new Date(timer.endsAt).getTime() - at) / 1000));
 }
 
 function clock(seconds: number): string {
@@ -89,7 +95,7 @@ function OneTimer({
   campaignId: string;
   onChange: () => void;
 }) {
-  const left = secondsLeft(timer.endsAt, now);
+  const left = secondsLeft(timer, now);
   const total = Math.max(
     1,
     Math.round(
@@ -111,6 +117,7 @@ function OneTimer({
           {spent ? 'Time' : clock(left)}
         </div>
         <div className="truncate text-xs text-ink-muted">
+          {timer.pausedAt ? 'Held · ' : ''}
           {timer.label || 'Counting down'}
         </div>
       </div>
@@ -183,6 +190,7 @@ export function TimerPanel({
   };
 
   const timers = state.timers ?? [];
+  const held = timers.some(t => t.pausedAt);
 
   return (
     <SectionCard
@@ -205,6 +213,26 @@ export function TimerPanel({
               onChange={refresh}
             />
           ))}
+        </div>
+      )}
+
+      {held && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <p className="flex-1 text-sm text-ink-muted">
+            The sand is held — someone tapped the X-card.
+          </p>
+          {isStaff && (
+            <Button
+              size="sm"
+              variant="flat"
+              onPress={async () => {
+                await resumeTimersAction(campaignId);
+                await refresh();
+              }}
+            >
+              Resume
+            </Button>
+          )}
         </div>
       )}
 

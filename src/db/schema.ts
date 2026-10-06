@@ -367,6 +367,11 @@ export const campaignMembers = sqliteTable(
       .notNull()
       .default('active'),
     joinedAt: text('joined_at').default(nowIso).notNull(),
+    /**
+     * The member's own Discord user id (0066), so a post to the campaign's
+     * channel can mention them. Theirs to set; digits only.
+     */
+    discordUserId: text('discord_user_id'),
   },
   t => [
     uniqueIndex('campaign_members_campaign_user_idx').on(
@@ -800,6 +805,20 @@ export const canonEntries = sqliteTable(
       .default('dm'),
     /** When, on the world's clock (`WorldTime`, JSON). Optional. */
     worldDate: text('world_date', { mode: 'json' }),
+    /**
+     * An NPC's attitude toward the party (0069), the 2024 rules' three.
+     * DM-private: a column rather than a `fields` key, because `fields`
+     * reaches players unfiltered. Nulled for non-staff in `listCanon`.
+     */
+    attitude: text('attitude', {
+      enum: ['friendly', 'indifferent', 'hostile'],
+    }),
+    /**
+     * The stat block this entry acts with (0069), as a `ContentRef` whose
+     * type is always `creature`. Never copied stats. Staff only.
+     */
+    statSource: text('stat_source', { enum: ['srd', 'homebrew'] }),
+    statKey: text('stat_key'),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -1082,6 +1101,11 @@ export const campaignSessions = sqliteTable(
     recapVisibility: text('recap_visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('dm'),
+    /**
+     * When the day-ahead Discord reminder went out (0066). The column is what
+     * makes the reminder loop safe across restarts; moving the date clears it.
+     */
+    remindedAt: text('reminded_at'),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -1707,6 +1731,11 @@ export const campaignTimers = sqliteTable(
      * otherwise.
      */
     stoppedAt: text('stopped_at'),
+    /**
+     * Set while the sand is held (0067) — an X-card tap pauses every running
+     * countdown. Resuming moves `endsAt` on by the time spent paused.
+     */
+    pausedAt: text('paused_at'),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -1803,6 +1832,16 @@ export const campaignMaps = sqliteTable(
     spotlighted: integer('spotlighted', { mode: 'boolean' })
       .notNull()
       .default(false),
+    /** Players may put marks on it (0071). Seen by everyone at once. */
+    marksOpen: integer('marks_open', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    /** Fog of war over the picture (0071): only revealed cells show. */
+    fogged: integer('fogged', { mode: 'boolean' }).notNull().default(false),
+    /** Revealed cell indices on the fog lattice (`lib/party-map.ts`). */
+    revealed: text('revealed', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
     sortOrder: integer('sort_order').notNull().default(0),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
@@ -1845,6 +1884,28 @@ export const campaignMapPins = sqliteTable(
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('dm'),
+    /** What sort of place (0071). Decides its glyph. */
+    kind: text('kind', {
+      enum: ['place', 'danger', 'treasure', 'rumour', 'camp', 'note'],
+    })
+      .notNull()
+      .default('place'),
+    /** What the party wrote about it (0071). `dmNote` stays the DM's. */
+    note: text('note').notNull().default(''),
+    /** Who put it there (0071). A player edits only their own. */
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    /** What else in the record happened here (0071). */
+    questId: text('quest_id').references(() => campaignQuests.id, {
+      onDelete: 'set null',
+    }),
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    journalId: text('journal_id').references(() => playerJournals.id, {
+      onDelete: 'set null',
+    }),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
@@ -2738,4 +2799,146 @@ export const sessionFeedbackResponses = sqliteTable(
       t.userId
     ),
   ]
+);
+
+/* --- Discord notifications (0066) -------------------------------------- */
+
+/**
+ * A campaign's Discord channel webhook. Its own table rather than a key in
+ * `campaigns.settings`, because settings reach every member and travel in
+ * campaign packages, and the URL is a write credential. Staff read it, and
+ * only ever masked; it is never carried.
+ */
+export const campaignDiscord = sqliteTable('campaign_discord', {
+  campaignId: text('campaign_id')
+    .primaryKey()
+    .references(() => campaigns.id, { onDelete: 'cascade' }),
+  webhookUrl: text('webhook_url').notNull(),
+  /** JSON `{ [DiscordTrigger]: boolean }`. A missing key is on. */
+  events: text('events', { mode: 'json' })
+    .notNull()
+    .default(sql`'{}'`),
+  /** The last failed post, for the card. Cleared by the next success. */
+  lastError: text('last_error'),
+  updatedAt: text('updated_at').default(nowIso).notNull(),
+});
+
+/* --- Safety tools (0067) ------------------------------------------------ */
+
+/**
+ * The table's lines and veils. **No user id, on purpose**: a player's
+ * addition is anonymous because nothing stores who made it, so no read path
+ * and no bug can say. `source` is only staff or player. Never carried.
+ */
+export const campaignSafety = sqliteTable(
+  'campaign_safety',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** A line is not crossed at all; a veil happens off-screen. */
+    kind: text('kind', { enum: ['line', 'veil'] }).notNull(),
+    text: text('text').notNull(),
+    source: text('source', { enum: ['staff', 'player'] }).notNull(),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_safety_campaign_idx').on(t.campaignId)]
+);
+
+/* --- Random tables (0068) ------------------------------------------------ */
+
+/**
+ * A DM's random table: weighted entries, the die derived from the total
+ * weight. Prep, so it is carried in campaign packages.
+ */
+export const randomTables = sqliteTable(
+  'random_tables',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    /**
+     * Faces on the die it rolls on (0070): 4, 6, 8, 10, 12, 20 or 100. Zero
+     * is a table from before, read off its weights.
+     */
+    die: integer('die').notNull().default(0),
+    /**
+     * JSON `[{ text, from, to }]` — each entry's run of faces (0070). A
+     * table from 0068 holds `[{ text, weight }]`; `normalizeTable` reads both.
+     */
+    entries: text('entries', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('random_tables_campaign_idx').on(t.campaignId)]
+);
+
+/* --- Faction standing (0069) --------------------------------------------- */
+
+/**
+ * One change to the party's standing with a faction, and why. Standing is
+ * the sum; the party's view is the sum of the changes it has been shown.
+ * The record of a table that was played — never carried in a package.
+ */
+export const factionStanding = sqliteTable(
+  'faction_standing',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    canonEntryId: text('canon_entry_id')
+      .notNull()
+      .references(() => canonEntries.id, { onDelete: 'cascade' }),
+    delta: integer('delta').notNull(),
+    reason: text('reason').notNull().default(''),
+    /** The party has been shown this change. */
+    shown: integer('shown', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('faction_standing_entry_idx').on(t.canonEntryId)]
+);
+
+/* --- The journey (0071) --------------------------------------------------- */
+
+/**
+ * The party's route across a map: numbered stops, each stamped with the
+ * session it was reached in and the world's date. Staff place them. The
+ * record of a table that was played — never carried in a package.
+ */
+export const mapJourney = sqliteTable(
+  'map_journey',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    mapId: text('map_id')
+      .notNull()
+      .references(() => campaignMaps.id, { onDelete: 'cascade' }),
+    /** 1, 2, 3… in the order the party went. */
+    seq: integer('seq').notNull(),
+    x: real('x').notNull(),
+    y: real('y').notNull(),
+    label: text('label').notNull().default(''),
+    /** The mark it stands on, when it was put on one. */
+    pinId: text('pin_id').references(() => campaignMapPins.id, {
+      onDelete: 'set null',
+    }),
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    /** `WorldTime`, JSON, when the table was counting. */
+    worldDate: text('world_date', { mode: 'json' }),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('map_journey_map_idx').on(t.mapId, t.seq)]
 );

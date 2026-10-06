@@ -18,6 +18,7 @@ export type WorkshopTool =
   | 'stamps'
   | 'things'
   | 'light'
+  | 'backdrop'
   | 'erase'
   | 'fog';
 
@@ -87,6 +88,12 @@ export const TOOLS: readonly ToolSpec[] = [
     label: 'Light',
     name: 'Light and sky',
     hint: 'tap for a torch or a brazier; the weather is here too',
+  },
+  {
+    id: 'backdrop',
+    label: 'Backdrop',
+    name: 'Backdrop',
+    hint: 'a painted map as this floor — walls and doors go on top',
   },
   {
     id: 'erase',

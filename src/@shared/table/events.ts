@@ -47,6 +47,7 @@ export const TABLE_EVENT_KINDS = [
   'ambience',
   'sound',
   'ping',
+  'safety',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -137,6 +138,22 @@ export interface PingEvent extends BaseEvent {
   y: number;
   /** Who pointed: their hero's name, or their own. */
   name: string;
+}
+
+/**
+ * Somebody tapped the X-card (0067).
+ *
+ * Published to `'staff'` with `by: null`, always, and carries nothing else:
+ * no name, no user id, no character. `reaches` lets staff see everything
+ * addressed to anybody, so an identity in the payload would reach the DM —
+ * anonymity is in what this shape cannot hold. Nothing is stored; a replay
+ * on reconnect is dropped by `id`.
+ */
+export interface SafetyEvent extends BaseEvent {
+  kind: 'safety';
+  by: null;
+  /** How many countdowns the tap held, so the DM knows to resume them. */
+  pausedTimers: number;
 }
 
 /** Sand started falling. Expiry is a state and deliberately fires nothing. */
@@ -419,7 +436,8 @@ export type TableEvent =
   | UndoEvent
   | AmbienceEvent
   | SoundEvent
-  | PingEvent;
+  | PingEvent
+  | SafetyEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -451,6 +469,7 @@ function ordinal(n: number): string {
 }
 
 const GLYPHS: Record<TableEventKind, GlyphName> = {
+  safety: 'x',
   sound: 'speaker',
   ping: 'target',
   roll: 'die',
@@ -826,6 +845,18 @@ export function describe(
         tone: event.state === 'done' ? 'success' : 'danger',
       };
     }
+
+    case 'safety':
+      return {
+        glyph,
+        title: 'Someone tapped the X-card',
+        detail:
+          event.pausedTimers > 0
+            ? 'Pause and check in. The hourglass is held until you resume it.'
+            : 'Pause and check in with the table.',
+        tone: 'arcane',
+        asks: true,
+      };
 
     case 'ping':
       return {

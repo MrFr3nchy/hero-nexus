@@ -792,8 +792,12 @@ export function BattleBoard({
     for (const pr of terrain?.props ?? []) {
       if (pr.kind === 'image' && pr.imageId) urls.add(imageUrlFor(pr.imageId));
     }
+    // Every floor's backdrop: the stood-up board shows them all.
+    for (const level of doc?.levels ?? []) {
+      if (level.backdrop) urls.add(imageUrlFor(level.backdrop.imageId));
+    }
     return [...urls];
-  }, [state.portraits, board?.tokens, terrain?.props, imageUrlFor]);
+  }, [state.portraits, board?.tokens, terrain?.props, doc, imageUrlFor]);
   const faces = usePortraits(portraitUrls);
 
   // Pings on this board. A floor the reader's document does not hold is one

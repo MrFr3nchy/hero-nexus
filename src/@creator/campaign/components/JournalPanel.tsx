@@ -19,6 +19,7 @@ import {
   listJournalsAction,
   updateJournalAction,
 } from '../journal-actions';
+import { OnTheMap, useMapLinks, type MapLinks } from './OnTheMap';
 
 /**
  * Who gets to read it.
@@ -46,11 +47,13 @@ function Page({
   page,
   refresh,
   onError,
+  mapLinks,
 }: {
   campaignId: string;
   page: JournalRow;
   refresh: () => Promise<void>;
   onError: (message: string) => void;
+  mapLinks: MapLinks | null;
 }) {
   const [draft, setDraft] = useState({ title: page.title, body: page.body });
   const [dirty, setDirty] = useState(false);
@@ -77,6 +80,14 @@ function Page({
         <p className="whitespace-pre-wrap font-hand text-[1.1875rem] leading-relaxed text-ink-muted">
           {page.body}
         </p>
+        <div className="mt-2">
+          <OnTheMap
+            campaignId={campaignId}
+            links={mapLinks}
+            kind="journal"
+            id={page.id}
+          />
+        </div>
       </SectionCard>
     );
   }
@@ -180,6 +191,12 @@ function Page({
             <span className="text-xs text-ink-subtle">{audience.hint}</span>
           )}
         </div>
+        <OnTheMap
+          campaignId={campaignId}
+          links={mapLinks}
+          kind="journal"
+          id={page.id}
+        />
       </div>
     </SectionCard>
   );
@@ -203,6 +220,7 @@ export function JournalPanel({
 }) {
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
 
+  const mapLinks = useMapLinks(campaignId);
   const [pages, setPages] = useState<JournalRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -294,6 +312,7 @@ export function JournalPanel({
               page={p}
               refresh={refresh}
               onError={setError}
+              mapLinks={mapLinks}
             />
           ))}
 
@@ -309,6 +328,7 @@ export function JournalPanel({
                   page={p}
                   refresh={refresh}
                   onError={setError}
+                  mapLinks={mapLinks}
                 />
               ))}
             </>

@@ -1,0 +1,114 @@
+{
+  "id": 1,
+  "success": true,
+  "message": "Character successfully received.",
+  "data": {
+    "id": 123456789,
+    "name": "Ilsa Thorn",
+    "alignmentId": 2,
+    "currentXp": 2700,
+    "baseHitPoints": 21,
+    "bonusHitPoints": null,
+    "overrideHitPoints": null,
+    "stats": [
+      { "id": 1, "value": 8 },
+      { "id": 2, "value": 14 },
+      { "id": 3, "value": 13 },
+      { "id": 4, "value": 15 },
+      { "id": 5, "value": 12 },
+      { "id": 6, "value": 10 }
+    ],
+    "bonusStats": [
+      { "id": 1, "value": null },
+      { "id": 2, "value": null },
+      { "id": 3, "value": 1 },
+      { "id": 4, "value": null },
+      { "id": 5, "value": null },
+      { "id": 6, "value": null }
+    ],
+    "overrideStats": [
+      { "id": 1, "value": null },
+      { "id": 2, "value": null },
+      { "id": 3, "value": null },
+      { "id": 4, "value": null },
+      { "id": 5, "value": null },
+      { "id": 6, "value": 11 }
+    ],
+    "modifiers": {
+      "race": [
+        { "type": "bonus", "subType": "intelligence-score", "value": 2 },
+        { "type": "proficiency", "subType": "perception", "value": null }
+      ],
+      "class": [],
+      "background": [],
+      "item": [{ "type": "set", "subType": "strength-score", "value": 19 }],
+      "feat": []
+    },
+    "race": { "fullName": "High Elf", "baseName": "Elf" },
+    "background": { "definition": { "name": "Sage" } },
+    "classes": [
+      {
+        "level": 3,
+        "isStartingClass": true,
+        "definition": { "name": "Wizard", "hitDice": 6 },
+        "subclassDefinition": { "name": "School of Evocation" }
+      },
+      {
+        "level": 1,
+        "isStartingClass": false,
+        "definition": { "name": "Fighter", "hitDice": 10 },
+        "subclassDefinition": null
+      }
+    ],
+    "inventory": [
+      { "quantity": 1, "equipped": true, "definition": { "name": "Dagger" } },
+      {
+        "quantity": 2,
+        "equipped": false,
+        "definition": { "name": "Potion of Healing" }
+      },
+      {
+        "quantity": 1,
+        "equipped": false,
+        "definition": { "name": "Bag of Tricks (Rust)" }
+      }
+    ],
+    "classSpells": [
+      {
+        "characterClassId": 1,
+        "spells": [
+          {
+            "prepared": true,
+            "definition": { "name": "Magic Missile", "level": 1 }
+          },
+          {
+            "prepared": false,
+            "definition": { "name": "Fire Bolt", "level": 0 }
+          },
+          {
+            "prepared": true,
+            "definition": { "name": "Tasha's Caustic Brew", "level": 1 }
+          }
+        ]
+      }
+    ],
+    "spells": {
+      "race": [{ "definition": { "name": "Fire Bolt", "level": 0 } }],
+      "item": null,
+      "feat": []
+    },
+    "currencies": { "cp": 3, "sp": 0, "gp": 41, "ep": 0, "pp": 0 },
+    "notes": {
+      "backstory": "Raised in the library at Candlekeep.",
+      "allies": "The Lantern Society",
+      "otherNotes": null
+    },
+    "traits": {
+      "personalityTraits": "Always takes notes.",
+      "ideals": "Knowledge.",
+      "bonds": null,
+      "flaws": "",
+      "appearance": "Ink on every finger."
+    }
+  }
+}

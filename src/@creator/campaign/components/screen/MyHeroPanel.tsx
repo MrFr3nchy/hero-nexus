@@ -249,7 +249,13 @@ export function MyHeroPanel({
 }) {
   // At most one, by the unique index on `(campaignId, userId)` — a player
   // fields one character per table.
-  const mine = myCharacters.find(c => c.table?.campaignId === campaignId);
+  //
+  // Offline the list of the viewer's characters cannot be read, but the live
+  // state this device last saw still names their seated hero — enough for
+  // the card, whose numbers come from that state anyway.
+  const mine: { id: string; name: string } | undefined =
+    myCharacters.find(c => c.table?.campaignId === campaignId) ??
+    (play ? { id: play.characterId, name: play.name } : undefined);
   const [loadout, setLoadout] = useState<PlayLoadout | null>(null);
   // A local copy so a press moves the number before the round trip lands;
   // the next live read overwrites it with the same answer — the party panel's
@@ -257,19 +263,23 @@ export function MyHeroPanel({
   const [local, setLocal] = useState<PlayState | undefined>(play);
   useEffect(() => setLocal(play), [play]);
 
+  const mineId = mine?.id ?? null;
   useEffect(() => {
-    if (!mine) {
+    if (!mineId) {
       setLoadout(null);
       return;
     }
     let live = true;
-    getPlayLoadoutAction(mine.id, campaignId).then(next => {
-      if (live) setLoadout(next);
-    });
+    getPlayLoadoutAction(mineId, campaignId)
+      .then(next => {
+        if (live) setLoadout(next);
+      })
+      // Offline: no loadout, and the card still shows the numbers.
+      .catch(() => {});
     return () => {
       live = false;
     };
-  }, [mine, campaignId, loadoutKey]);
+  }, [mineId, campaignId, loadoutKey]);
 
   if (!mine) {
     return (

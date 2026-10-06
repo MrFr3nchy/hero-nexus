@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { reportConnection } from '@/@shared/offline/client';
+import { CACHED_HEADER } from '@/@shared/offline/service-worker';
 import { joinTable } from '@/@shared/table/connection';
 import type { LiveState } from '@/server/session';
 
@@ -15,7 +17,7 @@ import type { LiveState } from '@/server/session';
 async function readState(
   campaignId: string,
   etag: string | null
-): Promise<{ text: string; etag: string | null } | null> {
+): Promise<{ text: string; etag: string | null; cached: boolean } | null> {
   const res = await fetch(`/api/campaigns/${campaignId}/state`, {
     cache: 'no-store',
     credentials: 'same-origin',
@@ -23,7 +25,12 @@ async function readState(
   });
   if (res.status === 304) return null;
   if (!res.ok) throw new Error(`state ${res.status}`);
-  return { text: await res.text(), etag: res.headers.get('ETag') };
+  return {
+    text: await res.text(),
+    etag: res.headers.get('ETag'),
+    // The service worker answered from this device's cache: no network.
+    cached: res.headers.get(CACHED_HEADER) === '1',
+  };
 }
 
 /**
@@ -57,6 +64,8 @@ export function useCampaignLive(campaignId: string) {
   const [state, setState] = useState<LiveState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  /** The last read failed: what is on screen is the last state seen. */
+  const [offline, setOffline] = useState(false);
   /**
    * When the last answer landed, for the status language: a panel with the
    * stream down says "stale 40s" rather than looking current. Null until the
@@ -93,14 +102,18 @@ export function useCampaignLive(campaignId: string) {
     }
     inFlight.current = true;
     try {
+      let cached = false;
       do {
         missed.current = false;
         const read = await readState(campaignId, etag.current);
+        cached = read?.cached ?? false;
         // `updatedAt` still moves: the answer did land, and the status
         // language's "stale 40s" is about the answer, not about change.
         setUpdatedAt(Date.now());
         if (read) {
-          etag.current = read.etag;
+          // A cached answer's tag is not one the server should be asked
+          // about; the next live read starts fresh.
+          etag.current = read.cached ? null : read.etag;
           if (read.text !== fingerprint.current) {
             fingerprint.current = read.text;
             setState(JSON.parse(read.text) as LiveState);
@@ -108,8 +121,14 @@ export function useCampaignLive(campaignId: string) {
         }
       } while (missed.current);
       setError(null);
+      setOffline(cached);
+      reportConnection(!cached);
     } catch {
+      // Keep the last state on screen. Offline, the worker answers with the
+      // last state this device saw; with no worker, `state` simply stays.
       setError('Lost connection to the session.');
+      setOffline(true);
+      reportConnection(false);
     } finally {
       inFlight.current = false;
       missed.current = false;
@@ -170,5 +189,5 @@ export function useCampaignLive(campaignId: string) {
     };
   }, [refresh, connected]);
 
-  return { state, error, refresh, connected, updatedAt };
+  return { state, error, refresh, connected, updatedAt, offline };
 }

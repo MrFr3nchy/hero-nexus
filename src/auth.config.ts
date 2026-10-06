@@ -13,6 +13,11 @@ const PUBLIC_PATHS = [
   '/register',
   '/forgot-password',
   '/reset-password',
+  // The install manifest and the service worker (offline mode). A browser
+  // fetches the manifest without cookies; behind the gate it would be a
+  // redirect to /login, and installing would fail without saying why.
+  '/manifest.webmanifest',
+  '/sw.js',
 ];
 
 // Public API routes for the unauthenticated email flows. The token in the

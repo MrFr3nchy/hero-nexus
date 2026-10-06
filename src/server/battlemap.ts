@@ -53,6 +53,7 @@ import {
   levelOf,
   linkOtherEnd,
   normalizeBoard,
+  MATERIALS,
   VOID,
   withLevel,
   type BoardDoc,
@@ -653,6 +654,52 @@ export async function createBattleMap(
       terrain: normalizeBoard(
         emptyTerrain(input.w, input.h, input.material ?? VOID)
       ),
+      revealed: {},
+      createdBy: userId,
+    })
+    .returning({ id: battleMaps.id });
+  return row.id;
+}
+
+/**
+ * A board from a Universal VTT map (7c): the geometry the browser read out
+ * of the file, on a stone floor the size of the map, with the map's picture
+ * as the ground floor's backdrop. The picture was uploaded first (it is far
+ * too big for this request); this checks it belongs to this campaign.
+ * Everything else goes through `normalizeBoard`, which drops anything off
+ * the board.
+ */
+export async function importUvttBoard(
+  campaignId: string,
+  input: {
+    name: string;
+    w: number;
+    h: number;
+    walls: unknown[];
+    lights: unknown[];
+    imageId: string | null;
+  }
+): Promise<string> {
+  const { userId } = await staff(campaignId);
+  if (input.imageId) {
+    const image = await getCampaignImage(input.imageId);
+    if (!image || image.campaignId !== campaignId) throw new Error('NOT_FOUND');
+  }
+  const stone = MATERIALS.findIndex(m => m.key === 'stone');
+  const terrain = normalizeBoard({
+    ...emptyTerrain(input.w, input.h, stone > 0 ? stone : VOID),
+    walls: input.walls,
+    lights: input.lights,
+    ...(input.imageId
+      ? { backdrop: { imageId: input.imageId, opacity: 1 } }
+      : {}),
+  });
+  const [row] = await db
+    .insert(battleMaps)
+    .values({
+      campaignId,
+      name: input.name.trim().slice(0, 120) || 'Imported map',
+      terrain,
       revealed: {},
       createdBy: userId,
     })

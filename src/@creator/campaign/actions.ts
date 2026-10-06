@@ -24,6 +24,7 @@ import {
   deleteEncounter,
   deleteHandout as deleteHandoutSrv,
   endEncounter,
+  resumeTimers,
   startTimer,
   stopTimer,
   removeEntry,
@@ -415,6 +416,11 @@ export async function stopTimerAction(
   timerId: string
 ): Promise<Result> {
   return sessionAction(() => stopTimer(campaignId, timerId));
+}
+
+/** Resume every countdown an X-card tap held. Staff only. */
+export async function resumeTimersAction(campaignId: string): Promise<Result> {
+  return sessionAction(() => resumeTimers(campaignId));
 }
 
 async function sessionAction(fn: () => Promise<unknown>): Promise<Result> {

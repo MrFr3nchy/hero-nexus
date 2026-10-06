@@ -181,6 +181,15 @@ function drawBase(ctx: CanvasRenderingContext2D, a: BaseArgs): void {
   };
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
+  // The floor's picture (board v3), when there is one and it has loaded.
+  // Drawn a tile's slice at a time, on tiles that exist — so the fog of
+  // war, which has already made every unseen tile void, hides it too.
+  const backdrop = terrain.backdrop
+    ? (faces.get(imageUrlFor(terrain.backdrop.imageId)) ?? null)
+    : null;
+  const sliceW = backdrop ? backdrop.naturalWidth / terrain.w : 0;
+  const sliceH = backdrop ? backdrop.naturalHeight / terrain.h : 0;
+  const opacity = terrain.backdrop?.opacity ?? 1;
   for (let y = 0; y < terrain.h; y++) {
     for (let x = 0; x < terrain.w; x++) {
       const i = y * terrain.w + x;
@@ -188,17 +197,35 @@ function drawBase(ctx: CanvasRenderingContext2D, a: BaseArgs): void {
       const px = x * size;
       const py = y * size;
       if (terrain.material[i] === VOID) continue;
-      const art = floorArt(m.key, dark);
-      if (art) ctx.drawImage(art, px, py, size, size);
-      else {
-        ctx.fillStyle = dark ? m.swatchDark : m.swatch;
-        ctx.fillRect(px, py, size, size);
+      if (!backdrop || opacity < 1) {
+        const art = floorArt(m.key, dark);
+        if (art) ctx.drawImage(art, px, py, size, size);
+        else {
+          ctx.fillStyle = dark ? m.swatchDark : m.swatch;
+          ctx.fillRect(px, py, size, size);
+        }
       }
-      const v = ((i * 2654435761) % 1000) / 1000;
-      ctx.fillStyle = v < 0.5 ? '#000000' : '#ffffff';
-      ctx.globalAlpha = Math.abs(v - 0.5) * 0.14;
-      ctx.fillRect(px, py, size, size);
-      ctx.globalAlpha = 1;
+      if (backdrop) {
+        ctx.globalAlpha = opacity;
+        ctx.drawImage(
+          backdrop,
+          x * sliceW,
+          y * sliceH,
+          sliceW,
+          sliceH,
+          px,
+          py,
+          size,
+          size
+        );
+        ctx.globalAlpha = 1;
+      } else {
+        const v = ((i * 2654435761) % 1000) / 1000;
+        ctx.fillStyle = v < 0.5 ? '#000000' : '#ffffff';
+        ctx.globalAlpha = Math.abs(v - 0.5) * 0.14;
+        ctx.fillRect(px, py, size, size);
+        ctx.globalAlpha = 1;
+      }
 
       // Higher ground is lit, lower ground is in shadow — a wash by
       // height, so a stair of ledges reads as a stair.

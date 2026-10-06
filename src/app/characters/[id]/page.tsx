@@ -105,6 +105,12 @@ export default async function CharacterSheetPage({
                 Run this hero
               </Link>
               <Link
+                href={`/characters/${id}/print`}
+                className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-sm text-ink hover:border-gold/60"
+              >
+                Print
+              </Link>
+              <Link
                 href={`/creator/character?id=${id}&intent=level-up`}
                 className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-sm text-ink hover:border-gold/60"
               >

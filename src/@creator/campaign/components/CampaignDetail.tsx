@@ -39,6 +39,8 @@ import { LedgerPanel } from './LedgerPanel';
 import { JournalPanel } from './JournalPanel';
 import { MapPanel } from './MapPanel';
 import { MembersPanel } from './MembersPanel';
+import { RandomTablesPanel } from './RandomTablesPanel';
+import { SafetyPanel } from './SafetyPanel';
 import { NotebookPanel, SharedNotes } from './NotebookPanel';
 import { PartySecrets } from './PartySecrets';
 import { QuestPanel } from './QuestPanel';
@@ -260,7 +262,12 @@ export function CampaignDetail({
       label: 'Rules',
       glyph: 'gavel',
       line: 'What this table plays by — the enforced rules and your own words, in one list.',
-      content: <div className="pt-4">{rulesCard}</div>,
+      content: (
+        <div className="space-y-5 pt-4">
+          {rulesCard}
+          <SafetyPanel campaignId={campaign.id} isStaff={isStaff} />
+        </div>
+      ),
     },
     {
       key: 'quests',
@@ -326,6 +333,19 @@ export function CampaignDetail({
               reloadKey={revealSeq}
             />
           </SectionCard>
+        </div>
+      ),
+    },
+    {
+      key: 'random-tables',
+      group: 'The world',
+      label: 'Random tables',
+      glyph: 'die',
+      line: 'What could happen — tavern names, weather, who comes down the road — rolled when you need one.',
+      staffOnly: true,
+      content: (
+        <div className="pt-4">
+          <RandomTablesPanel campaignId={campaign.id} />
         </div>
       ),
     },

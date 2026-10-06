@@ -13,6 +13,7 @@ import {
   users,
 } from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
+import { announcePoll } from './discord';
 
 /*
  * Finding a night the table can make.
@@ -304,7 +305,7 @@ export async function openPoll(
   });
   if (existing) throw new Error('POLL_OPEN');
 
-  return db.transaction(tx => {
+  const pollId = db.transaction(tx => {
     const [poll] = tx
       .insert(sessionPolls)
       .values({
@@ -326,6 +327,8 @@ export async function openPoll(
       .run();
     return poll.id;
   });
+  announcePoll(session.campaignId, session, null);
+  return pollId;
 }
 
 /**
@@ -393,10 +396,14 @@ export async function settlePoll(
       .where(eq(sessionPolls.id, pollId))
       .run();
     tx.update(campaignSessions)
-      .set({ scheduledFor: option.day, updatedAt: now })
+      .set({ scheduledFor: option.day, remindedAt: null, updatedAt: now })
       .where(eq(campaignSessions.id, poll.sessionId))
       .run();
   });
+  const session = await db.query.campaignSessions.findFirst({
+    where: eq(campaignSessions.id, poll.sessionId),
+  });
+  if (session) announcePoll(poll.campaignId, session, option.day);
 }
 
 /** Take the poll down without choosing. The votes stay as a record. */

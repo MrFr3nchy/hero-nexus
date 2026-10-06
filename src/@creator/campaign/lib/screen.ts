@@ -34,6 +34,7 @@ export const SCREEN_PANEL_KEYS = [
   'timers',
   'ledger',
   'canon',
+  'randomTables',
 ] as const;
 
 export type ScreenPanelKey = (typeof SCREEN_PANEL_KEYS)[number];
@@ -219,6 +220,13 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     glyph: 'tome',
     description: 'The people, places and things this world is made of.',
     players: true,
+  },
+  randomTables: {
+    key: 'randomTables',
+    label: 'Random tables',
+    glyph: 'die',
+    description: 'Your random tables, rolled behind the screen into Dice.',
+    players: false,
   },
 };
 

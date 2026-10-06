@@ -77,6 +77,11 @@ export function ConditionalLayout({ children }: ConditionalLayoutProps) {
   // the ways out — the campaign, the table, the shelf of boards.
   const inTheWorkshop = /^\/campaigns\/[^/]+\/workshop(\/|$)/.test(pathname);
 
+  // A sheet for paper: no shell at all, on screen or when printed.
+  if (currentUser && /^\/characters\/[^/]+\/print$/.test(pathname)) {
+    return <main>{children}</main>;
+  }
+
   // If user is logged in and on a private route, show side navigation
   if (currentUser && isPrivateRoute) {
     return (

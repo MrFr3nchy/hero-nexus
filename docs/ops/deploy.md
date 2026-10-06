@@ -113,7 +113,8 @@ does, step by step, so you can do or redo any part by hand:
 
 6. **Build and seed.** `npm ci`, `npm run build`, then `npm run db:migrate`
    and `npm run db:seed`. The seed fetches the SRD from api.open5e.com into
-   `reference_data` — it is the only outbound call the app ever makes, takes a
+   `reference_data` — a one-off outbound call (the others: mail to Resend,
+   and posts to a Discord webhook when a DM connects one; see `CLAUDE.md`), takes a
    few minutes, and without it the compendium, the character creator's class
    and species lists and the bestiary are empty. Migrations also run at every
    boot; the seed does not.
@@ -179,6 +180,12 @@ Migrations run on restart (`src/instrumentation.ts`) and **throw on failure**,
 which stops the process. `hero-nexus.service` caps restarts at 3 in 5 minutes,
 so a bad migration ends in `failed` state rather than a silent crash-loop, and
 the deploy exits non-zero with the last 80 log lines.
+
+Browsers that installed Hero Nexus, or opened it with offline mode, roll
+forward by themselves. `/sw.js` is served by a route that stamps in
+`.next/BUILD_ID`, so the new build's worker differs byte-for-byte from the old
+one; the browser installs it on the next visit and it drops the old build's
+caches. Nothing in the deploy has to remember to do this.
 
 To re-sync the SRD after an upstream change:
 

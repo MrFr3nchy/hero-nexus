@@ -29,7 +29,12 @@ export const BATTLEMAP_VERSION = 1 as const;
  * stairs are the only thing that knows there is more than one. A stored
  * version-1 document reads as a board with one floor (`normalizeBoard`).
  */
-export const BOARD_VERSION = 2 as const;
+export const BOARD_VERSION = 3 as const;
+/*
+ * Version 3 adds a floor's `backdrop` — a picture drawn as the floor (7c,
+ * the Universal VTT import). Nothing else changed shape: a version-2 board
+ * has no backdrops and reads exactly as it did.
+ */
 
 /** Feet per tile. D&D's grid, and the unit every rule below thinks in. */
 export const TILE_FEET = 5;
@@ -91,6 +96,32 @@ export interface TerrainDoc {
    * and not in the crypt.
    */
   weather?: Weather;
+  /**
+   * A picture that *is* this floor (board version 3): a battle map painted
+   * elsewhere, stretched over the whole grid. Drawn on the tiles' tops in
+   * both views — so elevation and fog of war still hold, because only tiles
+   * that exist (and, for a player, are revealed) carry any of it. Walls,
+   * props, lights and tokens stand on it as on any floor.
+   */
+  backdrop?: Backdrop;
+}
+
+export interface Backdrop {
+  /** A `campaign_images` row of the board's campaign. */
+  imageId: string;
+  /** 0.2–1. Below 1 the tiles' own drawing shows through. */
+  opacity: number;
+}
+
+/** A stored backdrop, or none. */
+export function normalizeBackdrop(raw: unknown): Backdrop | null {
+  const b = (raw ?? {}) as Partial<Backdrop>;
+  if (typeof b.imageId !== 'string' || !b.imageId.trim()) return null;
+  const o = Number(b.opacity);
+  return {
+    imageId: b.imageId.slice(0, 64),
+    opacity: Number.isFinite(o) ? Math.max(0.2, Math.min(1, o)) : 1,
+  };
 }
 
 export type Ambient = 'bright' | 'dim' | 'dark';
@@ -661,6 +692,9 @@ export function normalizeTerrain(raw: unknown): TerrainDoc {
     ...((WEATHERS as readonly unknown[]).includes(src.weather) &&
     src.weather !== 'clear'
       ? { weather: src.weather as Weather }
+      : {}),
+    ...(normalizeBackdrop(src.backdrop)
+      ? { backdrop: normalizeBackdrop(src.backdrop)! }
       : {}),
   };
 }

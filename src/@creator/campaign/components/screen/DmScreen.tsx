@@ -28,6 +28,7 @@ import type { FightSpoils } from '@/server/session';
 import type { CampaignRole, CampaignRow } from '@/server/campaigns';
 import type { CharacterRow } from '@/server/characters';
 import {
+  defaultLayouts,
   panelsOn,
   SCREEN_COLUMN_COUNTS,
   SCREEN_PANELS,
@@ -49,6 +50,8 @@ import {
   createEncounterAction,
 } from '../../actions';
 import { undoLastAction } from '../../monster-actions';
+import { RandomTablesPanel } from '../RandomTablesPanel';
+import { XCardButton } from '../XCardButton';
 import { useSelectedToken } from '@/@shared/battlemap/selection';
 import { SHORTCUTS, useDmShortcuts } from './useDmShortcuts';
 import { YourTurnBanner } from './YourTurnBanner';
@@ -688,6 +691,11 @@ function PanelContents({
           viewerRole={ctx.viewerRole}
         />
       );
+
+    case 'randomTables':
+      return ctx.isStaff ? (
+        <RandomTablesPanel campaignId={ctx.campaignId} compact />
+      ) : null;
   }
 }
 
@@ -840,7 +848,7 @@ export function DmScreen({
    * clock — but only while the stream is down. Connected, nothing here
    * ticks; rule 9 keeps the screen still.
    */
-  const stale = !live.connected && live.updatedAt !== null;
+  const stale = (!live.connected || live.offline) && live.updatedAt !== null;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!stale) return;
@@ -852,8 +860,12 @@ export function DmScreen({
   useEffect(() => {
     getScreenAction(campaign.id)
       .then(s => setLayouts(s.layouts))
-      .catch(() => setError('Failed to open your screen.'));
-  }, [campaign.id]);
+      .catch(() => {
+        // Offline the arrangement cannot be read. The default one still
+        // shows the last state this device saw, which is the point.
+        setLayouts(defaultLayouts(isStaff));
+      });
+  }, [campaign.id, isStaff]);
 
   const loadSide = useCallback(async () => {
     const [list, chars] = await Promise.all([
@@ -1093,6 +1105,7 @@ export function DmScreen({
         <Ribbon tone={isStaff ? 'gold' : 'neutral'}>
           {isStaff ? 'Running the session' : 'At the table'}
         </Ribbon>
+        {!isStaff && <XCardButton campaignId={campaign.id} />}
         {live.state && (
           <ModeBar
             campaignId={campaign.id}

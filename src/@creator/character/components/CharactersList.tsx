@@ -92,9 +92,24 @@ export function CharactersList() {
         title="Your heroes"
         description="Every character you've built for the table."
         actions={
-          <Button as={Link} href="/creator/character" color="primary" size="sm">
-            New hero
-          </Button>
+          <>
+            <Button
+              as={Link}
+              href="/characters/import"
+              variant="flat"
+              size="sm"
+            >
+              Import from D&amp;D Beyond
+            </Button>
+            <Button
+              as={Link}
+              href="/creator/character"
+              color="primary"
+              size="sm"
+            >
+              New hero
+            </Button>
+          </>
         }
       />
 

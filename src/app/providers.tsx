@@ -5,6 +5,7 @@ import { HeroUIProvider } from '@heroui/react';
 import { ThemeProvider } from 'next-themes';
 
 import { DiceTrayProvider } from '@/@shared/components/dice';
+import { OfflineSupport } from '@/@shared/offline/OfflineSupport';
 import { Announcements, TableProvider } from '@/@shared/table';
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -21,6 +22,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             <TableProvider>
               {children}
               <Announcements />
+              <OfflineSupport />
             </TableProvider>
           </DiceTrayProvider>
         </AuthProvider>
