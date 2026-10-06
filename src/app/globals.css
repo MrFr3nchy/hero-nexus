@@ -81,8 +81,16 @@
   --font-hand: var(--font-caveat), ui-serif, cursive;
 }
 
-* {
-  border-color: var(--line);
+/*
+ * The default border colour, in the base layer. Outside a layer it outranked
+ * every Tailwind border-colour utility — `border-gold/40`, `border-danger/40`,
+ * the status edges (`statusEdge` in ui/Status.tsx) — and they all drew in
+ * --line. Layered, it is only the default, which is what it was for.
+ */
+@layer base {
+  * {
+    border-color: var(--line);
+  }
 }
 
 html {

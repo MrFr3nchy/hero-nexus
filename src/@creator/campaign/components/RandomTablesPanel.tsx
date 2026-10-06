@@ -270,16 +270,14 @@ function TableCard({
           className={`mt-2 space-y-px ${compact ? 'max-h-64 overflow-y-auto' : ''}`}
         >
           {t.entries.map((e, i) => {
-            // `!` because an unlayered `* { border-color }` in globals.css
-            // outranks every border-colour utility; the edge is the mark.
             const hit = result?.index === i;
             return (
               <li
                 key={i}
                 className={`flex items-baseline gap-3 rounded-sm border-l-4 px-1.5 py-0.5 text-sm ${
                   hit
-                    ? 'border-l-gold! bg-gold/[0.08] font-semibold text-ink'
-                    : 'border-l-transparent! text-ink-muted'
+                    ? 'border-l-gold bg-gold/[0.08] font-semibold text-ink'
+                    : 'border-l-transparent text-ink-muted'
                 }`}
               >
                 <span className="w-14 shrink-0 text-right font-mono text-xs tabular-nums text-ink-subtle">
