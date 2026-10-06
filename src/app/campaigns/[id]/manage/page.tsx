@@ -1,9 +1,6 @@
 import { notFound } from 'next/navigation';
 
-import {
-  CampaignManageForm,
-  DiscordCard,
-} from '@/@creator/campaign/components';
+import { CampaignManageForm } from '@/@creator/campaign/components';
 import { PublishCampaign } from '@/@creator/library/components';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import {
@@ -43,7 +40,6 @@ export default async function ManageCampaignPage({
         </Marginalia>
         <div className="flex flex-col gap-6">
           <CampaignManageForm campaign={campaign} />
-          <DiscordCard campaignId={id} />
           <PublishCampaign
             campaignId={id}
             name={campaign.name}

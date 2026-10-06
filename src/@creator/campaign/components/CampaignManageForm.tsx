@@ -23,6 +23,7 @@ import {
   draftFromSettings,
   settingsFromDraft,
 } from './CampaignSettingsFields';
+import { DiscordCard } from './DiscordCard';
 import { ImagePicker } from './ImagePicker';
 
 /**
@@ -162,6 +163,8 @@ export function CampaignManageForm({ campaign }: { campaign: CampaignRow }) {
           </Button>
         </div>
       </form>
+
+      <DiscordCard campaignId={campaign.id} />
 
       <SectionCard title="Status">
         <Select
