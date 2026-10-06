@@ -57,7 +57,7 @@ overwrites it, and a client that could reach :3000 directly could spoof it.
   transport (`src/server/mail.ts`). No verified sending domain means nobody —
   including you — can log in. Do this before the bootstrap, not after.
 - **Droplet size**: `next build` needs about 2 GB of memory. The bootstrap
-  adds a 2 GB swapfile if there is no swap, which gets a 1 GB droplet through
+  adds a 3 GB swapfile if there is no swap, which gets a 1 GB droplet through
   a build, slowly. 2 GB is the comfortable minimum. The swap is only usable
   because every build on the droplet runs with
   `NODE_OPTIONS=--max-old-space-size=1536`: Node otherwise caps its heap at
@@ -90,7 +90,7 @@ does, step by step, so you can do or redo any part by hand:
    tools are only a fallback — `better-sqlite3` and `@node-rs/argon2` ship
    prebuilt binaries for Node 20/22/24 on x64 glibc.
 
-2. **Node 22** from NodeSource (`package.json` `engines` says `>=20`; Ubuntu's
+2. **Node 22** from NodeSource (`package.json` `engines` says `>=22`; Ubuntu's
    own `nodejs` package is too old). **Caddy** from its apt repo.
 
 3. **User.** `adduser --system --group hero`. **Data.**

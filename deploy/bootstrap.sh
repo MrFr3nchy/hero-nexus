@@ -60,18 +60,25 @@ apt-get install -y -q git curl ca-certificates gnupg build-essential python3 sql
 # Swap alone is not enough: Node caps its heap at half of *physical* RAM, so
 # the build below also raises that ceiling or it never reaches the swap.
 if [[ -z "$(swapon --show --noheadings)" ]]; then
-	log "no swap — creating a 2 GB swapfile"
-	fallocate -l 2G /swapfile
+	log "no swap — creating a 3 GB swapfile"
+	fallocate -l 3G /swapfile
 	chmod 600 /swapfile
 	mkswap /swapfile
 	swapon /swapfile
 	grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >>/etc/fstab
 fi
 
-if ! command -v node >/dev/null || [[ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]]; then
+if ! command -v node >/dev/null || [[ "$(node -p 'process.versions.node.split(".")[0]')" -lt 22 ]]; then
 	log "Node ${NODE_MAJOR} (NodeSource)"
 	curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
 	apt-get install -y -q nodejs
+fi
+# npm 12 enforces package.json's allowScripts; the npm bundled with Node 22
+# only warns. It needs node >= 22.22.2, so bring an older 22 up first.
+if [[ "$(npm --version | cut -d. -f1)" -lt 12 ]]; then
+	log "npm 12"
+	apt-get install -y -q --only-upgrade nodejs
+	npm install -g --no-fund --no-audit npm@12
 fi
 node --version
 npm --version

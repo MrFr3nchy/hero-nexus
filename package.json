@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "next dev --turbopack",
@@ -29,7 +29,7 @@
     "@node-rs/argon2": "^2.0.2",
     "@types/three": "^0.185.4",
     "autoprefixer": "^10.4.21",
-    "better-sqlite3": "^12.2.0",
+    "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
     "framer-motion": "^12.23.12",
     "next": "15.5.25",
@@ -59,9 +59,10 @@
     "typescript": "^5"
   },
   "allowScripts": {
-    "better-sqlite3@12.11.1": true,
     "@tailwindcss/oxide@4.1.12": true,
     "esbuild@0.28.2": true,
-    "unrs-resolver@1.11.1": true
+    "unrs-resolver@1.11.1": true,
+    "@heroui/shared-utils@2.1.10": true,
+    "better-sqlite3@13.0.3": false
   }
 }
