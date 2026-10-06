@@ -8,9 +8,11 @@ import { campaignRolls, randomTables, users } from '@/db/schema';
 import { critToneOf, rollNotation } from '@/@shared/lib/dice';
 import {
   MAX_TITLE,
-  dieFor,
+  checkRanges,
+  dieNotation,
   entryForFace,
-  normalizeEntries,
+  isRandomTableDie,
+  normalizeTable,
   rollLabel,
   type RandomTableEntry,
   type RandomTableRow,
@@ -28,12 +30,24 @@ import { bumpVersion, publish } from './live-hub';
  */
 
 function toRow(r: typeof randomTables.$inferSelect): RandomTableRow {
-  return {
-    id: r.id,
-    title: r.title,
-    entries: normalizeEntries(r.entries),
-    updatedAt: r.updatedAt,
-  };
+  const { die, entries } = normalizeTable(r.die, r.entries);
+  return { id: r.id, title: r.title, die, entries, updatedAt: r.updatedAt };
+}
+
+/**
+ * A die and its entries, ready to store: a die from the list, ranges on it,
+ * and no face claimed twice. Gaps are allowed — a face can land on nothing.
+ */
+function cleanTable(
+  die: number,
+  entries: RandomTableEntry[]
+): { die: number; entries: RandomTableEntry[] } {
+  if (!isRandomTableDie(die)) throw new Error('BAD_DIE');
+  const clean = normalizeTable(die, entries);
+  if (checkRanges(clean.die, clean.entries).overlaps.length > 0) {
+    throw new Error('OVERLAP');
+  }
+  return clean;
 }
 
 export async function listRandomTables(
@@ -50,18 +64,15 @@ export async function listRandomTables(
 
 export async function createRandomTable(
   campaignId: string,
-  input: { title: string; entries?: RandomTableEntry[] }
+  input: { title: string; die?: number; entries?: RandomTableEntry[] }
 ): Promise<string> {
   await requireCampaignRole(campaignId, ['gm', 'co-gm']);
   const title = input.title.trim().slice(0, MAX_TITLE);
   if (!title) throw new Error('NO_TITLE');
+  const table = cleanTable(input.die ?? 20, input.entries ?? []);
   const [row] = await db
     .insert(randomTables)
-    .values({
-      campaignId,
-      title,
-      entries: normalizeEntries(input.entries ?? []),
-    })
+    .values({ campaignId, title, ...table })
     .returning({ id: randomTables.id });
   return row.id;
 }
@@ -77,9 +88,9 @@ async function staffForTable(id: string) {
 
 export async function updateRandomTable(
   id: string,
-  patch: { title?: string; entries?: RandomTableEntry[] }
+  patch: { title?: string; die?: number; entries?: RandomTableEntry[] }
 ): Promise<void> {
-  await staffForTable(id);
+  const { row } = await staffForTable(id);
   const set: Partial<typeof randomTables.$inferInsert> = {
     updatedAt: new Date().toISOString(),
   };
@@ -88,8 +99,13 @@ export async function updateRandomTable(
     if (!title) throw new Error('NO_TITLE');
     set.title = title;
   }
-  if (patch.entries !== undefined)
-    set.entries = normalizeEntries(patch.entries);
+  if (patch.die !== undefined || patch.entries !== undefined) {
+    const current = normalizeTable(row.die, row.entries);
+    Object.assign(
+      set,
+      cleanTable(patch.die ?? current.die, patch.entries ?? current.entries)
+    );
+  }
   await db.update(randomTables).set(set).where(eq(randomTables.id, id));
 }
 
@@ -117,6 +133,8 @@ export interface RandomTableResult {
   title: string;
   /** The whole entry, untruncated — the log keeps 80 characters of it. */
   entry: string;
+  /** Which entry, so the list can light the row up. Null for a gap. */
+  index: number | null;
   notation: string;
   face: number;
   shown: boolean;
@@ -132,20 +150,20 @@ export async function rollRandomTable(
   show = false
 ): Promise<RandomTableResult> {
   const { row, userId } = await staffForTable(id);
-  const entries = normalizeEntries(row.entries);
-  const notation = dieFor(entries);
-  if (!notation) throw new Error('EMPTY_TABLE');
-  const roll = rollNotation(notation);
+  const { die, entries } = normalizeTable(row.die, row.entries);
+  if (entries.length === 0) throw new Error('EMPTY_TABLE');
+  const roll = rollNotation(dieNotation(die));
   if (!roll) throw new Error('EMPTY_TABLE');
   const hit = entryForFace(entries, roll.total);
-  if (!hit) throw new Error('EMPTY_TABLE');
+  // A face no entry covers is still a result: the DM left it empty.
+  const text = hit?.entry.text ?? 'nothing on that face';
 
   const user = await db.query.users.findFirst({
     columns: { name: true },
     where: eq(users.id, userId),
   });
   const actorName = user?.name || 'The DM';
-  const label = rollLabel(row.title, hit.entry.text);
+  const label = rollLabel(row.title, text);
 
   await db.insert(campaignRolls).values({
     campaignId: row.campaignId,
@@ -170,7 +188,7 @@ export async function rollRandomTable(
       by: userId,
       actorName,
       // The announcement is not stored, so it carries the whole entry.
-      label: `${row.title}: ${hit.entry.text}`.slice(0, 400),
+      label: `${row.title}: ${text}`.slice(0, 400),
       notation: roll.notation,
       total: roll.total,
       tone: critToneOf(roll.notation, roll.dice, roll.dropped) ?? 'plain',
@@ -181,7 +199,8 @@ export async function rollRandomTable(
 
   return {
     title: row.title,
-    entry: hit.entry.text,
+    entry: text,
+    index: hit?.index ?? null,
     notation: roll.notation,
     face: roll.total,
     shown: show,

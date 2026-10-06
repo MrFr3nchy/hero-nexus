@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq, inArray } from 'drizzle-orm';
 
 import { normaliseTags } from '@/@creator/library/lib/publication';
-import { normalizeEntries } from '@/@creator/campaign/lib/random-tables';
+import { normalizeTable } from '@/@creator/campaign/lib/random-tables';
 import { isAttitude } from '@/@creator/campaign/lib/standing';
 
 import { db } from '@/db';
@@ -209,7 +209,7 @@ export interface CampaignPackagePayload {
   notes: PackagedNote[];
   maps: PackagedMap[];
   /** Absent in a package frozen before random tables (0068). */
-  randomTables?: { title: string; entries: unknown }[];
+  randomTables?: { title: string; die?: number; entries: unknown }[];
 }
 
 /* --- building --------------------------------------------------------- */
@@ -377,7 +377,11 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
           visibility: p.visibility,
         })),
     })),
-    randomTables: tables.map(t => ({ title: t.title, entries: t.entries })),
+    randomTables: tables.map(t => ({
+      title: t.title,
+      die: t.die,
+      entries: t.entries,
+    })),
   };
 
   const imageKeys = [
@@ -671,7 +675,7 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
         campaignId,
         title: String(t.title ?? '').slice(0, 80) || 'Random table',
         // Normalised on the way in: a package is somebody else's data.
-        entries: normalizeEntries(t.entries),
+        ...normalizeTable(t.die, t.entries),
       }))
     );
   }

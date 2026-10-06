@@ -6,6 +6,7 @@ import {
   MAX_ENTRIES,
   MAX_ENTRY_TEXT,
   MAX_TITLE,
+  isRandomTableDie,
   type RandomTableRow,
 } from '@/@creator/campaign/lib/random-tables';
 import {
@@ -31,6 +32,8 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     FORBIDDEN: 'Random tables are the DM’s.',
     NO_TITLE: 'A random table needs a name.',
     EMPTY_TABLE: 'That random table has nothing on it to roll.',
+    BAD_DIE: 'Pick a die: d4, d6, d8, d10, d12, d20 or d100.',
+    OVERLAP: 'Two entries claim the same face. Give each face to one entry.',
   };
   if (!messages[code]) console.error('[random-table-action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
@@ -40,10 +43,16 @@ const entries = z
   .array(
     z.object({
       text: z.string().max(MAX_ENTRY_TEXT),
-      weight: z.number().int().min(1).max(100),
+      from: z.number().int().min(1).max(100),
+      to: z.number().int().min(1).max(100),
     })
   )
   .max(MAX_ENTRIES);
+
+const die = z
+  .number()
+  .int()
+  .refine(isRandomTableDie, 'Pick a die: d4, d6, d8, d10, d12, d20 or d100.');
 
 export async function listRandomTablesAction(
   campaignId: string
@@ -57,6 +66,7 @@ export async function listRandomTablesAction(
 
 const createSchema = z.object({
   title: z.string().trim().min(1).max(MAX_TITLE),
+  die: die.optional(),
   entries: entries.optional(),
 });
 
@@ -79,6 +89,7 @@ export async function createRandomTableAction(
 
 const updateSchema = z.object({
   title: z.string().trim().min(1).max(MAX_TITLE).optional(),
+  die: die.optional(),
   entries: entries.optional(),
 });
 

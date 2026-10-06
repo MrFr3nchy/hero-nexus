@@ -2828,7 +2828,15 @@ export const randomTables = sqliteTable(
       .notNull()
       .references(() => campaigns.id, { onDelete: 'cascade' }),
     title: text('title').notNull().default(''),
-    /** JSON `[{ text: string, weight: int >= 1 }]`. */
+    /**
+     * Faces on the die it rolls on (0070): 4, 6, 8, 10, 12, 20 or 100. Zero
+     * is a table from before, read off its weights.
+     */
+    die: integer('die').notNull().default(0),
+    /**
+     * JSON `[{ text, from, to }]` — each entry's run of faces (0070). A
+     * table from 0068 holds `[{ text, weight }]`; `normalizeTable` reads both.
+     */
     entries: text('entries', { mode: 'json' })
       .notNull()
       .default(sql`'[]'`),
