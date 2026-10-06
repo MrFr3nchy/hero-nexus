@@ -29,6 +29,14 @@ const DARKVISION_BY_SPECIES: Record<string, number> = {
 };
 
 /**
+ * Longest name first, so "deep gnome" is read before "gnome" and "half-orc"
+ * before "orc" — both contain the shorter name as a whole word.
+ */
+const BY_LONGEST_NAME = Object.entries(DARKVISION_BY_SPECIES).sort(
+  ([a], [b]) => b.length - a.length
+);
+
+/**
  * A hero's darkvision in feet, or null for normal sight: the sheet's own
  * `senses.darkvision` when set, else the species' default. "Wood Elf" and
  * "High Elf" both read as elf.
@@ -41,8 +49,8 @@ export function heroDarkvision(sheet: {
   if (typeof own === 'number' && own > 0) return own;
   const species = sheet.identity.species.trim().toLowerCase();
   if (!species) return null;
-  for (const [name, feet] of Object.entries(DARKVISION_BY_SPECIES)) {
-    if (feet > 0 && new RegExp(`\\b${name}\\b`).test(species)) return feet;
+  for (const [name, feet] of BY_LONGEST_NAME) {
+    if (new RegExp(`\\b${name}\\b`).test(species)) return feet || null;
   }
   return null;
 }

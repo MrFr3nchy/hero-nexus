@@ -191,7 +191,9 @@ export function parseCapture(line: string): Capture | null {
     return { spec, title: body, tail: '', number: null };
   }
 
-  const comma = body.lastIndexOf(',');
+  // The first comma, so a summary may carry commas of its own: "Quill,
+  // keeper of the chapel, warden of the bells" is a name and one summary.
+  const comma = body.indexOf(',');
   if (comma < 0) return { spec, title: body, tail: '', number: null };
 
   const title = body.slice(0, comma).trim();
