@@ -92,6 +92,7 @@ export const CARRIED = [
 export const NEVER_CARRIED = [
   'campaign_audio',
   'campaign_discord',
+  'campaign_safety',
   'campaign_members',
   'campaign_invites',
   'campaigns.join_code',

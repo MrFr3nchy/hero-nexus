@@ -95,6 +95,19 @@ group('describe', () => {
     expect(asked.asks).toBe(false);
   });
 
+  it('the X-card asks of staff and names nobody', () => {
+    const r = describe(
+      { ...base, kind: 'safety', by: null, pausedTimers: 2 },
+      viewer
+    );
+    expect(r).toMatchObject({
+      glyph: 'x',
+      title: 'Someone tapped the X-card',
+      asks: true,
+    });
+    expect(r.detail).toMatch(/held until you resume/);
+  });
+
   it('has a glyph for every kind', () => {
     // A kind added to the list without a GLYPHS entry fails to compile;
     // this pins that the list itself is what the switch covers.

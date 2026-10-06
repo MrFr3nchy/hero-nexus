@@ -1717,6 +1717,11 @@ export const campaignTimers = sqliteTable(
      * otherwise.
      */
     stoppedAt: text('stopped_at'),
+    /**
+     * Set while the sand is held (0067) — an X-card tap pauses every running
+     * countdown. Resuming moves `endsAt` on by the time spent paused.
+     */
+    pausedAt: text('paused_at'),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -2771,3 +2776,26 @@ export const campaignDiscord = sqliteTable('campaign_discord', {
   lastError: text('last_error'),
   updatedAt: text('updated_at').default(nowIso).notNull(),
 });
+
+/* --- Safety tools (0067) ------------------------------------------------ */
+
+/**
+ * The table's lines and veils. **No user id, on purpose**: a player's
+ * addition is anonymous because nothing stores who made it, so no read path
+ * and no bug can say. `source` is only staff or player. Never carried.
+ */
+export const campaignSafety = sqliteTable(
+  'campaign_safety',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    /** A line is not crossed at all; a veil happens off-screen. */
+    kind: text('kind', { enum: ['line', 'veil'] }).notNull(),
+    text: text('text').notNull(),
+    source: text('source', { enum: ['staff', 'player'] }).notNull(),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('campaign_safety_campaign_idx').on(t.campaignId)]
+);

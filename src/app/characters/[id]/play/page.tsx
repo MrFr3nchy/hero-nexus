@@ -5,6 +5,7 @@ import {
   NothingToRun,
   PlaySurface,
 } from '@/@creator/character/components/PlaySurface';
+import { XCardButton } from '@/@creator/campaign/components/XCardButton';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import { PageHeader, PageShell, BackLink } from '@/@shared/components/ui';
 import { weaponAttacks } from '@/@creator/character/lib/derive';
@@ -61,6 +62,11 @@ export default async function CharacterPlayPage({
           title="At the table"
           description="Hit points, hit dice, death saves and spell slots — everything that moves between one roll and the next."
         />
+        {campaign && (
+          <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+            <XCardButton campaignId={campaign.campaignId} />
+          </div>
+        )}
         {state.hpMax > 0 ? (
           <PlaySurface
             initial={state}

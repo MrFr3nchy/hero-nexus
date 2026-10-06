@@ -49,6 +49,7 @@ import {
   createEncounterAction,
 } from '../../actions';
 import { undoLastAction } from '../../monster-actions';
+import { XCardButton } from '../XCardButton';
 import { useSelectedToken } from '@/@shared/battlemap/selection';
 import { SHORTCUTS, useDmShortcuts } from './useDmShortcuts';
 import { YourTurnBanner } from './YourTurnBanner';
@@ -1093,6 +1094,7 @@ export function DmScreen({
         <Ribbon tone={isStaff ? 'gold' : 'neutral'}>
           {isStaff ? 'Running the session' : 'At the table'}
         </Ribbon>
+        {!isStaff && <XCardButton campaignId={campaign.id} />}
         {live.state && (
           <ModeBar
             campaignId={campaign.id}

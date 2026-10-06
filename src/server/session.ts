@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 
 import { serializeConditions } from '@/@creator/campaign/lib/conditions';
 import { abilityModifier } from '@/@creator/character/lib/derive';
@@ -200,6 +200,8 @@ export interface TimerRow {
   startedAt: string;
   visibility: 'dm' | 'shared';
   stoppedAt: string | null;
+  /** Held by an X-card tap (0067). Time left is `endsAt − pausedAt`. */
+  pausedAt: string | null;
 }
 
 /** The evening being played, when there is one. */
@@ -645,6 +647,7 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
       startedAt: t.startedAt,
       visibility: t.visibility,
       stoppedAt: t.stoppedAt,
+      pausedAt: t.pausedAt,
     }));
 
   // Both are their own modules and already role-filtered there — these are
@@ -815,6 +818,37 @@ export async function stopTimer(
       )
     );
   bumpVersion(campaignId);
+}
+
+/**
+ * Let the sand fall again after an X-card tap held it. Every held countdown
+ * at the table resumes with the time it had left: `endsAt` moves on by
+ * however long it was paused.
+ */
+export async function resumeTimers(campaignId: string): Promise<void> {
+  await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  const now = Date.now();
+  const held = await db
+    .select()
+    .from(campaignTimers)
+    .where(
+      and(
+        eq(campaignTimers.campaignId, campaignId),
+        isNull(campaignTimers.stoppedAt),
+        isNotNull(campaignTimers.pausedAt)
+      )
+    );
+  for (const t of held) {
+    const pausedFor = Math.max(0, now - Date.parse(t.pausedAt!));
+    await db
+      .update(campaignTimers)
+      .set({
+        pausedAt: null,
+        endsAt: new Date(Date.parse(t.endsAt) + pausedFor).toISOString(),
+      })
+      .where(eq(campaignTimers.id, t.id));
+  }
+  if (held.length > 0) bumpVersion(campaignId);
 }
 
 /* --- encounter (staff) ------------------------------------------------- */

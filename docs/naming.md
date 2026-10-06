@@ -20,35 +20,38 @@ names, they are different things; if they share a name, they are the same thing.
 
 ## The vocabulary
 
-| The thing                                        | The name           | Never again                                                  |
-| ------------------------------------------------ | ------------------ | ------------------------------------------------------------ |
-| The record of one campaign                       | the campaign page  | "the desk"                                                   |
-| The page a session is run from                   | the session screen | "behind the screen", "the desk", "the table" (as a surface)  |
-| One evening of play                              | a session          | "a sitting", "the chronicle", "the evening"                  |
-| The log of all sessions                          | Sessions           | "Chronicle", "Sittings"                                      |
-| A thing the party is pulling on                  | a quest            | "a thread"                                                   |
-| A hidden deadline                                | a clock            | —                                                            |
-| The grid a fight is fought on                    | a battle board     | "the sand table", "the battle map", "the board", "the table" |
-| The editor for a battle board                    | the workshop       | —                                                            |
-| Hiding what the party has not seen               | fog of war         | "fog"                                                        |
-| Pointing at a tile for the whole table           | a ping             | "a marker", "a flare", "a beacon"                            |
-| A fight, planned ahead                           | an encounter       | "a plan", "a fight planned", "an ambush"                     |
-| A fight, running                                 | the fight          | —                                                            |
-| The DM asking somebody to roll                   | a check            | "the asking"                                                 |
-| The shared roll log                              | Dice               | —                                                            |
-| Everything the table has been told, in order     | Table log          | "the evening"                                                |
-| Everything handed to the party, in order         | Revealed           | "what they know"                                             |
-| Loot and the common purse                        | Loot               | "the haul", "the ledger"                                     |
-| Countdowns running at the table                  | Timers             | "the hourglass"                                              |
-| What this table plays by                         | Rules              | "rules at hand", "house rules" (as a panel)                  |
-| The campaign's people, places and things         | Canon              | "lore"                                                       |
-| The DM's private prep                            | Notebook           | —                                                            |
-| A player's in-character log                      | Journal            | —                                                            |
-| Content forged by a person                       | homebrew           | —                                                            |
-| A published collection                           | the library        | "the shelf"                                                  |
-| A merchant's stock                               | stock              | "the shelf"                                                  |
-| The panels beside the battle board               | panels             | "the shelf"                                                  |
-| A campaign's Discord channel, on the manage page | Discord            | "webhook" (as a heading), "notifications", "integrations"    |
+| The thing                                                     | The name           | Never again                                                  |
+| ------------------------------------------------------------- | ------------------ | ------------------------------------------------------------ |
+| The record of one campaign                                    | the campaign page  | "the desk"                                                   |
+| The page a session is run from                                | the session screen | "behind the screen", "the desk", "the table" (as a surface)  |
+| One evening of play                                           | a session          | "a sitting", "the chronicle", "the evening"                  |
+| The log of all sessions                                       | Sessions           | "Chronicle", "Sittings"                                      |
+| A thing the party is pulling on                               | a quest            | "a thread"                                                   |
+| A hidden deadline                                             | a clock            | —                                                            |
+| The grid a fight is fought on                                 | a battle board     | "the sand table", "the battle map", "the board", "the table" |
+| The editor for a battle board                                 | the workshop       | —                                                            |
+| Hiding what the party has not seen                            | fog of war         | "fog"                                                        |
+| Pointing at a tile for the whole table                        | a ping             | "a marker", "a flare", "a beacon"                            |
+| A fight, planned ahead                                        | an encounter       | "a plan", "a fight planned", "an ambush"                     |
+| A fight, running                                              | the fight          | —                                                            |
+| The DM asking somebody to roll                                | a check            | "the asking"                                                 |
+| The shared roll log                                           | Dice               | —                                                            |
+| Everything the table has been told, in order                  | Table log          | "the evening"                                                |
+| Everything handed to the party, in order                      | Revealed           | "what they know"                                             |
+| Loot and the common purse                                     | Loot               | "the haul", "the ledger"                                     |
+| Countdowns running at the table                               | Timers             | "the hourglass"                                              |
+| What this table plays by                                      | Rules              | "rules at hand", "house rules" (as a panel)                  |
+| The campaign's people, places and things                      | Canon              | "lore"                                                       |
+| The DM's private prep                                         | Notebook           | —                                                            |
+| A player's in-character log                                   | Journal            | —                                                            |
+| Content forged by a person                                    | homebrew           | —                                                            |
+| A published collection                                        | the library        | "the shelf"                                                  |
+| A merchant's stock                                            | stock              | "the shelf"                                                  |
+| The panels beside the battle board                            | panels             | "the shelf"                                                  |
+| A campaign's Discord channel, on the manage page              | Discord            | "webhook" (as a heading), "notifications", "integrations"    |
+| What a table has agreed stays out of the story, or off-screen | Lines & veils      | "boundaries", "limits", "safety list"                        |
+| The anonymous "pause and check in" a player can tap           | the X-card         | "safety button", "panic button", "flag"                      |
+| The session before the first, for expectations                | Session zero       | "session 0" (as a label), "kickoff"                          |
 
 ## The verbs
 
@@ -64,6 +67,7 @@ names, they are different things; if they share a name, they are the same thing.
 | Ending a fight                                                               | End the fight           | —                                                         |
 | Putting foes on the board before the fight                                   | **Place** them          | "deal them in" (that is now only "add them to the order") |
 | Pointing at a tile (alt-click, or hold a finger on it)                       | **Ping** it             | "mark", "flag"                                            |
+| Asking the DM to pause, without saying who                                   | **Tap the X-card**      | "flag", "raise the card", "X it"                          |
 | Sending a moment to the campaign's Discord channel                           | **Post to Discord**     | "notify", "announce", "send to Discord"                   |
 
 "Show the party" is one verb because it is one act, and one act gets one glyph

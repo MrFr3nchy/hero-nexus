@@ -39,6 +39,7 @@ import { LedgerPanel } from './LedgerPanel';
 import { JournalPanel } from './JournalPanel';
 import { MapPanel } from './MapPanel';
 import { MembersPanel } from './MembersPanel';
+import { SafetyPanel } from './SafetyPanel';
 import { NotebookPanel, SharedNotes } from './NotebookPanel';
 import { PartySecrets } from './PartySecrets';
 import { QuestPanel } from './QuestPanel';
@@ -260,7 +261,12 @@ export function CampaignDetail({
       label: 'Rules',
       glyph: 'gavel',
       line: 'What this table plays by — the enforced rules and your own words, in one list.',
-      content: <div className="pt-4">{rulesCard}</div>,
+      content: (
+        <div className="space-y-5 pt-4">
+          {rulesCard}
+          <SafetyPanel campaignId={campaign.id} isStaff={isStaff} />
+        </div>
+      ),
     },
     {
       key: 'quests',

@@ -54,6 +54,7 @@ const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
   levelup: 'Levels',
   undo: 'Undo',
   ambience: 'Music',
+  safety: 'X-card',
 };
 
 /**
@@ -87,10 +88,12 @@ const KIND_GROUPS: { label: string; kinds: TableEventKind[] }[] = [
   { label: 'The room', kinds: ['map', 'thing', 'ambience'] },
 ];
 // A ping is drawn on the board and raises no slip, so there is nothing for
-// the volume control to turn down.
+// the volume control to turn down. The X-card is never offered: a safety
+// tool the DM can mute is not one.
 const FILED = new Set<TableEventKind>([
   ...KIND_GROUPS.flatMap(g => g.kinds),
   'ping',
+  'safety',
 ]);
 for (const kind of TABLE_EVENT_KINDS) {
   if (!FILED.has(kind)) KIND_GROUPS[KIND_GROUPS.length - 1].kinds.push(kind);
