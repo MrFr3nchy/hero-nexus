@@ -4,6 +4,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 
 import { normaliseTags } from '@/@creator/library/lib/publication';
 import { normalizeEntries } from '@/@creator/campaign/lib/random-tables';
+import { isAttitude } from '@/@creator/campaign/lib/standing';
 
 import { db } from '@/db';
 import {
@@ -97,6 +98,7 @@ export const NEVER_CARRIED = [
   'campaign_audio',
   'campaign_discord',
   'campaign_safety',
+  'faction_standing',
   'campaign_members',
   'campaign_invites',
   'campaigns.join_code',
@@ -148,6 +150,10 @@ interface PackagedEntry {
   imageKey: string | null;
   fields: unknown;
   visibility: string;
+  /** 0069. Absent in a package frozen before it. */
+  attitude?: string | null;
+  statSource?: string | null;
+  statKey?: string | null;
 }
 
 interface PackagedQuest {
@@ -319,6 +325,11 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
       imageKey: e.imageId,
       fields: e.fields,
       visibility: e.visibility,
+      // Copied explicitly (0069): canon travels, and a column the package
+      // does not name is silently dropped.
+      attitude: e.attitude,
+      statSource: e.statSource,
+      statKey: e.statKey,
     })),
     links: links.map(l => ({ fromKey: l.fromEntryId, toKey: l.toEntryId })),
     quests: quests.map(q => ({
@@ -559,7 +570,14 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
   }
 
   const entryMap = new Map<string, string>();
+  /** Entries whose stat block is homebrew: remapped once the library is minted. */
+  const homebrewStats: { entryId: string; key: string }[] = [];
   for (const entry of payload.entries ?? []) {
+    const statSource =
+      entry.statKey &&
+      (entry.statSource === 'srd' || entry.statSource === 'homebrew')
+        ? entry.statSource
+        : null;
     const [created] = await db
       .insert(canonEntries)
       .values({
@@ -574,10 +592,18 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
         imageId: image(entry.imageKey),
         fields: entry.fields ?? {},
         visibility: entry.visibility === 'shared' ? 'shared' : 'dm',
+        attitude: isAttitude(entry.attitude) ? entry.attitude : null,
+        // An SRD ref means the same thing everywhere; a homebrew one names a
+        // row on the publisher's account and is remapped below.
+        statSource: statSource === 'srd' ? 'srd' : null,
+        statKey: statSource === 'srd' ? entry.statKey! : null,
         createdBy: userId,
       })
       .returning({ id: canonEntries.id });
     entryMap.set(entry.key, created.id);
+    if (statSource === 'homebrew') {
+      homebrewStats.push({ entryId: created.id, key: entry.statKey! });
+    }
   }
 
   for (const link of payload.links ?? []) {
@@ -710,6 +736,17 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
         }))
       )
       .onConflictDoNothing();
+  }
+
+  // A homebrew stat block points at the adopter's minted copy, or at nothing
+  // when it did not travel.
+  for (const { entryId, key } of homebrewStats) {
+    const mintedId = minted.get(key);
+    if (!mintedId) continue;
+    await db
+      .update(canonEntries)
+      .set({ statSource: 'homebrew', statKey: mintedId })
+      .where(eq(canonEntries.id, entryId));
   }
 
   await db

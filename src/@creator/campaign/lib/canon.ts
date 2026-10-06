@@ -1,3 +1,6 @@
+import type { ContentRef } from '@/@shared/content';
+
+import type { Attitude } from './standing';
 import type { GlyphName } from '@/@shared/components/ui/Glyph';
 
 /**
@@ -159,6 +162,20 @@ export interface CanonEntryRow {
   links: CanonLinkRef[];
   /** Staff only: users this entry has been individually revealed to. */
   revealedTo: { userId: string; name: string | null }[];
+  /** An NPC's attitude toward the party (0069). Null for non-staff — never sent. */
+  attitude: Attitude | null;
+  /**
+   * The stat block it acts with (0069). Staff only; null for players.
+   * `available` is false when the ref no longer resolves at this campaign —
+   * a homebrew creature outside its library, or one its author deleted.
+   */
+  stat: { ref: ContentRef; name: string | null; available: boolean } | null;
+  /**
+   * A faction's standing with the party (0069). `shown` is what the party
+   * has been shown; `total` is the whole sum, staff only (null for players).
+   * Null for anything that is not a faction.
+   */
+  standing: { shown: number; total: number | null } | null;
 }
 
 export interface CanonInput {
@@ -171,6 +188,9 @@ export interface CanonInput {
   imageId?: string | null;
   fields?: Record<string, string>;
 }
+
+/** Kinds that can carry a stat block and be placed in an encounter. */
+export const STAT_KINDS: readonly CanonKind[] = ['npc', 'creature'];
 
 /** Drop empty values so a card only shows facts that were actually filled in. */
 export function tidyFields(

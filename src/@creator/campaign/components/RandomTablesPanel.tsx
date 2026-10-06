@@ -238,7 +238,7 @@ export function RandomTablesPanel({
     body
   ) : (
     <SectionCard
-      title="Random tables"
+      title="Your random tables"
       description="Rolled into Dice behind the screen, unless you show the party."
     >
       {body}

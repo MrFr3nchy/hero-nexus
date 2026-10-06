@@ -11,8 +11,13 @@ import {
   canonReveals,
   campaignMembers,
   campaigns,
+  factionStanding,
   users,
 } from '@/db/schema';
+import { refKey, type ContentEntry, type ContentRef } from '@/@shared/content';
+import { isAttitude } from '@/@creator/campaign/lib/standing';
+import { listCampaignContentIds } from './campaign-content';
+import { resolveContentRefs } from './content';
 import { requireCampaignRole } from './campaigns';
 import {
   tidyFields,
@@ -122,6 +127,37 @@ export async function listCanon(campaignId: string): Promise<CanonEntryRow[]> {
     e => staff || e.visibility === 'shared' || revealedToMe.has(e.id)
   );
 
+  // Stat blocks, staff only: resolved together, and a homebrew one counts
+  // only while it is in this campaign's library (content-model rule 6).
+  const statRefs: ContentRef[] = staff
+    ? visible
+        .filter(e => e.statSource && e.statKey)
+        .map(e => ({
+          source: e.statSource!,
+          type: 'creature' as const,
+          key: e.statKey!,
+        }))
+    : [];
+  const [resolvedStats, libraryIds] = statRefs.length
+    ? await Promise.all([
+        resolveContentRefs(statRefs),
+        listCampaignContentIds(campaignId),
+      ])
+    : [new Map<string, ContentEntry>(), new Set<string>()];
+
+  // Faction standing: the shown sum for everyone, the whole sum for staff.
+  const factionIds = visible.filter(e => e.kind === 'faction').map(e => e.id);
+  const standingRows = factionIds.length
+    ? await db
+        .select({
+          entryId: factionStanding.canonEntryId,
+          delta: factionStanding.delta,
+          shown: factionStanding.shown,
+        })
+        .from(factionStanding)
+        .where(inArray(factionStanding.canonEntryId, factionIds))
+    : [];
+
   return visible.map(e => {
     const outgoing = links
       .filter(l => l.fromEntryId === e.id)
@@ -162,8 +198,42 @@ export async function listCanon(campaignId: string): Promise<CanonEntryRow[]> {
               name: nameById.get(r.userId) ?? null,
             }))
         : [],
+      // DM-private, nulled here exactly as `dmBody` is.
+      attitude: staff && isAttitude(e.attitude) ? e.attitude : null,
+      stat: staff ? statFor(e, resolvedStats, libraryIds) : null,
+      standing:
+        e.kind === 'faction'
+          ? (() => {
+              const mine = standingRows.filter(r => r.entryId === e.id);
+              const shown = mine
+                .filter(r => r.shown)
+                .reduce((n, r) => n + r.delta, 0);
+              const total = mine.reduce((n, r) => n + r.delta, 0);
+              return { shown, total: staff ? total : null };
+            })()
+          : null,
     };
   });
+}
+
+function statFor(
+  e: typeof canonEntries.$inferSelect,
+  resolved: Map<string, ContentEntry>,
+  libraryIds: Set<string>
+): CanonEntryRow['stat'] {
+  if (!e.statSource || !e.statKey) return null;
+  const ref: ContentRef = {
+    source: e.statSource,
+    type: 'creature',
+    key: e.statKey,
+  };
+  const entry = resolved.get(refKey(ref));
+  const inPlay = ref.source === 'srd' || libraryIds.has(ref.key);
+  return {
+    ref,
+    name: entry?.name ?? null,
+    available: Boolean(entry) && inPlay,
+  };
 }
 
 export async function createCanonEntry(

@@ -805,6 +805,20 @@ export const canonEntries = sqliteTable(
       .default('dm'),
     /** When, on the world's clock (`WorldTime`, JSON). Optional. */
     worldDate: text('world_date', { mode: 'json' }),
+    /**
+     * An NPC's attitude toward the party (0069), the 2024 rules' three.
+     * DM-private: a column rather than a `fields` key, because `fields`
+     * reaches players unfiltered. Nulled for non-staff in `listCanon`.
+     */
+    attitude: text('attitude', {
+      enum: ['friendly', 'indifferent', 'hostile'],
+    }),
+    /**
+     * The stat block this entry acts with (0069), as a `ContentRef` whose
+     * type is always `creature`. Never copied stats. Staff only.
+     */
+    statSource: text('stat_source', { enum: ['srd', 'homebrew'] }),
+    statKey: text('stat_key'),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -2822,4 +2836,30 @@ export const randomTables = sqliteTable(
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
   t => [index('random_tables_campaign_idx').on(t.campaignId)]
+);
+
+/* --- Faction standing (0069) --------------------------------------------- */
+
+/**
+ * One change to the party's standing with a faction, and why. Standing is
+ * the sum; the party's view is the sum of the changes it has been shown.
+ * The record of a table that was played — never carried in a package.
+ */
+export const factionStanding = sqliteTable(
+  'faction_standing',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    canonEntryId: text('canon_entry_id')
+      .notNull()
+      .references(() => canonEntries.id, { onDelete: 'cascade' }),
+    delta: integer('delta').notNull(),
+    reason: text('reason').notNull().default(''),
+    /** The party has been shown this change. */
+    shown: integer('shown', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('faction_standing_entry_idx').on(t.canonEntryId)]
 );
