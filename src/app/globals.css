@@ -9,7 +9,9 @@
  * Keep these in sync with the HeroUI palette in `src/app/hero.mts`.
  * ------------------------------------------------------------------ */
 
-:root {
+/* `.paper` is the printable sheet: always the light palette (7a). */
+:root,
+.paper {
   --bg: #faf6ef;
   --surface: #ffffff;
   --surface-2: #f3ede1;
@@ -276,4 +278,56 @@ html.theme-turning *::after {
    tall beside a number field. */
 [data-panel-body] [data-entry-info] {
   min-width: 11rem;
+}
+
+/* --- the printable character sheet (7a) --------------------------------- */
+
+.paper-desk {
+  min-height: 100vh;
+  padding-bottom: 2rem;
+}
+.paper {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: var(--shadow-card);
+}
+.paper .paper-box {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.25rem 0.4rem;
+}
+.paper .paper-h {
+  font-family: var(--font-cinzel), serif;
+  font-size: 9pt;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-strong);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.25rem;
+}
+
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  body.grain::before,
+  body.grain::after {
+    display: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .paper {
+    box-shadow: none;
+    max-width: none;
+    padding: 0;
+  }
+  .paper section,
+  .paper .paper-box {
+    break-inside: avoid;
+  }
 }

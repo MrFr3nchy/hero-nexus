@@ -57,6 +57,7 @@ names, they are different things; if they share a name, they are the same thing.
 | How one NPC regards the party (DM-private)                    | attitude — friendly, indifferent, hostile | "disposition", "mood", "reaction"                                    |
 | How a faction regards the party, kept over time               | standing                                  | "reputation", "renown", "favour"                                     |
 | The creature an NPC fights as                                 | its stat block                            | "monster", "stats" (as a label)                                      |
+| A hero's sheet laid out for paper                             | the printable sheet                       | "PDF export", "character PDF"                                        |
 
 ## The verbs
 
