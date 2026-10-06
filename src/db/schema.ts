@@ -1832,6 +1832,16 @@ export const campaignMaps = sqliteTable(
     spotlighted: integer('spotlighted', { mode: 'boolean' })
       .notNull()
       .default(false),
+    /** Players may put marks on it (0071). Seen by everyone at once. */
+    marksOpen: integer('marks_open', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    /** Fog of war over the picture (0071): only revealed cells show. */
+    fogged: integer('fogged', { mode: 'boolean' }).notNull().default(false),
+    /** Revealed cell indices on the fog lattice (`lib/party-map.ts`). */
+    revealed: text('revealed', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
     sortOrder: integer('sort_order').notNull().default(0),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
@@ -1874,6 +1884,28 @@ export const campaignMapPins = sqliteTable(
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('dm'),
+    /** What sort of place (0071). Decides its glyph. */
+    kind: text('kind', {
+      enum: ['place', 'danger', 'treasure', 'rumour', 'camp', 'note'],
+    })
+      .notNull()
+      .default('place'),
+    /** What the party wrote about it (0071). `dmNote` stays the DM's. */
+    note: text('note').notNull().default(''),
+    /** Who put it there (0071). A player edits only their own. */
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    /** What else in the record happened here (0071). */
+    questId: text('quest_id').references(() => campaignQuests.id, {
+      onDelete: 'set null',
+    }),
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    journalId: text('journal_id').references(() => playerJournals.id, {
+      onDelete: 'set null',
+    }),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
@@ -2870,4 +2902,43 @@ export const factionStanding = sqliteTable(
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('faction_standing_entry_idx').on(t.canonEntryId)]
+);
+
+/* --- The journey (0071) --------------------------------------------------- */
+
+/**
+ * The party's route across a map: numbered stops, each stamped with the
+ * session it was reached in and the world's date. Staff place them. The
+ * record of a table that was played — never carried in a package.
+ */
+export const mapJourney = sqliteTable(
+  'map_journey',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    mapId: text('map_id')
+      .notNull()
+      .references(() => campaignMaps.id, { onDelete: 'cascade' }),
+    /** 1, 2, 3… in the order the party went. */
+    seq: integer('seq').notNull(),
+    x: real('x').notNull(),
+    y: real('y').notNull(),
+    label: text('label').notNull().default(''),
+    /** The mark it stands on, when it was put on one. */
+    pinId: text('pin_id').references(() => campaignMapPins.id, {
+      onDelete: 'set null',
+    }),
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    /** `WorldTime`, JSON, when the table was counting. */
+    worldDate: text('world_date', { mode: 'json' }),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('map_journey_map_idx').on(t.mapId, t.seq)]
 );

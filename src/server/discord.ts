@@ -446,6 +446,31 @@ export function announceLevelUp(
   });
 }
 
+/** The DM put the party's next stop on a shared map. */
+export function announceJourney(
+  campaignId: string,
+  stop: {
+    mapTitle: string;
+    label: string | null;
+    seq: number;
+    worldDate: string | null;
+  }
+): void {
+  later(campaignId, async () => {
+    if (!(await hasChannel(campaignId))) return null;
+    const name = await campaignName(campaignId);
+    const where = stop.label ? `reached ${stop.label}` : 'moved on';
+    const when = stop.worldDate ? `, ${stop.worldDate}` : '';
+    return {
+      trigger: 'journey',
+      content: `**${name}** — the party ${where} (stop ${stop.seq} on ${stop.mapTitle}${when}).\n${appUrl(
+        `/campaigns/${campaignId}#canon`
+      )}`,
+      mentions: [],
+    };
+  });
+}
+
 /* --- the reminder loop ---------------------------------------------------- */
 
 /**

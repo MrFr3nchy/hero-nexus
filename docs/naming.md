@@ -59,6 +59,9 @@ names, they are different things; if they share a name, they are the same thing.
 | The creature an NPC fights as                                 | its stat block                            | "monster", "stats" (as a label)                                      |
 | A hero's sheet laid out for paper                             | the printable sheet                       | "PDF export", "character PDF"                                        |
 | A painted map that is a floor of a battle board               | a backdrop                                | "background", "map image", "underlay"                                |
+| A named point on a canon map (a place, a danger, a rumour…)   | a mark                                    | "marker" (that word is a ping's "never again"), "pin" (in copy)      |
+| The party's route across a canon map, in numbered stops       | the journey                               | "the trail", "the path", "progress"                                  |
+| One point on the journey                                      | a stop                                    | "waypoint", "checkpoint"                                             |
 
 ## The verbs
 
@@ -77,6 +80,8 @@ names, they are different things; if they share a name, they are the same thing.
 | Asking the DM to pause, without saying who                                   | **Tap the X-card**             | "flag", "raise the card", "X it"                          |
 | Bringing a hero in from a pasted D&D Beyond character                        | **Import from D&D Beyond**     | "sync", "link your account", "convert"                    |
 | Making a battle board from a .dd2vtt/.uvtt file                              | **Import a Universal VTT map** | "upload a map", "dd2vtt import"                           |
+| Putting the party's next stop on the journey                                 | **The party is here**          | "move the party", "add a waypoint"                        |
+| Putting a named point on a canon map                                         | **Mark a place**               | "drop a marker", "add a pin"                              |
 | Sending a moment to the campaign's Discord channel                           | **Post to Discord**            | "notify", "announce", "send to Discord"                   |
 
 "Show the party" is one verb because it is one act, and one act gets one glyph

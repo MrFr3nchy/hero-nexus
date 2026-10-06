@@ -1,41 +1,38 @@
 'use client';
 
-import { Button, Input, Select, SelectItem } from '@heroui/react';
+import { Button, Input } from '@heroui/react';
+import { useSearchParams } from 'next/navigation';
 
 import { PublishPicture } from '@/@creator/library/components';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
   DiceSpinner,
   EmptyState,
-  Glyph,
   Marginalia,
   SectionCard,
   TomeScene,
   useConfirm,
 } from '@/@shared/components/ui';
 import type { CampaignRole } from '@/server/campaigns';
-import type { CanonEntryRow } from '@/server/canon';
-import type { MapPinRow, MapRow } from '@/server/maps';
-import { listCanonAction } from '../canon-actions';
+import type { MapRow } from '@/server/maps';
 import {
-  addPinAction,
   createMapAction,
   deleteMapAction,
-  deletePinAction,
   listMapsAction,
   setMapVisibilityAction,
   spotlightMapAction,
-  updatePinAction,
 } from '../map-actions';
 import { ImagePicker } from './ImagePicker';
+import { PartyMap, type PendingLink } from './PartyMap';
 
 /**
- * A map, with things marked on it.
+ * A map, with things marked on it — the party's map.
  *
- * Deliberately not a battle grid: no tokens, no fog, no lattice. This is the
- * other half of what a table uses a map for — knowing where places are, and
- * being told about them one at a time.
+ * Deliberately not a battle grid: no tokens, no squares. This is the other
+ * half of what a table uses a map for — knowing where places are, being told
+ * about them one at a time, and seeing how far the party has come. The
+ * widget itself is `PartyMap`; this is the shelf of them.
  *
  * Pins are stored as fractions of the image, so a pin placed on the DM's
  * monitor lands in the same place on a player's phone. Everything here works
@@ -45,21 +42,22 @@ import { ImagePicker } from './ImagePicker';
 function MapSheet({
   campaignId,
   map,
-  canon,
   isStaff,
   refresh,
   onError,
+  focusMark,
+  pendingLink,
+  onPlacedLink,
 }: {
   campaignId: string;
   map: MapRow;
-  canon: CanonEntryRow[];
   isStaff: boolean;
   refresh: () => Promise<void>;
   onError: (message: string) => void;
+  focusMark: string | null;
+  pendingLink: PendingLink | null;
+  onPlacedLink: () => void;
 }) {
-  const [selected, setSelected] = useState<MapPinRow | null>(null);
-  const [placing, setPlacing] = useState(false);
-  const imageRef = useRef<HTMLDivElement>(null);
   const { confirm, dialog } = useConfirm();
 
   const act = async (p: Promise<{ ok: boolean; error?: string }>) => {
@@ -68,41 +66,23 @@ function MapSheet({
     await refresh();
   };
 
-  /** Where in the picture the click landed, as two fractions. */
-  const place = async (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!placing || !imageRef.current) return;
-    const box = imageRef.current.getBoundingClientRect();
-    const x = (event.clientX - box.left) / box.width;
-    const y = (event.clientY - box.top) / box.height;
-    setPlacing(false);
-    await act(
-      addPinAction(campaignId, map.id, { x, y, label: 'New mark' }).then(res =>
-        res.ok ? { ok: true } : res
-      )
-    );
-  };
-
   return (
     <SectionCard
       title={map.title || 'Map'}
       description={
         isStaff
           ? map.visibility === 'shared'
-            ? 'The party can open this.'
+            ? map.marksOpen
+              ? 'The party can open this, and mark it.'
+              : 'The party can open this.'
             : 'Yours alone for now.'
-          : undefined
+          : map.marksOpen
+            ? 'Open to the party: mark what you find.'
+            : undefined
       }
       actions={
         isStaff && (
           <>
-            <Button
-              size="sm"
-              variant={placing ? 'solid' : 'flat'}
-              color={placing ? 'primary' : 'default'}
-              onPress={() => setPlacing(!placing)}
-            >
-              {placing ? 'Click the map' : 'Mark a place'}
-            </Button>
             <Button
               size="sm"
               variant="flat"
@@ -132,8 +112,8 @@ function MapSheet({
             >
               {map.spotlighted ? 'Put it away' : 'Look at this'}
             </Button>
-            {/* The picture, not the map: pins carry the DM's private notes and
-                have no business on a public shelf. */}
+            {/* The picture, not the map: marks carry the DM's private notes
+                and have no business on a public shelf. */}
             <PublishPicture
               campaignImageId={map.imageId}
               defaultTitle={map.title}
@@ -144,7 +124,7 @@ function MapSheet({
               onPress={async () => {
                 const yes = await confirm({
                   title: 'Take this map down?',
-                  body: 'Every mark on it goes with it. The picture itself stays in the campaign.',
+                  body: 'Every mark and the whole journey go with it. The picture itself stays in the campaign.',
                   confirmLabel: 'Take it down',
                   destructive: true,
                 });
@@ -159,144 +139,16 @@ function MapSheet({
       }
     >
       {dialog}
-
-      <div
-        ref={imageRef}
-        onClick={place}
-        className={`relative overflow-hidden rounded-[var(--radius-card)] border border-line ${
-          placing ? 'cursor-crosshair' : ''
-        }`}
-      >
-        {/* Deliberately an <img>: the file is served through a role-checked
-            route, which next/image's optimiser cannot fetch on the server. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={`/api/campaigns/${campaignId}/images/${map.imageId}`}
-          alt={map.title || 'Map'}
-          className="block w-full"
-        />
-
-        {map.pins.map(pin => (
-          <button
-            key={pin.id}
-            type="button"
-            aria-label={pin.label || 'A mark'}
-            onClick={event => {
-              event.stopPropagation();
-              setSelected(selected?.id === pin.id ? null : pin);
-            }}
-            style={{ left: `${pin.x * 100}%`, top: `${pin.y * 100}%` }}
-            className="absolute -translate-x-1/2 -translate-y-1/2"
-          >
-            {/* Gold for what the party can see, arcane for what they cannot —
-                ornament that encodes state (design rule 6). */}
-            <Glyph
-              name="target"
-              size={20}
-              className={
-                pin.visibility === 'shared'
-                  ? 'text-gold drop-shadow'
-                  : 'text-arcane drop-shadow'
-              }
-            />
-          </button>
-        ))}
-      </div>
-
-      {selected && (
-        <div className="mt-3 rounded-md border border-line bg-surface-2 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {isStaff ? (
-              <Input
-                size="sm"
-                aria-label="What is here"
-                className="min-w-40 flex-1"
-                defaultValue={selected.label}
-                onBlur={event =>
-                  act(
-                    updatePinAction(campaignId, selected.id, {
-                      label: event.target.value,
-                    })
-                  )
-                }
-              />
-            ) : (
-              <span className="flex-1 text-sm text-ink">
-                {selected.label || 'A mark'}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => setSelected(null)}
-              className="text-xs text-ink-subtle hover:text-ink"
-            >
-              close
-            </button>
-          </div>
-
-          {selected.canonTitle && (
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-ink-muted">
-              <Glyph name="tome" size={13} className="text-gold" />
-              {selected.canonTitle} — in the canon
-            </p>
-          )}
-
-          {isStaff && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Select
-                aria-label="Link it to the canon"
-                size="sm"
-                className="w-56"
-                placeholder="Not in the canon"
-                selectedKeys={
-                  selected.canonEntryId ? [selected.canonEntryId] : []
-                }
-                onSelectionChange={keys => {
-                  const key = Array.from(keys)[0];
-                  act(
-                    updatePinAction(campaignId, selected.id, {
-                      canonEntryId: key ? String(key) : null,
-                    })
-                  );
-                  setSelected(null);
-                }}
-              >
-                {canon.map(entry => (
-                  <SelectItem key={entry.id} textValue={entry.title}>
-                    {entry.title || 'Untitled'}
-                  </SelectItem>
-                ))}
-              </Select>
-
-              <button
-                type="button"
-                onClick={() => {
-                  act(
-                    updatePinAction(campaignId, selected.id, {
-                      visibility:
-                        selected.visibility === 'shared' ? 'dm' : 'shared',
-                    })
-                  );
-                  setSelected(null);
-                }}
-                className="text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle hover:text-ink"
-              >
-                {selected.visibility === 'shared' ? 'hide it' : 'show them'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  act(deletePinAction(campaignId, selected.id));
-                  setSelected(null);
-                }}
-                className="text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle hover:text-danger"
-              >
-                remove
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      <PartyMap
+        campaignId={campaignId}
+        map={map}
+        isStaff={isStaff}
+        refresh={refresh}
+        onError={onError}
+        focusMark={focusMark}
+        pendingLink={pendingLink}
+        onPlacedLink={onPlacedLink}
+      />
     </SectionCard>
   );
 }
@@ -311,8 +163,27 @@ export function MapPanel({
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
 
   const [maps, setMaps] = useState<MapRow[] | null>(null);
-  const [canon, setCanon] = useState<CanonEntryRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * Deep links from elsewhere in the record: `?mark=<id>` opens a mark's
+   * card; `?place=quest:<id>` (or session:, journal:) puts the next mark
+   * down linked to it — "Put it on the map" on those cards.
+   */
+  const params = useSearchParams();
+  const focusMark = params.get('mark');
+  const [pendingLink, setPendingLink] = useState<PendingLink | null>(null);
+  useEffect(() => {
+    const m = /^(quest|session|journal):([\w-]{1,64})$/.exec(
+      params.get('place') ?? ''
+    );
+    setPendingLink(m ? { kind: m[1] as PendingLink['kind'], id: m[2] } : null);
+  }, [params]);
+  const placed = () => {
+    setPendingLink(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('place');
+    window.history.replaceState(null, '', url.toString());
+  };
   const [title, setTitle] = useState('');
   const [imageId, setImageId] = useState<string | null>(null);
 
@@ -327,10 +198,7 @@ export function MapPanel({
 
   useEffect(() => {
     refresh();
-    listCanonAction(campaignId)
-      .then(setCanon)
-      .catch(() => setCanon([]));
-  }, [campaignId, refresh]);
+  }, [refresh]);
 
   if (!maps) {
     return (
@@ -409,13 +277,38 @@ export function MapPanel({
               key={map.id}
               campaignId={campaignId}
               map={map}
-              canon={canon}
               isStaff={isStaff}
               refresh={refresh}
               onError={setError}
+              focusMark={
+                map.pins.some(p => p.id === focusMark) ? focusMark : null
+              }
+              pendingLink={
+                pendingLink &&
+                (isStaff || (map.marksOpen && map.visibility === 'shared'))
+                  ? pendingLink
+                  : null
+              }
+              onPlacedLink={placed}
             />
           ))}
         </div>
+      )}
+
+      {pendingLink && (
+        <p
+          role="status"
+          className="rounded-md border border-gold/40 bg-gold/[0.06] px-3 py-2 text-sm text-ink"
+        >
+          Tap a map where it happened — the new mark will point back to it.{' '}
+          <button
+            type="button"
+            onClick={placed}
+            className="text-xs text-ink-subtle underline-offset-2 hover:underline"
+          >
+            never mind
+          </button>
+        </p>
       )}
 
       {isStaff && maps.length > 0 && (

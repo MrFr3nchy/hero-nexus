@@ -18,6 +18,7 @@ export const DISCORD_TRIGGERS = [
   'recap',
   'poll',
   'levelup',
+  'journey',
 ] as const;
 
 export type DiscordTrigger = (typeof DISCORD_TRIGGERS)[number];
@@ -30,6 +31,7 @@ export const DISCORD_TRIGGER_LABELS: Record<DiscordTrigger, string> = {
   recap: 'A recap is shared',
   poll: 'A date poll opens or settles',
   levelup: 'A hero earns a level',
+  journey: 'The party reaches a new stop on the map',
 };
 
 export type DiscordEvents = Record<DiscordTrigger, boolean>;

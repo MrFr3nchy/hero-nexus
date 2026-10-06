@@ -25,6 +25,7 @@ import {
   setObjectiveVisibilityAction,
   updateQuestAction,
 } from '../quest-actions';
+import { OnTheMap, useMapLinks, type MapLinks } from './OnTheMap';
 
 const STATUS: {
   key: QuestStatus;
@@ -120,12 +121,14 @@ function QuestEntry({
   isStaff,
   refresh,
   onError,
+  mapLinks,
 }: {
   campaignId: string;
   quest: QuestRow;
   isStaff: boolean;
   refresh: () => Promise<void>;
   onError: (message: string) => void;
+  mapLinks: MapLinks | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
@@ -181,6 +184,14 @@ function QuestEntry({
               {quest.reward && <>for {quest.reward}</>}
             </p>
           )}
+          <div className="mt-1">
+            <OnTheMap
+              campaignId={campaignId}
+              links={mapLinks}
+              kind="quest"
+              id={quest.id}
+            />
+          </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           <Pill tone={status.tone}>{status.label}</Pill>
@@ -383,6 +394,7 @@ export function QuestPanel({
 }) {
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
 
+  const mapLinks = useMapLinks(campaignId);
   const [quests, setQuests] = useState<QuestRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showClosed, setShowClosed] = useState(false);
@@ -511,6 +523,7 @@ export function QuestPanel({
                 isStaff={isStaff}
                 refresh={refresh}
                 onError={setError}
+                mapLinks={mapLinks}
               />
             ))}
             {shown.length === 0 && (

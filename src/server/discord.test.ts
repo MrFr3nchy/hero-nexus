@@ -9,6 +9,7 @@ vi.mock('@/auth', () => ({
 
 const discord = await import('./discord');
 const sessions = await import('./campaign-sessions');
+const maps = await import('./maps');
 
 const HOOK = 'https://discord.com/api/webhooks/123456789/secret-token-abcd';
 const campaignId = 'camp-d';
@@ -140,6 +141,32 @@ describe('the webhook', () => {
     };
     expect((await discord.sendDiscordTest(campaignId)).error).toBe(
       'Could not reach Discord.'
+    );
+  });
+});
+
+describe('the journey', () => {
+  it('posts a new stop on a map the party can see, and not on one they cannot', async () => {
+    signedIn = dm;
+    const db = rawDb();
+    db.prepare(
+      "INSERT INTO campaign_images (id, campaign_id, file_path, mime, bytes) VALUES ('img-d', ?, 'x.png', 'image/png', 1)"
+    ).run(campaignId);
+    db.close();
+    const hidden = await maps.createMap(campaignId, { imageId: 'img-d' });
+    await maps.addJourneyStop(hidden, { x: 0.5, y: 0.5, label: 'Secret' });
+    await new Promise(r => setTimeout(r, 50));
+    expect(calls).toHaveLength(0);
+
+    const shown = await maps.createMap(campaignId, {
+      imageId: 'img-d',
+      title: 'The valley',
+      visibility: 'shared',
+    });
+    await maps.addJourneyStop(shown, { x: 0.5, y: 0.5, label: 'The ford' });
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(String(calls[0].body.content)).toContain(
+      'the party reached The ford (stop 1 on The valley'
     );
   });
 });

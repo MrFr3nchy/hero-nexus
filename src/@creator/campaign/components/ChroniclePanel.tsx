@@ -41,6 +41,7 @@ import {
   listPollsAction,
 } from '../scheduling-actions';
 import { AvailabilityPanel } from './AvailabilityPanel';
+import { OnTheMap, useMapLinks, type MapLinks } from './OnTheMap';
 import { SessionFeedback } from './SessionFeedback';
 import { SessionPoll } from './SessionPoll';
 
@@ -79,6 +80,7 @@ function SessionEntry({
   isStaff,
   refresh,
   onError,
+  mapLinks,
 }: {
   campaignId: string;
   viewerId: string;
@@ -92,6 +94,7 @@ function SessionEntry({
   isStaff: boolean;
   refresh: () => Promise<void>;
   onError: (message: string) => void;
+  mapLinks: MapLinks | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(session.title);
@@ -199,6 +202,14 @@ function SessionEntry({
                   </span>
                 )}
               </p>
+              <div className="mt-1">
+                <OnTheMap
+                  campaignId={campaignId}
+                  links={mapLinks}
+                  kind="session"
+                  id={session.id}
+                />
+              </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-1.5">
               {/* Planned steps down to the quiet tone now that there is a
@@ -562,6 +573,7 @@ export function ChroniclePanel({
 }) {
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
 
+  const mapLinks = useMapLinks(campaignId);
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
   const [polls, setPolls] = useState<PollRow[]>([]);
   const [forms, setForms] = useState<FeedbackFormRow[]>([]);
@@ -718,6 +730,7 @@ export function ChroniclePanel({
                 isStaff={isStaff}
                 refresh={refresh}
                 onError={setError}
+                mapLinks={mapLinks}
               />
             ))}
             {shown.length === 0 && (
