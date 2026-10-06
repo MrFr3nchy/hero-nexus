@@ -14,6 +14,26 @@ export async function register() {
   }
 
   warnIfProductionCannotSendMail();
+  await startDiscordReminders();
+}
+
+/**
+ * The day-ahead Discord reminder (0066). Every 15 minutes, post for each
+ * planned session due one; `campaign_sessions.reminded_at` is what keeps a
+ * restart or a deploy from sending it twice. `unref` so the timer never
+ * holds the process open on shutdown.
+ */
+async function startDiscordReminders() {
+  const g = globalThis as { __heroNexusReminders?: NodeJS.Timeout };
+  if (g.__heroNexusReminders) return;
+  const { sendDueReminders } = await import('./server/discord');
+  const tick = () =>
+    sendDueReminders().catch(err =>
+      console.error('[discord] reminder loop failed:', err)
+    );
+  g.__heroNexusReminders = setInterval(tick, 15 * 60_000);
+  g.__heroNexusReminders.unref();
+  void tick();
 }
 
 /**

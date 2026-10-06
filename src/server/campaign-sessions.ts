@@ -20,6 +20,7 @@ import type { WorldTime } from '@/@creator/campaign/lib/calendar';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 import { readWorldClock } from './world-time';
 import { bumpVersion, publish } from './live-hub';
+import { announceRecap, announceScheduled, announceStarting } from './discord';
 import { requireUserId } from './session-user';
 
 export type SessionStatus = 'planned' | 'live' | 'played' | 'cancelled';
@@ -288,7 +289,18 @@ export async function createSession(
       recapBody: input.recapBody ?? '',
       createdBy: userId,
     })
-    .returning({ id: campaignSessions.id });
+    .returning({ id: campaignSessions.id, number: campaignSessions.number });
+  if (input.scheduledFor) {
+    announceScheduled(
+      campaignId,
+      {
+        number: row.number,
+        title: input.title.trim(),
+        scheduledFor: input.scheduledFor,
+      },
+      false
+    );
+  }
   return row.id;
 }
 
@@ -296,13 +308,21 @@ export async function updateSession(
   sessionId: string,
   patch: Partial<SessionInput>
 ): Promise<void> {
-  await staffForSession(sessionId);
+  const { session } = await staffForSession(sessionId);
   const set: Partial<typeof campaignSessions.$inferInsert> = {
     updatedAt: new Date().toISOString(),
   };
   if (patch.title !== undefined) set.title = patch.title.trim();
-  if (patch.scheduledFor !== undefined)
+  // Every edit — prep, recap, title — arrives with the date in it, so only a
+  // date that actually changed is news, and only a moved date re-arms the
+  // day-ahead reminder.
+  const dateMoved =
+    patch.scheduledFor !== undefined &&
+    (patch.scheduledFor || null) !== session.scheduledFor;
+  if (dateMoved) {
     set.scheduledFor = patch.scheduledFor || null;
+    set.remindedAt = null;
+  }
   if (patch.playedOn !== undefined) set.playedOn = patch.playedOn || null;
   if (patch.status !== undefined) set.status = patch.status;
   if (patch.prepBody !== undefined) set.prepBody = patch.prepBody;
@@ -312,6 +332,19 @@ export async function updateSession(
     .update(campaignSessions)
     .set(set)
     .where(eq(campaignSessions.id, sessionId));
+
+  const status = set.status ?? session.status;
+  if (dateMoved && set.scheduledFor && status === 'planned') {
+    announceScheduled(
+      session.campaignId,
+      {
+        number: session.number,
+        title: set.title ?? session.title,
+        scheduledFor: set.scheduledFor,
+      },
+      session.scheduledFor !== null
+    );
+  }
 }
 
 /**
@@ -578,6 +611,7 @@ export async function openSitting(campaignId: string): Promise<string> {
     state: 'opened',
     title: sittingTitle(number, title),
   });
+  announceStarting(campaignId, { number, title });
   return id;
 }
 
@@ -623,6 +657,9 @@ export async function setRecapVisibility(
     .update(campaignSessions)
     .set({ recapVisibility: visibility, updatedAt: new Date().toISOString() })
     .where(eq(campaignSessions.id, sessionId));
+  if (visibility === 'shared' && session.recapVisibility !== 'shared') {
+    announceRecap(session.campaignId, session);
+  }
 }
 
 /**

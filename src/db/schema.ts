@@ -367,6 +367,11 @@ export const campaignMembers = sqliteTable(
       .notNull()
       .default('active'),
     joinedAt: text('joined_at').default(nowIso).notNull(),
+    /**
+     * The member's own Discord user id (0066), so a post to the campaign's
+     * channel can mention them. Theirs to set; digits only.
+     */
+    discordUserId: text('discord_user_id'),
   },
   t => [
     uniqueIndex('campaign_members_campaign_user_idx').on(
@@ -1082,6 +1087,11 @@ export const campaignSessions = sqliteTable(
     recapVisibility: text('recap_visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('dm'),
+    /**
+     * When the day-ahead Discord reminder went out (0066). The column is what
+     * makes the reminder loop safe across restarts; moving the date clears it.
+     */
+    remindedAt: text('reminded_at'),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -2739,3 +2749,25 @@ export const sessionFeedbackResponses = sqliteTable(
     ),
   ]
 );
+
+/* --- Discord notifications (0066) -------------------------------------- */
+
+/**
+ * A campaign's Discord channel webhook. Its own table rather than a key in
+ * `campaigns.settings`, because settings reach every member and travel in
+ * campaign packages, and the URL is a write credential. Staff read it, and
+ * only ever masked; it is never carried.
+ */
+export const campaignDiscord = sqliteTable('campaign_discord', {
+  campaignId: text('campaign_id')
+    .primaryKey()
+    .references(() => campaigns.id, { onDelete: 'cascade' }),
+  webhookUrl: text('webhook_url').notNull(),
+  /** JSON `{ [DiscordTrigger]: boolean }`. A missing key is on. */
+  events: text('events', { mode: 'json' })
+    .notNull()
+    .default(sql`'{}'`),
+  /** The last failed post, for the card. Cleared by the next success. */
+  lastError: text('last_error'),
+  updatedAt: text('updated_at').default(nowIso).notNull(),
+});

@@ -18,6 +18,7 @@ import {
 import { requireCampaignRole } from './campaigns';
 import { writeSheetAsStaff } from './characters';
 import { publish } from './live-hub';
+import { announceLevelUp } from './discord';
 import { xpStanding } from '@/@creator/character/lib/advancement';
 import { randomUUID } from 'node:crypto';
 
@@ -315,6 +316,11 @@ export async function awardExperience(
         },
         { users: [row.ownerId] }
       );
+      announceLevelUp(campaignId, {
+        name: recipient.name,
+        level: after.earnedLevel,
+        ownerId: row.ownerId,
+      });
     }
   }
 

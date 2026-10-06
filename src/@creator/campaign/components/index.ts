@@ -26,3 +26,4 @@ export { QuestPanel } from './QuestPanel';
 export { RevealControls } from './RevealControls';
 export { RevealTimeline } from './RevealTimeline';
 export type { RevealLevel, RevealMember } from './RevealControls';
+export { DiscordCard } from './DiscordCard';

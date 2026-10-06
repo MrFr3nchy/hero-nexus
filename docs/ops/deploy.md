@@ -113,7 +113,8 @@ does, step by step, so you can do or redo any part by hand:
 
 6. **Build and seed.** `npm ci`, `npm run build`, then `npm run db:migrate`
    and `npm run db:seed`. The seed fetches the SRD from api.open5e.com into
-   `reference_data` — it is the only outbound call the app ever makes, takes a
+   `reference_data` — a one-off outbound call (the others: mail to Resend,
+   and posts to a Discord webhook when a DM connects one; see `CLAUDE.md`), takes a
    few minutes, and without it the compendium, the character creator's class
    and species lists and the bestiary are empty. Migrations also run at every
    boot; the seed does not.

@@ -35,6 +35,7 @@ import {
   setMemberCharacterAction,
   setMemberRoleAction,
 } from '../actions';
+import { DiscordIdField } from './DiscordIdField';
 
 const roleLabel: Record<CampaignRole, string> = {
   gm: 'DM',
@@ -323,6 +324,10 @@ export function MembersPanel({
                         : '';
                     })()}
                   </p>
+                )}
+
+                {isMe && m.role !== 'gm' && (
+                  <DiscordIdField campaignId={campaignId} />
                 )}
 
                 {viewerRole === 'gm' && m.role !== 'gm' && (
