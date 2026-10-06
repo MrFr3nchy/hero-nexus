@@ -5,6 +5,7 @@ import {
   captureWords,
   describeCapture,
   parseCapture,
+  parseRollCapture,
   specFor,
 } from './capture';
 
@@ -51,6 +52,28 @@ describe('parseCapture', () => {
     const c = parseCapture('+ quest , nothing before');
     expect(c?.title).toBe(', nothing before');
     expect(c?.tail).toBe('');
+  });
+});
+
+describe('random tables in the box', () => {
+  it('reads the two-word kind whole, and keeps commas in the title', () => {
+    const c = parseCapture('+ random table Tavern names, coastal');
+    expect(c?.spec.kind).toBe('random-table');
+    expect(c?.title).toBe('Tavern names, coastal');
+    expect(parseCapture('+ Random-Table Weather')?.title).toBe('Weather');
+  });
+
+  it('never reads "table" or "random" alone as a kind', () => {
+    expect(parseCapture('+ table Tavern names')).toBeNull();
+    expect(parseCapture('+ random Tavern names')).toBeNull();
+    expect(parseCapture('+ random table')).toBeNull();
+  });
+
+  it('rolls with "roll <name>" and leaves everything else to search', () => {
+    expect(parseRollCapture('roll Tavern names')).toBe('Tavern names');
+    expect(parseRollCapture('  ROLL   Weather ')).toBe('Weather');
+    expect(parseRollCapture('rolling hills')).toBeNull();
+    expect(parseRollCapture('roll')).toBeNull();
   });
 });
 

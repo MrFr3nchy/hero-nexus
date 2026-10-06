@@ -2799,3 +2799,27 @@ export const campaignSafety = sqliteTable(
   },
   t => [index('campaign_safety_campaign_idx').on(t.campaignId)]
 );
+
+/* --- Random tables (0068) ------------------------------------------------ */
+
+/**
+ * A DM's random table: weighted entries, the die derived from the total
+ * weight. Prep, so it is carried in campaign packages.
+ */
+export const randomTables = sqliteTable(
+  'random_tables',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default(''),
+    /** JSON `[{ text: string, weight: int >= 1 }]`. */
+    entries: text('entries', { mode: 'json' })
+      .notNull()
+      .default(sql`'[]'`),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('random_tables_campaign_idx').on(t.campaignId)]
+);

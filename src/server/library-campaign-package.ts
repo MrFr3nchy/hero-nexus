@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq, inArray } from 'drizzle-orm';
 
 import { normaliseTags } from '@/@creator/library/lib/publication';
+import { normalizeEntries } from '@/@creator/campaign/lib/random-tables';
 
 import { db } from '@/db';
 import {
@@ -21,6 +22,7 @@ import {
   homebrew,
   publicationItems,
   publications,
+  randomTables,
 } from '@/db/schema';
 import {
   createCampaign,
@@ -51,8 +53,9 @@ import { requireUserId } from './session-user';
  * editing this list on purpose. A sweep would have shipped it silently.
  *
  * Carried: name, description, settings, canon (both bodies), collections and
- * links, quests and objectives, notes, maps and pins, the pictures those point
- * at, and every homebrew row the campaign's library holds.
+ * links, quests and objectives, notes, maps and pins, random tables, the
+ * pictures those point at, and every homebrew row the campaign's library
+ * holds.
  *
  * Never carried, and the reason: **members, invites and the join code** are
  * other accounts and a live door into a running table; **characters and their
@@ -80,6 +83,7 @@ export const CARRIED = [
   'campaign_notes',
   'campaign_maps',
   'campaign_map_pins',
+  'random_tables',
   'campaign_images (only those the above point at)',
   'homebrew (only what campaign_homebrew holds)',
 ] as const;
@@ -198,6 +202,8 @@ export interface CampaignPackagePayload {
   quests: PackagedQuest[];
   notes: PackagedNote[];
   maps: PackagedMap[];
+  /** Absent in a package frozen before random tables (0068). */
+  randomTables?: { title: string; entries: unknown }[];
 }
 
 /* --- building --------------------------------------------------------- */
@@ -215,35 +221,48 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
   imageKeys: string[];
   homebrewIds: string[];
 }> {
-  const [collections, entries, links, quests, notes, maps, library, row] =
-    await Promise.all([
-      db
-        .select()
-        .from(canonCollections)
-        .where(eq(canonCollections.campaignId, campaignId)),
-      db
-        .select()
-        .from(canonEntries)
-        .where(eq(canonEntries.campaignId, campaignId)),
-      db.select().from(canonLinks).where(eq(canonLinks.campaignId, campaignId)),
-      db
-        .select()
-        .from(campaignQuests)
-        .where(eq(campaignQuests.campaignId, campaignId)),
-      db
-        .select()
-        .from(campaignNotes)
-        .where(eq(campaignNotes.campaignId, campaignId)),
-      db
-        .select()
-        .from(campaignMaps)
-        .where(eq(campaignMaps.campaignId, campaignId)),
-      db
-        .select({ homebrewId: campaignHomebrew.homebrewId })
-        .from(campaignHomebrew)
-        .where(eq(campaignHomebrew.campaignId, campaignId)),
-      db.query.campaigns.findFirst({ where: eq(campaigns.id, campaignId) }),
-    ]);
+  const [
+    collections,
+    entries,
+    links,
+    quests,
+    notes,
+    maps,
+    library,
+    row,
+    tables,
+  ] = await Promise.all([
+    db
+      .select()
+      .from(canonCollections)
+      .where(eq(canonCollections.campaignId, campaignId)),
+    db
+      .select()
+      .from(canonEntries)
+      .where(eq(canonEntries.campaignId, campaignId)),
+    db.select().from(canonLinks).where(eq(canonLinks.campaignId, campaignId)),
+    db
+      .select()
+      .from(campaignQuests)
+      .where(eq(campaignQuests.campaignId, campaignId)),
+    db
+      .select()
+      .from(campaignNotes)
+      .where(eq(campaignNotes.campaignId, campaignId)),
+    db
+      .select()
+      .from(campaignMaps)
+      .where(eq(campaignMaps.campaignId, campaignId)),
+    db
+      .select({ homebrewId: campaignHomebrew.homebrewId })
+      .from(campaignHomebrew)
+      .where(eq(campaignHomebrew.campaignId, campaignId)),
+    db.query.campaigns.findFirst({ where: eq(campaigns.id, campaignId) }),
+    db
+      .select()
+      .from(randomTables)
+      .where(eq(randomTables.campaignId, campaignId)),
+  ]);
   if (!row) throw new Error('NOT_FOUND');
 
   const objectives =
@@ -347,6 +366,7 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
           visibility: p.visibility,
         })),
     })),
+    randomTables: tables.map(t => ({ title: t.title, entries: t.entries })),
   };
 
   const imageKeys = [
@@ -615,6 +635,17 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
           | 'dm'
           | 'shared',
         createdBy: userId,
+      }))
+    );
+  }
+
+  if ((payload.randomTables ?? []).length > 0) {
+    await db.insert(randomTables).values(
+      payload.randomTables!.map(t => ({
+        campaignId,
+        title: String(t.title ?? '').slice(0, 80) || 'Random table',
+        // Normalised on the way in: a package is somebody else's data.
+        entries: normalizeEntries(t.entries),
       }))
     );
   }

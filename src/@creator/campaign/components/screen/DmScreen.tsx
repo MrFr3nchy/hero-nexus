@@ -50,6 +50,7 @@ import {
   createEncounterAction,
 } from '../../actions';
 import { undoLastAction } from '../../monster-actions';
+import { RandomTablesPanel } from '../RandomTablesPanel';
 import { XCardButton } from '../XCardButton';
 import { useSelectedToken } from '@/@shared/battlemap/selection';
 import { SHORTCUTS, useDmShortcuts } from './useDmShortcuts';
@@ -690,6 +691,11 @@ function PanelContents({
           viewerRole={ctx.viewerRole}
         />
       );
+
+    case 'randomTables':
+      return ctx.isStaff ? (
+        <RandomTablesPanel campaignId={ctx.campaignId} compact />
+      ) : null;
   }
 }
 

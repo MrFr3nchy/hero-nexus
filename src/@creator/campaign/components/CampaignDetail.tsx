@@ -39,6 +39,7 @@ import { LedgerPanel } from './LedgerPanel';
 import { JournalPanel } from './JournalPanel';
 import { MapPanel } from './MapPanel';
 import { MembersPanel } from './MembersPanel';
+import { RandomTablesPanel } from './RandomTablesPanel';
 import { SafetyPanel } from './SafetyPanel';
 import { NotebookPanel, SharedNotes } from './NotebookPanel';
 import { PartySecrets } from './PartySecrets';
@@ -332,6 +333,19 @@ export function CampaignDetail({
               reloadKey={revealSeq}
             />
           </SectionCard>
+        </div>
+      ),
+    },
+    {
+      key: 'random-tables',
+      group: 'The world',
+      label: 'Random tables',
+      glyph: 'die',
+      line: 'What could happen — tavern names, weather, who comes down the road — rolled when you need one.',
+      staffOnly: true,
+      content: (
+        <div className="pt-4">
+          <RandomTablesPanel campaignId={campaign.id} />
         </div>
       ),
     },

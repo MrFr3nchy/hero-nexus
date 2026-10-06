@@ -10,12 +10,17 @@ import { createSessionAction } from '../chronicle-actions';
 import { createClockAction } from '../clock-actions';
 import { createNoteAction } from '../actions';
 import { addLootAction, createQuestAction } from '../quest-actions';
+import {
+  createRandomTableAction,
+  rollRandomTableByNameAction,
+} from '../random-table-actions';
 import { searchCampaignAction } from '../search-actions';
 import {
   captureWords,
   describeCapture,
   isCanonCapture,
   parseCapture,
+  parseRollCapture,
   type Capture,
 } from '../lib/capture';
 
@@ -72,6 +77,9 @@ export function CaptureBox({
   const seq = useRef(0);
 
   const capture = isStaff ? parseCapture(query) : null;
+  // `roll Tavern names`: a random table, rolled behind the screen. It stays
+  // a search too, in case "roll" was the start of something else.
+  const rollTitle = isStaff && !capture ? parseRollCapture(query) : null;
   // A line being captured is never also a search: `+` is the whole signal.
   const searchable = !capture && query.trim().length >= 2;
 
@@ -125,6 +133,8 @@ export function CaptureBox({
         name: title,
         quantity: c.number ?? 1,
       });
+    } else if (c.spec.kind === 'random-table') {
+      res = await createRandomTableAction(campaignId, { title });
     } else if (isCanonCapture(c.spec.kind)) {
       res = await createCanonAction(campaignId, {
         kind: c.spec.kind,
@@ -147,6 +157,21 @@ export function CaptureBox({
     await onWrote?.();
   };
 
+  const rollIt = async (title: string) => {
+    setWriting(true);
+    setError(null);
+    const res = await rollRandomTableByNameAction(campaignId, title);
+    setWriting(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setQuery('');
+    setWrote(
+      `${res.data.title} — ${res.data.notation} → ${res.data.face}: ${res.data.entry} (behind the screen)`
+    );
+  };
+
   return (
     <div className="mb-4">
       <div className="flex items-end gap-2">
@@ -155,7 +180,7 @@ export function CaptureBox({
           aria-label="Search this campaign, or write something down"
           placeholder={
             isStaff
-              ? 'Search the record — or type + quest, + npc, + clock to write one'
+              ? 'Search the record — + quest, + npc, + clock to write one; roll <random table>'
               : "Search the table's record"
           }
           value={query}
@@ -170,6 +195,9 @@ export function CaptureBox({
             if (event.key === 'Enter' && capture && !writing) {
               event.preventDefault();
               void write(capture);
+            } else if (event.key === 'Enter' && rollTitle && !writing) {
+              event.preventDefault();
+              void rollIt(rollTitle);
             }
           }}
           className="flex-1"
@@ -192,6 +220,17 @@ export function CaptureBox({
             Write it down
           </Button>
         )}
+        {rollTitle && (
+          <Button
+            size="sm"
+            color="primary"
+            isDisabled={writing}
+            isLoading={writing}
+            onPress={() => rollIt(rollTitle)}
+          >
+            Roll it
+          </Button>
+        )}
       </div>
 
       {/* What is about to be written, before it is. A DM should never press
@@ -200,6 +239,18 @@ export function CaptureBox({
         <div className="mt-2 rounded-[var(--radius-card)] border border-gold/40 bg-gold/[0.06] px-3 py-2">
           <p className="text-sm text-ink">{describeCapture(capture)}</p>
           <p className="mt-0.5 text-xs text-ink-muted">{capture.spec.hint}</p>
+        </div>
+      )}
+
+      {rollTitle && (
+        <div className="mt-2 rounded-[var(--radius-card)] border border-gold/40 bg-gold/[0.06] px-3 py-2">
+          <p className="text-sm text-ink">
+            Roll the random table “{rollTitle}” behind the screen
+          </p>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            The result goes to Dice, for staff only. Show the party from the
+            Random tables section.
+          </p>
         </div>
       )}
 
