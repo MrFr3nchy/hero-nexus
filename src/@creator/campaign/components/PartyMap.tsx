@@ -291,7 +291,7 @@ export function PartyMap({
             <Button
               size="sm"
               variant={mode === 'guess' ? 'solid' : 'flat'}
-              color={mode === 'guess' ? 'secondary' : 'default'}
+              color={mode === 'guess' ? 'primary' : 'default'}
               startContent={
                 <Glyph name="question" size={14} className="text-arcane" />
               }
