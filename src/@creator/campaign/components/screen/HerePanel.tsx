@@ -32,6 +32,7 @@ import { placeGlyph } from '../world/PlaceChip';
 import { QuickNpc } from '../world/QuickNpc';
 import { useWorld } from '../world/useWorld';
 import { ShopPanel } from './ShopPanel';
+import type { KeptLookup } from '../../lib/lookup';
 
 const HERE = '__here__';
 
@@ -47,6 +48,7 @@ function Line({
   title,
   sub,
   hidden = false,
+  onOpen,
   children,
 }: {
   glyph?: GlyphName;
@@ -55,8 +57,18 @@ function Line({
   sub?: string;
   /** Not shown to the party: the `hidden` state, hatched and dotted. */
   hidden?: boolean;
+  /** Open it beside the panels — a person's notes, a quest's steps. */
+  onOpen?: () => void;
   children?: ReactNode;
 }) {
+  const words = (
+    <span className="min-w-0 flex-1">
+      <span className="block truncate text-sm text-ink">{title}</span>
+      {sub && (
+        <span className="block truncate text-xs text-ink-muted">{sub}</span>
+      )}
+    </span>
+  );
   return (
     <div
       className={`flex min-h-10 items-center gap-2 rounded-md border px-2 py-1.5 ${
@@ -74,12 +86,23 @@ function Line({
           <Glyph name={glyph} size={15} className="shrink-0 text-ink-subtle" />
         )
       )}
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-ink">{title}</span>
-        {sub && (
-          <span className="block truncate text-xs text-ink-muted">{sub}</span>
-        )}
-      </span>
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={`Open ${title}`}
+          className="flex min-w-0 flex-1 items-center gap-1 text-left hover:[&>span]:underline"
+        >
+          {words}
+          <Glyph
+            name="chevron-right"
+            size={12}
+            className="shrink-0 text-ink-subtle"
+          />
+        </button>
+      ) : (
+        words
+      )}
       {hidden && <StatusMark kind="hidden" />}
       {children}
     </div>
@@ -105,12 +128,19 @@ export function HerePanel({
   viewerRole,
   state,
   onError,
+  onOpen,
 }: {
   campaignId: string;
   viewerRole: CampaignRole;
   state: LiveState | null;
   onError: (message: string) => void;
+  /** Open a record beside the panels (the session screen's Search peek). */
+  onOpen?: (item: KeptLookup) => void;
 }) {
+  const open = (record: 'canon' | 'quest', id: string, name: string) =>
+    onOpen
+      ? () => onOpen({ ref: { kind: 'record', record, id }, name })
+      : undefined;
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
   const { world, error, act, refresh } = useWorld(campaignId, isStaff);
   const [looking, setLooking] = useState<string | null>(null);
@@ -199,13 +229,24 @@ export function HerePanel({
           size={14}
           className="text-gold"
         />
-        <span className="min-w-0 flex-1 basis-[calc(100%-1.5rem)] truncate text-xs text-ink-muted">
-          {place
-            ? pathLabel(path)
-            : world.whereabouts.here
-              ? world.whereabouts.here.label
-              : 'The party is nowhere on a map yet'}
-        </span>
+        {place && onOpen ? (
+          <button
+            type="button"
+            onClick={open('canon', place.id, place.title || 'Somewhere')}
+            aria-label={`Open ${place.title || 'this place'}`}
+            className="min-w-0 flex-1 basis-[calc(100%-1.5rem)] truncate text-left text-xs text-ink-muted hover:text-ink hover:underline"
+          >
+            {pathLabel(path)}
+          </button>
+        ) : (
+          <span className="min-w-0 flex-1 basis-[calc(100%-1.5rem)] truncate text-xs text-ink-muted">
+            {place
+              ? pathLabel(path)
+              : world.whereabouts.here
+                ? world.whereabouts.here.label
+                : 'The party is nowhere on a map yet'}
+          </span>
+        )}
         {atHere && <StatusChip kind="live" detail="the party is here" />}
         {isStaff && place && !atHere && (
           <Button
@@ -284,6 +325,7 @@ export function HerePanel({
               key={n.id}
               initial={n.title || '?'}
               title={n.title || 'Somebody'}
+              onOpen={open('canon', n.id, n.title || 'Somebody')}
               sub={[
                 isStaff && n.attitude ? ATTITUDE_LABEL[n.attitude] : null,
                 n.fields.role,
@@ -448,6 +490,7 @@ export function HerePanel({
                   glyph="scroll"
                   title={step.body}
                   sub={quest.title}
+                  onOpen={open('quest', quest.id, quest.title || 'A quest')}
                   hidden={
                     isStaff &&
                     (quest.visibility === 'dm' || step.visibility === 'dm')

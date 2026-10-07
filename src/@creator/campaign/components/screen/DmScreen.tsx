@@ -710,6 +710,7 @@ function PanelContents({
           viewerRole={ctx.viewerRole}
           state={live.state}
           onError={ctx.onError}
+          onOpen={ctx.openLookup}
         />
       );
 
