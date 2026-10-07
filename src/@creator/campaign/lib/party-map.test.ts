@@ -10,6 +10,8 @@ import {
   isMarkKind,
   journeyUpTo,
   normalizeRevealed,
+  plannedStops,
+  reachedStops,
   stopLine,
   trailPoints,
   type JourneyStop,
@@ -18,6 +20,8 @@ import {
 const stop = (seq: number, over: Partial<JourneyStop> = {}): JourneyStop => ({
   id: `s${seq}`,
   seq,
+  planned: false,
+  visibility: 'shared',
   x: seq / 10,
   y: 0.5,
   label: '',
@@ -73,6 +77,18 @@ describe('the journey', () => {
     const stops = [stop(3), stop(1), stop(2)];
     expect(journeyUpTo(stops, 2).map(s => s.seq)).toEqual([1, 2]);
     expect(trailPoints(journeyUpTo(stops, 2))).toBe('10,50 20,50');
+  });
+
+  it('leaves planned stops off the route until they are reached', () => {
+    const stops = [
+      stop(1),
+      stop(0, { id: 'p2', planned: true, createdAt: '2026-02' }),
+      stop(2),
+      stop(0, { id: 'p1', planned: true, createdAt: '2026-01' }),
+    ];
+    expect(journeyUpTo(stops, 99).map(s => s.id)).toEqual(['s1', 's2']);
+    expect(reachedStops(stops)).toHaveLength(2);
+    expect(plannedStops(stops).map(s => s.id)).toEqual(['p1', 'p2']);
   });
 
   it('says where and when a stop was', () => {

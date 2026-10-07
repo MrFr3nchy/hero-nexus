@@ -25,6 +25,11 @@ export interface RandomTableEntry {
   from: number;
   /** Last face, inclusive. */
   to: number;
+  /**
+   * Plucked (0072): this name became somebody, so a roll skips it. `entryId`
+   * is the canon entry it became, when it became one. Restorable.
+   */
+  struck?: { entryId: string | null } | null;
 }
 
 export interface RandomTableRow {
@@ -70,7 +75,8 @@ export function normalizeTable(
         ({
           ...r,
           text: typeof r.text === 'string' ? r.text.trim() : '',
-        }) as Obj & { text: string }
+          struck: cleanStruck(r.struck),
+        }) as Obj & { text: string; struck: RandomTableEntry['struck'] }
     )
     .filter(r => r.text);
 
@@ -80,10 +86,11 @@ export function normalizeTable(
     let at = 1;
     const entries = list.map(r => {
       const w = Math.max(1, Math.min(100, int(r.weight) ?? 1));
-      const e = {
+      const e: RandomTableEntry = {
         text: r.text.slice(0, MAX_ENTRY_TEXT),
         from: at,
         to: at + w - 1,
+        ...(r.struck ? { struck: r.struck } : {}),
       };
       at += w;
       return e;
@@ -104,9 +111,21 @@ export function normalizeTable(
     let from = int(r.from) ?? 1;
     let to = int(r.to) ?? from;
     if (to < from) [from, to] = [to, from];
-    return { text: r.text.slice(0, MAX_ENTRY_TEXT), from, to };
+    const e: RandomTableEntry = {
+      text: r.text.slice(0, MAX_ENTRY_TEXT),
+      from,
+      to,
+      ...(r.struck ? { struck: r.struck } : {}),
+    };
+    return e;
   });
   return { die, entries: clampTo(die, entries) };
+}
+
+function cleanStruck(raw: unknown): RandomTableEntry['struck'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = (raw as Obj).entryId;
+  return { entryId: typeof id === 'string' && id ? id.slice(0, 64) : null };
 }
 
 function clampTo(die: number, entries: RandomTableEntry[]): RandomTableEntry[] {
@@ -262,6 +281,61 @@ export function entryForFace(
 ): { entry: RandomTableEntry; index: number } | null {
   const index = entries.findIndex(e => face >= e.from && face <= e.to);
   return index < 0 ? null : { entry: entries[index], index };
+}
+
+/* --- plucking (0072) -------------------------------------------------------- */
+
+/** The entries a roll can still land on: everything not struck through. */
+export function liveEntries(
+  entries: readonly RandomTableEntry[]
+): { entry: RandomTableEntry; index: number }[] {
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(e => !e.entry.struck);
+}
+
+/**
+ * Draw up to `count` different entries, as the die would — an entry with
+ * three faces is three times as likely — skipping the struck ones. `rand`
+ * is `Math.random`'s shape, passed in so a test can pin it.
+ */
+export function drawEntries(
+  entries: readonly RandomTableEntry[],
+  count: number,
+  rand: () => number
+): { entry: RandomTableEntry; index: number }[] {
+  const pool = liveEntries(entries);
+  const out: { entry: RandomTableEntry; index: number }[] = [];
+  while (out.length < count && pool.length > 0) {
+    const total = pool.reduce((n, p) => n + (p.entry.to - p.entry.from + 1), 0);
+    let at = Math.floor(rand() * total);
+    let pick = 0;
+    for (; pick < pool.length; pick++) {
+      at -= pool[pick].entry.to - pool[pick].entry.from + 1;
+      if (at < 0) break;
+    }
+    out.push(...pool.splice(Math.min(pick, pool.length - 1), 1));
+  }
+  return out;
+}
+
+/**
+ * Keep what was struck when a table is rewritten. The editor sends text and
+ * faces; an entry whose words are unchanged keeps its strike, so pasting the
+ * list back in does not bring every used name back to life.
+ */
+export function carryStrikes(
+  before: readonly RandomTableEntry[],
+  after: readonly RandomTableEntry[]
+): RandomTableEntry[] {
+  const key = (t: string) => t.trim().toLowerCase();
+  const struck = new Map<string, NonNullable<RandomTableEntry['struck']>>();
+  for (const e of before) if (e.struck) struck.set(key(e.text), e.struck);
+  return after.map(e =>
+    e.struck !== undefined || !struck.has(key(e.text))
+      ? e
+      : { ...e, struck: struck.get(key(e.text)) }
+  );
 }
 
 /** How a result reads in the log, which keeps 80 characters of it. */

@@ -10,6 +10,7 @@ import { sql } from 'drizzle-orm';
 import {
   index,
   integer,
+  type AnySQLiteColumn,
   primaryKey,
   real,
   sqliteTable,
@@ -819,13 +820,28 @@ export const canonEntries = sqliteTable(
      */
     statSource: text('stat_source', { enum: ['srd', 'homebrew'] }),
     statKey: text('stat_key'),
+    /**
+     * Where it is (0072): a place's parent place, an NPC's home, a faction's
+     * seat. Always a `location` entry in the same campaign, asserted on
+     * write. Set null on delete — a city deleted leaves its innkeeper
+     * homeless, never gone.
+     */
+    placeId: text('place_id').references(
+      (): AnySQLiteColumn => canonEntries.id,
+      {
+        onDelete: 'set null',
+      }
+    ),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
-  t => [index('canon_entries_campaign_idx').on(t.campaignId)]
+  t => [
+    index('canon_entries_campaign_idx').on(t.campaignId),
+    index('canon_entries_place_idx').on(t.placeId),
+  ]
 );
 
 /** A directed reference from one canon entry to another. */
@@ -873,6 +889,32 @@ export const canonReveals = sqliteTable(
     uniqueIndex('canon_reveals_entry_user_idx').on(t.entryId, t.userId),
     index('canon_reveals_user_idx').on(t.userId),
   ]
+);
+
+/**
+ * What the party has written about an NPC or a place (0072), signed. Anyone
+ * who can read the entry reads its notes; a player edits only their own, and
+ * staff may take any down. The record of a table that was played — never
+ * carried in a package.
+ */
+export const canonPartyNotes = sqliteTable(
+  'canon_party_notes',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    entryId: text('entry_id')
+      .notNull()
+      .references(() => canonEntries.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    body: text('body').notNull().default(''),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('canon_party_notes_entry_idx').on(t.entryId)]
 );
 
 /* ------------------------------------------------------------------ */
@@ -1502,6 +1544,15 @@ export const encounterPlans = sqliteTable(
     sessionId: text('session_id').references(() => campaignSessions.id, {
       onDelete: 'set null',
     }),
+    /** Where it happens (0072). A `location` canon entry. */
+    placeId: text('place_id').references(() => canonEntries.id, {
+      onDelete: 'set null',
+    }),
+    /** When it was last fought (0072), and in which session. */
+    ranAt: text('ran_at'),
+    ranSessionId: text('ran_session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -1842,6 +1893,13 @@ export const campaignMaps = sqliteTable(
     revealed: text('revealed', { mode: 'json' })
       .notNull()
       .default(sql`'[]'`),
+    /**
+     * The place this map shows (0072). A mark for that place on another map
+     * opens this one — the region map's Waterdeep opens Waterdeep's.
+     */
+    placeId: text('place_id').references(() => canonEntries.id, {
+      onDelete: 'set null',
+    }),
     sortOrder: integer('sort_order').notNull().default(0),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
@@ -1906,6 +1964,14 @@ export const campaignMapPins = sqliteTable(
     journalId: text('journal_id').references(() => playerJournals.id, {
       onDelete: 'set null',
     }),
+    /**
+     * A battle mark (0072): the spot a planned fight happens. The plan says
+     * who is in it; the mark says where.
+     */
+    encounterPlanId: text('encounter_plan_id').references(
+      () => encounterPlans.id,
+      { onDelete: 'set null' }
+    ),
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
@@ -2552,6 +2618,14 @@ export const campaignShops = sqliteTable(
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('dm'),
+    /** Where it stands (0072). A `location` canon entry. */
+    placeId: text('place_id').references(() => canonEntries.id, {
+      onDelete: 'set null',
+    }),
+    /** Who is behind the counter (0072). An `npc` canon entry. */
+    keeperId: text('keeper_id').references(() => canonEntries.id, {
+      onDelete: 'set null',
+    }),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
   t => [index('campaign_shops_campaign_idx').on(t.campaignId)]
@@ -2921,8 +2995,17 @@ export const mapJourney = sqliteTable(
     mapId: text('map_id')
       .notNull()
       .references(() => campaignMaps.id, { onDelete: 'cascade' }),
-    /** 1, 2, 3… in the order the party went. */
+    /** 1, 2, 3… in the order the party went. 0 while planned. */
     seq: integer('seq').notNull(),
+    /**
+     * Not reached yet (0072): where the party is headed. "The party is here"
+     * on it numbers it and stamps the session.
+     */
+    planned: integer('planned', { mode: 'boolean' }).notNull().default(false),
+    /** A planned stop is the DM's until shown; a reached one is the party's. */
+    visibility: text('visibility', { enum: ['dm', 'shared'] })
+      .notNull()
+      .default('shared'),
     x: real('x').notNull(),
     y: real('y').notNull(),
     label: text('label').notNull().default(''),

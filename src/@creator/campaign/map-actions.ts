@@ -7,6 +7,7 @@ import { FOG_CELLS, MARK_KINDS } from '@/@creator/campaign/lib/party-map';
 import {
   addJourneyStop,
   addPin,
+  arriveAtStop,
   createMap,
   deleteMap,
   deletePin,
@@ -15,9 +16,12 @@ import {
   recordsOnMaps,
   removeJourneyStop,
   renameJourneyStop,
+  renameMap,
   revealMapCells,
   setMapFog,
+  setMapPlace,
   setMapVisibility,
+  setStopVisibility,
   setMarksOpen,
   spotlightMap,
   updatePin,
@@ -38,6 +42,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     FORBIDDEN: 'You do not have permission to do that.',
     MARKS_CLOSED: 'The DM has not opened this map for marks.',
     IN_FOG: 'That part of the map is still in fog.',
+    NOT_A_PLACE: 'A map shows a place — pick a canon entry that is one.',
   };
   if (!messages[code]) console.error('[action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
@@ -56,6 +61,7 @@ const pinSchema = z.object({
   questId: link,
   sessionId: link,
   journalId: link,
+  encounterPlanId: link,
   visibility: z.enum(['dm', 'shared']).optional(),
 });
 
@@ -66,10 +72,15 @@ export async function listMapsAction(campaignId: string): Promise<MapRow[]> {
 export async function createMapAction(
   campaignId: string,
   imageId: string,
-  title: string
+  title: string,
+  placeId: string | null = null
 ): Promise<Result<{ id: string }>> {
   try {
-    const id = await createMap(campaignId, { imageId, title });
+    const id = await createMap(campaignId, {
+      imageId,
+      title: String(title ?? '').slice(0, 120),
+      placeId: typeof placeId === 'string' ? placeId : null,
+    });
     revalidatePath(`/campaigns/${campaignId}`);
     return { ok: true, data: { id } };
   } catch (err) {
@@ -88,6 +99,34 @@ export async function setMapVisibilityAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Failed to change who sees the map.');
+  }
+}
+
+/** Say which place a map shows. Staff only. */
+export async function setMapPlaceAction(
+  mapId: string,
+  placeId: string | null
+): Promise<Result> {
+  try {
+    await setMapPlace(mapId, typeof placeId === 'string' ? placeId : null);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not say where the map shows.');
+  }
+}
+
+export async function renameMapAction(
+  mapId: string,
+  title: string
+): Promise<Result> {
+  if (typeof title !== 'string' || title.length > 120) {
+    return { ok: false, error: 'A shorter name.' };
+  }
+  try {
+    await renameMap(mapId, title);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not rename the map.');
   }
 }
 
@@ -228,6 +267,7 @@ const stopSchema = z.object({
   y: z.number(),
   label: z.string().trim().max(120).optional(),
   pinId: z.string().min(1).max(64).nullable().optional(),
+  planned: z.boolean().optional(),
 });
 
 /** The party is here: the next stop on the journey. Staff only. */
@@ -241,6 +281,29 @@ export async function addJourneyStopAction(
     return { ok: true, data: { id: await addJourneyStop(mapId, parsed.data) } };
   } catch (err) {
     return fail(err, 'Could not put the party there.');
+  }
+}
+
+/** The party got to a planned stop. Staff only. */
+export async function arriveAtStopAction(stopId: string): Promise<Result> {
+  try {
+    await arriveAtStop(stopId);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not put the party there.');
+  }
+}
+
+/** Show the party where it is headed, or keep it back. Staff only. */
+export async function setStopVisibilityAction(
+  stopId: string,
+  visibility: 'dm' | 'shared'
+): Promise<Result> {
+  try {
+    await setStopVisibility(stopId, visibility === 'shared' ? 'shared' : 'dm');
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not change who sees that.');
   }
 }
 

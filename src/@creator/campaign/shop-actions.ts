@@ -35,6 +35,8 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     NOT_YOUR_PURSE: 'That is not your purse.',
     NOT_AT_TABLE: 'They are not seated at this table.',
     NOT_AN_ITEM: 'A shop sells items.',
+    NOT_A_PLACE: 'A shop stands in a place — pick one that is.',
+    NOT_AN_NPC: 'A shop is kept by an NPC — pick one that is.',
     NOT_IN_PLAY:
       'That homebrew is not in play at this table. Approve it into the library first.',
     NO_SUCH_ITEM: 'That item no longer resolves.',
@@ -54,6 +56,8 @@ const shopSchema = z.object({
   markupPercent: z.number().int().min(-90).max(500).optional(),
   buysAtPercent: z.number().int().min(0).max(200).optional(),
   visibility: z.enum(['dm', 'shared']).optional(),
+  placeId: z.string().min(1).max(64).nullable().optional(),
+  keeperId: z.string().min(1).max(64).nullable().optional(),
 });
 
 const refSchema = z.object({
