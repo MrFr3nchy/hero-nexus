@@ -39,6 +39,7 @@ import {
   type ScreenLayout,
   type ScreenLayouts,
   type ScreenPanelKey,
+  panelsAround,
   type ScreenState,
   type TableKind,
 } from '../../lib/screen';
@@ -88,6 +89,10 @@ import { StatBlockPanel } from './StatBlockPanel';
 import { unreadWhispers, WhispersPanel } from './WhispersPanel';
 import { TimerPanel } from '../session/TimerPanel';
 import { MyHeroPanel } from './MyHeroPanel';
+import { SearchBox } from './SearchBox';
+import { LookupPeek } from './LookupPeek';
+import { LookupsPanel } from './LookupsPanel';
+import { lookupKey, withKept, type KeptLookup } from '../../lib/lookup';
 
 /** "Session 4 · The bridge" — one line per sitting, for the filing select. */
 function SessionChoice({ session }: { session: SessionRow }) {
@@ -372,6 +377,11 @@ interface ScreenContext {
    */
   spoils: FightSpoils | null;
   setSpoils: (next: FightSpoils | null) => void;
+  /** What Search found and this reader kept (the Lookups panel). */
+  kept: KeptLookup[];
+  /** Open something beside the panels, as Search does. */
+  openLookup: (item: KeptLookup) => void;
+  removeKept: (item: KeptLookup) => void;
 }
 
 /**
@@ -704,8 +714,15 @@ function PanelContents({
       );
 
     case 'lookups':
-      // Drawn by the Search work (PR 4, in progress): nothing kept yet.
-      return null;
+      return (
+        <LookupsPanel
+          campaignId={ctx.campaignId}
+          kept={ctx.kept}
+          isStaff={ctx.isStaff}
+          onRemove={ctx.removeKept}
+          onError={ctx.onError}
+        />
+      );
 
     case 'randomTables':
       return ctx.isStaff ? (
@@ -853,6 +870,8 @@ export function DmScreen({
   const [revealSeq, setRevealSeq] = useState(0);
   /** What the fight that just ended was worth; the initiative box draws it. */
   const [spoils, setSpoils] = useState<FightSpoils | null>(null);
+  /** What Search opened, beside the panels. */
+  const [opened, setOpened] = useState<KeptLookup | null>(null);
 
   const [dragged, setDragged] = useState<ScreenPanelKey | null>(null);
   const [dropAt, setDropAt] = useState<DropAt | null>(null);
@@ -1013,6 +1032,57 @@ export function DmScreen({
     else void save(merged);
   };
 
+  /*
+   * Keeping a lookup saves at once, like the pin: it is the kind of change a
+   * reader makes mid-session without pressing Arrange. If the Lookups panel
+   * is not on the screen they are looking at, it is put there — keeping
+   * something you then cannot see would be the silent drop this screen has
+   * been fixed for before.
+   */
+  const keep = (item: KeptLookup) => {
+    const next: ScreenLayouts = {
+      ...layouts,
+      kept: withKept(layouts.kept, item),
+    };
+    if (current === 'battle' && !inPerson) {
+      if (!panelsAround(next.battle).includes('lookups')) {
+        next.battle = {
+          ...next.battle,
+          right: [...next.battle.right, 'lookups'],
+        };
+      }
+    } else {
+      const on = next[arrangementKey];
+      if (!panelsOn(on).includes('lookups')) {
+        const shortest = on.columns.reduce(
+          (best, col, i) => (col.length < on.columns[best].length ? i : best),
+          0
+        );
+        next[arrangementKey] = {
+          columns: on.columns.map((col, i) =>
+            i === shortest ? [...col, 'lookups'] : col
+          ),
+        };
+      }
+    }
+    setLayouts(next);
+    void save(next);
+  };
+
+  const removeKept = (item: KeptLookup) => {
+    const key = lookupKey(item.ref);
+    const next = {
+      ...layouts,
+      kept: layouts.kept.filter(k => lookupKey(k.ref) !== key),
+    };
+    setLayouts(next);
+    void save(next);
+  };
+
+  const openedKept =
+    !!opened &&
+    layouts.kept.some(k => lookupKey(k.ref) === lookupKey(opened.ref));
+
   const ctx: ScreenContext = {
     campaignId: campaign.id,
     campaign,
@@ -1027,6 +1097,9 @@ export function DmScreen({
     bumpReveals: () => setRevealSeq(n => n + 1),
     spoils,
     setSpoils,
+    kept: layouts.kept,
+    openLookup: setOpened,
+    removeKept,
   };
 
   /*
@@ -1139,6 +1212,11 @@ export function DmScreen({
             onHelp={() => shortcuts.setHelp(!shortcuts.help)}
           />
         )}
+        <SearchBox
+          campaignId={campaign.id}
+          onOpen={setOpened}
+          className="max-w-xl flex-1 basis-56"
+        />
         {shortcuts.help && (
           <div
             role="dialog"
@@ -1275,193 +1353,210 @@ export function DmScreen({
         />
       )}
 
-      {at === 'desk' && live.state ? (
-        <NotSitting
-          campaignId={campaign.id}
-          isStaff={isStaff}
-          busy={false}
-          onStart={async () => {
-            const res = await openSittingAction(campaign.id);
-            if (!res.ok) setError(res.error ?? 'Could not start the session.');
-            await live.refresh();
-          }}
-        />
-      ) : current === 'battle' && live.state && !inPerson ? (
-        <BattleArrangement
-          layout={layouts.battle}
-          arranging={arranging}
-          isStaff={isStaff}
-          badges={badges}
-          wear={key => panelStatus(key, statusCtx)}
-          titleOf={key => panelTitle(key, ctx)}
-          onChange={changeBattle}
-          board={fitHeight => (
-            <BattleBoard
-              campaignId={campaign.id}
-              state={live.state!}
-              isStaff={isStaff}
-              refresh={live.refresh}
-              onError={setError}
-              fitHeight={fitHeight}
-            />
-          )}
-          renderPanel={key => <PanelContents id={key} ctx={ctx} />}
-        />
-      ) : (
-        /* The desk, the table, and a fight around a real map: columns of
+      {/* The screen's body, with whatever Search opened beside it — never
+          over it. Below lg the peek stacks under the panels. */}
+      <div className="flex min-h-0 flex-1 max-lg:flex-col max-lg:overflow-y-auto">
+        {at === 'desk' && live.state ? (
+          <NotSitting
+            campaignId={campaign.id}
+            isStaff={isStaff}
+            busy={false}
+            onStart={async () => {
+              const res = await openSittingAction(campaign.id);
+              if (!res.ok)
+                setError(res.error ?? 'Could not start the session.');
+              await live.refresh();
+            }}
+          />
+        ) : current === 'battle' && live.state && !inPerson ? (
+          <BattleArrangement
+            layout={layouts.battle}
+            arranging={arranging}
+            isStaff={isStaff}
+            badges={badges}
+            wear={key => panelStatus(key, statusCtx)}
+            titleOf={key => panelTitle(key, ctx)}
+            onChange={changeBattle}
+            board={fitHeight => (
+              <BattleBoard
+                campaignId={campaign.id}
+                state={live.state!}
+                isStaff={isStaff}
+                refresh={live.refresh}
+                onError={setError}
+                fitHeight={fitHeight}
+              />
+            )}
+            renderPanel={key => <PanelContents id={key} ctx={ctx} />}
+          />
+        ) : (
+          /* The desk, the table, and a fight around a real map: columns of
          equal standing, with the fold given a grid column of its own so it
          always lands in a gutter and never crosses a box. Below `lg` the
          columns stack and the fold goes: a phone has no middle. */
-        <div
-          className="grid min-h-0 flex-1 gap-2 p-2 max-lg:!grid-cols-1 max-lg:overflow-y-auto"
-          style={{
-            // A crease in every gutter, not just the middle one. A real screen
-            // folds between each pair of panels, and with an odd number of
-            // columns there is no middle gutter to put a single fold in.
-            gridTemplateColumns: layout.columns
-              .map((_, i) => (i === 0 ? '1fr' : 'auto 1fr'))
-              .join(' '),
-          }}
-        >
-          {layout.columns.map((column, columnIndex) => (
-            <div key={columnIndex} className="contents">
-              {columnIndex > 0 && (
-                <div
-                  aria-hidden="true"
-                  className="relative w-3 self-stretch max-lg:hidden"
-                >
-                  {/* The crease. Two hairlines with a shadow between them read as
+          <div
+            className="grid min-h-0 flex-1 gap-2 p-2 max-lg:!grid-cols-1 max-lg:overflow-y-auto"
+            style={{
+              // A crease in every gutter, not just the middle one. A real screen
+              // folds between each pair of panels, and with an odd number of
+              // columns there is no middle gutter to put a single fold in.
+              gridTemplateColumns: layout.columns
+                .map((_, i) => (i === 0 ? '1fr' : 'auto 1fr'))
+                .join(' '),
+            }}
+          >
+            {layout.columns.map((column, columnIndex) => (
+              <div key={columnIndex} className="contents">
+                {columnIndex > 0 && (
+                  <div
+                    aria-hidden="true"
+                    className="relative w-3 self-stretch max-lg:hidden"
+                  >
+                    {/* The crease. Two hairlines with a shadow between them read as
                     folded card at a glance; one line reads as a border. */}
-                  <span className="absolute inset-y-2 left-1 w-px bg-gold/25" />
-                  <span className="absolute inset-y-2 right-1 w-px bg-gold/25" />
-                  <span className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-ink/20" />
-                </div>
-              )}
-
-              <div
-                ref={el => {
-                  columnRefs.current[columnIndex] = el;
-                }}
-                onDragOver={event => {
-                  if (!dragged) return;
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = 'move';
-                  setDropAt({
-                    column: columnIndex,
-                    index: dropIndexIn(columnIndex, event.clientY),
-                  });
-                }}
-                onDrop={event => {
-                  event.preventDefault();
-                  if (!dragged || !dropAt) return;
-                  change(movePanel(layout, dragged, dropAt));
-                  setDragged(null);
-                  setDropAt(null);
-                }}
-                className={`flex min-h-0 flex-col gap-2 rounded-[var(--radius-card)] max-lg:min-h-64 ${
-                  arranging && column.length === 0
-                    ? 'border border-dashed border-line'
-                    : ''
-                } ${
-                  dragged && dropAt?.column === columnIndex
-                    ? 'bg-gold/[0.05] outline outline-1 outline-gold/30'
-                    : ''
-                }`}
-              >
-                {column.length === 0 && arranging && (
-                  <p className="m-auto px-2 text-center text-xs text-ink-subtle">
-                    Drop a box here
-                  </p>
+                    <span className="absolute inset-y-2 left-1 w-px bg-gold/25" />
+                    <span className="absolute inset-y-2 right-1 w-px bg-gold/25" />
+                    <span className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-ink/20" />
+                  </div>
                 )}
 
-                {column.map((key, boxIndex) => {
-                  const wear = panelStatus(key, statusCtx);
-                  return (
-                    <div key={key} className="contents">
-                      {dragged &&
-                        dropAt?.column === columnIndex &&
-                        dropAt.index === boxIndex && (
-                          <div
-                            aria-hidden="true"
-                            className="h-0.5 shrink-0 rounded bg-gold"
-                          />
-                        )}
-                      <Panel
-                        title={panelTitle(key, ctx)}
-                        status={wear.status}
-                        statusDetail={wear.detail}
-                        badge={wear.badge}
-                        arranging={arranging}
-                        dragging={dragged === key}
-                        onDragStart={event => {
-                          event.dataTransfer.effectAllowed = 'move';
-                          event.dataTransfer.setData('text/plain', key);
-                          setDragged(key);
-                        }}
-                        onDragEnd={() => {
-                          setDragged(null);
-                          setDropAt(null);
-                        }}
-                        onRemove={() =>
-                          change({ columns: withoutPanel(layout, key) })
-                        }
-                        arrangeControls={
-                          <Select
-                            aria-label={`Swap ${SCREEN_PANELS[key].label} for another panel`}
-                            size="sm"
-                            variant="flat"
-                            className="w-36"
-                            classNames={{ trigger: 'h-6 min-h-6' }}
-                            selectedKeys={[key]}
-                            onSelectionChange={keys => {
-                              const next = Array.from(keys)[0];
-                              if (next && next !== key) {
-                                change({
-                                  columns: layout.columns.map(col =>
-                                    col.map(k =>
-                                      k === key
-                                        ? (String(next) as ScreenPanelKey)
-                                        : k
-                                    )
-                                  ),
-                                });
-                              }
-                            }}
-                          >
-                            {[key, ...spare].map(k => (
-                              <SelectItem
-                                key={k}
-                                textValue={SCREEN_PANELS[k].label}
-                              >
-                                {SCREEN_PANELS[k].label}
-                              </SelectItem>
-                            ))}
-                          </Select>
-                        }
-                        className="flex-1"
-                        // The board draws its own scroller and fits itself
-                        // to the box; anything else scrolls here.
-                        scroll={key !== 'board'}
-                      >
-                        <PanelContents id={key} ctx={ctx} />
-                      </Panel>
-                    </div>
-                  );
-                })}
-
-                {dragged &&
-                  dropAt?.column === columnIndex &&
-                  dropAt.index >= column.length && (
-                    <div
-                      aria-hidden="true"
-                      className="h-0.5 shrink-0 rounded bg-gold"
-                    />
+                <div
+                  ref={el => {
+                    columnRefs.current[columnIndex] = el;
+                  }}
+                  onDragOver={event => {
+                    if (!dragged) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                    setDropAt({
+                      column: columnIndex,
+                      index: dropIndexIn(columnIndex, event.clientY),
+                    });
+                  }}
+                  onDrop={event => {
+                    event.preventDefault();
+                    if (!dragged || !dropAt) return;
+                    change(movePanel(layout, dragged, dropAt));
+                    setDragged(null);
+                    setDropAt(null);
+                  }}
+                  className={`flex min-h-0 flex-col gap-2 rounded-[var(--radius-card)] max-lg:min-h-64 ${
+                    arranging && column.length === 0
+                      ? 'border border-dashed border-line'
+                      : ''
+                  } ${
+                    dragged && dropAt?.column === columnIndex
+                      ? 'bg-gold/[0.05] outline outline-1 outline-gold/30'
+                      : ''
+                  }`}
+                >
+                  {column.length === 0 && arranging && (
+                    <p className="m-auto px-2 text-center text-xs text-ink-subtle">
+                      Drop a box here
+                    </p>
                   )}
+
+                  {column.map((key, boxIndex) => {
+                    const wear = panelStatus(key, statusCtx);
+                    return (
+                      <div key={key} className="contents">
+                        {dragged &&
+                          dropAt?.column === columnIndex &&
+                          dropAt.index === boxIndex && (
+                            <div
+                              aria-hidden="true"
+                              className="h-0.5 shrink-0 rounded bg-gold"
+                            />
+                          )}
+                        <Panel
+                          title={panelTitle(key, ctx)}
+                          status={wear.status}
+                          statusDetail={wear.detail}
+                          badge={wear.badge}
+                          arranging={arranging}
+                          dragging={dragged === key}
+                          onDragStart={event => {
+                            event.dataTransfer.effectAllowed = 'move';
+                            event.dataTransfer.setData('text/plain', key);
+                            setDragged(key);
+                          }}
+                          onDragEnd={() => {
+                            setDragged(null);
+                            setDropAt(null);
+                          }}
+                          onRemove={() =>
+                            change({ columns: withoutPanel(layout, key) })
+                          }
+                          arrangeControls={
+                            <Select
+                              aria-label={`Swap ${SCREEN_PANELS[key].label} for another panel`}
+                              size="sm"
+                              variant="flat"
+                              className="w-36"
+                              classNames={{ trigger: 'h-6 min-h-6' }}
+                              selectedKeys={[key]}
+                              onSelectionChange={keys => {
+                                const next = Array.from(keys)[0];
+                                if (next && next !== key) {
+                                  change({
+                                    columns: layout.columns.map(col =>
+                                      col.map(k =>
+                                        k === key
+                                          ? (String(next) as ScreenPanelKey)
+                                          : k
+                                      )
+                                    ),
+                                  });
+                                }
+                              }}
+                            >
+                              {[key, ...spare].map(k => (
+                                <SelectItem
+                                  key={k}
+                                  textValue={SCREEN_PANELS[k].label}
+                                >
+                                  {SCREEN_PANELS[k].label}
+                                </SelectItem>
+                              ))}
+                            </Select>
+                          }
+                          className="flex-1"
+                          // The board draws its own scroller and fits itself
+                          // to the box; anything else scrolls here.
+                          scroll={key !== 'board'}
+                        >
+                          <PanelContents id={key} ctx={ctx} />
+                        </Panel>
+                      </div>
+                    );
+                  })}
+
+                  {dragged &&
+                    dropAt?.column === columnIndex &&
+                    dropAt.index >= column.length && (
+                      <div
+                        aria-hidden="true"
+                        className="h-0.5 shrink-0 rounded bg-gold"
+                      />
+                    )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+        {opened && (
+          <LookupPeek
+            campaignId={campaign.id}
+            item={opened}
+            isStaff={isStaff}
+            kept={openedKept}
+            onKeep={() => keep(opened)}
+            onClose={() => setOpened(null)}
+            onError={setError}
+            className="m-2 shrink-0 lg:ml-0 lg:w-[24rem] max-lg:min-h-[60vh]"
+          />
+        )}
+      </div>
     </div>
   );
 }

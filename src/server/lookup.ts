@@ -98,7 +98,12 @@ export async function openBook(
 
 /** One record of the campaign, as the tab it lives on would show it. */
 export type RecordLookup =
-  | { record: 'canon'; entry: CanonEntryRow }
+  | {
+      record: 'canon';
+      entry: CanonEntryRow;
+      /** Where it is — a person's home, the place a place sits inside — when the reader may see it. */
+      place: { id: string; title: string } | null;
+    }
   | { record: 'quest'; quest: QuestRow }
   | { record: 'session'; session: SessionRow }
   | { record: 'handout'; handout: HandoutRow }
@@ -117,8 +122,19 @@ export async function openRecord(
 ): Promise<RecordLookup | null> {
   switch (record) {
     case 'canon': {
-      const entry = (await listCanon(campaignId)).find(e => e.id === id);
-      return entry ? { record, entry } : null;
+      const all = await listCanon(campaignId);
+      const entry = all.find(e => e.id === id);
+      if (!entry) return null;
+      // From the same role-filtered list, so a player is never told the name
+      // of a place they have not been shown.
+      const home = entry.placeId
+        ? all.find(e => e.id === entry.placeId)
+        : undefined;
+      return {
+        record,
+        entry,
+        place: home ? { id: home.id, title: home.title } : null,
+      };
     }
     case 'quest': {
       const quest = (await listQuests(campaignId)).find(q => q.id === id);

@@ -244,7 +244,7 @@ Share menu before anyone else can open it)
 
 ## The work
 
-Stacked local branches off `feat/new-world-map`; each leaves the app working.
+All work lands on one branch, `feat/improvements-bundle` (the user's instruction, 2026-10-07): PRs 1–4a were built on stacked `feat/session-screen-*` branches and merged in as a55693c; from PR 4b on, commits go straight onto the bundle. Each commit leaves the app working.
 
 ### PR 1: The doubled Rolls box (needs: —) `feat/session-screen-1-defaults`
 
@@ -399,7 +399,7 @@ minted cookie for `pip.worldtest@test.local` at the "World test" campaign
 - [x] PR 1 The doubled Rolls box — `feat/session-screen-1-defaults`
 - [x] PR 2 Roll from your sheet — `feat/session-screen-2-sheet-rolls` (browser pass batched with PR 6, see Notes)
 - [x] PR 3 Hit or miss on the slip — `feat/session-screen-3-verdict`
-- [ ] PR 4 Search, the opened hit, and Lookups — **in progress** on `feat/session-screen-4-search`. Done (WIP commit): `lib/lookup.ts` (+tests; kept items are `KeptLookup {ref, name}`, not bare refs — plan deviation so Lookups lists without a fetch per row), `server/lookup.ts` (+tests), `lookup-actions.ts`, `lookups` panel key + `ScreenLayouts.kept`, search.ts where-words now naming.md's. Left: move `rollsIn` to a lib, `SearchBox`, `LookupView`, `LookupPeek`, `LookupsPanel`, DmScreen wiring (`lookups` case returns null for now), naming.md rows.
+- [x] PR 4 Search, the opened hit, and Lookups — on `feat/improvements-bundle`. Deviations: kept lookups are `KeptLookup { ref, name }` (a denormalised name, content-model rule 1's one allowance, so Lookups lists without a fetch per row); the full canon body (attitude, stat block rolls, party notes, Open in the World) landed here in `LookupView`, so PR 5 is only the Here wiring; a looked-up creature's rolls default to behind the screen.
 - [ ] PR 5 A person opens
 - [ ] PR 6 One panel at a time on a phone
 
