@@ -6,6 +6,7 @@ import { db } from '@/db';
 import { campaignClocks } from '@/db/schema';
 import { normalizeSegments } from '@/@creator/campaign/lib/clocks';
 import { checkPlace, entriesSeenBy } from './canon';
+import { bumpVersion } from './live-hub';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 
 export {
@@ -179,6 +180,8 @@ export async function tickClock(
     .update(campaignClocks)
     .set({ filled, status, updatedAt: new Date().toISOString() })
     .where(eq(campaignClocks.id, clockId));
+  // Ticked at the table: every screen's Here panel re-reads on the nudge.
+  bumpVersion(clock.campaignId);
 
   return {
     id: clock.id,
