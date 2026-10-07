@@ -274,7 +274,9 @@ export function defaultLayout(isStaff: boolean): ScreenLayout {
     ? {
         columns: [
           ['initiative', 'vitals'],
-          ['notebook', 'rolls'],
+          // Here, not a second Rolls: the room the party is in and who lives
+          // there, beside the notes about them.
+          ['notebook', 'here'],
           ['rolls', 'feed'],
         ],
       }
@@ -407,7 +409,7 @@ export function defaultBattleLayout(isStaff: boolean): BattleLayout {
     : {
         left: ['initiative', 'mine'],
         right: ['attacks', 'rolls'],
-        rail: ['rolls'],
+        rail: ['timers'],
         open: true,
         folded: [],
       };
@@ -491,7 +493,7 @@ export const SCREEN_PRESETS: readonly ScreenPreset[] = [
             columns: [
               ['initiative', 'vitals'],
               ['statblock', 'rolls'],
-              ['rolls', 'whispers'],
+              ['whispers', 'timers'],
             ],
           }
         : {
@@ -670,17 +672,32 @@ export function normalizeLayouts(
   const src = (raw ?? {}) as Record<string, unknown>;
   const base = defaultLayouts(isStaff);
 
+  /*
+   * What is not stored is drawn from the defaults — through the same cleaner
+   * as what is, so a default that names a panel twice draws it once. It did
+   * not, once: every DM who had never pressed Arrange got two Rolls boxes.
+   */
+  const battleInPerson = normalizeLayout(
+    src.battleInPerson ?? base.battleInPerson,
+    isStaff,
+    base.battleInPerson
+  );
+  const battle = normalizeBattleLayout(src.battle ?? base.battle, isStaff);
+
   // The old single-arrangement shape.
   if ('columns' in src || 'main' in src || 'rail' in src) {
-    return { ...base, table: normalizeLayout(src, isStaff) };
+    return {
+      table: normalizeLayout(src, isStaff),
+      battle,
+      battleInPerson,
+      pin: null,
+    };
   }
 
   return {
-    table: src.table ? normalizeLayout(src.table, isStaff) : base.table,
-    battleInPerson: src.battleInPerson
-      ? normalizeLayout(src.battleInPerson, isStaff, base.battleInPerson)
-      : base.battleInPerson,
-    battle: normalizeBattleLayout(src.battle, isStaff),
+    table: normalizeLayout(src.table ?? base.table, isStaff),
+    battleInPerson,
+    battle,
     // A pin at the desk was a pin at a state that no longer draws; it reads
     // as no pin, which is what following the campaign means.
     pin: isScreenState(src.pin) ? src.pin : null,
