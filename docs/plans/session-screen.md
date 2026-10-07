@@ -1,6 +1,6 @@
 # The session screen, at hand
 
-Status: **Stage 1 done** · **Stage 2 done** · **Stage 3 done** · Stage 4 in progress
+Status: **Stage 1 done** · **Stage 2 done** · **Stage 3 done** · **Stage 4 done** (on `feat/improvements-bundle`, not pushed)
 Branch base: `feat/new-world-map` @ `d285e8d` (8 commits ahead of `main`, unmerged world work)
 Baseline: `npx tsc --noEmit -p .` exit 0 · `npm test` 27 files / 230 tests passed (2026-10-07)
 
@@ -405,4 +405,31 @@ minted cookie for `pip.worldtest@test.local` at the "World test" campaign
 
 ## Notes
 
-- Browser passes for PRs 2–6 are batched into one pass after PR 6 (not yet run).
+- Browser passes for PRs 2–6 were batched into one pass after PR 6.
+
+## Verification run (2026-10-07)
+
+`npm run check` clean · `npm test` 289 passed · `npm run build` exit 0. Then a production
+server on a scratch copy of the dev DB (`next start -p 3105`, migrated, one seated hero
+seeded for `pip.worldtest@test.local`), driven by headless Playwright with minted session
+cookies for the DM (`mrfrenchj@gmail.com`) and the player — no password read or changed.
+
+| Check                                                                                                                                                             | Result |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| DM searches "hold": Hold Monster, Hold Person, Bag of Holding, rules passages                                                                                     | ✓      |
+| Opens Hold Person beside the panels; Keep it on the screen adds Lookups; survives reload                                                                          | ✓      |
+| DM opens Mags Orrin: "Lives in Gullrow Docks", attitude, DM notes hatched _only you_                                                                              | ✓      |
+| Player opens Mags Orrin: party body only, no _only you_                                                                                                           | ✓      |
+| Player presses Stealth (+7, proficient): tray shows the server's die, Dice logs "Stealth 1d20+7"                                                                  | ✓      |
+| DM's corner slip: "Kestrel Vane · Stealth · 16 / 1d20+7"                                                                                                          | ✓      |
+| DM opens Ghoul (dark): attacks as buttons above the block; Bite +4 rolls behind the screen, tray shows it                                                         | ✓      |
+| Phone 390px, player, light + dark: one panel, bar "Your hero · Initiative · Rolls · Whispers · More", Search button → full-width box → peek; no horizontal scroll | ✓      |
+| No page errors in any context                                                                                                                                     | ✓      |
+
+Found and fixed by looking (b0c9d24): the opened hit pushed off the window by columns that
+would not shrink; creature rolls buried under the stat block; a kept row naming itself twice.
+
+**Not checked in a browser:** the attack verdict on a slip (PR 3) — it needs a running
+fight with a targeted attack; covered by `roll-announce.test.ts` and `events.test.ts`.
+Also not exercised: the battle-board state on a phone, and a player rolling with real
+dice from the sheet.
