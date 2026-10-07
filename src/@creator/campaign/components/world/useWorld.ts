@@ -3,19 +3,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { CampaignMemberRow } from '@/server/campaigns';
+import type { ClockRow } from '@/server/clocks';
 import type { PlanRow } from '@/server/encounter-plans';
 import type { MapRow } from '@/server/maps';
+import type { QuestRow } from '@/server/quests';
+import type { ShopRow } from '@/server/shops';
 import { listMembersAction } from '../../actions';
 import {
   listCanonAction,
   listCanonCollectionsAction,
 } from '../../canon-actions';
+import { listClocksAction } from '../../clock-actions';
 import { listPlansAction } from '../../encounter-actions';
 import type { CanonCollectionRow, CanonEntryRow } from '../../lib/canon';
 import type { RandomTableRow } from '../../lib/random-tables';
 import { partyWhereabouts } from '../../lib/world';
 import { listMapsAction } from '../../map-actions';
+import { listQuestsAction } from '../../quest-actions';
 import { listRandomTablesAction } from '../../random-table-actions';
+import { listShopsAction } from '../../shop-actions';
 
 export type Act = (
   p: Promise<{ ok: boolean; error?: string }>
@@ -31,12 +37,17 @@ export interface World {
   plans: PlanRow[];
   /** Staff only; empty for a player. */
   tables: RandomTableRow[];
+  /** The quests and clocks this viewer may see — the server filters both. */
+  quests: QuestRow[];
+  clocks: ClockRow[];
+  shops: ShopRow[];
   whereabouts: ReturnType<typeof partyWhereabouts>;
 }
 
 /**
- * Everything the World reads, read together: canon, the maps, and — for
- * staff — the encounter plans and random tables that hang off places.
+ * Everything the World reads, read together: canon, the maps, the quests,
+ * clocks and shops, and — for staff — the encounter plans and random tables
+ * that hang off places.
  *
  * One read for the whole view rather than one per panel, because every part
  * of it is about the same few rows: the place you are looking at, who lives
@@ -50,18 +61,40 @@ export function useWorld(campaignId: string, isStaff: boolean) {
 
   const refresh = useCallback(async () => {
     try {
-      const [entries, shelves, maps, members, plans, tables] =
-        await Promise.all([
-          listCanonAction(campaignId),
-          listCanonCollectionsAction(campaignId),
-          listMapsAction(campaignId),
-          isStaff ? listMembersAction(campaignId) : Promise.resolve([]),
-          isStaff ? listPlansAction(campaignId) : Promise.resolve([]),
-          isStaff
-            ? listRandomTablesAction(campaignId).then(r => (r.ok ? r.data : []))
-            : Promise.resolve([]),
-        ]);
-      setData({ entries, shelves, maps, members, plans, tables });
+      const [
+        entries,
+        shelves,
+        maps,
+        members,
+        plans,
+        tables,
+        quests,
+        clocks,
+        shops,
+      ] = await Promise.all([
+        listCanonAction(campaignId),
+        listCanonCollectionsAction(campaignId),
+        listMapsAction(campaignId),
+        isStaff ? listMembersAction(campaignId) : Promise.resolve([]),
+        isStaff ? listPlansAction(campaignId) : Promise.resolve([]),
+        isStaff
+          ? listRandomTablesAction(campaignId).then(r => (r.ok ? r.data : []))
+          : Promise.resolve([]),
+        listQuestsAction(campaignId),
+        listClocksAction(campaignId),
+        listShopsAction(campaignId),
+      ]);
+      setData({
+        entries,
+        shelves,
+        maps,
+        members,
+        plans,
+        tables,
+        quests,
+        clocks,
+        shops,
+      });
     } catch {
       setError('Failed to unroll the world.');
     }

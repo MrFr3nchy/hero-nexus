@@ -120,18 +120,18 @@ export function HerePanel({
             if (npc?.placeId) setLooking(npc.placeId);
             setFocus(id);
           }}
-          onEdit={entry =>
+          onEdit={() => entry => {
             window.open(
               `/campaigns/${campaignId}#world/${
                 entry?.kind === 'location'
-                  ? `places/${entry.id}`
+                  ? `here/${entry.id}`
                   : entry
                     ? `entry/${entry.id}`
-                    : 'places'
+                    : 'here'
               }`,
               '_blank'
-            )
-          }
+            );
+          }}
           focusNpc={focus}
           compact
         />
@@ -144,7 +144,7 @@ export function HerePanel({
       )}
 
       <a
-        href={`/campaigns/${campaignId}#world/places${placeId ? `/${placeId}` : ''}`}
+        href={`/campaigns/${campaignId}#world/here${placeId ? `/${placeId}` : ''}`}
         target="_blank"
         rel="noreferrer"
         className="inline-flex items-center gap-1 text-xs text-ink-subtle hover:text-ink"

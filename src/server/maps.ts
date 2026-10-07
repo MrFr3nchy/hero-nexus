@@ -834,6 +834,49 @@ export async function deletePin(pinId: string): Promise<void> {
   bumpVersion(map.campaignId);
 }
 
+/**
+ * Make it real: a player's guess — a rumour mark — becomes a place.
+ *
+ * Staff only, in one transaction: a `location` entry is written from the
+ * mark's label and the party's note, placed in the place the map shows; the
+ * mark is pointed at it and becomes a mark for a place. `created_by` is left
+ * alone, so the mark still says whose guess it was.
+ */
+export async function promoteRumour(pinId: string): Promise<string> {
+  const pin = await db.query.campaignMapPins.findFirst({
+    where: eq(campaignMapPins.id, pinId),
+  });
+  if (!pin) throw new Error('NOT_FOUND');
+  const map = await staffForMap(pin.mapId);
+  const { userId } = await staff(map.campaignId);
+  if (pin.kind !== 'rumour') throw new Error('NOT_A_RUMOUR');
+
+  const entryId = randomUUID();
+  const now = new Date().toISOString();
+  db.transaction(tx => {
+    tx.insert(canonEntries)
+      .values({
+        id: entryId,
+        campaignId: map.campaignId,
+        kind: 'location',
+        title: pin.label.trim() || 'A place somebody guessed at',
+        partyBody: pin.note,
+        dmBody: '',
+        // The party guessed it, so the party knows of it.
+        visibility: pin.visibility === 'shared' ? 'shared' : 'dm',
+        placeId: map.placeId ?? null,
+        createdBy: userId,
+      })
+      .run();
+    tx.update(campaignMapPins)
+      .set({ canonEntryId: entryId, kind: 'place', updatedAt: now })
+      .where(eq(campaignMapPins.id, pinId))
+      .run();
+  });
+  bumpVersion(map.campaignId);
+  return entryId;
+}
+
 /* --- the journey -------------------------------------------------------------- */
 
 /**

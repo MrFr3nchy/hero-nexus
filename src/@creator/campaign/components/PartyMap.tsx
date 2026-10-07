@@ -34,6 +34,7 @@ import {
 import {
   addJourneyStopAction,
   addPinAction,
+  promoteRumourAction,
   arriveAtStopAction,
   deletePinAction,
   removeJourneyStopAction,
@@ -46,7 +47,7 @@ import {
 } from '../map-actions';
 import { listQuestsAction } from '../quest-actions';
 
-type Mode = 'look' | 'mark' | 'stop' | 'plan' | 'reveal' | 'cover';
+type Mode = 'look' | 'mark' | 'guess' | 'stop' | 'plan' | 'reveal' | 'cover';
 
 /**
  * Something elsewhere in the record a new mark should point at. A `place`
@@ -196,9 +197,27 @@ export function PartyMap({
   };
 
   const onClick = async (e: React.MouseEvent<HTMLDivElement>) => {
-    if (mode !== 'mark' && mode !== 'stop' && mode !== 'plan') return;
+    if (
+      mode !== 'mark' &&
+      mode !== 'guess' &&
+      mode !== 'stop' &&
+      mode !== 'plan'
+    )
+      return;
     const p = at(e);
-    if (mode === 'mark') {
+    if (mode === 'guess') {
+      // A player's guess: a rumour, signed, seen by the party at once.
+      const res = await addPinAction(campaignId, map.id, {
+        x: p.x,
+        y: p.y,
+        label: 'New mark',
+        kind: 'rumour',
+        visibility: 'shared',
+      });
+      if (!res.ok) onError(res.error);
+      else setSelected(res.data.id);
+      await refresh();
+    } else if (mode === 'mark') {
       const link = pendingLink
         ? { [LINK_FIELD[pendingLink.kind]]: pendingLink.id }
         : {};
@@ -244,6 +263,8 @@ export function PartyMap({
         ? 'Tap where it is.'
         : 'Tap where it happened.'
       : 'Tap the map where the mark goes.',
+    guess:
+      'Tap where you think it is. The party sees your rumour, and the DM can make it real.',
     stop: 'Tap where the party is now.',
     plan: 'Tap where the party is headed. Only you see it until you show them.',
     reveal: 'Drag over what the party can see.',
@@ -264,6 +285,19 @@ export function PartyMap({
               onPress={() => setMode(mode === 'mark' ? 'look' : 'mark')}
             >
               Mark a place
+            </Button>
+          )}
+          {canMark && !isStaff && (
+            <Button
+              size="sm"
+              variant={mode === 'guess' ? 'solid' : 'flat'}
+              color={mode === 'guess' ? 'secondary' : 'default'}
+              startContent={
+                <Glyph name="question" size={14} className="text-arcane" />
+              }
+              onPress={() => setMode(mode === 'guess' ? 'look' : 'guess')}
+            >
+              Mark a rumour
             </Button>
           )}
           {isStaff && (
@@ -697,6 +731,36 @@ function MarkButton({
     pin.visibility === 'shared'
       ? 'border-gold/70 text-gold-strong dark:text-gold'
       : 'border-arcane/70 text-arcane';
+  // A rumour is a guess: dashed, in arcane, small, and signed — "old
+  // shrine? · Pip" — so nobody mistakes it for a place the DM has drawn.
+  if (pin.kind === 'rumour' && !pin.battle) {
+    return (
+      <button
+        type="button"
+        onClick={e => {
+          e.stopPropagation();
+          onSelect();
+        }}
+        aria-label={`Rumour: ${pin.label || 'a rumour'}${pin.byName ? `, marked by ${pin.byName}` : ''}`}
+        style={{ left: `${pin.x * 100}%`, top: `${pin.y * 100}%` }}
+        className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5"
+      >
+        <span
+          className={`flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-arcane bg-surface/90 text-arcane shadow ${
+            selected ? 'scale-125 border-2' : ''
+          } ${pin.mine ? 'ring-2 ring-ink/60' : ''}`}
+        >
+          <Glyph name="question" size={12} />
+        </span>
+        <span className="max-w-40 truncate whitespace-nowrap rounded bg-surface/90 px-1.5 text-[11px] text-arcane shadow">
+          {pin.label === 'New mark' ? 'a rumour' : pin.label || 'a rumour'}
+          {pin.byName && (
+            <span className="text-ink-muted"> · {pin.byName}</span>
+          )}
+        </span>
+      </button>
+    );
+  }
   return (
     <button
       type="button"
@@ -921,6 +985,22 @@ function MarkCard({
             </p>
           )}
           <div className="flex flex-wrap gap-2 pt-1">
+            {isStaff && pin.kind === 'rumour' && !pin.canonEntryId && (
+              <Button
+                size="sm"
+                color="primary"
+                variant="flat"
+                startContent={<Glyph name="castle" size={13} />}
+                onPress={async () => {
+                  const res = await promoteRumourAction(campaignId, pin.id);
+                  if (await act(Promise.resolve(res))) {
+                    if (res.ok) onOpenPlace?.(res.data.id);
+                  }
+                }}
+              >
+                Make it real
+              </Button>
+            )}
             {pin.canonKind === 'location' &&
               pin.canonEntryId &&
               onOpenPlace && (

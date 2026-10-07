@@ -1,46 +1,47 @@
 'use client';
 
-import {
-  Autocomplete,
-  AutocompleteItem,
-  Button,
-  Input,
-  Select,
-  SelectItem,
-} from '@heroui/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Input, Select, SelectItem } from '@heroui/react';
+import { useEffect, useRef, useState } from 'react';
 
-import { EmptyState, Glyph, TomeScene } from '@/@shared/components/ui';
+import { EmptyState, Glyph, Pill, TomeScene } from '@/@shared/components/ui';
 import type { LiveState } from '@/server/session';
-import { CANON_KIND_GLYPHS, type CanonEntryRow } from '../../lib/canon';
+import type { CanonEntryRow } from '../../lib/canon';
 import {
-  flattenPlaces,
-  isPlace,
   mapForPlace,
-  pathLabel,
-  placePath,
+  nearbyPlaces,
+  threadsAt,
+  type NearWhy,
 } from '../../lib/world';
+import type { Scope } from '../../lib/world-route';
 import {
   createMapAction,
+  promoteRumourAction,
   setMapVisibilityAction,
   spotlightMapAction,
 } from '../../map-actions';
 import { ImagePicker } from '../ImagePicker';
 import { PartyMap, type PendingLink } from '../PartyMap';
-import { PlaceDetail } from './PlaceDetail';
+import { AddToPlace } from './AddToPlace';
+import { PlaceDetail, type EditFn } from './PlaceDetail';
+import { placeGlyph } from './PlaceChip';
 import type { Act, World } from './useWorld';
 
 /**
- * The Places tab: the map on one side, the place on the other.
+ * Here and Nearby: the map is the page, and the place is a sheet beside it.
  *
  * Opening a place shows its own map if it has one, or the nearest map above
  * it if not, so the region map's Waterdeep opens Waterdeep, and the Yawning
  * Portal — which has no map of its own — still shows on Waterdeep's. A mark
  * for a place opens the place; the breadcrumb walks back out.
+ *
+ * Side by side when the pane is wide enough for both; on a narrower one the
+ * sheet follows the map, and on a phone it rides up over the map's foot like
+ * a sheet of paper laid on it.
  */
 export function PlacesView({
   campaignId,
   world,
+  scope,
   placeId,
   focusNpc,
   focusMark,
@@ -50,11 +51,15 @@ export function PlacesView({
   onError,
   onOpenPlace,
   onOpenNpc,
+  onScope,
   onEdit,
   refresh,
+  adding = false,
+  onCloseAdd,
 }: {
   campaignId: string;
   world: World;
+  scope: Exclude<Scope, 'everywhere'>;
   placeId: string | null;
   focusNpc: string | null;
   focusMark: string | null;
@@ -64,14 +69,16 @@ export function PlacesView({
   onError: (message: string) => void;
   onOpenPlace: (placeId: string | null, npcId?: string | null) => void;
   onOpenNpc: (entryId: string) => void;
-  onEdit: (entry: CanonEntryRow | null, placeId?: string | null) => void;
+  onScope: (scope: Scope, placeId?: string | null) => void;
+  onEdit: EditFn;
   refresh: () => Promise<void>;
+  /** "Add to <place>" is open: it takes the sheet's place. */
+  adding?: boolean;
+  onCloseAdd?: () => void;
 }) {
-  const { entries, byId, maps, whereabouts } = world;
+  const { byId, maps, whereabouts } = world;
   const place = placeId ? (byId.get(placeId) ?? null) : null;
-  const path = placePath(placeId, byId);
 
-  const [view, setView] = useState<'map' | 'list'>('map');
   const stage = useRef<HTMLDivElement>(null);
   // A map picked by hand, for the place it was picked at: moving to another
   // place lets that place choose its own map again.
@@ -107,7 +114,7 @@ export function PlacesView({
       document
         .getElementById(`world-entry-${focusNpc}`)
         ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 80);
+    }, 120);
     return () => window.clearTimeout(t);
   }, [focusNpc, placeId]);
 
@@ -131,183 +138,42 @@ export function PlacesView({
     } else setMapOverride(mapId);
   };
 
-  /* --- jump to --------------------------------------------------------- */
-
-  const jumpItems = useMemo(
-    () =>
-      entries
-        .filter(e => isPlace(e) || e.kind === 'npc')
-        .map(e => ({
-          id: e.id,
-          title: e.title || 'Untitled',
-          kind: e.kind,
-          where: pathLabel(placePath(isPlace(e) ? e.placeId : e.placeId, byId)),
-        }))
-        .sort((a, b) => a.title.localeCompare(b.title)),
-    [entries, byId]
-  );
-
   const here = whereabouts.here;
-  const hereLabel = here
-    ? here.placeId
-      ? (byId.get(here.placeId)?.title ?? here.label)
-      : here.label
-    : null;
+  const hereId = here?.placeId && byId.has(here.placeId) ? here.placeId : null;
 
   return (
-    <div className="@container space-y-4">
-      {/* ---- where we are, and where the party is ---- */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <nav
-          aria-label="Where in the world"
-          className="flex min-w-0 flex-wrap items-center gap-1 text-sm"
-        >
-          <button
-            type="button"
-            onClick={() => open(null)}
-            className={`flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-surface-2 ${
-              placeId ? 'text-ink-muted' : 'text-ink'
-            }`}
-          >
-            <Glyph name="compass" size={14} className="text-gold" />
-            The world
-          </button>
-          {path.map((p, i) => (
-            <span key={p.id} className="flex items-center gap-1">
-              <span className="text-ink-subtle">›</span>
-              <button
-                type="button"
-                onClick={() => open(p.id)}
-                className={`rounded px-1.5 py-0.5 hover:bg-surface-2 ${
-                  i === path.length - 1 ? 'text-ink' : 'text-ink-muted'
-                }`}
-              >
-                {p.title || 'Somewhere'}
-              </button>
-            </span>
-          ))}
-        </nav>
-        <Autocomplete
-          size="sm"
-          aria-label="Jump to a place or a person"
-          placeholder="Jump to a place or a person…"
-          className="w-full sm:w-72"
-          defaultItems={jumpItems}
-          startContent={
-            <Glyph name="magnifier" size={13} className="text-ink-subtle" />
-          }
-          selectedKey={null}
-          onSelectionChange={key => {
-            if (!key) return;
-            const entry = byId.get(String(key));
-            if (!entry) return;
-            if (isPlace(entry)) open(entry.id);
-            else onOpenNpc(entry.id);
-          }}
-        >
-          {item => (
-            <AutocompleteItem key={item.id} textValue={item.title}>
-              <span className="flex items-center gap-2">
-                <Glyph
-                  name={CANON_KIND_GLYPHS[item.kind]}
-                  size={13}
-                  className="text-ink-subtle"
-                />
-                <span className="min-w-0">
-                  <span className="block truncate">{item.title}</span>
-                  {item.where && (
-                    <span className="block truncate text-xs text-ink-subtle">
-                      {item.where}
-                    </span>
-                  )}
-                </span>
-              </span>
-            </AutocompleteItem>
-          )}
-        </Autocomplete>
-      </div>
-
-      {(here || whereabouts.headed.length > 0) && (
-        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          {here && (
-            <button
-              type="button"
-              onClick={() =>
-                here.placeId ? open(here.placeId) : openMap(here.mapId)
-              }
-              className="inline-flex items-center gap-1.5 text-ink hover:underline"
-            >
-              <Glyph name="banner" size={14} className="text-gold" />
-              <span className="text-ink-muted">The party is in</span>
-              {hereLabel}
-            </button>
-          )}
-          {whereabouts.headed.slice(0, 3).map(h => (
-            <button
-              key={h.stopId}
-              type="button"
-              onClick={() => (h.placeId ? open(h.placeId) : openMap(h.mapId))}
-              className="inline-flex items-center gap-1.5 text-ink hover:underline"
-            >
-              <Glyph name="arrow-right" size={14} className="text-arcane" />
-              <span className="text-ink-muted">headed for</span>
-              {h.placeId ? (byId.get(h.placeId)?.title ?? h.label) : h.label}
-            </button>
-          ))}
-          {whereabouts.been.size > 0 && (
-            <button
-              type="button"
-              onClick={() => setView('list')}
-              className="text-ink-muted hover:text-ink hover:underline"
-            >
-              been to {whereabouts.been.size}{' '}
-              {whereabouts.been.size === 1 ? 'place' : 'places'}
-            </button>
-          )}
-        </p>
-      )}
-
-      {/* Side by side only when the pane is wide enough for both to be
-          read; otherwise the map leads and the place follows under it. */}
-      <div className="grid gap-6 @5xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-        {/* ---- the map, or the list ---- */}
+    <div className="@container">
+      <div className="flex flex-col gap-4 @6xl:flex-row @6xl:items-start">
+        {/* ---- the map ---- */}
         <div
           ref={stage}
-          className="min-w-0 scroll-mt-4 space-y-3 @5xl:sticky @5xl:top-4 @5xl:self-start"
+          className="min-w-0 flex-1 scroll-mt-4 space-y-3 @6xl:sticky @6xl:top-4"
         >
-          <div className="flex flex-wrap items-center gap-2">
-            <div
-              role="radiogroup"
-              aria-label="Show the places as"
-              className="flex rounded-md border border-line p-0.5"
-            >
-              {(['map', 'list'] as const).map(v => (
-                <button
-                  key={v}
-                  type="button"
-                  role="radio"
-                  aria-checked={view === v}
-                  onClick={() => setView(v)}
-                  className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs ${
-                    view === v
-                      ? 'bg-surface-2 text-ink'
-                      : 'text-ink-muted hover:text-ink'
-                  }`}
-                >
-                  <Glyph name={v === 'map' ? 'map' : 'scroll'} size={13} />
-                  {v === 'map' ? 'Map' : 'List'}
-                </button>
-              ))}
-            </div>
-            {view === 'map' && map && (
+          <div className="flex min-h-8 flex-wrap items-center gap-2">
+            {map && (
               <span className="min-w-0 truncate text-xs text-ink-muted">
+                <Glyph
+                  name="map"
+                  size={12}
+                  className="mr-1 inline text-ink-subtle"
+                />
                 {map.title || 'A map'}
                 {place && mapPlace && mapPlace.id !== place.id && (
                   <> — {place.title} is on it</>
                 )}
               </span>
             )}
-            {view === 'map' && ownMaps.length > 1 && (
+            {hereId && hereId !== placeId && (
+              <button
+                type="button"
+                onClick={() => open(hereId)}
+                className="inline-flex items-center gap-1 text-xs text-ink hover:underline"
+              >
+                <Glyph name="banner" size={12} className="text-gold" />
+                The party is in {byId.get(hereId)?.title || 'a place'}
+              </button>
+            )}
+            {ownMaps.length > 1 && (
               <Select
                 size="sm"
                 aria-label="Which map"
@@ -327,14 +193,7 @@ export function PlacesView({
             )}
           </div>
 
-          {view === 'list' ? (
-            <PlaceList
-              world={world}
-              selected={placeId}
-              onOpen={open}
-              isStaff={isStaff}
-            />
-          ) : map ? (
+          {map ? (
             <>
               {isStaff && (
                 <div className="flex flex-wrap gap-2">
@@ -453,141 +312,272 @@ export function PlacesView({
               title="No map yet"
               description={
                 isStaff
-                  ? 'Pin up a map under the Maps tab, or open a place and give it one.'
+                  ? 'Pin up a map under Everywhere › Maps, or open a place and give it one.'
                   : 'When the DM has a map to show you, it will be here.'
               }
             />
           )}
         </div>
 
-        {/* ---- the place ---- */}
-        <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="flex items-center gap-2 font-display text-2xl text-ink">
-              <Glyph
-                name={place ? 'castle' : 'compass'}
-                size={20}
-                className="text-gold"
-              />
-              {place ? place.title || 'Somewhere' : 'The world'}
-            </h3>
-            {isStaff && !place && (
-              <Button size="sm" variant="flat" onPress={() => onEdit(null)}>
-                New entry
-              </Button>
-            )}
+        {/* ---- the place, as a sheet ---- */}
+        <aside
+          aria-label={place?.title || 'The world'}
+          className="relative z-10 min-w-0 overflow-hidden rounded-[14px] border border-line bg-surface [box-shadow:var(--shadow-card)] max-sm:-mx-1 max-sm:-mt-14 max-sm:rounded-b-none max-sm:rounded-t-[18px] @6xl:w-[440px] @6xl:shrink-0"
+        >
+          <div aria-hidden className="flex justify-center pt-2 sm:hidden">
+            <span className="h-1 w-10 rounded-full bg-line" />
           </div>
-          <PlaceDetail
-            campaignId={campaignId}
-            world={world}
-            place={place}
-            isStaff={isStaff}
-            live={live}
-            act={act}
-            onError={onError}
-            onOpenPlace={open}
-            onOpenNpc={onOpenNpc}
-            onEdit={onEdit}
-            focusNpc={focusNpc}
-            onMarkOnMap={link => {
-              setView('map');
-              setPendingLink(link);
-              // Under the place, the map is above the button pressed.
-              stage.current?.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start',
-              });
-            }}
-          />
-        </div>
+          {adding ? (
+            <AddToPlace
+              campaignId={campaignId}
+              world={world}
+              placeId={placeId}
+              act={act}
+              onClose={() => onCloseAdd?.()}
+              onOpenPlace={id => {
+                onCloseAdd?.();
+                open(id);
+              }}
+              onOpenEntry={id => {
+                onCloseAdd?.();
+                onOpenNpc(id);
+              }}
+              onMarkOnMap={
+                map
+                  ? link => {
+                      setPendingLink(link);
+                      stage.current?.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start',
+                      });
+                    }
+                  : undefined
+              }
+            />
+          ) : scope === 'nearby' ? (
+            <NearbySheet
+              campaignId={campaignId}
+              world={world}
+              placeId={placeId}
+              mapId={map?.id ?? null}
+              isStaff={isStaff}
+              act={act}
+              onOpen={id => onScope('here', id)}
+            />
+          ) : (
+            <PlaceDetail
+              key={placeId ?? 'world'}
+              campaignId={campaignId}
+              world={world}
+              place={place}
+              isStaff={isStaff}
+              live={live}
+              act={act}
+              onError={onError}
+              onOpenPlace={open}
+              onOpenNpc={onOpenNpc}
+              onEdit={onEdit}
+              focusNpc={focusNpc}
+              ownMapCount={
+                ownMaps.length > 0 && map?.placeId !== placeId
+                  ? ownMaps.length
+                  : 0
+              }
+              onOpenOwnMap={() => ownMaps[0] && openMap(ownMaps[0].id)}
+              onMarkOnMap={link => {
+                setPendingLink(link);
+                // Under the place, the map is above the button pressed.
+                stage.current?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'start',
+                });
+              }}
+            />
+          )}
+        </aside>
       </div>
     </div>
   );
 }
 
-/** Every place, indented: the view for finding one by name. */
-function PlaceList({
+const WHY: Record<NearWhy, string> = {
+  headed: 'where the party is headed',
+  around: 'around it',
+  inside: 'inside it',
+  'next door': 'next door',
+};
+
+/**
+ * Nearby: where the party could plausibly be next session, and what is
+ * waiting there. No distances — the world has places inside places, not
+ * roads — so each says why it is near instead.
+ */
+function NearbySheet({
+  campaignId,
   world,
-  selected,
-  onOpen,
+  placeId,
+  mapId,
   isStaff,
+  act,
+  onOpen,
 }: {
+  campaignId: string;
   world: World;
-  selected: string | null;
-  onOpen: (id: string) => void;
+  placeId: string | null;
+  /** The map in view: its rumours are guesses near here. */
+  mapId: string | null;
   isStaff: boolean;
+  act: Act;
+  onOpen: (placeId: string) => void;
 }) {
-  const flat = flattenPlaces(world.entries);
-  const count = useMemo(() => {
-    const out = new Map<string, number>();
-    for (const e of world.entries) {
-      if (e.kind === 'npc' && e.placeId) {
-        out.set(e.placeId, (out.get(e.placeId) ?? 0) + 1);
-      }
-    }
-    return out;
-  }, [world.entries]);
-  if (flat.length === 0) {
-    return (
-      <p className="text-sm text-ink-subtle">
-        {isStaff
-          ? 'No places yet. Add the first one beside this.'
-          : 'The party knows of nowhere yet.'}
-      </p>
+  const { byId, entries, whereabouts } = world;
+  const place = placeId ? byId.get(placeId) : null;
+  const { near, further } = nearbyPlaces(placeId, entries, whereabouts);
+  const [showFurther, setShowFurther] = useState(false);
+  // What the party has guessed at on the map in view, not yet made real.
+  const guesses = (world.maps.find(m => m.id === mapId)?.pins ?? []).filter(
+    p => p.kind === 'rumour' && !p.canonEntryId
+  );
+
+  const row = (id: string, why: string | null) => {
+    const p = byId.get(id);
+    if (!p) return null;
+    const people = entries.filter(
+      e => e.kind === 'npc' && e.placeId === id
+    ).length;
+    const t = threadsAt(
+      id,
+      { quests: world.quests, clocks: world.clocks },
+      byId
     );
-  }
-  const { here, headed, been } = world.whereabouts;
+    const isHere = whereabouts.here?.placeId === id;
+    const facts = [
+      isHere ? 'the party is here' : why,
+      people > 0 && `${people} ${people === 1 ? 'person' : 'people'}`,
+      t.quests.length > 0 &&
+        `${t.quests.length} ${t.quests.length === 1 ? 'quest' : 'quests'}`,
+      t.clocks.length > 0 &&
+        `${t.clocks.length} ${t.clocks.length === 1 ? 'clock' : 'clocks'}`,
+    ].filter(Boolean);
+    return (
+      <li key={id}>
+        <button
+          type="button"
+          onClick={() => onOpen(id)}
+          className={`flex min-h-11 w-full items-center gap-3 rounded-[var(--radius-card)] border px-3 py-2.5 text-left hover:border-gold/60 ${
+            isStaff && p.visibility !== 'shared'
+              ? 'status-hatch border-dotted border-arcane/50'
+              : 'border-line bg-bg'
+          }`}
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2">
+            <Glyph
+              name={isHere ? 'banner' : placeGlyph(p)}
+              size={15}
+              className={isHere ? 'text-gold' : 'text-ink-muted'}
+            />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium text-ink">
+              {p.title || 'Somewhere'}
+            </span>
+            <span className="block truncate text-xs text-ink-muted">
+              {facts.join(' · ')}
+            </span>
+          </span>
+          {isStaff && p.visibility !== 'shared' && (
+            <Pill tone="arcane">Only you</Pill>
+          )}
+          <Glyph name="chevron-right" size={14} className="text-ink-subtle" />
+        </button>
+      </li>
+    );
+  };
+
   return (
-    <ul className="divide-y divide-line rounded-[var(--radius-card)] border border-line bg-surface">
-      {flat.map(({ place, depth }) => {
-        const isHere = here?.placeId === place.id;
-        const isHeaded = headed.some(h => h.placeId === place.id);
-        const n = count.get(place.id) ?? 0;
-        return (
-          <li key={place.id}>
+    <div className="flex flex-col">
+      <div className="space-y-1 border-b border-line px-4 pb-3 pt-4 @md:px-5">
+        <p className="flex items-center gap-1.5 text-xs text-ink-muted">
+          <Glyph name="compass" size={13} />
+          {place ? `Around ${place.title || 'here'}` : 'Around the party'}
+        </p>
+        <h3 className="font-display text-[1.6rem] leading-tight text-ink">
+          {place ? `Near ${place.title || 'here'}` : 'The world, near and far'}
+        </h3>
+        <p className="text-sm text-ink-muted">
+          Where the party could end up next, and what is waiting there.
+        </p>
+      </div>
+      <div className="space-y-3 px-4 py-4 @md:px-5">
+        {near.length === 0 ? (
+          <p className="text-sm text-ink-subtle">
+            Nowhere else is written down yet.
+          </p>
+        ) : (
+          <ul className="space-y-2">{near.map(n => row(n.id, WHY[n.why]))}</ul>
+        )}
+        {further.length > 0 && (
+          <div className="space-y-2">
             <button
               type="button"
-              onClick={() => onOpen(place.id)}
-              style={{ paddingLeft: `${0.75 + depth * 1.1}rem` }}
-              className={`flex w-full items-center gap-2 py-2 pr-3 text-left text-sm hover:bg-surface-2 ${
-                selected === place.id ? 'bg-surface-2' : ''
-              }`}
+              onClick={() => setShowFurther(v => !v)}
+              className="flex items-center gap-1 text-xs text-ink-subtle hover:text-ink"
             >
               <Glyph
-                name={isHere ? 'banner' : isHeaded ? 'arrow-right' : 'castle'}
-                size={14}
-                className={
-                  isHere
-                    ? 'text-gold'
-                    : isHeaded
-                      ? 'text-arcane'
-                      : 'text-ink-subtle'
-                }
+                name={showFurther ? 'chevron-up' : 'chevron-down'}
+                size={12}
               />
-              <span
-                className={`min-w-0 flex-1 truncate ${
-                  place.visibility === 'shared' || !isStaff
-                    ? 'text-ink'
-                    : 'text-arcane'
-                }`}
-              >
-                {place.title || 'Somewhere'}
-              </span>
-              {been.has(place.id) && !isHere && (
-                <span className="text-[0.65rem] uppercase tracking-[0.1em] text-ink-subtle">
-                  been
-                </span>
-              )}
-              {n > 0 && (
-                <span className="text-xs tabular-nums text-ink-subtle">
-                  {n}
-                </span>
-              )}
+              Further out ({further.length})
             </button>
-          </li>
-        );
-      })}
-    </ul>
+            {showFurther && (
+              <ul className="space-y-2">{further.map(id => row(id, null))}</ul>
+            )}
+          </div>
+        )}
+        {guesses.length > 0 && (
+          <div className="space-y-2">
+            <p className="pt-1 text-xs text-ink-subtle">Rumours on the map</p>
+            <ul className="space-y-2">
+              {guesses.map(g => (
+                <li
+                  key={g.id}
+                  className="flex min-h-11 items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-arcane/60 bg-bg px-3 py-2.5"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-dashed border-arcane text-arcane">
+                    <Glyph name="question" size={14} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-ink">
+                      {g.label === 'New mark'
+                        ? 'A rumour'
+                        : g.label || 'A rumour'}
+                    </span>
+                    <span className="block truncate text-xs text-ink-muted">
+                      {[g.byName ? `${g.byName}’s rumour` : 'A rumour', g.note]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </span>
+                  {isStaff && (
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      onPress={async () => {
+                        const res = await promoteRumourAction(campaignId, g.id);
+                        await act(Promise.resolve(res));
+                        if (res.ok) onOpen(res.data.id);
+                      }}
+                    >
+                      Make it real
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

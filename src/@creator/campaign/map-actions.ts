@@ -7,6 +7,7 @@ import { FOG_CELLS, MARK_KINDS } from '@/@creator/campaign/lib/party-map';
 import {
   addJourneyStop,
   addPin,
+  promoteRumour,
   arriveAtStop,
   createMap,
   deleteMap,
@@ -43,6 +44,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     MARKS_CLOSED: 'The DM has not opened this map for marks.',
     IN_FOG: 'That part of the map is still in fog.',
     NOT_A_PLACE: 'A map shows a place — pick a canon entry that is one.',
+    NOT_A_RUMOUR: 'Only a rumour can be made real.',
   };
   if (!messages[code]) console.error('[action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
@@ -158,6 +160,20 @@ export async function addPinAction(
     return { ok: true, data: { id } };
   } catch (err) {
     return fail(err, 'Failed to mark it.');
+  }
+}
+
+/** Make it real: a rumour mark becomes a place, still signed by its guesser. */
+export async function promoteRumourAction(
+  campaignId: string,
+  pinId: string
+): Promise<Result<{ id: string }>> {
+  try {
+    const id = await promoteRumour(pinId);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true, data: { id } };
+  } catch (err) {
+    return fail(err, 'Failed to make it real.');
   }
 }
 

@@ -45,7 +45,8 @@ export function PlacePicker({
   return (
     <Select
       size={size}
-      label={label}
+      label={label || undefined}
+      aria-label={label || 'Where'}
       labelPlacement="outside"
       placeholder={nowhere}
       className={className}

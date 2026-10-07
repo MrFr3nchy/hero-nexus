@@ -1,5 +1,6 @@
 'use client';
 
+import { Autocomplete, AutocompleteItem, Button } from '@heroui/react';
 import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -7,93 +8,39 @@ import { DiceSpinner, Glyph, type GlyphName } from '@/@shared/components/ui';
 import { useCampaignLive } from '@/@shared/hooks/useCampaignLive';
 import type { CampaignRole } from '@/server/campaigns';
 import { createCanonAction, updateCanonAction } from '../../canon-actions';
-import type { CanonEntryRow, CanonKind } from '../../lib/canon';
-import { isPlace } from '../../lib/world';
 import {
-  CanonPanel,
-  EntryEditor,
-  draftOf,
-  emptyDraft,
-  type Draft,
-} from '../CanonPanel';
-import { MapPanel } from '../MapPanel';
-import { NpcsView } from './NpcsView';
+  CANON_KIND_GLYPHS,
+  type CanonEntryRow,
+  type CanonKind,
+} from '../../lib/canon';
+import { isPlace, pathLabel, placePath } from '../../lib/world';
+import {
+  readWorldRoute,
+  writeWorldRoute,
+  type Filter,
+  type Scope,
+  type WorldRoute,
+} from '../../lib/world-route';
+import { EntryEditor, draftOf, emptyDraft, type Draft } from '../CanonPanel';
+import { AddToPlace } from './AddToPlace';
+import { EverywhereView } from './EverywhereView';
 import { PlacesView } from './PlacesView';
 import { useWorld } from './useWorld';
 
-type Tab = 'places' | 'npcs' | 'canon' | 'maps';
-
-const TABS: { key: Tab; label: string; glyph: GlyphName; line: string }[] = [
-  {
-    key: 'places',
-    label: 'Places',
-    glyph: 'castle',
-    line: 'Where everything is, and who lives there.',
-  },
-  {
-    key: 'npcs',
-    label: 'NPCs',
-    glyph: 'person',
-    line: 'Everybody, by where they live.',
-  },
-  {
-    key: 'canon',
-    label: 'Canon',
-    glyph: 'tome',
-    line: 'Every entry, on its shelf: lore, factions, items, the lot.',
-  },
-  {
-    key: 'maps',
-    label: 'Maps',
-    glyph: 'map',
-    line: 'Every map pinned up, and what each one shows.',
-  },
+const SCOPES: { key: Scope; label: string; glyph: GlyphName }[] = [
+  { key: 'here', label: 'Here', glyph: 'banner' },
+  { key: 'nearby', label: 'Nearby', glyph: 'compass' },
+  { key: 'everywhere', label: 'Everywhere', glyph: 'map' },
 ];
 
 /**
- * A route inside the World, as it sits after `#world/` in the address:
- * `places/<placeId>/<npcId>`, `npcs/<npcId>`, `canon`, `maps`, or
- * `entry/<id>` — a search result, sent to wherever that entry lives.
- */
-interface Route {
-  tab: Tab;
-  placeId: string | null;
-  npcId: string | null;
-}
-
-function readRoute(raw: string): Route & { entry: string | null } {
-  const [tab, a, b] = raw.split('/').filter(Boolean);
-  if (tab === 'entry') {
-    return { tab: 'places', placeId: null, npcId: null, entry: a ?? null };
-  }
-  if (tab === 'npcs') {
-    return { tab, placeId: null, npcId: a ?? null, entry: null };
-  }
-  if (tab === 'canon' || tab === 'maps') {
-    return { tab, placeId: null, npcId: null, entry: null };
-  }
-  return {
-    tab: 'places',
-    placeId: a ?? null,
-    npcId: b ?? null,
-    entry: null,
-  };
-}
-
-function writeRoute(r: Route): string {
-  if (r.tab === 'places') {
-    return ['places', r.placeId, r.placeId && r.npcId]
-      .filter(Boolean)
-      .join('/');
-  }
-  if (r.tab === 'npcs') return ['npcs', r.npcId].filter(Boolean).join('/');
-  return r.tab;
-}
-
-/**
- * The world: places, the people in them, everything else the campaign has
- * written down, and the maps it is all drawn on — one section, four tabs,
- * because they are one thing seen four ways.
+ * The world: every place, who lives there, what they sell, what is going on
+ * in it, and where the party is — one section, opened where the table is.
+ *
+ * Three scopes, because "everything all the time" was the complaint: Here is
+ * one place, its map and its sheet; Nearby is the places around it; and
+ * Everywhere is the whole world as a ledger, grouped by place, with Canon,
+ * Maps, Quests, Encounters and Random tables as its filters.
  */
 export function WorldPanel({
   campaignId,
@@ -101,6 +48,7 @@ export function WorldPanel({
   viewerRole,
   route: rawRoute,
   onRoute,
+  reloadKey = 0,
 }: {
   campaignId: string;
   viewerId: string;
@@ -108,6 +56,8 @@ export function WorldPanel({
   /** What follows `#world/` in the address. */
   route: string;
   onRoute: (route: string) => void;
+  /** Bumped when something was written elsewhere on the page: re-read. */
+  reloadKey?: number;
 }) {
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
   const { world, error, setError, refresh, act } = useWorld(
@@ -115,54 +65,91 @@ export function WorldPanel({
     isStaff
   );
   const { state: live } = useCampaignLive(campaignId);
+  // The capture box wrote something: it may have landed here.
+  useEffect(() => {
+    if (reloadKey) void refresh();
+  }, [reloadKey, refresh]);
+  /** "Add to <place>" is open. */
+  const [adding, setAdding] = useState(false);
 
   const params = useSearchParams();
   const focusMark = params.get('mark');
   const pendingPlace = params.get('place');
 
-  const parsed = useMemo(() => readRoute(rawRoute), [rawRoute]);
-  // Sent from elsewhere with a mark to show, or a mark to place: the
-  // places' map, or the maps.
-  const route: Route = useMemo(() => {
-    if (pendingPlace && !rawRoute) {
-      return { tab: 'maps', placeId: null, npcId: null };
-    }
-    return parsed;
-  }, [parsed, pendingPlace, rawRoute]);
+  const parsed = useMemo(() => readWorldRoute(rawRoute), [rawRoute]);
+  const route: WorldRoute = useMemo(
+    () =>
+      parsed.kind === 'route'
+        ? parsed.route
+        : // Until the landing below resolves, the world as a whole.
+          {
+            scope: 'here',
+            placeId: null,
+            entryId: null,
+            filter: 'everything',
+          },
+    [parsed]
+  );
 
   const go = useCallback(
-    (next: Partial<Route>) => {
-      const r = { ...route, ...next };
-      onRoute(writeRoute(r));
-    },
+    (next: Partial<WorldRoute>) =>
+      onRoute(writeWorldRoute({ ...route, ...next })),
     [route, onRoute]
   );
 
   const openPlace = useCallback(
-    (placeId: string | null, npcId: string | null = null) =>
-      go({ tab: 'places', placeId, npcId }),
+    (placeId: string | null, entryId: string | null = null) =>
+      go({ scope: 'here', placeId, entryId }),
     [go]
   );
 
-  const openNpc = useCallback(
-    (id: string) => {
+  /** Somebody, opened where they live — or in the ledger, if nowhere. */
+  const openEntry = useCallback(
+    (id: string, fallback: Filter = 'canon') => {
       const entry = world?.byId.get(id);
-      if (entry?.placeId)
-        go({ tab: 'places', placeId: entry.placeId, npcId: id });
-      else go({ tab: 'npcs', npcId: id, placeId: null });
+      if (!entry) return;
+      if (isPlace(entry)) openPlace(entry.id);
+      else if (entry.placeId && world?.byId.has(entry.placeId)) {
+        openPlace(entry.placeId, entry.id);
+      } else {
+        go({
+          scope: 'everywhere',
+          filter: entry.kind === 'npc' ? 'people' : fallback,
+          placeId: null,
+          entryId: entry.id,
+        });
+      }
     },
-    [go, world]
+    [go, openPlace, world]
   );
 
-  // A search result: open it where it lives.
+  // Landing. An empty address opens the place the party is in — the place
+  // the table is actually talking about. Only an empty one: "The world" in
+  // the breadcrumb writes `everywhere`, so the reader can always get out.
   useEffect(() => {
-    if (!parsed.entry || !world) return;
-    const entry = world.byId.get(parsed.entry);
-    if (!entry) return;
-    if (isPlace(entry)) openPlace(entry.id);
-    else if (entry.kind === 'npc') openNpc(entry.id);
-    else go({ tab: 'canon', placeId: null, npcId: null });
-  }, [parsed.entry, world, openPlace, openNpc, go]);
+    if (!world) return;
+    if (pendingPlace && !rawRoute) {
+      // Sent here to put a mark down: the maps.
+      onRoute(
+        writeWorldRoute({ ...route, scope: 'everywhere', filter: 'maps' })
+      );
+      return;
+    }
+    if (parsed.kind === 'empty') {
+      const here = world.whereabouts.here?.placeId;
+      onRoute(
+        here && world.byId.has(here)
+          ? writeWorldRoute({ ...route, scope: 'here', placeId: here })
+          : 'here'
+      );
+    } else if (parsed.kind === 'entry') {
+      if (world.byId.has(parsed.entryId)) {
+        openEntry(parsed.entryId, parsed.fallback);
+      } else {
+        go({ scope: 'everywhere', filter: parsed.fallback, placeId: null });
+      }
+    }
+  }, [world, parsed, pendingPlace, rawRoute, route, onRoute, openEntry, go]);
 
   /* --- the one editor ---------------------------------------------------- */
 
@@ -171,16 +158,18 @@ export function WorldPanel({
     draft: Draft;
   } | null>(null);
 
-  const edit =
+  const edit = useCallback(
     (kind: CanonKind) =>
-    (entry: CanonEntryRow | null, placeId: string | null = null) => {
-      setEditing(
-        entry
-          ? { id: entry.id, draft: draftOf(entry) }
-          : { id: null, draft: { ...emptyDraft, kind, placeId } }
-      );
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
+      (entry: CanonEntryRow | null, placeId: string | null = null) => {
+        setEditing(
+          entry
+            ? { id: entry.id, draft: draftOf(entry) }
+            : { id: null, draft: { ...emptyDraft, kind, placeId } }
+        );
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      },
+    []
+  );
 
   const save = async () => {
     if (!editing?.draft.title.trim()) return;
@@ -203,51 +192,174 @@ export function WorldPanel({
       }
       made = res.data.id;
     }
-    const kind = editing.draft.kind;
     setEditing(null);
     await refresh();
-    if (made) {
-      if (kind === 'location') openPlace(made);
-      else if (kind === 'npc') openNpc(made);
-    }
+    if (made) openEntry(made);
   };
 
-  const tab = TABS.find(t => t.key === route.tab) ?? TABS[0];
+  /* --- jump to ------------------------------------------------------------ */
+
+  const jumpItems = useMemo(
+    () =>
+      (world?.entries ?? [])
+        .filter(e => isPlace(e) || e.kind === 'npc')
+        .map(e => ({
+          id: e.id,
+          title: e.title || 'Untitled',
+          kind: e.kind,
+          where: world ? pathLabel(placePath(e.placeId, world.byId)) : '',
+        }))
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    [world]
+  );
+
+  if (!world || parsed.kind !== 'route') {
+    return (
+      <div className="flex justify-center py-12 pt-4">
+        {error ? (
+          <p className="text-sm text-danger">{error}</p>
+        ) : (
+          <DiceSpinner label="Unrolling the world…" />
+        )}
+      </div>
+    );
+  }
+
+  const placeId =
+    route.placeId && world.byId.has(route.placeId) ? route.placeId : null;
+  const path =
+    route.scope === 'everywhere' ? [] : placePath(placeId, world.byId);
+  const herePlace = world.whereabouts.here?.placeId ?? null;
 
   return (
-    <div className="space-y-5 pt-4">
-      <div
-        role="tablist"
-        aria-label="The world"
-        className="flex flex-wrap items-end gap-1 border-b border-line"
-      >
-        {TABS.map(t => {
-          const lit = t.key === route.tab;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              aria-selected={lit}
-              onClick={() => go({ tab: t.key })}
-              className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors ${
-                lit
-                  ? 'border-gold text-ink'
-                  : 'border-transparent text-ink-muted hover:text-ink'
-              }`}
-            >
+    <div className="space-y-4 pt-4">
+      {/* ---- where we are, how much of the world, and jump to ---- */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <nav
+          aria-label="Where in the world"
+          className="flex min-w-0 flex-[1_1_16rem] flex-wrap items-center gap-1 text-sm"
+        >
+          <button
+            type="button"
+            onClick={() =>
+              go({ scope: 'everywhere', placeId: null, entryId: null })
+            }
+            className={`flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-surface-2 ${
+              path.length ? 'text-ink-muted' : 'font-medium text-ink'
+            }`}
+          >
+            <Glyph name="compass" size={14} className="text-gold" />
+            The world
+          </button>
+          {path.map((p, i) => (
+            <span key={p.id} className="flex items-center gap-1">
               <Glyph
-                name={t.glyph}
-                size={14}
-                className={lit ? 'text-gold-strong dark:text-gold' : ''}
+                name="chevron-right"
+                size={12}
+                className="text-ink-subtle"
               />
-              {t.label}
-            </button>
-          );
-        })}
-        <span className="ml-auto hidden pb-2 text-xs text-ink-subtle md:block">
-          {tab.line}
-        </span>
+              <button
+                type="button"
+                onClick={() => openPlace(p.id)}
+                className={`rounded px-1.5 py-0.5 hover:bg-surface-2 ${
+                  i === path.length - 1
+                    ? 'font-medium text-ink'
+                    : 'text-ink-muted'
+                }`}
+              >
+                {p.title || 'Somewhere'}
+              </button>
+            </span>
+          ))}
+        </nav>
+
+        <div
+          role="radiogroup"
+          aria-label="How much of the world"
+          className="inline-flex h-8 items-center gap-0.5 rounded-lg border border-line bg-surface-2 p-0.5"
+        >
+          {SCOPES.map(s => {
+            const lit = route.scope === s.key;
+            return (
+              <button
+                key={s.key}
+                type="button"
+                role="radio"
+                aria-checked={lit}
+                onClick={() =>
+                  go({
+                    scope: s.key,
+                    // Here and Nearby keep the place in view; with none,
+                    // they open around wherever the party is.
+                    placeId:
+                      s.key === 'everywhere'
+                        ? null
+                        : (placeId ?? herePlace ?? null),
+                    entryId: null,
+                  })
+                }
+                className={`inline-flex h-full items-center gap-1.5 rounded-md px-2.5 text-xs ${
+                  lit
+                    ? 'bg-surface font-medium text-ink [box-shadow:var(--shadow-card)]'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                <Glyph
+                  name={s.glyph}
+                  size={13}
+                  className={lit ? 'text-gold-strong dark:text-gold' : ''}
+                />
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <Autocomplete
+          size="sm"
+          aria-label="Jump to a place or a person"
+          placeholder="Jump to a place or a person…"
+          className="w-full sm:w-64"
+          defaultItems={jumpItems}
+          startContent={
+            <Glyph name="magnifier" size={13} className="text-ink-subtle" />
+          }
+          selectedKey={null}
+          onSelectionChange={key => {
+            if (key) openEntry(String(key));
+          }}
+        >
+          {item => (
+            <AutocompleteItem key={item.id} textValue={item.title}>
+              <span className="flex items-center gap-2">
+                <Glyph
+                  name={CANON_KIND_GLYPHS[item.kind]}
+                  size={13}
+                  className="text-ink-subtle"
+                />
+                <span className="min-w-0">
+                  <span className="block truncate">{item.title}</span>
+                  {item.where && (
+                    <span className="block truncate text-xs text-ink-subtle">
+                      {item.where}
+                    </span>
+                  )}
+                </span>
+              </span>
+            </AutocompleteItem>
+          )}
+        </Autocomplete>
+
+        {isStaff && (
+          <Button
+            size="sm"
+            color="primary"
+            startContent={<Glyph name="plus" size={13} />}
+            onPress={() => setAdding(true)}
+          >
+            Add to {(placeId && world.byId.get(placeId)?.title) || 'the world'}
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -263,7 +375,7 @@ export function WorldPanel({
         </p>
       )}
 
-      {editing && world && (
+      {editing && (
         <EntryEditor
           campaignId={campaignId}
           draft={editing.draft}
@@ -277,50 +389,65 @@ export function WorldPanel({
         />
       )}
 
-      {route.tab === 'canon' ? (
-        <CanonPanel
+      {route.scope === 'everywhere' && adding && (
+        <div className="@container overflow-hidden rounded-[14px] border border-line bg-surface [box-shadow:var(--shadow-card)]">
+          <AddToPlace
+            campaignId={campaignId}
+            world={world}
+            placeId={placeId}
+            act={act}
+            onClose={() => setAdding(false)}
+            onOpenPlace={id => {
+              setAdding(false);
+              openPlace(id);
+            }}
+            onOpenEntry={id => {
+              setAdding(false);
+              openEntry(id);
+            }}
+          />
+        </div>
+      )}
+
+      {route.scope === 'everywhere' ? (
+        <EverywhereView
           campaignId={campaignId}
           viewerId={viewerId}
           viewerRole={viewerRole}
-        />
-      ) : route.tab === 'maps' ? (
-        <MapPanel
-          campaignId={campaignId}
-          viewerRole={viewerRole}
-          onOpenPlace={id => openPlace(id)}
-        />
-      ) : !world ? (
-        <div className="flex justify-center py-12">
-          <DiceSpinner label="Unrolling the world…" />
-        </div>
-      ) : route.tab === 'npcs' ? (
-        <NpcsView
-          campaignId={campaignId}
           world={world}
+          filter={route.filter}
+          placeId={placeId}
+          focusEntry={route.entryId}
           isStaff={isStaff}
           act={act}
-          focusNpc={route.npcId}
-          onOpenPlace={openPlace}
-          onEdit={edit('npc')}
+          refresh={refresh}
+          onError={setError}
+          onFilter={filter => go({ filter, entryId: null })}
+          onPick={id => go({ placeId: id, entryId: null })}
+          onOpenPlace={id => openPlace(id)}
+          onOpenEntry={id => openEntry(id)}
+          onEdit={edit}
         />
       ) : (
         <PlacesView
           campaignId={campaignId}
           world={world}
-          placeId={
-            route.placeId && world.byId.has(route.placeId)
-              ? route.placeId
-              : null
-          }
-          focusNpc={route.npcId}
+          scope={route.scope}
+          placeId={placeId}
+          focusNpc={route.entryId}
           focusMark={focusMark}
           isStaff={isStaff}
           live={live}
           act={act}
           onError={setError}
           onOpenPlace={openPlace}
-          onOpenNpc={openNpc}
-          onEdit={edit('location')}
+          onOpenNpc={id => openEntry(id)}
+          onScope={(scope, id) =>
+            go({ scope, placeId: id ?? placeId, entryId: null })
+          }
+          adding={adding}
+          onCloseAdd={() => setAdding(false)}
+          onEdit={edit}
           refresh={refresh}
         />
       )}

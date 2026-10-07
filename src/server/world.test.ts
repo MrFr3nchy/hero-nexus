@@ -567,6 +567,43 @@ describe('quests and clocks in places', () => {
   });
 });
 
+describe('make it real', () => {
+  it('turns a player’s guess into a place, and keeps whose guess it was', async () => {
+    signedIn = dm;
+    await maps.setMarksOpen(mapId, true);
+    signedIn = kessa;
+    const guess = await maps.addPin(mapId, {
+      x: 0.4,
+      y: 0.4,
+      label: 'Old shrine?',
+      note: 'The miller said past the wood.',
+      kind: 'rumour',
+    });
+    await expect(maps.promoteRumour(guess)).rejects.toThrow();
+
+    signedIn = dm;
+    const place = await maps.promoteRumour(guess);
+    const entry = (await entriesAs(dm)).find(e => e.id === place)!;
+    expect(entry).toMatchObject({
+      kind: 'location',
+      title: 'Old shrine?',
+      partyBody: 'The miller said past the wood.',
+      placeId: coast,
+      visibility: 'shared',
+    });
+    const pin = (await mapAs(rurik)).pins.find(p => p.id === guess)!;
+    expect(pin).toMatchObject({
+      kind: 'place',
+      canonEntryId: place,
+      byName: 'Kessa',
+    });
+    // Only a rumour is made real.
+    signedIn = dm;
+    await expect(maps.promoteRumour(guess)).rejects.toThrow('NOT_A_RUMOUR');
+    await maps.setMarksOpen(mapId, false);
+  });
+});
+
 describe('the package', () => {
   it('carries where things are, the shops and the fights — not the notes', async () => {
     signedIn = kessa;
