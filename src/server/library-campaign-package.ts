@@ -18,10 +18,14 @@ import {
   campaignNotes,
   campaignQuestObjectives,
   campaignQuests,
+  campaignShopStock,
+  campaignShops,
   campaigns,
   canonCollections,
   canonEntries,
   canonLinks,
+  encounterPlanLines,
+  encounterPlans,
   homebrew,
   publicationItems,
   publications,
@@ -56,9 +60,10 @@ import { requireUserId } from './session-user';
  * editing this list on purpose. A sweep would have shipped it silently.
  *
  * Carried: name, description, settings, canon (both bodies), collections and
- * links, quests and objectives, notes, maps and pins, random tables, the
- * pictures those point at, and every homebrew row the campaign's library
- * holds.
+ * links, quests and objectives, notes, maps and pins, random tables, shops and
+ * their stock, encounter plans and their monsters, where each of those is
+ * (0072), the pictures those point at, and every homebrew row the campaign's
+ * library holds.
  *
  * Never carried, and the reason: **members, invites and the join code** are
  * other accounts and a live door into a running table; **characters and their
@@ -87,6 +92,10 @@ export const CARRIED = [
   'campaign_maps',
   'campaign_map_pins',
   'random_tables',
+  'campaign_shops',
+  'campaign_shop_stock',
+  'encounter_plans',
+  'encounter_plan_lines (without their spots: battle boards do not travel)',
   'campaign_images (only those the above point at)',
   'homebrew (only what campaign_homebrew holds)',
 ] as const;
@@ -102,6 +111,8 @@ export const NEVER_CARRIED = [
   'campaign_safety',
   'faction_standing',
   'map_journey',
+  'canon_party_notes',
+  'encounter_plans.ran_at / ran_session_id',
   'campaign_maps.revealed',
   "campaign_map_pins (a player's)",
   'campaign_members',
@@ -130,8 +141,6 @@ export const NEVER_CARRIED = [
   'campaign_reveal_targets',
   'canon_reveals',
   'homebrew_approvals',
-  'encounter_plans',
-  'encounter_plan_lines',
 ] as const;
 
 /* --- the frozen shape ------------------------------------------------- */
@@ -159,6 +168,8 @@ interface PackagedEntry {
   attitude?: string | null;
   statSource?: string | null;
   statKey?: string | null;
+  /** 0072: where it is, by entry key. */
+  placeKey?: string | null;
 }
 
 interface PackagedQuest {
@@ -171,11 +182,16 @@ interface PackagedQuest {
   status: string;
   visibility: string;
   sortOrder: number;
+  /** 0073: where it happens and who handed it out, by entry key. */
+  placeKey?: string | null;
+  giverKey?: string | null;
   objectives: {
     body: string;
     done: boolean;
     visibility: string;
     sortOrder: number;
+    /** 0073: where this step happens, by entry key. */
+    placeKey?: string | null;
   }[];
 }
 
@@ -196,6 +212,8 @@ interface PackagedMap {
   /** 0071. Absent in a package frozen before it. */
   marksOpen?: boolean;
   fogged?: boolean;
+  /** 0072. */
+  placeKey?: string | null;
   pins: {
     x: number;
     y: number;
@@ -207,6 +225,42 @@ interface PackagedMap {
     kind?: string;
     note?: string;
     questKey?: string | null;
+    /** 0072: a battle mark's plan. */
+    encounterPlanKey?: string | null;
+  }[];
+}
+
+/** 0072. */
+interface PackagedShop {
+  name: string;
+  blurb: string;
+  markupPercent: number;
+  buysAtPercent: number;
+  visibility: string;
+  placeKey: string | null;
+  keeperKey: string | null;
+  stock: {
+    source: string;
+    key: string;
+    name: string;
+    priceCp: number | null;
+    quantity: number | null;
+    sortOrder: number;
+  }[];
+}
+
+/** 0072. */
+interface PackagedPlan {
+  key: string;
+  name: string;
+  notes: string;
+  placeKey: string | null;
+  lines: {
+    source: string;
+    key: string;
+    name: string;
+    count: number;
+    sortOrder: number;
   }[];
 }
 
@@ -222,6 +276,9 @@ export interface CampaignPackagePayload {
   maps: PackagedMap[];
   /** Absent in a package frozen before random tables (0068). */
   randomTables?: { title: string; die?: number; entries: unknown }[];
+  /** Absent in a package frozen before the world (0072). */
+  shops?: PackagedShop[];
+  plans?: PackagedPlan[];
 }
 
 /* --- building --------------------------------------------------------- */
@@ -249,6 +306,8 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
     library,
     row,
     tables,
+    shops,
+    plans,
   ] = await Promise.all([
     db
       .select()
@@ -280,8 +339,41 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
       .select()
       .from(randomTables)
       .where(eq(randomTables.campaignId, campaignId)),
+    db
+      .select()
+      .from(campaignShops)
+      .where(eq(campaignShops.campaignId, campaignId)),
+    db
+      .select()
+      .from(encounterPlans)
+      .where(eq(encounterPlans.campaignId, campaignId)),
   ]);
   if (!row) throw new Error('NOT_FOUND');
+
+  const [stock, planLines] = await Promise.all([
+    shops.length > 0
+      ? db
+          .select()
+          .from(campaignShopStock)
+          .where(
+            inArray(
+              campaignShopStock.shopId,
+              shops.map(s => s.id)
+            )
+          )
+      : [],
+    plans.length > 0
+      ? db
+          .select()
+          .from(encounterPlanLines)
+          .where(
+            inArray(
+              encounterPlanLines.planId,
+              plans.map(p => p.id)
+            )
+          )
+      : [],
+  ]);
 
   // Who wrote the prep: the GM and co-GMs. A mark anybody else put down is
   // a player's, and stays with the table that played.
@@ -355,6 +447,7 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
       attitude: e.attitude,
       statSource: e.statSource,
       statKey: e.statKey,
+      placeKey: e.placeId,
     })),
     links: links.map(l => ({ fromKey: l.fromEntryId, toKey: l.toEntryId })),
     quests: quests.map(q => ({
@@ -367,6 +460,10 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
       status: q.status,
       visibility: q.visibility,
       sortOrder: q.sortOrder,
+      // Copied explicitly (0073): a column the package does not name is
+      // silently dropped, and every adopted quest would arrive unplaced.
+      placeKey: q.placeId,
+      giverKey: q.giverId,
       objectives: objectives
         .filter(o => o.questId === q.id)
         .map(o => ({
@@ -374,6 +471,7 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
           done: o.done,
           visibility: o.visibility,
           sortOrder: o.sortOrder,
+          placeKey: o.placeId,
         })),
     })),
     // `sessionId` is dropped rather than remapped: sittings do not travel, so a
@@ -395,6 +493,7 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
       imageKey: m.imageId,
       marksOpen: m.marksOpen,
       fogged: m.fogged,
+      placeKey: m.placeId,
       pins: pins
         .filter(p => p.mapId === m.id)
         .filter(p => !p.createdBy || staffIds.has(p.createdBy))
@@ -408,12 +507,49 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
           kind: p.kind,
           note: p.note,
           questKey: p.questId,
+          encounterPlanKey: p.encounterPlanId,
         })),
     })),
     randomTables: tables.map(t => ({
       title: t.title,
       die: t.die,
       entries: t.entries,
+    })),
+    shops: shops.map(s => ({
+      name: s.name,
+      blurb: s.blurb,
+      markupPercent: s.markupPercent,
+      buysAtPercent: s.buysAtPercent,
+      visibility: s.visibility,
+      placeKey: s.placeId,
+      keeperKey: s.keeperId,
+      stock: stock
+        .filter(r => r.shopId === s.id)
+        .map(r => ({
+          source: r.contentSource,
+          key: r.contentKey,
+          name: r.name,
+          priceCp: r.priceCp,
+          quantity: r.quantity,
+          sortOrder: r.sortOrder,
+        })),
+    })),
+    // When it was fought and where its monsters stood on a board are the
+    // table that played it; the fight itself is prep.
+    plans: plans.map(p => ({
+      key: p.id,
+      name: p.name,
+      notes: p.notes,
+      placeKey: p.placeId,
+      lines: planLines
+        .filter(l => l.planId === p.id)
+        .map(l => ({
+          source: l.contentSource,
+          key: l.contentKey,
+          name: l.name,
+          count: l.count,
+          sortOrder: l.sortOrder,
+        })),
     })),
   };
 
@@ -643,6 +779,20 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
     }
   }
 
+  // Where each entry is, once every entry has its new id: a place may name
+  // a parent that came later in the list.
+  for (const entry of payload.entries ?? []) {
+    const id = entryMap.get(entry.key);
+    const placeId = entry.placeKey ? entryMap.get(entry.placeKey) : undefined;
+    if (!id || !placeId || placeId === id) continue;
+    await db
+      .update(canonEntries)
+      .set({ placeId })
+      .where(eq(canonEntries.id, id));
+  }
+  const entry = (key: string | null | undefined): string | null =>
+    key ? (entryMap.get(key) ?? null) : null;
+
   for (const link of payload.links ?? []) {
     const from = entryMap.get(link.fromKey);
     const to = entryMap.get(link.toKey);
@@ -663,6 +813,8 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
         summary: quest.summary,
         dmNotes: quest.dmNotes,
         giver: quest.giver,
+        giverId: entry(quest.giverKey),
+        placeId: entry(quest.placeKey),
         reward: quest.reward,
         status: quest.status as typeof campaignQuests.$inferInsert.status,
         visibility: quest.visibility === 'shared' ? 'shared' : 'dm',
@@ -680,6 +832,7 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
           visibility: (o.visibility === 'dm' ? 'dm' : 'shared') as
             | 'dm'
             | 'shared',
+          placeId: entry(o.placeKey),
           sortOrder: o.sortOrder,
         }))
       );
@@ -709,10 +862,38 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
       payload.randomTables!.map(t => ({
         campaignId,
         title: String(t.title ?? '').slice(0, 80) || 'Random table',
-        // Normalised on the way in: a package is somebody else's data.
-        ...normalizeTable(t.die, t.entries),
+        // Normalised on the way in: a package is somebody else's data. A
+        // struck name points at the adopter's copy of who it became.
+        ...(() => {
+          const table = normalizeTable(t.die, t.entries);
+          return {
+            die: table.die,
+            entries: table.entries.map(e =>
+              e.struck
+                ? { ...e, struck: { entryId: entry(e.struck.entryId) } }
+                : e
+            ),
+          };
+        })(),
       }))
     );
+  }
+
+  // Plans before the maps, so a battle mark can point at its fight. Their
+  // monsters wait for the library: a homebrew one names the publisher's row.
+  const planMap = new Map<string, string>();
+  for (const plan of payload.plans ?? []) {
+    const [created] = await db
+      .insert(encounterPlans)
+      .values({
+        campaignId,
+        name: String(plan.name ?? '').slice(0, 160) || 'Encounter',
+        notes: String(plan.notes ?? '').slice(0, 8000),
+        placeId: entry(plan.placeKey),
+        createdBy: userId,
+      })
+      .returning({ id: encounterPlans.id });
+    planMap.set(plan.key, created.id);
   }
 
   for (const map of payload.maps ?? []) {
@@ -731,6 +912,7 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
         marksOpen: map.marksOpen === true,
         // Fog travels as a setting; what was revealed does not.
         fogged: map.fogged === true,
+        placeId: entry(map.placeKey),
         createdBy: userId,
       })
       .returning({ id: campaignMaps.id });
@@ -751,6 +933,9 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
           kind: isMarkKind(pin.kind) ? pin.kind : 'place',
           note: String(pin.note ?? '').slice(0, 2000),
           questId: pin.questKey ? (questMap.get(pin.questKey) ?? null) : null,
+          encounterPlanId: pin.encounterPlanKey
+            ? (planMap.get(pin.encounterPlanKey) ?? null)
+            : null,
         }))
       );
     }
@@ -781,6 +966,72 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
         }))
       )
       .onConflictDoNothing();
+  }
+
+  /** A content ref, re-pointed at the adopter's copy; null when it did not travel. */
+  const contentKey = (source: string, key: string) =>
+    source === 'srd'
+      ? { source: 'srd' as const, key }
+      : source === 'homebrew' && minted.get(key)
+        ? { source: 'homebrew' as const, key: minted.get(key)! }
+        : null;
+
+  for (const plan of payload.plans ?? []) {
+    const planId = planMap.get(plan.key);
+    if (!planId) continue;
+    const lines = (plan.lines ?? [])
+      .map(l => ({ l, ref: contentKey(l.source, l.key) }))
+      .filter(x => x.ref)
+      .map(({ l, ref }) => ({
+        planId,
+        contentSource: ref!.source,
+        contentKey: ref!.key,
+        name: String(l.name ?? '').slice(0, 200),
+        count: Math.max(1, Math.min(99, Math.trunc(Number(l.count) || 1))),
+        sortOrder: Math.trunc(Number(l.sortOrder) || 0),
+      }));
+    if (lines.length > 0) await db.insert(encounterPlanLines).values(lines);
+  }
+
+  for (const shop of payload.shops ?? []) {
+    const [created] = await db
+      .insert(campaignShops)
+      .values({
+        campaignId,
+        name: String(shop.name ?? '').slice(0, 120),
+        blurb: String(shop.blurb ?? '').slice(0, 600),
+        markupPercent: Math.max(
+          -90,
+          Math.min(500, Math.trunc(Number(shop.markupPercent) || 0))
+        ),
+        buysAtPercent: Math.max(
+          0,
+          Math.min(200, Math.trunc(Number(shop.buysAtPercent) || 50))
+        ),
+        visibility: shop.visibility === 'shared' ? 'shared' : 'dm',
+        placeId: entry(shop.placeKey),
+        keeperId: entry(shop.keeperKey),
+      })
+      .returning({ id: campaignShops.id });
+    const rows = (shop.stock ?? [])
+      .map(s => ({ s, ref: contentKey(s.source, s.key) }))
+      .filter(x => x.ref)
+      .map(({ s, ref }) => ({
+        shopId: created.id,
+        contentSource: ref!.source,
+        contentKey: ref!.key,
+        name: String(s.name ?? '').slice(0, 200),
+        priceCp:
+          s.priceCp === null || s.priceCp === undefined
+            ? null
+            : Math.max(0, Math.trunc(Number(s.priceCp) || 0)),
+        quantity:
+          s.quantity === null || s.quantity === undefined
+            ? null
+            : Math.max(0, Math.trunc(Number(s.quantity) || 0)),
+        sortOrder: Math.trunc(Number(s.sortOrder) || 0),
+      }));
+    if (rows.length > 0) await db.insert(campaignShopStock).values(rows);
   }
 
   // A homebrew stat block points at the adopter's minted copy, or at nothing

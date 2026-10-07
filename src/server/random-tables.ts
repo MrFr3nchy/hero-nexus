@@ -1,14 +1,16 @@
 import 'server-only';
 
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { and, asc, eq, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { campaignRolls, randomTables, users } from '@/db/schema';
+import { campaignRolls, canonEntries, randomTables, users } from '@/db/schema';
 import { critToneOf, rollNotation } from '@/@shared/lib/dice';
 import {
   MAX_TITLE,
+  carryStrikes,
   checkRanges,
+  drawEntries,
   dieNotation,
   entryForFace,
   isRandomTableDie,
@@ -17,6 +19,7 @@ import {
   type RandomTableEntry,
   type RandomTableRow,
 } from '@/@creator/campaign/lib/random-tables';
+import { checkPlace } from './canon';
 import { requireCampaignRole } from './campaigns';
 import { bumpVersion, publish } from './live-hub';
 
@@ -101,10 +104,15 @@ export async function updateRandomTable(
   }
   if (patch.die !== undefined || patch.entries !== undefined) {
     const current = normalizeTable(row.die, row.entries);
-    Object.assign(
-      set,
-      cleanTable(patch.die ?? current.die, patch.entries ?? current.entries)
+    const clean = cleanTable(
+      patch.die ?? current.die,
+      patch.entries ?? current.entries
     );
+    // A rewritten list keeps its struck names (0072).
+    Object.assign(set, {
+      ...clean,
+      entries: carryStrikes(current.entries, clean.entries),
+    });
   }
   await db.update(randomTables).set(set).where(eq(randomTables.id, id));
 }
@@ -127,6 +135,120 @@ export async function findRandomTable(
     ),
   });
   return row ? toRow(row) : null;
+}
+
+/* --- plucking (0072) ------------------------------------------------------ */
+
+export interface Drawn {
+  /** Where it sits in the table, for striking it. */
+  index: number;
+  text: string;
+}
+
+/**
+ * Draw candidates without striking or logging anything: "roll a name" on the
+ * NPC form, which the DM may roll again before keeping one. Prep, so it does
+ * not go into Dice.
+ */
+export async function drawFromTable(id: string, count = 1): Promise<Drawn[]> {
+  const { row } = await staffForTable(id);
+  const { entries } = normalizeTable(row.die, row.entries);
+  const n = Math.max(1, Math.min(20, Math.trunc(count)));
+  return drawEntries(entries, n, () => randomInt(0, 1_000_000) / 1_000_000).map(
+    d => ({ index: d.index, text: d.entry.text })
+  );
+}
+
+/**
+ * Strike an entry through: it became somebody (`entryId`), so rolls skip it.
+ * The text is checked as well as the index, so a table edited in another tab
+ * strikes nothing rather than the wrong name.
+ */
+export async function strikeEntry(
+  id: string,
+  index: number,
+  text: string,
+  entryId: string | null
+): Promise<void> {
+  const { row } = await staffForTable(id);
+  const { die, entries } = normalizeTable(row.die, row.entries);
+  const at = entries[index];
+  if (!at || at.text !== text.trim()) throw new Error('TABLE_CHANGED');
+  if (entryId) {
+    const linked = await db.query.canonEntries.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(canonEntries.id, entryId),
+        eq(canonEntries.campaignId, row.campaignId)
+      ),
+    });
+    if (!linked) throw new Error('NOT_FOUND');
+  }
+  entries[index] = { ...at, struck: { entryId } };
+  await db
+    .update(randomTables)
+    .set({ die, entries, updatedAt: new Date().toISOString() })
+    .where(eq(randomTables.id, id));
+}
+
+/** Bring a struck entry back into the rolling. */
+export async function restoreEntry(id: string, index: number): Promise<void> {
+  const { row } = await staffForTable(id);
+  const { die, entries } = normalizeTable(row.die, row.entries);
+  const at = entries[index];
+  if (!at) throw new Error('TABLE_CHANGED');
+  const { struck: _gone, ...rest } = at;
+  void _gone;
+  entries[index] = rest;
+  await db
+    .update(randomTables)
+    .set({ die, entries, updatedAt: new Date().toISOString() })
+    .where(eq(randomTables.id, id));
+}
+
+/**
+ * Fill a place: draw `count` names, make each an NPC who lives there — the
+ * DM's alone, not met yet — and strike each name through with the NPC it
+ * became. Returns the new entries' ids.
+ */
+export async function pluckIntoPlace(
+  id: string,
+  placeId: string,
+  count: number
+): Promise<string[]> {
+  const { row, userId } = await staffForTable(id);
+  await checkPlace(row.campaignId, null, placeId);
+  const { die, entries } = normalizeTable(row.die, row.entries);
+  const n = Math.max(1, Math.min(20, Math.trunc(count)));
+  const drawn = drawEntries(
+    entries,
+    n,
+    () => randomInt(0, 1_000_000) / 1_000_000
+  );
+  if (drawn.length === 0) throw new Error('ALL_STRUCK');
+
+  const ids: string[] = [];
+  for (const d of drawn) {
+    const [created] = await db
+      .insert(canonEntries)
+      .values({
+        campaignId: row.campaignId,
+        kind: 'npc',
+        title: d.entry.text.slice(0, 200),
+        placeId,
+        visibility: 'dm',
+        createdBy: userId,
+      })
+      .returning({ id: canonEntries.id });
+    ids.push(created.id);
+    entries[d.index] = { ...d.entry, struck: { entryId: created.id } };
+  }
+  await db
+    .update(randomTables)
+    .set({ die, entries, updatedAt: new Date().toISOString() })
+    .where(eq(randomTables.id, id));
+  bumpVersion(row.campaignId);
+  return ids;
 }
 
 export interface RandomTableResult {
@@ -152,9 +274,18 @@ export async function rollRandomTable(
   const { row, userId } = await staffForTable(id);
   const { die, entries } = normalizeTable(row.die, row.entries);
   if (entries.length === 0) throw new Error('EMPTY_TABLE');
-  const roll = rollNotation(dieNotation(die));
+  if (entries.every(e => e.struck)) throw new Error('ALL_STRUCK');
+  // A struck name is spent: roll again until the die lands on a live entry
+  // or on a face nobody filled. Bounded — a d100 with one live face left is
+  // still a result in a few hundred throws, and never a hang.
+  let roll = rollNotation(dieNotation(die));
+  let hit = roll ? entryForFace(entries, roll.total) : null;
+  for (let i = 0; i < 500 && roll && hit?.entry.struck; i++) {
+    roll = rollNotation(dieNotation(die));
+    hit = roll ? entryForFace(entries, roll.total) : null;
+  }
   if (!roll) throw new Error('EMPTY_TABLE');
-  const hit = entryForFace(entries, roll.total);
+  if (hit?.entry.struck) throw new Error('ALL_STRUCK');
   // A face no entry covers is still a result: the DM left it empty.
   const text = hit?.entry.text ?? 'nothing on that face';
 

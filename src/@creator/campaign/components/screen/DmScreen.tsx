@@ -80,6 +80,7 @@ import { SittingCard } from '../session/SittingCard';
 import { ConditionsCard } from './ConditionsCard';
 import { RulesPanel } from './RulesPanel';
 import { ShopPanel } from './ShopPanel';
+import { HerePanel } from './HerePanel';
 import { AttacksPanel } from './AttacksPanel';
 import { CastPanel } from './CastPanel';
 import { FeedPanel } from './FeedPanel';
@@ -689,6 +690,16 @@ function PanelContents({
           campaignId={ctx.campaignId}
           viewerId={ctx.viewerId}
           viewerRole={ctx.viewerRole}
+        />
+      );
+
+    case 'here':
+      return (
+        <HerePanel
+          campaignId={ctx.campaignId}
+          viewerRole={ctx.viewerRole}
+          state={live.state}
+          onError={ctx.onError}
         />
       );
 

@@ -8,6 +8,7 @@ import {
   canonCollections,
   canonEntries,
   canonLinks,
+  canonPartyNotes,
   canonReveals,
   campaignMembers,
   campaigns,
@@ -19,6 +20,8 @@ import { isAttitude } from '@/@creator/campaign/lib/standing';
 import { listCampaignContentIds } from './campaign-content';
 import { resolveContentRefs } from './content';
 import { requireCampaignRole } from './campaigns';
+import { bumpVersion } from './live-hub';
+import { wouldLoop } from '@/@creator/campaign/lib/world';
 import {
   tidyFields,
   type CanonCollectionInput,
@@ -26,6 +29,7 @@ import {
   type CanonEntryRow,
   type CanonInput,
   type CanonKind,
+  type PartyNoteRow,
 } from '@/@creator/campaign/lib/canon';
 
 /**
@@ -49,6 +53,7 @@ export {
   type CanonKind,
   type CanonLinkRef,
   type CanonVisibility,
+  type PartyNoteRow,
 } from '@/@creator/campaign/lib/canon';
 
 function isStaffRole(role: string): boolean {
@@ -126,6 +131,36 @@ export async function listCanon(campaignId: string): Promise<CanonEntryRow[]> {
   const visible = entries.filter(
     e => staff || e.visibility === 'shared' || revealedToMe.has(e.id)
   );
+  const visibleIds = new Set(visible.map(e => e.id));
+
+  // What the party has written, on what this viewer can read.
+  const noteRows = await db
+    .select({
+      id: canonPartyNotes.id,
+      entryId: canonPartyNotes.entryId,
+      userId: canonPartyNotes.userId,
+      body: canonPartyNotes.body,
+      createdAt: canonPartyNotes.createdAt,
+      name: users.name,
+    })
+    .from(canonPartyNotes)
+    .leftJoin(users, eq(users.id, canonPartyNotes.userId))
+    .where(eq(canonPartyNotes.campaignId, campaignId))
+    .orderBy(asc(canonPartyNotes.createdAt));
+  const notesOf = new Map<string, PartyNoteRow[]>();
+  for (const n of noteRows) {
+    if (!visibleIds.has(n.entryId)) continue;
+    const list = notesOf.get(n.entryId) ?? [];
+    list.push({
+      id: n.id,
+      body: n.body,
+      byName: n.name || 'Somebody',
+      mine: n.userId === userId,
+      canEdit: staff || n.userId === userId,
+      createdAt: n.createdAt,
+    });
+    notesOf.set(n.entryId, list);
+  }
 
   // Stat blocks, staff only: resolved together, and a homebrew one counts
   // only while it is in this campaign's library (content-model rule 6).
@@ -187,6 +222,10 @@ export async function listCanon(campaignId: string): Promise<CanonEntryRow[]> {
       collectionId: e.collectionId,
       imageId: e.imageId,
       fields: (e.fields ?? {}) as Record<string, string>,
+      // A place the viewer has not been shown is not somewhere they know
+      // this is: the pointer goes with the place.
+      placeId: e.placeId && visibleIds.has(e.placeId) ? e.placeId : null,
+      partyNotes: notesOf.get(e.id) ?? [],
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       links: outgoing,
@@ -236,11 +275,95 @@ function statFor(
   };
 }
 
+/**
+ * A place for `entryId` to be in: a `location` entry at the same table, and
+ * — when the entry is itself a place — not one inside it, or the tree would
+ * close into a loop. Undefined leaves it as it is; null makes it nowhere.
+ */
+export async function checkPlace(
+  campaignId: string,
+  entryId: string | null,
+  placeId: string | null | undefined
+): Promise<string | null | undefined> {
+  if (placeId === undefined || placeId === null) return placeId;
+  const rows = await db
+    .select({
+      id: canonEntries.id,
+      kind: canonEntries.kind,
+      placeId: canonEntries.placeId,
+    })
+    .from(canonEntries)
+    .where(eq(canonEntries.campaignId, campaignId));
+  const byId = new Map(rows.map(r => [r.id, r]));
+  const target = byId.get(placeId);
+  if (!target) throw new Error('NOT_FOUND');
+  if (target.kind !== 'location') throw new Error('NOT_A_PLACE');
+  if (entryId && wouldLoop(entryId, placeId, id => byId.get(id)?.placeId)) {
+    throw new Error('PLACE_LOOP');
+  }
+  return placeId;
+}
+
+/**
+ * The ids of the canon entries a player may read: shared, or told to them.
+ * For another table's pointer at canon — a quest's place, a clock's — which
+ * a player receives only when they could open what it points at.
+ */
+export async function entriesSeenBy(
+  campaignId: string,
+  userId: string
+): Promise<Set<string>> {
+  const [shared, told] = await Promise.all([
+    db
+      .select({ id: canonEntries.id })
+      .from(canonEntries)
+      .where(
+        and(
+          eq(canonEntries.campaignId, campaignId),
+          eq(canonEntries.visibility, 'shared')
+        )
+      ),
+    db
+      .select({ id: canonReveals.entryId })
+      .from(canonReveals)
+      .innerJoin(canonEntries, eq(canonEntries.id, canonReveals.entryId))
+      .where(
+        and(
+          eq(canonEntries.campaignId, campaignId),
+          eq(canonReveals.userId, userId)
+        )
+      ),
+  ]);
+  return new Set([...shared, ...told].map(r => r.id));
+}
+
+/**
+ * An NPC pointer — a quest's giver, say — checked like `checkPlace`: an `npc`
+ * entry in the same campaign. Undefined leaves it alone; null clears it.
+ */
+export async function checkNpc(
+  campaignId: string,
+  npcId: string | null | undefined
+): Promise<string | null | undefined> {
+  if (npcId === undefined || npcId === null) return npcId;
+  const row = await db.query.canonEntries.findFirst({
+    columns: { id: true, kind: true },
+    where: and(
+      eq(canonEntries.id, npcId),
+      eq(canonEntries.campaignId, campaignId)
+    ),
+  });
+  if (!row) throw new Error('NOT_FOUND');
+  if (row.kind !== 'npc') throw new Error('NOT_AN_NPC');
+  return npcId;
+}
+
 export async function createCanonEntry(
   campaignId: string,
   input: CanonInput
 ): Promise<string> {
   const { userId } = await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+  const placeId = await checkPlace(campaignId, null, input.placeId);
   const [row] = await db
     .insert(canonEntries)
     .values({
@@ -253,9 +376,11 @@ export async function createCanonEntry(
       collectionId: input.collectionId ?? null,
       imageId: input.imageId ?? null,
       fields: tidyFields(input.kind, input.fields),
+      placeId: placeId ?? null,
       createdBy: userId,
     })
     .returning({ id: canonEntries.id });
+  bumpVersion(campaignId);
   return row.id;
 }
 
@@ -272,6 +397,19 @@ export async function updateCanonEntry(
   if (patch.visibility !== undefined) set.visibility = patch.visibility;
   if (patch.collectionId !== undefined) set.collectionId = patch.collectionId;
   if (patch.imageId !== undefined) set.imageId = patch.imageId;
+  if (patch.placeId !== undefined) {
+    set.placeId = await checkPlace(entry.campaignId, entryId, patch.placeId);
+  }
+  // A place that stops being a place cannot keep things inside it.
+  if (patch.kind !== undefined && patch.kind !== 'location') {
+    const inside = await db
+      .select({ id: canonEntries.id })
+      .from(canonEntries)
+      .where(eq(canonEntries.placeId, entryId));
+    if (inside.length > 0 && entry.kind === 'location') {
+      throw new Error('PLACE_IN_USE');
+    }
+  }
   // Facts are validated against the kind the entry ends up with, so changing
   // an NPC into a spell drops the facts that no longer mean anything.
   if (patch.fields !== undefined) {
@@ -281,6 +419,7 @@ export async function updateCanonEntry(
     );
   }
   await db.update(canonEntries).set(set).where(eq(canonEntries.id, entryId));
+  bumpVersion(entry.campaignId);
 }
 
 /* --- collections --------------------------------------------------------- */
@@ -382,20 +521,104 @@ export async function deleteCanonCollection(
 }
 
 export async function deleteCanonEntry(entryId: string): Promise<void> {
-  await requireStaffForEntry(entryId);
-  // canon_links and canon_reveals cascade on the FK.
+  const { entry } = await requireStaffForEntry(entryId);
+  // canon_links, canon_reveals and party notes cascade on the FK; whatever
+  // was in this place is set loose, not deleted (0072).
   await db.delete(canonEntries).where(eq(canonEntries.id, entryId));
+  bumpVersion(entry.campaignId);
 }
 
 export async function setCanonVisibility(
   entryId: string,
   visibility: 'dm' | 'shared'
 ): Promise<void> {
-  await requireStaffForEntry(entryId);
+  const { entry } = await requireStaffForEntry(entryId);
   await db
     .update(canonEntries)
     .set({ visibility, updatedAt: new Date().toISOString() })
     .where(eq(canonEntries.id, entryId));
+  bumpVersion(entry.campaignId);
+}
+
+/* --- party notes (0072) ---------------------------------------------------- */
+
+/**
+ * An entry this viewer may read: staff any, a player one that is shared or
+ * was shown to them. A note on something the party has not been told about
+ * would be a note on nothing.
+ */
+async function readableEntry(entryId: string) {
+  const entry = await db.query.canonEntries.findFirst({
+    where: eq(canonEntries.id, entryId),
+  });
+  if (!entry) throw new Error('NOT_FOUND');
+  const { userId, role } = await requireCampaignRole(entry.campaignId, [
+    'gm',
+    'co-gm',
+    'player',
+  ]);
+  const staff = isStaffRole(role);
+  if (!staff && entry.visibility !== 'shared') {
+    const told = await db.query.canonReveals.findFirst({
+      where: and(
+        eq(canonReveals.entryId, entryId),
+        eq(canonReveals.userId, userId)
+      ),
+    });
+    if (!told) throw new Error('NOT_FOUND');
+  }
+  return { entry, userId, staff };
+}
+
+export const MAX_PARTY_NOTE = 1000;
+
+/** Write down what the party knows about an NPC or a place, signed. */
+export async function addPartyNote(
+  entryId: string,
+  body: string
+): Promise<string> {
+  const { entry, userId } = await readableEntry(entryId);
+  const text = body.trim().slice(0, MAX_PARTY_NOTE);
+  if (!text) throw new Error('EMPTY_NOTE');
+  const [row] = await db
+    .insert(canonPartyNotes)
+    .values({ campaignId: entry.campaignId, entryId, userId, body: text })
+    .returning({ id: canonPartyNotes.id });
+  bumpVersion(entry.campaignId);
+  return row.id;
+}
+
+/** A note its author may change; staff may only take one down. */
+async function noteFor(noteId: string) {
+  const note = await db.query.canonPartyNotes.findFirst({
+    where: eq(canonPartyNotes.id, noteId),
+  });
+  if (!note) throw new Error('NOT_FOUND');
+  const ctx = await readableEntry(note.entryId);
+  return { note, ...ctx };
+}
+
+export async function updatePartyNote(
+  noteId: string,
+  body: string
+): Promise<void> {
+  const { note, userId, entry } = await noteFor(noteId);
+  // Nobody rewrites somebody else's words, the DM included.
+  if (note.userId !== userId) throw new Error('FORBIDDEN');
+  const text = body.trim().slice(0, MAX_PARTY_NOTE);
+  if (!text) throw new Error('EMPTY_NOTE');
+  await db
+    .update(canonPartyNotes)
+    .set({ body: text, updatedAt: new Date().toISOString() })
+    .where(eq(canonPartyNotes.id, noteId));
+  bumpVersion(entry.campaignId);
+}
+
+export async function deletePartyNote(noteId: string): Promise<void> {
+  const { note, userId, staff, entry } = await noteFor(noteId);
+  if (note.userId !== userId && !staff) throw new Error('FORBIDDEN');
+  await db.delete(canonPartyNotes).where(eq(canonPartyNotes.id, noteId));
+  bumpVersion(entry.campaignId);
 }
 
 export async function linkCanon(

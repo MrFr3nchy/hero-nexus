@@ -13,6 +13,7 @@ import { db } from '@/db';
 import {
   campaignMembers,
   campaignSessions,
+  canonEntries,
   characters,
   encounterPlanLines,
   encounterPlans,
@@ -87,6 +88,12 @@ export interface PlanRow {
   name: string;
   notes: string;
   sessionId: string | null;
+  /** Where it happens (0072): a `location` canon entry. */
+  placeId: string | null;
+  /** When it was last fought, or null for a fight still to come. */
+  ranAt: string | null;
+  /** "Session 6 · The bridge", when it was fought in one. */
+  ranSession: string | null;
   lines: PlanLineRow[];
   maths: PlanMaths;
   createdAt: string;
@@ -176,6 +183,20 @@ export async function listPlans(campaignId: string): Promise<PlanRow[]> {
 
   const resolved = await resolveContentRefs(lines.map(toRef));
   const party = await partyFacts(campaignId);
+  const sessions = await db
+    .select({
+      id: campaignSessions.id,
+      number: campaignSessions.number,
+      title: campaignSessions.title,
+    })
+    .from(campaignSessions)
+    .where(eq(campaignSessions.campaignId, campaignId));
+  const sessionLabel = new Map(
+    sessions.map(s => [
+      s.id,
+      s.title ? `Session ${s.number} · ${s.title}` : `Session ${s.number}`,
+    ])
+  );
 
   return plans.map(plan => {
     const mine = lines.filter(l => l.planId === plan.id);
@@ -214,6 +235,11 @@ export async function listPlans(campaignId: string): Promise<PlanRow[]> {
       name: plan.name,
       notes: plan.notes,
       sessionId: plan.sessionId,
+      placeId: plan.placeId,
+      ranAt: plan.ranAt,
+      ranSession: plan.ranSessionId
+        ? (sessionLabel.get(plan.ranSessionId) ?? null)
+        : null,
       lines: rows,
       maths: {
         totalExperience,
@@ -236,6 +262,25 @@ export interface PlanInput {
   name: string;
   notes?: string;
   sessionId?: string | null;
+  /** Where it happens: a `location` entry at this table, or null. */
+  placeId?: string | null;
+}
+
+async function checkPlace(
+  campaignId: string,
+  placeId: string | null | undefined
+): Promise<string | null> {
+  if (!placeId) return null;
+  const row = await db.query.canonEntries.findFirst({
+    columns: { id: true, kind: true },
+    where: and(
+      eq(canonEntries.id, placeId),
+      eq(canonEntries.campaignId, campaignId)
+    ),
+  });
+  if (!row) throw new Error('NOT_FOUND');
+  if (row.kind !== 'location') throw new Error('NOT_A_PLACE');
+  return row.id;
 }
 
 async function checkSession(
@@ -265,6 +310,7 @@ export async function createPlan(
       name: input.name.trim() || 'Encounter',
       notes: input.notes ?? '',
       sessionId: await checkSession(campaignId, input.sessionId),
+      placeId: await checkPlace(campaignId, input.placeId),
       createdBy: userId,
     })
     .returning({ id: encounterPlans.id });
@@ -283,6 +329,9 @@ export async function updatePlan(
   if (patch.notes !== undefined) set.notes = patch.notes;
   if (patch.sessionId !== undefined) {
     set.sessionId = await checkSession(plan.campaignId, patch.sessionId);
+  }
+  if (patch.placeId !== undefined) {
+    set.placeId = await checkPlace(plan.campaignId, patch.placeId);
   }
   await db.update(encounterPlans).set(set).where(eq(encounterPlans.id, planId));
 }
@@ -411,6 +460,20 @@ export async function runPlan(planId: string): Promise<{
     .orderBy(asc(encounterPlanLines.sortOrder));
 
   const encounterId = await createEncounter(plan.campaignId, plan.name);
+
+  // Fought: when, and in which session, so the place it happened at can say
+  // so ("fought here, session 6") long after the hit points are gone.
+  const live = await db.query.campaignSessions.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(campaignSessions.campaignId, plan.campaignId),
+      eq(campaignSessions.status, 'live')
+    ),
+  });
+  await db
+    .update(encounterPlans)
+    .set({ ranAt: new Date().toISOString(), ranSessionId: live?.id ?? null })
+    .where(eq(encounterPlans.id, planId));
 
   /*
    * A prepared fight deals onto a prepared board. The board is whichever one

@@ -55,6 +55,8 @@ export interface CanonFieldDef {
   key: string;
   label: string;
   placeholder?: string;
+  /** A sentence rather than a word: kept to 400 characters, not 120. */
+  long?: boolean;
 }
 
 /**
@@ -67,6 +69,26 @@ export const CANON_KIND_FIELDS: Record<CanonKind, CanonFieldDef[]> = {
     { key: 'faction', label: 'Faction', placeholder: 'Who they answer to' },
     { key: 'status', label: 'Status', placeholder: 'Alive, missing, dead…' },
     { key: 'whereabouts', label: 'Last seen', placeholder: 'Where, and when' },
+    // What the party would notice across a counter. Secrets and motives
+    // belong in the DM notes: these facts reach a player unfiltered.
+    {
+      key: 'personality',
+      label: 'Personality',
+      placeholder: 'Gruff, kind underneath, hates bards',
+      long: true,
+    },
+    {
+      key: 'voice',
+      label: 'Voice & mannerisms',
+      placeholder: 'Slow, low, taps the bar twice',
+      long: true,
+    },
+    {
+      key: 'appearance',
+      label: 'Looks',
+      placeholder: 'Scarred, bald, an apron like a flag',
+      long: true,
+    },
   ],
   creature: [
     { key: 'cr', label: 'Challenge', placeholder: 'CR 5' },
@@ -74,6 +96,11 @@ export const CANON_KIND_FIELDS: Record<CanonKind, CanonFieldDef[]> = {
     { key: 'habitat', label: 'Habitat', placeholder: 'Where it is found' },
   ],
   location: [
+    {
+      key: 'type',
+      label: 'What it is',
+      placeholder: 'Region, city, district, tavern…',
+    },
     { key: 'region', label: 'Region', placeholder: 'The wider map' },
     { key: 'ruler', label: 'Held by', placeholder: 'Who runs the place' },
     { key: 'danger', label: 'Danger', placeholder: 'Quiet, uneasy, hostile…' },
@@ -106,6 +133,19 @@ export const CANON_KIND_FIELDS: Record<CanonKind, CanonFieldDef[]> = {
 };
 
 export type CanonVisibility = 'dm' | 'shared';
+
+/** What the party has written about an entry (0072), signed. */
+export interface PartyNoteRow {
+  id: string;
+  body: string;
+  /** Who wrote it. */
+  byName: string;
+  /** The viewer wrote it. */
+  mine: boolean;
+  /** The viewer may change or take it down: its author, or staff. */
+  canEdit: boolean;
+  createdAt: string;
+}
 
 export interface CanonLinkRef {
   id: string;
@@ -157,6 +197,13 @@ export interface CanonEntryRow {
   imageId: string | null;
   /** Kind-specific facts, keyed by `CANON_KIND_FIELDS`. */
   fields: Record<string, string>;
+  /**
+   * Where it is (0072): the place a place sits inside, an NPC's home.
+   * Null for a player when that place has not been shown to them.
+   */
+  placeId: string | null;
+  /** What the party has written about it, oldest first. */
+  partyNotes: PartyNoteRow[];
   createdAt: string;
   updatedAt: string;
   links: CanonLinkRef[];
@@ -187,6 +234,8 @@ export interface CanonInput {
   collectionId?: string | null;
   imageId?: string | null;
   fields?: Record<string, string>;
+  /** Where it is: a `location` entry in the same campaign, or null. */
+  placeId?: string | null;
 }
 
 /** Kinds that can carry a stat block and be placed in an encounter. */
@@ -197,11 +246,12 @@ export function tidyFields(
   kind: CanonKind,
   raw: Record<string, string> | undefined
 ): Record<string, string> {
-  const allowed = new Set(CANON_KIND_FIELDS[kind].map(f => f.key));
+  const defs = new Map(CANON_KIND_FIELDS[kind].map(f => [f.key, f]));
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(raw ?? {})) {
-    if (!allowed.has(key)) continue;
-    const text = value.trim().slice(0, 120);
+    const def = defs.get(key);
+    if (!def) continue;
+    const text = value.trim().slice(0, def.long ? 400 : 120);
     if (text) out[key] = text;
   }
   return out;
