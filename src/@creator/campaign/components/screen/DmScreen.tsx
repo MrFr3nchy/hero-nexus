@@ -14,6 +14,7 @@ import { listCharactersAction } from '@/@creator/character/actions';
 import {
   CandleScene,
   DiceSpinner,
+  Glyph,
   Marginalia,
   Panel,
   Ribbon,
@@ -90,6 +91,8 @@ import { unreadWhispers, WhispersPanel } from './WhispersPanel';
 import { TimerPanel } from '../session/TimerPanel';
 import { MyHeroPanel } from './MyHeroPanel';
 import { SearchBox } from './SearchBox';
+import { PhoneScreen } from './PhoneScreen';
+import { useMediaQuery } from '@/@shared/hooks/useMediaQuery';
 import { LookupPeek } from './LookupPeek';
 import { LookupsPanel } from './LookupsPanel';
 import { lookupKey, withKept, type KeptLookup } from '../../lib/lookup';
@@ -984,6 +987,9 @@ export function DmScreen({
     };
   }, [liveState, refreshLive, selectedTokenId, layouts, campaign.id, save]);
   const shortcuts = useDmShortcuts(isStaff, shortcutHandlers);
+  /** Below lg: one panel at a time, and Search behind a button. */
+  const phone = useMediaQuery('(max-width: 1023px)');
+  const [searching, setSearching] = useState(false);
 
   if (!layouts) {
     return (
@@ -1213,11 +1219,26 @@ export function DmScreen({
             onHelp={() => shortcuts.setHelp(!shortcuts.help)}
           />
         )}
-        <SearchBox
-          campaignId={campaign.id}
-          onOpen={setOpened}
-          className="max-w-xl flex-1 basis-56"
-        />
+        {phone && !searching ? (
+          <Button
+            isIconOnly
+            size="sm"
+            variant="flat"
+            aria-label="Search the record and the books"
+            className="ml-auto h-11 w-11"
+            onPress={() => setSearching(true)}
+          >
+            <Glyph name="magnifier" size={18} />
+          </Button>
+        ) : (
+          <SearchBox
+            campaignId={campaign.id}
+            onOpen={setOpened}
+            autoFocus={phone}
+            onClose={phone ? () => setSearching(false) : undefined}
+            className={phone ? 'basis-full' : 'max-w-xl flex-1 basis-56'}
+          />
+        )}
         {shortcuts.help && (
           <div
             role="dialog"
@@ -1243,7 +1264,8 @@ export function DmScreen({
         {error && <span className="text-xs text-danger">{error}</span>}
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {arranging && (current !== 'battle' || inPerson) && (
+          {/* Arranging is a desk act: a phone follows the arrangement. */}
+          {!phone && arranging && (current !== 'battle' || inPerson) && (
             <>
               <Select
                 aria-label="How many columns"
@@ -1301,7 +1323,7 @@ export function DmScreen({
           {/* The choice first, the canvas behind it: a DM mid-session wants
               a sensible screen in one press, and arranging by hand is the
               escape hatch, not the front door. */}
-          {!arranging && (
+          {!phone && !arranging && (
             <Select
               aria-label="Arrange the screen as"
               size="sm"
@@ -1326,6 +1348,7 @@ export function DmScreen({
           )}
           <Button
             size="sm"
+            className={phone ? 'hidden' : undefined}
             variant={arranging ? 'solid' : 'light'}
             color={arranging ? 'primary' : 'default'}
             onPress={async () => {
@@ -1356,7 +1379,7 @@ export function DmScreen({
 
       {/* The screen's body, with whatever Search opened beside it — never
           over it. Below lg the peek stacks under the panels. */}
-      <div className="flex min-h-0 flex-1 max-lg:flex-col max-lg:overflow-y-auto">
+      <div className="flex min-h-0 flex-1 max-lg:flex-col">
         {at === 'desk' && live.state ? (
           <NotSitting
             campaignId={campaign.id}
@@ -1369,6 +1392,34 @@ export function DmScreen({
               await live.refresh();
             }}
           />
+        ) : phone && live.state ? (
+          opened ? (
+            <LookupPeek
+              campaignId={campaign.id}
+              item={opened}
+              isStaff={isStaff}
+              kept={openedKept}
+              onKeep={() => keep(opened)}
+              onClose={() => setOpened(null)}
+              onError={setError}
+              className="m-2 min-h-0 flex-1"
+            />
+          ) : (
+            <PhoneScreen
+              campaignId={campaign.id}
+              state={
+                current === 'battle' && inPerson ? 'battleInPerson' : current
+              }
+              panels={
+                current === 'battle' && !inPerson
+                  ? ['board', ...panelsAround(layouts.battle)]
+                  : panelsOn(layout)
+              }
+              render={key => <PanelContents id={key} ctx={ctx} />}
+              titleOf={key => panelTitle(key, ctx)}
+              wear={key => panelStatus(key, statusCtx)}
+            />
+          )
         ) : current === 'battle' && live.state && !inPerson ? (
           <BattleArrangement
             layout={layouts.battle}
@@ -1545,7 +1596,7 @@ export function DmScreen({
             ))}
           </div>
         )}
-        {opened && (
+        {opened && !phone && (
           <LookupPeek
             campaignId={campaign.id}
             item={opened}

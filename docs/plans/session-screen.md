@@ -401,7 +401,7 @@ minted cookie for `pip.worldtest@test.local` at the "World test" campaign
 - [x] PR 3 Hit or miss on the slip — `feat/session-screen-3-verdict`
 - [x] PR 4 Search, the opened hit, and Lookups — on `feat/improvements-bundle`. Deviations: kept lookups are `KeptLookup { ref, name }` (a denormalised name, content-model rule 1's one allowance, so Lookups lists without a fetch per row); the full canon body (attitude, stat block rolls, party notes, Open in the World) landed here in `LookupView`, so PR 5 is only the Here wiring; a looked-up creature's rolls default to behind the screen.
 - [x] PR 5 A person opens — on `feat/improvements-bundle`; people, the place itself and quest steps in Here open the peek
-- [ ] PR 6 One panel at a time on a phone
+- [x] PR 6 One panel at a time on a phone — on `feat/improvements-bundle`
 
 ## Notes
 
