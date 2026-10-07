@@ -74,6 +74,7 @@ import {
 } from '@/db/schema';
 import { requireCampaignRole } from './campaigns';
 import { resolveContentRefs } from './content';
+import { announceAttackRoll } from './roll-announce';
 import { bumpVersion, publish } from './live-hub';
 import { dropThingNear } from './battlemap';
 import { applyHpUnchecked } from './hp';
@@ -830,26 +831,28 @@ export async function attack(input: AttackInput): Promise<AttackResult> {
 
   bumpVersion(campaignId);
 
-  // Two announcements, as two rolls always were. The verdict travels only
-  // where the table shows it; the AC never does.
-  const verdict =
-    rules.showHitMiss === 'everyone' && hit !== null
-      ? ` — ${hit ? (critical ? 'critical hit' : 'hit') : 'miss'}`
-      : '';
-  publish(campaignId, {
-    kind: 'roll',
-    id: randomUUID(),
-    at: new Date().toISOString(),
-    by: userId,
-    actorName,
-    label: `${swing.name}${at}${verdict}`.slice(0, 100),
-    notation: hitRoll.notation,
-    total: hitRoll.total,
-    tone:
-      critToneOf(hitRoll.notation, hitRoll.dice, hitRoll.dropped) ?? 'plain',
-    secret: false,
-    physical,
-  });
+  // Two announcements, as two rolls always were. The verdict is structured
+  // and published per side of the screen: staff hear it with the AC, players
+  // only where the table shows hit and miss, and never the AC.
+  announceAttackRoll(
+    campaignId,
+    {
+      kind: 'roll',
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      by: userId,
+      actorName,
+      label: `${swing.name}${at}`.slice(0, 100),
+      notation: hitRoll.notation,
+      total: hitRoll.total,
+      tone:
+        critToneOf(hitRoll.notation, hitRoll.dice, hitRoll.dropped) ?? 'plain',
+      secret: false,
+      physical,
+    },
+    outcome,
+    rules.showHitMiss
+  );
   if (damageRoll && damage) {
     publish(campaignId, {
       kind: 'roll',

@@ -46,6 +46,10 @@ import {
 } from '@/@shared/lib/dice';
 import { randomUUID } from 'node:crypto';
 import { resolveContentRefs } from './content';
+import {
+  sheetBonuses,
+  type SheetBonuses,
+} from '@/@creator/campaign/lib/sheet-rolls';
 import { db } from '@/db';
 import {
   campaignMembers,
@@ -128,6 +132,12 @@ export interface PlayState {
   initiative: number;
   proficiency: number;
   passivePerception: number;
+  /**
+   * What each ability, save and skill adds to a d20, off the sheet — the
+   * numbers *Roll from your sheet* prints. The server rolls with the same
+   * function (`sheetRollBonus`), so the button and the log agree.
+   */
+  bonuses: SheetBonuses;
   spellSaveDc: number | null;
   spellAttack: number | null;
 
@@ -390,6 +400,7 @@ function toPlayState(
     initiative: abilityModifier(sheet.abilities?.dexterity?.score ?? 10),
     proficiency: proficiencyBonus(level),
     passivePerception: passivePerception(sheet),
+    bonuses: sheetBonuses(sheet),
     spellSaveDc: spellSaveDC(sheet),
     spellAttack: spellAttackBonus(sheet),
 

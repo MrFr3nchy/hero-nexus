@@ -1,12 +1,14 @@
 import 'server-only';
 
+import type { CanonKind } from '@/@creator/campaign/lib/canon';
+import { RECORD_WHERE, type RecordKind } from '@/@creator/campaign/lib/lookup';
 import { listCanon } from './canon';
 import { listSessions } from './campaign-sessions';
 import { requireCampaignRole } from './campaigns';
 import { getLedger, listQuests } from './quests';
 import { getLiveState } from './session';
 
-export type SearchKind = 'canon' | 'quest' | 'session' | 'handout' | 'loot';
+export type SearchKind = RecordKind;
 
 export interface SearchHit {
   kind: SearchKind;
@@ -17,6 +19,8 @@ export interface SearchHit {
   excerpt: string;
   /** Which tab it lives on, as a word rather than a route. */
   where: string;
+  /** A canon hit's kind — a person, a place — so it can wear its glyph. */
+  canonKind?: CanonKind;
 }
 
 /**
@@ -56,11 +60,11 @@ export async function searchCampaign(
     title: string,
     where: string,
     ...bodies: (string | null | undefined)[]
-  ): void => {
+  ): SearchHit | null => {
     const inTitle = title.toLowerCase().includes(needle);
     const body = bodies.filter(Boolean).join('\n');
     const at = body.toLowerCase().indexOf(needle);
-    if (!inTitle && at === -1) return;
+    if (!inTitle && at === -1) return null;
 
     // A window around the match, not the first 120 characters of the row: the
     // point of an excerpt is to show the reader why this result is here.
@@ -71,7 +75,9 @@ export async function searchCampaign(
             at + 80 < body.length ? '…' : ''
           }`;
 
-    hits.push({ kind, id, title: title || 'Untitled', excerpt, where });
+    const hit = { kind, id, title: title || 'Untitled', excerpt, where };
+    hits.push(hit);
+    return hit;
   };
 
   const [canon, quests, sessions, live, ledger] = await Promise.all([
@@ -83,16 +89,17 @@ export async function searchCampaign(
   ]);
 
   for (const entry of canon) {
-    consider(
+    const hit = consider(
       'canon',
       entry.id,
       entry.title,
-      'World',
+      RECORD_WHERE.canon,
       entry.partyBody,
       // Null for a player, which is exactly the point — the DM's half of an
       // entry is not searchable by somebody who cannot read it.
       entry.dmBody
     );
+    if (hit) hit.canonKind = entry.kind;
   }
 
   for (const quest of quests) {
@@ -100,7 +107,7 @@ export async function searchCampaign(
       'quest',
       quest.id,
       quest.title,
-      'Quests',
+      RECORD_WHERE.quest,
       quest.summary,
       quest.dmNotes,
       quest.giver,
@@ -114,18 +121,24 @@ export async function searchCampaign(
       'session',
       session.id,
       session.title || `Session ${session.number}`,
-      'Chronicle',
+      RECORD_WHERE.session,
       session.recapBody,
       session.prepBody
     );
   }
 
   for (const handout of live?.handouts ?? []) {
-    consider('handout', handout.id, handout.title, 'Session', handout.body);
+    consider(
+      'handout',
+      handout.id,
+      handout.title,
+      RECORD_WHERE.handout,
+      handout.body
+    );
   }
 
   for (const item of ledger?.loot ?? []) {
-    consider('loot', item.id, item.name, 'Party', item.notes);
+    consider('loot', item.id, item.name, RECORD_WHERE.loot, item.notes);
   }
 
   return hits;
