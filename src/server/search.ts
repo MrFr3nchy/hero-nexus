@@ -87,7 +87,7 @@ export async function searchCampaign(
       'canon',
       entry.id,
       entry.title,
-      'Canon',
+      'World',
       entry.partyBody,
       // Null for a player, which is exactly the point — the DM's half of an
       // entry is not searchable by somebody who cannot read it.

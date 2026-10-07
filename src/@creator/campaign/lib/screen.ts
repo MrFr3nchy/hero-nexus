@@ -34,6 +34,7 @@ export const SCREEN_PANEL_KEYS = [
   'timers',
   'ledger',
   'canon',
+  'here',
   'randomTables',
 ] as const;
 
@@ -219,6 +220,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     label: 'Canon',
     glyph: 'tome',
     description: 'The people, places and things this world is made of.',
+    players: true,
+  },
+  here: {
+    key: 'here',
+    label: 'Here',
+    glyph: 'compass',
+    description:
+      'Where the party is: who lives there, what is for sale, and the fights planned.',
     players: true,
   },
   randomTables: {

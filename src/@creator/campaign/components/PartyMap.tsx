@@ -15,6 +15,7 @@ import { ControlRow, Glyph, Marginalia } from '@/@shared/components/ui';
 import type { MapPinRow, MapRow } from '@/server/maps';
 import { listCanonAction } from '../canon-actions';
 import { listSessionsAction } from '../chronicle-actions';
+import { listPlansAction } from '../encounter-actions';
 import { listJournalsAction } from '../journal-actions';
 import {
   FOG_COLS,
@@ -24,6 +25,8 @@ import {
   cellsInBrush,
   fogRuns,
   journeyUpTo,
+  plannedStops,
+  reachedStops,
   stopLine,
   trailPoints,
   type MarkKind,
@@ -31,23 +34,38 @@ import {
 import {
   addJourneyStopAction,
   addPinAction,
+  arriveAtStopAction,
   deletePinAction,
   removeJourneyStopAction,
   renameJourneyStopAction,
   revealMapCellsAction,
   setMapFogAction,
   setMarksOpenAction,
+  setStopVisibilityAction,
   updatePinAction,
 } from '../map-actions';
 import { listQuestsAction } from '../quest-actions';
 
-type Mode = 'look' | 'mark' | 'stop' | 'reveal' | 'cover';
+type Mode = 'look' | 'mark' | 'stop' | 'plan' | 'reveal' | 'cover';
 
-/** Something elsewhere in the record a new mark should point at. */
+/**
+ * Something elsewhere in the record a new mark should point at. A `place`
+ * makes the mark that place's; an `encounter` makes it a battle mark.
+ */
 export interface PendingLink {
-  kind: 'quest' | 'session' | 'journal';
+  kind: 'quest' | 'session' | 'journal' | 'place' | 'encounter';
   id: string;
+  /** What the new mark is called, when the thing has a name. */
+  label?: string;
 }
+
+const LINK_FIELD: Record<PendingLink['kind'], string> = {
+  quest: 'questId',
+  session: 'sessionId',
+  journal: 'journalId',
+  place: 'canonEntryId',
+  encounter: 'encounterPlanId',
+};
 
 const BRUSHES = [
   { id: 's', label: 'Small', r: 0.035 },
@@ -75,6 +93,8 @@ export function PartyMap({
   focusMark = null,
   pendingLink = null,
   onPlacedLink,
+  onOpenPlace,
+  onOpenMap,
 }: {
   campaignId: string;
   map: MapRow;
@@ -88,6 +108,10 @@ export function PartyMap({
   /** "Put it on the map": the next mark placed links to this. */
   pendingLink?: PendingLink | null;
   onPlacedLink?: () => void;
+  /** A mark for a place opens the place (the World). */
+  onOpenPlace?: (placeId: string) => void;
+  /** A mark for a place with its own map opens that map. */
+  onOpenMap?: (mapId: string) => void;
 }) {
   const [mode, setMode] = useState<Mode>(pendingLink ? 'mark' : 'look');
   const [brush, setBrush] = useState<(typeof BRUSHES)[number]['id']>('m');
@@ -117,10 +141,13 @@ export function PartyMap({
 
   const canMark = isStaff || (map.marksOpen && map.visibility === 'shared');
   const journey = map.journey;
-  const last = journey.length;
+  const last = reachedStops(journey).length;
   const showing = upTo === null ? last : Math.min(upTo, last);
   const stops = journeyUpTo(journey, showing);
   const here = stops[stops.length - 1] ?? null;
+  // Where the party is headed, drawn on from where it is now — and only
+  // while the replay is at the present.
+  const ahead = upTo === null ? plannedStops(journey) : [];
 
   // What is revealed, with the stroke being painted shown at once.
   const revealed = useMemo(() => {
@@ -169,22 +196,17 @@ export function PartyMap({
   };
 
   const onClick = async (e: React.MouseEvent<HTMLDivElement>) => {
-    if (mode !== 'mark' && mode !== 'stop') return;
+    if (mode !== 'mark' && mode !== 'stop' && mode !== 'plan') return;
     const p = at(e);
     if (mode === 'mark') {
       const link = pendingLink
-        ? {
-            [pendingLink.kind === 'quest'
-              ? 'questId'
-              : pendingLink.kind === 'session'
-                ? 'sessionId'
-                : 'journalId']: pendingLink.id,
-          }
+        ? { [LINK_FIELD[pendingLink.kind]]: pendingLink.id }
         : {};
       const res = await addPinAction(campaignId, map.id, {
         x: p.x,
         y: p.y,
-        label: 'New mark',
+        label: pendingLink?.label || 'New mark',
+        kind: pendingLink?.kind === 'encounter' ? 'danger' : undefined,
         visibility: isStaff ? 'dm' : 'shared',
         ...link,
       });
@@ -195,7 +217,11 @@ export function PartyMap({
       }
       await refresh();
     } else {
-      const res = await addJourneyStopAction(map.id, { x: p.x, y: p.y });
+      const res = await addJourneyStopAction(map.id, {
+        x: p.x,
+        y: p.y,
+        planned: mode === 'plan',
+      });
       if (!res.ok) onError(res.error);
       else {
         // Open it, so the DM can name the place while it is fresh.
@@ -214,9 +240,12 @@ export function PartyMap({
   const modeHint: Record<Mode, string> = {
     look: '',
     mark: pendingLink
-      ? 'Tap where it happened.'
+      ? pendingLink.kind === 'place' || pendingLink.kind === 'encounter'
+        ? 'Tap where it is.'
+        : 'Tap where it happened.'
       : 'Tap the map where the mark goes.',
     stop: 'Tap where the party is now.',
+    plan: 'Tap where the party is headed. Only you see it until you show them.',
     reveal: 'Drag over what the party can see.',
     cover: 'Drag over what should go back into fog.',
   };
@@ -246,6 +275,17 @@ export function PartyMap({
               onPress={() => setMode(mode === 'stop' ? 'look' : 'stop')}
             >
               The party is here
+            </Button>
+          )}
+          {isStaff && (
+            <Button
+              size="sm"
+              variant={mode === 'plan' ? 'solid' : 'flat'}
+              color={mode === 'plan' ? 'primary' : 'default'}
+              startContent={<Glyph name="arrow-right" size={14} />}
+              onPress={() => setMode(mode === 'plan' ? 'look' : 'plan')}
+            >
+              Headed here
             </Button>
           )}
           {isStaff && map.fogged && !compact && (
@@ -368,6 +408,28 @@ export function PartyMap({
           </svg>
         )}
 
+        {/* Where the party is headed: a fainter, finer trail on from here. */}
+        {ahead.length > 0 && (
+          <svg
+            className="pointer-events-none absolute inset-0 h-full w-full"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <polyline
+              points={trailPoints([...(here ? [here] : []), ...ahead])}
+              fill="none"
+              stroke="var(--gold)"
+              strokeOpacity={0.6}
+              strokeWidth={2}
+              strokeDasharray="1 6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        )}
+
         {map.pins.map(p => (
           <MarkButton
             key={p.id}
@@ -407,6 +469,29 @@ export function PartyMap({
             </button>
           );
         })}
+
+        {ahead.map((s, i) => (
+          <button
+            key={s.id}
+            type="button"
+            aria-label={`Headed: ${s.label || `planned stop ${i + 1}`}`}
+            title={s.label || 'Where the party is headed'}
+            onClick={e => {
+              e.stopPropagation();
+              if (mode !== 'look') return;
+              setSelected(null);
+              setSelectedStop(s.id === selectedStop ? null : s.id);
+            }}
+            style={{ left: `${s.x * 100}%`, top: `${s.y * 100}%` }}
+            className={`absolute flex h-6 min-w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-dashed bg-surface/90 px-1 shadow ${
+              s.visibility === 'shared'
+                ? 'border-gold text-gold-strong dark:text-gold'
+                : 'border-arcane text-arcane'
+            }`}
+          >
+            <Glyph name="arrow-right" size={12} />
+          </button>
+        ))}
       </div>
 
       {/* The journey, replayed: drag back through the stops. */}
@@ -444,7 +529,7 @@ export function PartyMap({
         <div className="rounded-md border border-line bg-surface-2 p-3 text-sm">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs text-ink-subtle">
-              Stop {stop.seq}
+              {stop.planned ? 'Headed' : `Stop ${stop.seq}`}
             </span>
             {isStaff ? (
               <Input
@@ -474,8 +559,47 @@ export function PartyMap({
             </button>
           </div>
           <p className="mt-0.5 text-xs text-ink-muted">
-            {stopLine(stop, last)}
+            {stop.planned
+              ? stop.visibility === 'shared'
+                ? 'Where the party is headed. They can see it.'
+                : 'Where the party is headed. Only you can see it.'
+              : stopLine(stop, last)}
           </p>
+          {isStaff && stop.planned && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="flat"
+                startContent={<Glyph name="banner" size={13} />}
+                onPress={async () => {
+                  if (await act(arriveAtStopAction(stop.id))) {
+                    setSelectedStop(null);
+                  }
+                }}
+              >
+                The party is here
+              </Button>
+              <Button
+                size="sm"
+                variant="light"
+                startContent={
+                  stop.visibility === 'shared' ? undefined : (
+                    <Glyph name="candle" size={13} />
+                  )
+                }
+                onPress={() =>
+                  act(
+                    setStopVisibilityAction(
+                      stop.id,
+                      stop.visibility === 'shared' ? 'dm' : 'shared'
+                    )
+                  )
+                }
+              >
+                {stop.visibility === 'shared' ? 'Hide again' : 'Show the party'}
+              </Button>
+            </div>
+          )}
           {isStaff && (
             <button
               type="button"
@@ -485,7 +609,9 @@ export function PartyMap({
               }}
               className="mt-2 text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle hover:text-danger"
             >
-              take this stop off the journey
+              {stop.planned
+                ? 'not going there after all'
+                : 'take this stop off the journey'}
             </button>
           )}
         </div>
@@ -499,6 +625,11 @@ export function PartyMap({
           pin={pin}
           isStaff={isStaff}
           act={act}
+          plannedHere={
+            journey.find(s => s.planned && s.pinId === pin.id)?.id ?? null
+          }
+          onOpenPlace={onOpenPlace}
+          onOpenMap={onOpenMap}
           onClose={() => setSelected(null)}
           onRemoved={() => setSelected(null)}
         />
@@ -553,6 +684,13 @@ function MarkButton({
   onSelect: () => void;
 }) {
   const meta = MARK_KIND_META[pin.kind];
+  // A battle mark wears the fight's swords whatever kind it was filed as; a
+  // mark for a place with a map of its own wears the castle that opens it.
+  const glyph = pin.battle
+    ? 'crossed-swords'
+    : pin.opensMapId
+      ? 'castle'
+      : meta.glyph;
   // Gold is what the party can see, arcane what they cannot (rule 6); a
   // player's own mark wears a solid ring so they can find theirs.
   const tone =
@@ -566,20 +704,21 @@ function MarkButton({
         e.stopPropagation();
         onSelect();
       }}
-      aria-label={`${meta.label}: ${pin.label || 'a mark'}`}
+      aria-label={`${pin.battle ? 'Battle' : meta.label}: ${pin.label || 'a mark'}`}
       title={pin.label || meta.label}
       style={{ left: `${pin.x * 100}%`, top: `${pin.y * 100}%` }}
       className={`absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-surface/90 shadow ${tone} ${
         selected ? 'scale-125 border-2' : ''
       } ${pin.mine ? 'ring-2 ring-ink/60' : ''}`}
     >
-      <Glyph name={meta.glyph} size={14} />
+      <Glyph name={glyph} size={14} />
     </button>
   );
 }
 
 interface Options {
   canon: { id: string; title: string }[];
+  encounters: { id: string; title: string }[];
   quests: { id: string; title: string }[];
   sessions: { id: string; title: string }[];
   journals: { id: string; title: string }[];
@@ -595,6 +734,9 @@ function MarkCard({
   pin,
   isStaff,
   act,
+  plannedHere,
+  onOpenPlace,
+  onOpenMap,
   onClose,
   onRemoved,
 }: {
@@ -603,6 +745,10 @@ function MarkCard({
   pin: MapPinRow;
   isStaff: boolean;
   act: Act;
+  /** A planned stop on this mark: "The party is here" arrives at it. */
+  plannedHere: string | null;
+  onOpenPlace?: (placeId: string) => void;
+  onOpenMap?: (mapId: string) => void;
   onClose: () => void;
   onRemoved: () => void;
 }) {
@@ -623,9 +769,11 @@ function MarkCard({
       listQuestsAction(campaignId).catch(() => []),
       listSessionsAction(campaignId).catch(() => []),
       listJournalsAction(campaignId).catch(() => []),
-    ]).then(([canon, quests, sessions, journals]) =>
+      isStaff ? listPlansAction(campaignId).catch(() => []) : [],
+    ]).then(([canon, quests, sessions, journals, plans]) =>
       setOptions({
         canon: canon.map(c => ({ id: c.id, title: c.title || 'Untitled' })),
+        encounters: plans.map(p => ({ id: p.id, title: p.name })),
         quests: quests.map(q => ({ id: q.id, title: q.title || 'A quest' })),
         sessions: sessions.map(s => ({
           id: s.id,
@@ -639,7 +787,7 @@ function MarkCard({
         })),
       })
     );
-  }, [editing, options, campaignId]);
+  }, [editing, options, campaignId, isStaff]);
 
   const save = async () => {
     const ok = await act(
@@ -654,7 +802,12 @@ function MarkCard({
   };
 
   const linkSelect = (
-    field: 'canonEntryId' | 'questId' | 'sessionId' | 'journalId',
+    field:
+      | 'canonEntryId'
+      | 'questId'
+      | 'sessionId'
+      | 'journalId'
+      | 'encounterPlanId',
     label: string,
     list: { id: string; title: string }[],
     value: string | null
@@ -684,9 +837,14 @@ function MarkCard({
 
   const links = [
     pin.canonTitle && {
-      glyph: 'tome' as const,
+      glyph: (pin.canonKind === 'location' ? 'compass' : 'tome') as 'tome',
       text: pin.canonTitle,
-      where: 'Canon',
+      where: pin.canonKind === 'location' ? 'the place' : 'Canon',
+    },
+    pin.encounter && {
+      glyph: 'crossed-swords' as 'tome',
+      text: pin.encounter.title,
+      where: pin.encounter.ran ?? 'a fight to come',
     },
     pin.quest && {
       glyph: 'scroll' as const,
@@ -756,7 +914,36 @@ function MarkCard({
               )}
             </ul>
           )}
+          {pin.battle && !isStaff && (
+            <p className="flex items-center gap-1.5 text-xs text-ink-muted">
+              <Glyph name="crossed-swords" size={13} className="text-gold" />
+              Blood was spilled here.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2 pt-1">
+            {pin.canonKind === 'location' &&
+              pin.canonEntryId &&
+              onOpenPlace && (
+                <Button
+                  size="sm"
+                  variant="flat"
+                  color="primary"
+                  startContent={<Glyph name="compass" size={13} />}
+                  onPress={() => onOpenPlace(pin.canonEntryId!)}
+                >
+                  Open {pin.canonTitle || 'the place'}
+                </Button>
+              )}
+            {pin.opensMapId && onOpenMap && (
+              <Button
+                size="sm"
+                variant="flat"
+                startContent={<Glyph name="castle" size={13} />}
+                onPress={() => onOpenMap(pin.opensMapId!)}
+              >
+                Its map
+              </Button>
+            )}
             {pin.canEdit && (
               <Button size="sm" variant="flat" onPress={() => setEditing(true)}>
                 Edit
@@ -770,16 +957,37 @@ function MarkCard({
                   startContent={<Glyph name="banner" size={13} />}
                   onPress={() =>
                     act(
-                      addJourneyStopAction(mapId, {
-                        x: pin.x,
-                        y: pin.y,
-                        pinId: pin.id,
-                      })
+                      plannedHere
+                        ? arriveAtStopAction(plannedHere)
+                        : addJourneyStopAction(mapId, {
+                            x: pin.x,
+                            y: pin.y,
+                            pinId: pin.id,
+                          })
                     )
                   }
                 >
                   The party is here
                 </Button>
+                {!plannedHere && (
+                  <Button
+                    size="sm"
+                    variant="light"
+                    startContent={<Glyph name="arrow-right" size={13} />}
+                    onPress={() =>
+                      act(
+                        addJourneyStopAction(mapId, {
+                          x: pin.x,
+                          y: pin.y,
+                          pinId: pin.id,
+                          planned: true,
+                        })
+                      )
+                    }
+                  >
+                    Headed here
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="light"
@@ -901,6 +1109,13 @@ function MarkCard({
                 options.canon,
                 pin.canonEntryId
               )}
+              {isStaff &&
+                linkSelect(
+                  'encounterPlanId',
+                  'A fight here',
+                  options.encounters,
+                  pin.encounter?.id ?? null
+                )}
             </div>
           )}
           <ControlRow size="sm">

@@ -28,7 +28,6 @@ import type { TableKind } from '../lib/screen';
 import { describeTableRules } from '../lib/table-rules';
 import { CampaignOverview } from './CampaignOverview';
 import { CaptureBox } from './CaptureBox';
-import { CanonPanel } from './CanonPanel';
 import { AwardsPanel } from './AwardsPanel';
 import { ChroniclePanel } from './ChroniclePanel';
 import { ClocksPanel } from './ClocksPanel';
@@ -37,7 +36,6 @@ import { CampaignContentPanel } from './CampaignContentPanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { LedgerPanel } from './LedgerPanel';
 import { JournalPanel } from './JournalPanel';
-import { MapPanel } from './MapPanel';
 import { MembersPanel } from './MembersPanel';
 import { RandomTablesPanel } from './RandomTablesPanel';
 import { SafetyPanel } from './SafetyPanel';
@@ -47,6 +45,19 @@ import { QuestPanel } from './QuestPanel';
 import { RevealTimeline } from './RevealTimeline';
 import { EncounterPlanner } from './EncounterPlanner';
 import { BoardShelf } from './workshop/BoardShelf';
+import { WorldPanel } from './world/WorldPanel';
+
+/**
+ * Section keys that moved. `canon` became the World (0072): old bookmarks,
+ * Discord links and "on the map" chips still land there.
+ */
+const ALIASES: Record<string, string> = { canon: 'world' };
+
+/** `world/places/abc` → the section `world` and the route `places/abc`. */
+function splitHash(hash: string): { key: string; sub: string } {
+  const [head, ...rest] = hash.replace(/^#/, '').split('/');
+  return { key: ALIASES[head] ?? head, sub: rest.join('/') };
+}
 
 const ROLE_LABEL = { gm: 'DM', 'co-gm': 'Co-DM', player: 'Player' } as const;
 const ROLE_TONE = { gm: 'gold', 'co-gm': 'arcane', player: 'neutral' } as const;
@@ -110,6 +121,8 @@ export function CampaignDetail({
   // beside it re-reads without the DM having to leave and come back.
   const [revealSeq, setRevealSeq] = useState(0);
   const [section, setSection] = useState('overview');
+  /** What follows the section in the address: where in the World. */
+  const [sub, setSub] = useState('');
 
   const loadPulse = useCallback(async () => {
     setPulse(await getCampaignPulseAction(campaign.id));
@@ -127,18 +140,31 @@ export function CampaignDetail({
    */
   useEffect(() => {
     const read = () => {
-      const key = window.location.hash.replace(/^#/, '');
+      const { key, sub } = splitHash(window.location.hash);
       if (key) setSection(key);
+      setSub(sub);
     };
     read();
     window.addEventListener('hashchange', read);
     return () => window.removeEventListener('hashchange', read);
   }, []);
 
-  const go = useCallback((key: string) => {
+  const go = useCallback((target: string) => {
+    const { key, sub } = splitHash(target);
     setSection(key);
-    window.history.replaceState(null, '', `#${key}`);
+    setSub(sub);
+    window.history.replaceState(null, '', `#${target}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  /** Move within a section without jumping the page back to the top. */
+  const route = useCallback((key: string, next: string) => {
+    setSub(next);
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.search}#${next ? `${key}/${next}` : key}`
+    );
   }, []);
 
   /* --- the rules card, shared by the Rules section ---------------------- */
@@ -286,22 +312,19 @@ export function CampaignDetail({
       ),
     },
     {
-      key: 'canon',
+      key: 'world',
       group: 'The world',
-      label: 'Canon',
-      glyph: 'tome',
-      line: 'The people, places and things this world is made of — and where they are.',
+      label: 'World',
+      glyph: 'compass',
+      line: 'Every place, who lives there, what they sell and where the party is — on the map.',
       content: (
-        <div className="space-y-5 pt-4">
-          <CanonPanel
-            campaignId={campaign.id}
-            viewerId={viewerId}
-            viewerRole={campaign.role}
-          />
-          {/* Maps sit with the canon because a pin is a way into it: the
-              places are already written down, this says where they are. */}
-          <MapPanel campaignId={campaign.id} viewerRole={campaign.role} />
-        </div>
+        <WorldPanel
+          campaignId={campaign.id}
+          viewerId={viewerId}
+          viewerRole={campaign.role}
+          route={sub}
+          onRoute={next => route('world', next)}
+        />
       ),
     },
     {

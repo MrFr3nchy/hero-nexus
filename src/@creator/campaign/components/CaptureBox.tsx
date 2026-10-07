@@ -34,7 +34,7 @@ const KIND_GLYPH = {
 
 /** Which section of the campaign page a hit lives on, for the "go there" link. */
 const WHERE_SECTION: Record<SearchHit['kind'], string> = {
-  canon: 'canon',
+  canon: 'world',
   quest: 'quests',
   session: 'sessions',
   handout: 'sessions',
@@ -286,7 +286,13 @@ export function CaptureBox({
                           which is what a reader wanted the word for. */}
                       <button
                         type="button"
-                        onClick={() => onGo?.(WHERE_SECTION[hit.kind])}
+                        onClick={() =>
+                          onGo?.(
+                            hit.kind === 'canon'
+                              ? `world/entry/${hit.id}`
+                              : WHERE_SECTION[hit.kind]
+                          )
+                        }
                         className="font-display-alt text-[0.6rem] uppercase tracking-[0.14em] text-ink-subtle underline-offset-2 hover:text-gold-strong hover:underline dark:hover:text-gold"
                       >
                         {hit.where}

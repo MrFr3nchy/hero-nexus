@@ -431,7 +431,9 @@ export async function listMaps(campaignId: string): Promise<MapRow[]> {
             byName: byPlayer ? (nameById.get(p.createdBy!) ?? null) : null,
             mine,
             canEdit: isStaff || mine,
-            stops: journey.filter(s => s.pinId === p.id).map(s => s.seq),
+            stops: journey
+              .filter(s => s.pinId === p.id && !s.planned)
+              .map(s => s.seq),
           } satisfies MapPinRow;
         }),
     };
