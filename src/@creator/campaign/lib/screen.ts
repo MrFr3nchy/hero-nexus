@@ -9,6 +9,7 @@
  * against `SCREEN_PANELS` and the page renders from it, so a panel that no
  * longer exists cannot be stored and cannot be drawn.
  */
+import { normalizeKept, type KeptLookup } from './lookup';
 import type { GlyphName } from '@/@shared/components/ui/Glyph';
 
 export const SCREEN_PANEL_KEYS = [
@@ -36,6 +37,7 @@ export const SCREEN_PANEL_KEYS = [
   'canon',
   'here',
   'randomTables',
+  'lookups',
 ] as const;
 
 export type ScreenPanelKey = (typeof SCREEN_PANEL_KEYS)[number];
@@ -237,6 +239,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     description: 'Your random tables, rolled behind the screen into Dice.',
     players: false,
   },
+  lookups: {
+    key: 'lookups',
+    label: 'Lookups',
+    glyph: 'magnifier',
+    description:
+      'What you found with Search and kept on the screen: a spell, a person, a rule.',
+    players: true,
+  },
 };
 
 /**
@@ -387,6 +397,13 @@ export interface ScreenLayouts {
    * it lives here and not on `campaigns`.
    */
   pin: ScreenState | null;
+  /**
+   * What this person found with Search and kept on the screen (the Lookups
+   * panel). References, never copies — a kept homebrew spell shows its
+   * author's current text. Here rather than in the browser because a DM
+   * preps on a laptop and runs the session on a tablet.
+   */
+  kept: KeptLookup[];
 }
 
 /**
@@ -449,6 +466,7 @@ export function defaultLayouts(isStaff: boolean): ScreenLayouts {
     battle: defaultBattleLayout(isStaff),
     battleInPerson: defaultInPersonBattleLayout(isStaff),
     pin: null,
+    kept: [],
   };
 }
 
@@ -468,10 +486,13 @@ export interface ScreenPreset {
   label: string;
   /** One line, like `TABLE_META`. */
   line: string;
-  layouts: (isStaff: boolean) => Omit<ScreenLayouts, 'pin'>;
+  layouts: (isStaff: boolean) => PresetLayouts;
 }
 
-const withoutPin = (layouts: ScreenLayouts): Omit<ScreenLayouts, 'pin'> => {
+/** What a preset sets: the arrangements, never the viewer's pin or lookups. */
+export type PresetLayouts = Omit<ScreenLayouts, 'pin' | 'kept'>;
+
+const withoutPin = (layouts: ScreenLayouts): PresetLayouts => {
   const { table, battle, battleInPerson } = layouts;
   return { table, battle, battleInPerson };
 };
@@ -691,6 +712,7 @@ export function normalizeLayouts(
       battle,
       battleInPerson,
       pin: null,
+      kept: [],
     };
   }
 
@@ -701,6 +723,7 @@ export function normalizeLayouts(
     // A pin at the desk was a pin at a state that no longer draws; it reads
     // as no pin, which is what following the campaign means.
     pin: isScreenState(src.pin) ? src.pin : null,
+    kept: normalizeKept(src.kept),
   };
 }
 

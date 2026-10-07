@@ -399,6 +399,10 @@ minted cookie for `pip.worldtest@test.local` at the "World test" campaign
 - [x] PR 1 The doubled Rolls box — `feat/session-screen-1-defaults`
 - [x] PR 2 Roll from your sheet — `feat/session-screen-2-sheet-rolls` (browser pass batched with PR 6, see Notes)
 - [x] PR 3 Hit or miss on the slip — `feat/session-screen-3-verdict`
-- [ ] PR 4 Search, the opened hit, and Lookups
+- [ ] PR 4 Search, the opened hit, and Lookups — **in progress** on `feat/session-screen-4-search`. Done (WIP commit): `lib/lookup.ts` (+tests; kept items are `KeptLookup {ref, name}`, not bare refs — plan deviation so Lookups lists without a fetch per row), `server/lookup.ts` (+tests), `lookup-actions.ts`, `lookups` panel key + `ScreenLayouts.kept`, search.ts where-words now naming.md's. Left: move `rollsIn` to a lib, `SearchBox`, `LookupView`, `LookupPeek`, `LookupsPanel`, DmScreen wiring (`lookups` case returns null for now), naming.md rows.
 - [ ] PR 5 A person opens
 - [ ] PR 6 One panel at a time on a phone
+
+## Notes
+
+- Browser passes for PRs 2–6 are batched into one pass after PR 6 (not yet run).

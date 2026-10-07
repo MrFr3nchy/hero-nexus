@@ -703,6 +703,10 @@ function PanelContents({
         />
       );
 
+    case 'lookups':
+      // Drawn by the Search work (PR 4, in progress): nothing kept yet.
+      return null;
+
     case 'randomTables':
       return ctx.isStaff ? (
         <RandomTablesPanel campaignId={ctx.campaignId} compact />
@@ -1074,7 +1078,11 @@ export function DmScreen({
     });
     if (!ok) return;
     setArranging(false);
-    await save({ ...preset.layouts(isStaff), pin: layouts.pin });
+    await save({
+      ...preset.layouts(isStaff),
+      pin: layouts.pin,
+      kept: layouts.kept,
+    });
   };
 
   /** Which slot in a column the pointer is nearest, by box midpoints. */
