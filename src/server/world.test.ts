@@ -604,6 +604,61 @@ describe('make it real', () => {
   });
 });
 
+describe('a stop at a place with no map', () => {
+  it('puts the party somewhere on day one, and keeps a hidden place hidden', async () => {
+    signedIn = kessa;
+    await expect(maps.addPlaceStop(campaignId, waterdeep)).rejects.toThrow();
+    signedIn = dm;
+    await expect(maps.addPlaceStop(campaignId, durnan)).rejects.toThrow(
+      'NOT_A_PLACE'
+    );
+    const first = await maps.addPlaceStop(campaignId, docks);
+    const ahead = await maps.addPlaceStop(campaignId, waterdeep, {
+      planned: true,
+    });
+
+    const mine = await maps.listPlaceStops(campaignId);
+    expect(mine.map(s => [s.id, s.seq, s.planned, s.placeId])).toEqual([
+      [first, 1, false, docks],
+      [ahead, 0, true, waterdeep],
+    ]);
+
+    signedIn = kessa;
+    const theirs = await maps.listPlaceStops(campaignId);
+    // The Dock Ward is the DM's, and where the party is headed is too.
+    expect(theirs).toHaveLength(1);
+    expect(theirs[0]).toMatchObject({ id: first, placeId: null, seq: 1 });
+
+    signedIn = dm;
+    await maps.arriveAtStop(ahead);
+    const after = await maps.listPlaceStops(campaignId);
+    expect(after.find(s => s.id === ahead)).toMatchObject({
+      planned: false,
+      seq: 2,
+      visibility: 'shared',
+    });
+    await maps.removeJourneyStop(first);
+    expect((await maps.listPlaceStops(campaignId))[0]).toMatchObject({
+      id: ahead,
+      seq: 1,
+    });
+    // Deleting the place leaves the stop, under its name.
+    const hut = await canon.createCanonEntry(campaignId, {
+      kind: 'location',
+      title: 'Hut',
+      dmBody: '',
+      partyBody: '',
+    });
+    const there = await maps.addPlaceStop(campaignId, hut);
+    await canon.deleteCanonEntry(hut);
+    expect(
+      (await maps.listPlaceStops(campaignId)).find(s => s.id === there)
+    ).toMatchObject({ placeId: null, label: 'Hut' });
+    await maps.removeJourneyStop(there);
+    await maps.removeJourneyStop(ahead);
+  });
+});
+
 describe('the package', () => {
   it('carries where things are, the shops and the fights — not the notes', async () => {
     signedIn = kessa;

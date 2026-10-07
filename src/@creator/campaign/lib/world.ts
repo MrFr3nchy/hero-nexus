@@ -171,7 +171,8 @@ const byTitle = (a: WorldEntry, b: WorldEntry) =>
 /* --- where the party is ------------------------------------------------------ */
 
 export interface Whereabouts {
-  mapId: string;
+  /** The map the stop is on; null for a stop at a place with no map. */
+  mapId: string | null;
   stopId: string;
   /** The place the stop stands in, when one can be named. */
   placeId: string | null;
@@ -198,38 +199,73 @@ export function placeOfStop(
 }
 
 /**
- * Here, headed and been, across every map.
+ * A stop at a place with no picture (0074): day one, before any map is
+ * pinned up. Its place is its own `placeId`, not a mark's or a map's.
+ */
+export interface PlaceStop {
+  id: string;
+  seq: number;
+  planned: boolean;
+  placeId: string | null;
+  label: string;
+  createdAt: string;
+}
+
+/**
+ * Here, headed and been, across every map — and the stops at places with no
+ * map at all.
  *
- * Here is the reached stop put down last, whichever map it is on — a party
- * that walked off the region map into the city is in the city. Been holds
- * every place a reached stop stood in and every place around those: a night
- * in the Dock Ward is a night in Waterdeep.
+ * Here is the reached stop put down last, wherever it is — a party that
+ * walked off the region map into the city is in the city. Been holds every
+ * place a reached stop stood in and every place around those: a night in
+ * the Dock Ward is a night in Waterdeep.
  */
 export function partyWhereabouts(
   maps: readonly WorldMap[],
-  entries: readonly WorldEntry[]
+  entries: readonly WorldEntry[],
+  placeStops: readonly PlaceStop[] = []
 ): { here: Whereabouts | null; headed: Whereabouts[]; been: Set<string> } {
   const byId = new Map(entries.map(e => [e.id, e]));
   const places = new Set(entries.filter(isPlace).map(e => e.id));
+  const name = (
+    stop: { label: string; planned: boolean; seq: number },
+    placeId: string | null
+  ) =>
+    stop.label ||
+    (placeId ? byId.get(placeId)?.title : '') ||
+    (stop.planned ? 'Somewhere ahead' : `Stop ${stop.seq}`);
 
-  const all = maps.flatMap(map =>
-    map.journey.map(stop => {
-      const placeId = placeOfStop(stop, map, places);
+  const all = [
+    ...maps.flatMap(map =>
+      map.journey.map(stop => {
+        const placeId = placeOfStop(stop, map, places);
+        return {
+          stop,
+          where: {
+            mapId: map.id,
+            stopId: stop.id,
+            placeId,
+            label: name(stop, placeId),
+            seq: stop.seq,
+          } satisfies Whereabouts,
+        };
+      })
+    ),
+    ...placeStops.map(stop => {
+      const placeId =
+        stop.placeId && places.has(stop.placeId) ? stop.placeId : null;
       return {
         stop,
         where: {
-          mapId: map.id,
+          mapId: null,
           stopId: stop.id,
           placeId,
-          label:
-            stop.label ||
-            (placeId ? byId.get(placeId)?.title : '') ||
-            (stop.planned ? 'Somewhere ahead' : `Stop ${stop.seq}`),
+          label: name(stop, placeId),
           seq: stop.seq,
         } satisfies Whereabouts,
       };
-    })
-  );
+    }),
+  ];
 
   const reached = all
     .filter(a => !a.stop.planned)

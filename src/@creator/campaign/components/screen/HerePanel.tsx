@@ -23,7 +23,11 @@ import {
   residentsOf,
   threadsAt,
 } from '../../lib/world';
-import { addJourneyStopAction, arriveAtStopAction } from '../../map-actions';
+import {
+  addJourneyStopAction,
+  addPlaceStopAction,
+  arriveAtStopAction,
+} from '../../map-actions';
 import { placeGlyph } from '../world/PlaceChip';
 import { QuickNpc } from '../world/QuickNpc';
 import { useWorld } from '../world/useWorld';
@@ -203,20 +207,28 @@ export function HerePanel({
               : 'The party is nowhere on a map yet'}
         </span>
         {atHere && <StatusChip kind="live" detail="the party is here" />}
-        {isStaff && place && !atHere && markFor && (
+        {isStaff && place && !atHere && (
           <Button
             size="sm"
             variant="flat"
             startContent={<Glyph name="banner" size={13} />}
             onPress={async () => {
+              const planned =
+                plannedHere ??
+                world.placeStops.find(
+                  s => s.planned && s.placeId === place.id
+                ) ??
+                null;
               await act(
-                plannedHere
-                  ? arriveAtStopAction(plannedHere.id)
-                  : addJourneyStopAction(markFor.map.id, {
-                      x: markFor.pin.x,
-                      y: markFor.pin.y,
-                      pinId: markFor.pin.id,
-                    })
+                planned
+                  ? arriveAtStopAction(planned.id)
+                  : markFor
+                    ? addJourneyStopAction(markFor.map.id, {
+                        x: markFor.pin.x,
+                        y: markFor.pin.y,
+                        pinId: markFor.pin.id,
+                      })
+                    : addPlaceStopAction(campaignId, place.id)
               );
               setLooking(null);
             }}

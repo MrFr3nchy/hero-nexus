@@ -7,6 +7,8 @@ import { FOG_CELLS, MARK_KINDS } from '@/@creator/campaign/lib/party-map';
 import {
   addJourneyStop,
   addPin,
+  addPlaceStop,
+  listPlaceStops,
   promoteRumour,
   arriveAtStop,
   createMap,
@@ -27,6 +29,7 @@ import {
   spotlightMap,
   updatePin,
   type MapRow,
+  type PlaceStopRow,
   type RecordOnMap,
 } from '@/server/maps';
 
@@ -160,6 +163,27 @@ export async function addPinAction(
     return { ok: true, data: { id } };
   } catch (err) {
     return fail(err, 'Failed to mark it.');
+  }
+}
+
+export async function listPlaceStopsAction(
+  campaignId: string
+): Promise<PlaceStopRow[]> {
+  return listPlaceStops(campaignId);
+}
+
+/** The party is here — or headed here — at a place with no map (0074). */
+export async function addPlaceStopAction(
+  campaignId: string,
+  placeId: string,
+  planned = false
+): Promise<Result<{ id: string }>> {
+  try {
+    const id = await addPlaceStop(campaignId, placeId, { planned });
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true, data: { id } };
+  } catch (err) {
+    return fail(err, 'Failed to move the party.');
   }
 }
 

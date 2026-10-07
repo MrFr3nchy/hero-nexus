@@ -3023,9 +3023,13 @@ export const mapJourney = sqliteTable(
     campaignId: text('campaign_id')
       .notNull()
       .references(() => campaigns.id, { onDelete: 'cascade' }),
-    mapId: text('map_id')
-      .notNull()
-      .references(() => campaignMaps.id, { onDelete: 'cascade' }),
+    /**
+     * The map it was put down on. Null (0074) for a stop at a place with no
+     * picture — day one, before anybody has pinned up a map.
+     */
+    mapId: text('map_id').references(() => campaignMaps.id, {
+      onDelete: 'cascade',
+    }),
     /** 1, 2, 3… in the order the party went. 0 while planned. */
     seq: integer('seq').notNull(),
     /**
@@ -3037,9 +3041,17 @@ export const mapJourney = sqliteTable(
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('shared'),
-    x: real('x').notNull(),
-    y: real('y').notNull(),
+    /** Where on the map; null with the map. */
+    x: real('x'),
+    y: real('y'),
     label: text('label').notNull().default(''),
+    /**
+     * The place a stop with no map stands in (0074). A map stop's place is
+     * read from its mark or its map, never from here.
+     */
+    placeId: text('place_id').references(() => canonEntries.id, {
+      onDelete: 'set null',
+    }),
     /** The mark it stands on, when it was put on one. */
     pinId: text('pin_id').references(() => campaignMapPins.id, {
       onDelete: 'set null',
@@ -3054,5 +3066,8 @@ export const mapJourney = sqliteTable(
     }),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
-  t => [index('map_journey_map_idx').on(t.mapId, t.seq)]
+  t => [
+    index('map_journey_map_idx').on(t.mapId, t.seq),
+    index('map_journey_campaign_idx').on(t.campaignId),
+  ]
 );

@@ -31,7 +31,11 @@ import {
   residentsOf,
   threadsAt,
 } from '../../lib/world';
-import { addJourneyStopAction, arriveAtStopAction } from '../../map-actions';
+import {
+  addJourneyStopAction,
+  addPlaceStopAction,
+  arriveAtStopAction,
+} from '../../map-actions';
 import { createQuestAction } from '../../quest-actions';
 import { CanonCard } from '../CanonPanel';
 import { ClockCard } from '../ClocksPanel';
@@ -243,6 +247,11 @@ export function PlaceDetail({
   const plannedHere = markFor
     ? (markFor.map.journey.find(s => s.planned && s.pinId === markFor.pin.id) ??
       null)
+    : null;
+
+  // A planned stop at this place with no map, for "The party is here".
+  const plannedPlaceStop = placeId
+    ? (world.placeStops.find(s => s.planned && s.placeId === placeId) ?? null)
     : null;
 
   const here = whereabouts.here?.placeId === placeId && placeId !== null;
@@ -531,23 +540,54 @@ export function PlaceDetail({
                       )}
                     </>
                   ) : (
-                    maps.length > 0 &&
-                    onMarkOnMap && (
-                      <Button
-                        size="sm"
-                        variant="light"
-                        startContent={<Glyph name="compass" size={13} />}
-                        onPress={() =>
-                          onMarkOnMap({
-                            kind: 'place',
-                            id: place.id,
-                            label: place.title,
-                          })
-                        }
-                      >
-                        Mark it on the map
-                      </Button>
-                    )
+                    <>
+                      {/* No mark for it: the party can still be here — a
+                          stop at the place, with no map (0074). */}
+                      {!here && (
+                        <Button
+                          size="sm"
+                          variant="flat"
+                          startContent={<Glyph name="banner" size={13} />}
+                          onPress={() =>
+                            act(
+                              plannedPlaceStop
+                                ? arriveAtStopAction(plannedPlaceStop.id)
+                                : addPlaceStopAction(campaignId, place.id)
+                            )
+                          }
+                        >
+                          The party is here
+                        </Button>
+                      )}
+                      {!here && !plannedPlaceStop && (
+                        <Button
+                          size="sm"
+                          variant="light"
+                          startContent={<Glyph name="arrow-right" size={13} />}
+                          onPress={() =>
+                            act(addPlaceStopAction(campaignId, place.id, true))
+                          }
+                        >
+                          Headed here
+                        </Button>
+                      )}
+                      {maps.length > 0 && onMarkOnMap && (
+                        <Button
+                          size="sm"
+                          variant="light"
+                          startContent={<Glyph name="compass" size={13} />}
+                          onPress={() =>
+                            onMarkOnMap({
+                              kind: 'place',
+                              id: place.id,
+                              label: place.title,
+                            })
+                          }
+                        >
+                          Mark it on the map
+                        </Button>
+                      )}
+                    </>
                   )}
                 </>
               )}

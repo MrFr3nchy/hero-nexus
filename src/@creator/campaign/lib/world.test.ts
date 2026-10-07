@@ -181,6 +181,34 @@ describe('where the party is', () => {
   it('is nowhere before the first stop', () => {
     expect(partyWhereabouts([], world).here).toBeNull();
   });
+
+  it('can stand at a place with no map at all — day one', () => {
+    const first = {
+      id: 'p1',
+      seq: 1,
+      planned: false,
+      placeId: 'Docks',
+      label: '',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const w = partyWhereabouts([], world, [first]);
+    expect(w.here).toMatchObject({
+      mapId: null,
+      stopId: 'p1',
+      placeId: 'Docks',
+      label: 'Docks',
+    });
+    expect([...w.been].sort()).toEqual(['Coast', 'Docks', 'Waterdeep']);
+    // A map stop put down later is where the party is now.
+    const later = partyWhereabouts([coastMap, cityMap], world, [first]);
+    expect(later.here?.stopId).toBe('w1');
+    // A planned stop with no map is still where they are headed.
+    const ahead = partyWhereabouts([], world, [
+      first,
+      { ...first, id: 'p2', seq: 0, planned: true, placeId: 'Neverwinter' },
+    ]);
+    expect(ahead.headed.map(h => h.placeId)).toEqual(['Neverwinter']);
+  });
 });
 
 describe('the map for a place', () => {

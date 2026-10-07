@@ -4,7 +4,13 @@ import { Autocomplete, AutocompleteItem, Button } from '@heroui/react';
 import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { DiceSpinner, Glyph, type GlyphName } from '@/@shared/components/ui';
+import {
+  DiceSpinner,
+  EmptyState,
+  Glyph,
+  TomeScene,
+  type GlyphName,
+} from '@/@shared/components/ui';
 import { useCampaignLive } from '@/@shared/hooks/useCampaignLive';
 import type { CampaignRole } from '@/server/campaigns';
 import { createCanonAction, updateCanonAction } from '../../canon-actions';
@@ -23,6 +29,7 @@ import {
 } from '../../lib/world-route';
 import { EntryEditor, draftOf, emptyDraft, type Draft } from '../CanonPanel';
 import { AddToPlace } from './AddToPlace';
+import { DayOne } from './DayOne';
 import { EverywhereView } from './EverywhereView';
 import { PlacesView } from './PlacesView';
 import { useWorld } from './useWorld';
@@ -220,6 +227,35 @@ export function WorldPanel({
           <p className="text-sm text-danger">{error}</p>
         ) : (
           <DiceSpinner label="Unrolling the world…" />
+        )}
+      </div>
+    );
+  }
+
+  // Day one: no place and no map. Nothing to scope, so two ways in.
+  if (!world.entries.some(isPlace) && world.maps.length === 0) {
+    return (
+      <div className="pt-4">
+        {error && <p className="mb-3 text-sm text-danger">{error}</p>}
+        {isStaff ? (
+          <DayOne
+            campaignId={campaignId}
+            onError={setError}
+            onDone={async id => {
+              await refresh();
+              onRoute(
+                id
+                  ? writeWorldRoute({ ...route, scope: 'here', placeId: id })
+                  : 'here'
+              );
+            }}
+          />
+        ) : (
+          <EmptyState
+            scene={<TomeScene />}
+            title="The world is still a blank page"
+            description="When the DM names the first place or pins up a map, it opens here."
+          />
         )}
       </div>
     );

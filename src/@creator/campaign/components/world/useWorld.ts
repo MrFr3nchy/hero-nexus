@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CampaignMemberRow } from '@/server/campaigns';
 import type { ClockRow } from '@/server/clocks';
 import type { PlanRow } from '@/server/encounter-plans';
-import type { MapRow } from '@/server/maps';
+import type { MapRow, PlaceStopRow } from '@/server/maps';
 import type { QuestRow } from '@/server/quests';
 import type { ShopRow } from '@/server/shops';
 import { listMembersAction } from '../../actions';
@@ -18,7 +18,7 @@ import { listPlansAction } from '../../encounter-actions';
 import type { CanonCollectionRow, CanonEntryRow } from '../../lib/canon';
 import type { RandomTableRow } from '../../lib/random-tables';
 import { partyWhereabouts } from '../../lib/world';
-import { listMapsAction } from '../../map-actions';
+import { listMapsAction, listPlaceStopsAction } from '../../map-actions';
 import { listQuestsAction } from '../../quest-actions';
 import { listRandomTablesAction } from '../../random-table-actions';
 import { listShopsAction } from '../../shop-actions';
@@ -41,6 +41,8 @@ export interface World {
   quests: QuestRow[];
   clocks: ClockRow[];
   shops: ShopRow[];
+  /** Stops at places with no map (0074): day one, or a place unmarked. */
+  placeStops: PlaceStopRow[];
   whereabouts: ReturnType<typeof partyWhereabouts>;
 }
 
@@ -71,6 +73,7 @@ export function useWorld(campaignId: string, isStaff: boolean) {
         quests,
         clocks,
         shops,
+        placeStops,
       ] = await Promise.all([
         listCanonAction(campaignId),
         listCanonCollectionsAction(campaignId),
@@ -83,6 +86,7 @@ export function useWorld(campaignId: string, isStaff: boolean) {
         listQuestsAction(campaignId),
         listClocksAction(campaignId),
         listShopsAction(campaignId),
+        listPlaceStopsAction(campaignId),
       ]);
       setData({
         entries,
@@ -94,6 +98,7 @@ export function useWorld(campaignId: string, isStaff: boolean) {
         quests,
         clocks,
         shops,
+        placeStops,
       });
     } catch {
       setError('Failed to unroll the world.');
@@ -109,7 +114,7 @@ export function useWorld(campaignId: string, isStaff: boolean) {
     return {
       ...data,
       byId: new Map(data.entries.map(e => [e.id, e])),
-      whereabouts: partyWhereabouts(data.maps, data.entries),
+      whereabouts: partyWhereabouts(data.maps, data.entries, data.placeStops),
     };
   }, [data]);
 
