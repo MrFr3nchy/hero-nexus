@@ -398,7 +398,7 @@ minted cookie for `pip.worldtest@test.local` at the "World test" campaign
 
 - [x] PR 1 The doubled Rolls box — `feat/session-screen-1-defaults`
 - [x] PR 2 Roll from your sheet — `feat/session-screen-2-sheet-rolls` (browser pass batched with PR 6, see Notes)
-- [ ] PR 3 Hit or miss on the slip
+- [x] PR 3 Hit or miss on the slip — `feat/session-screen-3-verdict`
 - [ ] PR 4 Search, the opened hit, and Lookups
 - [ ] PR 5 A person opens
 - [ ] PR 6 One panel at a time on a phone
