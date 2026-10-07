@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   flattenPlaces,
   mapForPlace,
+  nearbyPlaces,
   partyWhereabouts,
   pathLabel,
   placePath,
   placesInside,
   placesUnder,
   residentsOf,
+  threadsAt,
   wouldLoop,
   type WorldEntry,
   type WorldMap,
@@ -196,5 +198,109 @@ describe('the map for a place', () => {
     );
     expect(mapForPlace(null, [cityMap, loose], byId)?.id).toBe('m-coast');
     expect(mapForPlace(null, [cityMap], byId)?.id).toBe('m-wd');
+  });
+});
+
+describe('what is going on in a place', () => {
+  const quest = (
+    id: string,
+    placeId: string | null,
+    steps: (string | null)[] = [],
+    status = 'active'
+  ) => ({
+    id,
+    placeId,
+    status,
+    objectives: steps.map(s => ({ placeId: s })),
+  });
+  const clock = (id: string, placeId: string | null, status = 'running') => ({
+    id,
+    placeId,
+    status,
+  });
+  const quests = [
+    quest('Lamp', 'Portal', ['Portal', 'Docks']),
+    quest('Debts', 'Waterdeep', ['Neverwinter']),
+    quest('Old', 'Waterdeep', [], 'done'),
+    quest('Coastwide', 'Coast'),
+    quest('Elsewhere', 'Neverwinter'),
+    quest('Nowhere', null),
+  ];
+  const clocks = [
+    clock('Tide', 'Docks'),
+    clock('Patience', 'Waterdeep'),
+    clock('Rang', 'Waterdeep', 'done'),
+    clock('North', 'Neverwinter'),
+  ];
+
+  it('finds a quest by where it is, or where any step is', () => {
+    const at = threadsAt('Docks', { quests, clocks }, byId);
+    expect(at.quests.map(q => q.id)).toEqual(['Lamp']);
+    expect(at.clocks.map(c => c.id)).toEqual(['Tide']);
+    // A step in Neverwinter puts Debts there too.
+    expect(
+      threadsAt('Neverwinter', { quests, clocks }, byId).quests.map(q => q.id)
+    ).toEqual(['Debts', 'Elsewhere']);
+  });
+
+  it('reaches inside when asked, and only then', () => {
+    const flat = threadsAt('Waterdeep', { quests, clocks }, byId);
+    expect(flat.quests.map(q => q.id)).toEqual(['Debts', 'Old']);
+    const deep = threadsAt('Waterdeep', { quests, clocks }, byId, {
+      inside: true,
+    });
+    expect(deep.quests.map(q => q.id)).toEqual(['Lamp', 'Debts', 'Old']);
+    expect(deep.clocks.map(c => c.id)).toEqual(['Tide', 'Patience', 'Rang']);
+  });
+
+  it('trickles down from above — running and active only, never sideways', () => {
+    const { fromAbove } = threadsAt('Portal', { quests, clocks }, byId);
+    expect(fromAbove.quests.map(q => q.id)).toEqual(['Debts', 'Coastwide']);
+    expect(fromAbove.clocks.map(c => c.id)).toEqual(['Tide', 'Patience']);
+    // Neverwinter is a neighbour of Waterdeep, not above the Portal.
+    expect(fromAbove.clocks.some(c => c.id === 'North')).toBe(false);
+    // The outermost place has nothing above it.
+    const top = threadsAt('Coast', { quests, clocks }, byId).fromAbove;
+    expect(top).toEqual({ quests: [], clocks: [] });
+  });
+
+  it('does not repeat a quest that is already here', () => {
+    const q = [quest('Both', 'Waterdeep', ['Docks'])];
+    const at = threadsAt('Docks', { quests: q, clocks: [] }, byId);
+    expect(at.quests.map(x => x.id)).toEqual(['Both']);
+    expect(at.fromAbove.quests).toEqual([]);
+  });
+});
+
+describe('what is near', () => {
+  const none = { headed: [] };
+
+  it('says why each place is near: inside, around, next door', () => {
+    const { near, further } = nearbyPlaces('Waterdeep', world, none);
+    expect(near).toEqual([
+      { id: 'Coast', why: 'around' },
+      { id: 'Docks', why: 'inside' },
+      { id: 'Neverwinter', why: 'next door' },
+    ]);
+    expect(further).toEqual(['Portal']);
+  });
+
+  it('puts where the party is headed first', () => {
+    const { near } = nearbyPlaces('Docks', world, {
+      headed: [{ placeId: 'Neverwinter' }, { placeId: null }],
+    });
+    expect(near[0]).toEqual({ id: 'Neverwinter', why: 'headed' });
+    expect(near.map(n => n.why)).toEqual(['headed', 'around', 'inside']);
+  });
+
+  it('works for a party that is nowhere yet', () => {
+    const { near, further } = nearbyPlaces(null, world, {
+      headed: [{ placeId: 'Portal' }],
+    });
+    expect(near).toEqual([
+      { id: 'Portal', why: 'headed' },
+      { id: 'Coast', why: 'inside' },
+    ]);
+    expect(further).toEqual(['Docks', 'Neverwinter', 'Waterdeep']);
   });
 });

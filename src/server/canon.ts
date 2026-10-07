@@ -304,6 +304,60 @@ export async function checkPlace(
   return placeId;
 }
 
+/**
+ * The ids of the canon entries a player may read: shared, or told to them.
+ * For another table's pointer at canon — a quest's place, a clock's — which
+ * a player receives only when they could open what it points at.
+ */
+export async function entriesSeenBy(
+  campaignId: string,
+  userId: string
+): Promise<Set<string>> {
+  const [shared, told] = await Promise.all([
+    db
+      .select({ id: canonEntries.id })
+      .from(canonEntries)
+      .where(
+        and(
+          eq(canonEntries.campaignId, campaignId),
+          eq(canonEntries.visibility, 'shared')
+        )
+      ),
+    db
+      .select({ id: canonReveals.entryId })
+      .from(canonReveals)
+      .innerJoin(canonEntries, eq(canonEntries.id, canonReveals.entryId))
+      .where(
+        and(
+          eq(canonEntries.campaignId, campaignId),
+          eq(canonReveals.userId, userId)
+        )
+      ),
+  ]);
+  return new Set([...shared, ...told].map(r => r.id));
+}
+
+/**
+ * An NPC pointer — a quest's giver, say — checked like `checkPlace`: an `npc`
+ * entry in the same campaign. Undefined leaves it alone; null clears it.
+ */
+export async function checkNpc(
+  campaignId: string,
+  npcId: string | null | undefined
+): Promise<string | null | undefined> {
+  if (npcId === undefined || npcId === null) return npcId;
+  const row = await db.query.canonEntries.findFirst({
+    columns: { id: true, kind: true },
+    where: and(
+      eq(canonEntries.id, npcId),
+      eq(canonEntries.campaignId, campaignId)
+    ),
+  });
+  if (!row) throw new Error('NOT_FOUND');
+  if (row.kind !== 'npc') throw new Error('NOT_AN_NPC');
+  return npcId;
+}
+
 export async function createCanonEntry(
   campaignId: string,
   input: CanonInput

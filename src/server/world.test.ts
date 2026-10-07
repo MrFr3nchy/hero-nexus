@@ -13,6 +13,8 @@ const shops = await import('./shops');
 const plans = await import('./encounter-plans');
 const tables = await import('./random-tables');
 const pkg = await import('./library-campaign-package');
+const quests = await import('./quests');
+const clocks = await import('./clocks');
 
 /*
  * The world (0072): one pointer — where a thing is — joining canon, maps,
@@ -445,6 +447,126 @@ describe('plucking names', () => {
   });
 });
 
+describe('quests and clocks in places', () => {
+  it('places a quest only in a place, and its giver only as an NPC', async () => {
+    signedIn = dm;
+    await expect(
+      quests.createQuest(campaignId, { title: 'Bad', placeId: durnan })
+    ).rejects.toThrow('NOT_A_PLACE');
+    await expect(
+      quests.createQuest(campaignId, { title: 'Bad', giverId: docks })
+    ).rejects.toThrow('NOT_AN_NPC');
+    await expect(
+      clocks.createClock(campaignId, { title: 'Bad', placeId: durnan })
+    ).rejects.toThrow('NOT_A_PLACE');
+    const q = await quests.createQuest(campaignId, {
+      title: 'Ledger',
+      placeId: docks,
+      giverId: durnan,
+    });
+    await expect(
+      quests.addObjective(q, 'Find it', 'shared', durnan)
+    ).rejects.toThrow('NOT_A_PLACE');
+    const step = await quests.addObjective(q, 'Find it', 'shared', waterdeep);
+    await quests.setObjectivePlace(step, docks);
+    const row = (await quests.listQuests(campaignId)).find(x => x.id === q)!;
+    expect(row).toMatchObject({ placeId: docks, giverId: durnan });
+    expect(row.objectives[0].placeId).toBe(docks);
+    await quests.deleteQuest(q);
+  });
+
+  it('leaves the place alone on an unrelated edit, and clears it on null', async () => {
+    signedIn = dm;
+    const q = await quests.createQuest(campaignId, {
+      title: 'Edit me',
+      placeId: waterdeep,
+    });
+    await quests.updateQuest(q, { title: 'Edited' });
+    const read = async () =>
+      (await quests.listQuests(campaignId)).find(x => x.id === q)!;
+    expect((await read()).placeId).toBe(waterdeep);
+    await quests.updateQuest(q, { placeId: null });
+    expect((await read()).placeId).toBeNull();
+    await quests.deleteQuest(q);
+  });
+
+  it('keeps the quest and the clock, unplaced, when the place goes', async () => {
+    signedIn = dm;
+    const shed = await canon.createCanonEntry(campaignId, {
+      kind: 'location',
+      title: 'Shed',
+      dmBody: '',
+      partyBody: '',
+    });
+    const q = await quests.createQuest(campaignId, {
+      title: 'In the shed',
+      placeId: shed,
+    });
+    await quests.addObjective(q, 'Open it', 'shared', shed);
+    const c = await clocks.createClock(campaignId, {
+      title: 'Rot',
+      placeId: shed,
+    });
+    await canon.deleteCanonEntry(shed);
+    const quest = (await quests.listQuests(campaignId)).find(x => x.id === q)!;
+    expect(quest.placeId).toBeNull();
+    expect(quest.objectives[0].placeId).toBeNull();
+    const clock = (await clocks.listClocks(campaignId)).find(x => x.id === c)!;
+    expect(clock.placeId).toBeNull();
+    await quests.deleteQuest(q);
+    await clocks.deleteClock(c);
+  });
+
+  it('never hands a player the DM’s notes, steps or clocks — nor a hidden place', async () => {
+    signedIn = dm;
+    const q = await quests.createQuest(campaignId, {
+      title: 'Shown',
+      dmNotes: 'The ledger is a forgery.',
+      visibility: 'shared',
+      placeId: docks,
+    });
+    await quests.addObjective(q, 'Ask Durnan', 'shared', waterdeep);
+    await quests.addObjective(q, 'It is forged', 'dm', docks);
+    const hidden = await quests.createQuest(campaignId, { title: 'Hook' });
+    const shown = await clocks.createClock(campaignId, {
+      title: 'Tide',
+      dmNote: 'The crypt floods.',
+      visibility: 'shared',
+      placeId: waterdeep,
+    });
+    const secret = await clocks.createClock(campaignId, {
+      title: 'Cult',
+      placeId: docks,
+    });
+
+    signedIn = kessa;
+    const seen = await quests.listQuests(campaignId);
+    expect(seen.some(x => x.id === hidden)).toBe(false);
+    const mine = seen.find(x => x.id === q)!;
+    expect(mine.dmNotes).toBeNull();
+    // The Dock Ward is the DM's: the quest is in no place Kessa knows.
+    expect(mine.placeId).toBeNull();
+    expect(mine.objectives).toHaveLength(1);
+    expect(mine.objectives[0]).toMatchObject({
+      body: 'Ask Durnan',
+      placeId: waterdeep,
+    });
+    const ticking = await clocks.listClocks(campaignId);
+    expect(ticking.some(x => x.id === secret)).toBe(false);
+    expect(ticking.find(x => x.id === shown)).toMatchObject({
+      dmNote: null,
+      placeId: waterdeep,
+    });
+    expect(JSON.stringify([seen, ticking])).not.toMatch(/forg|floods/);
+
+    signedIn = dm;
+    await quests.deleteQuest(q);
+    await quests.deleteQuest(hidden);
+    await clocks.deleteClock(shown);
+    await clocks.deleteClock(secret);
+  });
+});
+
 describe('the package', () => {
   it('carries where things are, the shops and the fights — not the notes', async () => {
     signedIn = kessa;
@@ -509,6 +631,12 @@ describe('the package', () => {
       keeperId: keeper,
     });
     await plans.createPlan(other, { name: 'Brawl', placeId: inn });
+    const errand = await quests.createQuest(other, {
+      title: 'Errand',
+      placeId: town,
+      giverId: keeper,
+    });
+    await quests.addObjective(errand, 'Go to the inn', 'shared', inn);
     const names = await tables.createRandomTable(other, {
       title: 'Names',
       die: 4,
@@ -536,6 +664,13 @@ describe('the package', () => {
     });
     const [plan] = await plans.listPlans(adopted);
     expect(plan).toMatchObject({ name: 'Brawl', placeId: byTitle('Inn').id });
+    const [quest] = await quests.listQuests(adopted);
+    expect(quest).toMatchObject({
+      title: 'Errand',
+      placeId: byTitle('Town').id,
+      giverId: byTitle('Keeper').id,
+    });
+    expect(quest.objectives[0].placeId).toBe(byTitle('Inn').id);
     const [table] = await tables.listRandomTables(adopted);
     expect(table.entries[0].struck).toEqual({ entryId: byTitle('Ash').id });
   });

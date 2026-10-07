@@ -16,6 +16,7 @@ import {
   EMPTY_TREASURY,
   type Treasury,
 } from '@/@creator/campaign/lib/treasury';
+import { checkNpc, checkPlace, entriesSeenBy } from './canon';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 
 export type QuestStatus = 'rumour' | 'active' | 'done' | 'failed';
@@ -36,6 +37,8 @@ export interface ObjectiveRow {
   done: boolean;
   visibility: 'dm' | 'shared';
   sortOrder: number;
+  /** Where this step happens (0073). Null for a player who cannot see it. */
+  placeId: string | null;
 }
 
 export interface QuestRow {
@@ -45,6 +48,13 @@ export interface QuestRow {
   /** Null for a player — the DM's notes never travel. */
   dmNotes: string | null;
   giver: string;
+  /**
+   * The NPC who handed it out (0073), when they are in the canon and the
+   * viewer may read them. `giver` is the fallback when this is null.
+   */
+  giverId: string | null;
+  /** Where it starts, or happens (0073). Null for a player who cannot see it. */
+  placeId: string | null;
   reward: string;
   status: QuestStatus;
   visibility: 'dm' | 'shared';
@@ -102,7 +112,7 @@ async function anyMember(campaignId: string) {
  * the party has not heard yet never reaches their browser.
  */
 export async function listQuests(campaignId: string): Promise<QuestRow[]> {
-  const { role } = await anyMember(campaignId);
+  const { role, userId } = await anyMember(campaignId);
   const isStaff = isStaffRole(role);
 
   const rows = await db
@@ -125,12 +135,21 @@ export async function listQuests(campaignId: string): Promise<QuestRow[]> {
     )
     .orderBy(asc(campaignQuestObjectives.sortOrder));
 
+  // A pointer at canon reaches a player only when they could open what it
+  // points at: a quest the party knows of, in a place the party does not,
+  // is a quest in no place they know.
+  const seen = isStaff ? null : await entriesSeenBy(campaignId, userId);
+  const canSee = (id: string | null) =>
+    id && (seen === null || seen.has(id)) ? id : null;
+
   return visible.map(q => ({
     id: q.id,
     title: q.title,
     summary: q.summary,
     dmNotes: isStaff ? q.dmNotes : null,
     giver: q.giver,
+    giverId: canSee(q.giverId),
+    placeId: canSee(q.placeId),
     reward: q.reward,
     status: q.status,
     visibility: q.visibility,
@@ -143,6 +162,7 @@ export async function listQuests(campaignId: string): Promise<QuestRow[]> {
         done: o.done,
         visibility: o.visibility,
         sortOrder: o.sortOrder,
+        placeId: canSee(o.placeId),
       })),
   }));
 }
@@ -155,6 +175,10 @@ export interface QuestInput {
   reward?: string;
   status?: QuestStatus;
   visibility?: 'dm' | 'shared';
+  /** Undefined leaves it alone; null clears it. A `location` entry. */
+  placeId?: string | null;
+  /** Undefined leaves it alone; null clears it. An `npc` entry. */
+  giverId?: string | null;
 }
 
 async function staffForQuest(questId: string) {
@@ -171,6 +195,8 @@ export async function createQuest(
   input: QuestInput
 ): Promise<string> {
   const { userId } = await staff(campaignId);
+  const placeId = await checkPlace(campaignId, null, input.placeId);
+  const giverId = await checkNpc(campaignId, input.giverId);
   const existing = await db
     .select({ sortOrder: campaignQuests.sortOrder })
     .from(campaignQuests)
@@ -185,6 +211,8 @@ export async function createQuest(
       summary: input.summary ?? '',
       dmNotes: input.dmNotes ?? '',
       giver: input.giver ?? '',
+      giverId: giverId ?? null,
+      placeId: placeId ?? null,
       reward: input.reward ?? '',
       status: input.status ?? 'active',
       visibility: input.visibility ?? 'dm',
@@ -199,7 +227,7 @@ export async function updateQuest(
   questId: string,
   patch: Partial<QuestInput>
 ): Promise<void> {
-  await staffForQuest(questId);
+  const quest = await staffForQuest(questId);
   const set: Partial<typeof campaignQuests.$inferInsert> = {
     updatedAt: new Date().toISOString(),
   };
@@ -210,6 +238,14 @@ export async function updateQuest(
   if (patch.reward !== undefined) set.reward = patch.reward;
   if (patch.status !== undefined) set.status = patch.status;
   if (patch.visibility !== undefined) set.visibility = patch.visibility;
+  // Undefined is "leave it", null is "clear it" — kept apart, or every edit
+  // of a quest's title would unplace it.
+  if (patch.placeId !== undefined) {
+    set.placeId = await checkPlace(quest.campaignId, null, patch.placeId);
+  }
+  if (patch.giverId !== undefined) {
+    set.giverId = await checkNpc(quest.campaignId, patch.giverId);
+  }
 
   await db
     .update(campaignQuests)
@@ -225,21 +261,28 @@ export async function deleteQuest(questId: string): Promise<void> {
 export async function addObjective(
   questId: string,
   body: string,
-  visibility: 'dm' | 'shared' = 'shared'
-): Promise<void> {
-  await staffForQuest(questId);
+  visibility: 'dm' | 'shared' = 'shared',
+  placeId: string | null = null
+): Promise<string> {
+  const quest = await staffForQuest(questId);
+  const place = await checkPlace(quest.campaignId, null, placeId);
   const existing = await db
     .select({ sortOrder: campaignQuestObjectives.sortOrder })
     .from(campaignQuestObjectives)
     .where(eq(campaignQuestObjectives.questId, questId));
   const next = existing.reduce((max, r) => Math.max(max, r.sortOrder), 0) + 1;
 
-  await db.insert(campaignQuestObjectives).values({
-    questId,
-    body: body.trim(),
-    visibility,
-    sortOrder: next,
-  });
+  const [row] = await db
+    .insert(campaignQuestObjectives)
+    .values({
+      questId,
+      body: body.trim(),
+      visibility,
+      placeId: place ?? null,
+      sortOrder: next,
+    })
+    .returning({ id: campaignQuestObjectives.id });
+  return row.id;
 }
 
 async function staffForObjective(objectiveId: string) {
@@ -247,8 +290,8 @@ async function staffForObjective(objectiveId: string) {
     where: eq(campaignQuestObjectives.id, objectiveId),
   });
   if (!objective) throw new Error('NOT_FOUND');
-  await staffForQuest(objective.questId);
-  return objective;
+  const quest = await staffForQuest(objective.questId);
+  return { ...objective, campaignId: quest.campaignId };
 }
 
 export async function setObjectiveDone(
@@ -270,6 +313,19 @@ export async function setObjectiveVisibility(
   await db
     .update(campaignQuestObjectives)
     .set({ visibility })
+    .where(eq(campaignQuestObjectives.id, objectiveId));
+}
+
+/** Where this step happens. Null takes it back to wherever the quest is. */
+export async function setObjectivePlace(
+  objectiveId: string,
+  placeId: string | null
+): Promise<void> {
+  const objective = await staffForObjective(objectiveId);
+  const place = await checkPlace(objective.campaignId, null, placeId);
+  await db
+    .update(campaignQuestObjectives)
+    .set({ placeId: place ?? null })
     .where(eq(campaignQuestObjectives.id, objectiveId));
 }
 

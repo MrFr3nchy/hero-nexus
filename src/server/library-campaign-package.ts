@@ -182,11 +182,16 @@ interface PackagedQuest {
   status: string;
   visibility: string;
   sortOrder: number;
+  /** 0073: where it happens and who handed it out, by entry key. */
+  placeKey?: string | null;
+  giverKey?: string | null;
   objectives: {
     body: string;
     done: boolean;
     visibility: string;
     sortOrder: number;
+    /** 0073: where this step happens, by entry key. */
+    placeKey?: string | null;
   }[];
 }
 
@@ -455,6 +460,10 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
       status: q.status,
       visibility: q.visibility,
       sortOrder: q.sortOrder,
+      // Copied explicitly (0073): a column the package does not name is
+      // silently dropped, and every adopted quest would arrive unplaced.
+      placeKey: q.placeId,
+      giverKey: q.giverId,
       objectives: objectives
         .filter(o => o.questId === q.id)
         .map(o => ({
@@ -462,6 +471,7 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
           done: o.done,
           visibility: o.visibility,
           sortOrder: o.sortOrder,
+          placeKey: o.placeId,
         })),
     })),
     // `sessionId` is dropped rather than remapped: sittings do not travel, so a
@@ -803,6 +813,8 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
         summary: quest.summary,
         dmNotes: quest.dmNotes,
         giver: quest.giver,
+        giverId: entry(quest.giverKey),
+        placeId: entry(quest.placeKey),
         reward: quest.reward,
         status: quest.status as typeof campaignQuests.$inferInsert.status,
         visibility: quest.visibility === 'shared' ? 'shared' : 'dm',
@@ -820,6 +832,7 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
           visibility: (o.visibility === 'dm' ? 'dm' : 'shared') as
             | 'dm'
             | 'shared',
+          placeId: entry(o.placeKey),
           sortOrder: o.sortOrder,
         }))
       );

@@ -5,6 +5,7 @@ import { asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { campaignClocks } from '@/db/schema';
 import { normalizeSegments } from '@/@creator/campaign/lib/clocks';
+import { checkPlace, entriesSeenBy } from './canon';
 import { requireCampaignRole, type CampaignRole } from './campaigns';
 
 export {
@@ -23,6 +24,8 @@ export interface ClockRow {
   visibility: 'dm' | 'shared';
   status: 'running' | 'done';
   sortOrder: number;
+  /** Where it is ticking (0073). Null for a player who cannot see it. */
+  placeId: string | null;
 }
 
 function isStaffRole(role: CampaignRole): boolean {
@@ -51,7 +54,7 @@ async function staffForClock(clockId: string) {
  * exists is itself information about the plot.
  */
 export async function listClocks(campaignId: string): Promise<ClockRow[]> {
-  const { role } = await requireCampaignRole(campaignId, [
+  const { role, userId } = await requireCampaignRole(campaignId, [
     'gm',
     'co-gm',
     'player',
@@ -64,6 +67,8 @@ export async function listClocks(campaignId: string): Promise<ClockRow[]> {
     .where(eq(campaignClocks.campaignId, campaignId))
     .orderBy(asc(campaignClocks.sortOrder), asc(campaignClocks.createdAt));
 
+  const seen = isStaff ? null : await entriesSeenBy(campaignId, userId);
+
   return rows
     .filter(c => isStaff || c.visibility === 'shared')
     .map(c => ({
@@ -75,6 +80,8 @@ export async function listClocks(campaignId: string): Promise<ClockRow[]> {
       visibility: c.visibility,
       status: c.status,
       sortOrder: c.sortOrder,
+      placeId:
+        c.placeId && (seen === null || seen.has(c.placeId)) ? c.placeId : null,
     }));
 }
 
@@ -83,6 +90,8 @@ export interface ClockInput {
   dmNote?: string;
   segments?: number;
   visibility?: 'dm' | 'shared';
+  /** Undefined leaves it alone; null clears it. A `location` entry. */
+  placeId?: string | null;
 }
 
 export async function createClock(
@@ -90,6 +99,7 @@ export async function createClock(
   input: ClockInput
 ): Promise<string> {
   const { userId } = await staff(campaignId);
+  const placeId = await checkPlace(campaignId, null, input.placeId);
   const existing = await db
     .select({ sortOrder: campaignClocks.sortOrder })
     .from(campaignClocks)
@@ -104,6 +114,7 @@ export async function createClock(
       dmNote: input.dmNote ?? '',
       segments: normalizeSegments(input.segments),
       visibility: input.visibility ?? 'dm',
+      placeId: placeId ?? null,
       sortOrder: next,
       createdBy: userId,
     })
@@ -122,6 +133,9 @@ export async function updateClock(
   if (patch.title !== undefined) set.title = patch.title.trim();
   if (patch.dmNote !== undefined) set.dmNote = patch.dmNote;
   if (patch.visibility !== undefined) set.visibility = patch.visibility;
+  if (patch.placeId !== undefined) {
+    set.placeId = await checkPlace(clock.campaignId, null, patch.placeId);
+  }
   if (patch.segments !== undefined) {
     const segments = normalizeSegments(patch.segments);
     const filled = Math.min(clock.filled, segments);
@@ -175,6 +189,7 @@ export async function tickClock(
     visibility: clock.visibility,
     status,
     sortOrder: clock.sortOrder,
+    placeId: clock.placeId,
   };
 }
 

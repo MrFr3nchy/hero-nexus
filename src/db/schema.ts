@@ -1235,6 +1235,20 @@ export const campaignQuests = sqliteTable(
     dmNotes: text('dm_notes').notNull().default(''),
     /** Who asked — free text, because half of them are not in the canon yet. */
     giver: text('giver').notNull().default(''),
+    /**
+     * Who asked, when they are in the canon (0073): an `npc` entry. The free
+     * text above is what shows when this is null.
+     */
+    giverId: text('giver_id').references(() => canonEntries.id, {
+      onDelete: 'set null',
+    }),
+    /**
+     * Where it starts, or happens (0073). A `location` canon entry; set null
+     * on delete — a city deleted leaves the quest unplaced, never gone.
+     */
+    placeId: text('place_id').references(() => canonEntries.id, {
+      onDelete: 'set null',
+    }),
     reward: text('reward').notNull().default(''),
     status: text('status', {
       enum: ['rumour', 'active', 'done', 'failed'],
@@ -1251,7 +1265,10 @@ export const campaignQuests = sqliteTable(
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
-  t => [index('campaign_quests_campaign_idx').on(t.campaignId)]
+  t => [
+    index('campaign_quests_campaign_idx').on(t.campaignId),
+    index('campaign_quests_place_idx').on(t.placeId),
+  ]
 );
 
 /**
@@ -1271,6 +1288,10 @@ export const campaignQuestObjectives = sqliteTable(
     visibility: text('visibility', { enum: ['dm', 'shared'] })
       .notNull()
       .default('shared'),
+    /** Where this step happens (0073). A `location` canon entry. */
+    placeId: text('place_id').references(() => canonEntries.id, {
+      onDelete: 'set null',
+    }),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: text('created_at').default(nowIso).notNull(),
   },
@@ -1731,6 +1752,13 @@ export const campaignClocks = sqliteTable(
     status: text('status', { enum: ['running', 'done'] })
       .notNull()
       .default('running'),
+    /**
+     * Where it is ticking (0073). A `location` canon entry: a city's deadline
+     * is felt in every tavern inside the city.
+     */
+    placeId: text('place_id').references(() => canonEntries.id, {
+      onDelete: 'set null',
+    }),
     sortOrder: integer('sort_order').notNull().default(0),
     createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
@@ -1738,7 +1766,10 @@ export const campaignClocks = sqliteTable(
     createdAt: text('created_at').default(nowIso).notNull(),
     updatedAt: text('updated_at').default(nowIso).notNull(),
   },
-  t => [index('campaign_clocks_campaign_idx').on(t.campaignId)]
+  t => [
+    index('campaign_clocks_campaign_idx').on(t.campaignId),
+    index('campaign_clocks_place_idx').on(t.placeId),
+  ]
 );
 
 /* --- The table's hourglass (0036) -------------------------------------- */

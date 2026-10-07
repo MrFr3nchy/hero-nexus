@@ -284,3 +284,133 @@ export function mapForPlace<
     (placeId ? null : (maps[0] ?? null))
   );
 }
+
+/* --- what is going on in a place ---------------------------------------------- */
+
+/** The least of a quest this module needs. */
+export interface WorldQuest {
+  id: string;
+  placeId: string | null;
+  status: string;
+  objectives: { placeId: string | null }[];
+}
+
+/** The least of a clock this module needs. */
+export interface WorldClock {
+  id: string;
+  placeId: string | null;
+  status: string;
+}
+
+/**
+ * The quests and clocks at a place.
+ *
+ * A quest is at a place when it is placed there or any of its steps is: a
+ * quest that starts in the tavern and ends in the crypt is at both. With
+ * `inside`, anywhere under the place counts too — the city's sheet shows the
+ * tavern's quest.
+ *
+ * `fromAbove` is what trickles down: the active quests and running clocks
+ * placed on any place above this one. A city-wide deadline matters in every
+ * tavern in it; the tavern's own business does not travel up, and a
+ * neighbour's never travels sideways.
+ */
+export function threadsAt<Q extends WorldQuest, C extends WorldClock>(
+  placeId: string,
+  { quests, clocks }: { quests: readonly Q[]; clocks: readonly C[] },
+  byId: ReadonlyMap<string, WorldEntry>,
+  { inside }: { inside: boolean } = { inside: false }
+): {
+  quests: Q[];
+  clocks: C[];
+  fromAbove: { quests: Q[]; clocks: C[] };
+} {
+  const within = new Set([placeId]);
+  if (inside) {
+    for (const id of placesUnder(placeId, [...byId.values()])) within.add(id);
+  }
+  // Every place above this one, not this one.
+  const above = new Set(placePath(placeId, byId).map(p => p.id));
+  above.delete(placeId);
+
+  const questAt = (q: Q, at: ReadonlySet<string>) =>
+    (q.placeId !== null && at.has(q.placeId)) ||
+    q.objectives.some(o => o.placeId !== null && at.has(o.placeId));
+
+  const here = quests.filter(q => questAt(q, within));
+  const clocksHere = clocks.filter(
+    c => c.placeId !== null && within.has(c.placeId)
+  );
+  const mine = new Set(here.map(q => q.id));
+  return {
+    quests: here,
+    clocks: clocksHere,
+    fromAbove: {
+      quests: quests.filter(
+        q =>
+          q.status === 'active' &&
+          !mine.has(q.id) &&
+          q.placeId !== null &&
+          above.has(q.placeId)
+      ),
+      clocks: clocks.filter(
+        c =>
+          c.status === 'running' && c.placeId !== null && above.has(c.placeId)
+      ),
+    },
+  };
+}
+
+/* --- what is near ------------------------------------------------------------- */
+
+/**
+ * Why a place is near: it is inside this one, this one is inside it, it sits
+ * beside this one in the same place, or the party is headed there.
+ */
+export type NearWhy = 'inside' | 'around' | 'next door' | 'headed';
+
+/**
+ * The places around `placeId`, and why each is near — no distances, because
+ * the world has no roads in it, only places inside places. Everything else
+ * the viewer can see is `further`, by title.
+ *
+ * With no place (a party that is nowhere yet), the outermost places are near
+ * as what the world is made of, and where the party is headed still is.
+ */
+export function nearbyPlaces<T extends WorldEntry>(
+  placeId: string | null,
+  entries: readonly T[],
+  whereabouts: { headed: readonly Pick<Whereabouts, 'placeId'>[] }
+): { near: { id: string; why: NearWhy }[]; further: string[] } {
+  const byId = new Map(entries.map(e => [e.id, e]));
+  const place = placeId ? byId.get(placeId) : undefined;
+  const near: { id: string; why: NearWhy }[] = [];
+  const taken = new Set<string>(placeId ? [placeId] : []);
+  const add = (id: string, why: NearWhy) => {
+    if (taken.has(id)) return;
+    taken.add(id);
+    near.push({ id, why });
+  };
+
+  // Where the party is going first: it is the likeliest next sheet.
+  for (const h of whereabouts.headed) {
+    if (h.placeId && byId.has(h.placeId)) add(h.placeId, 'headed');
+  }
+  if (place) {
+    const parent = place.placeId ? byId.get(place.placeId) : undefined;
+    if (parent && isPlace(parent)) add(parent.id, 'around');
+    for (const p of placesInside(place.id, entries)) add(p.id, 'inside');
+    for (const p of placesInside(parent?.id ?? null, entries)) {
+      add(p.id, 'next door');
+    }
+  } else {
+    for (const p of placesInside(null, entries)) add(p.id, 'inside');
+  }
+
+  const further = entries
+    .filter(isPlace)
+    .filter(e => !taken.has(e.id))
+    .sort(byTitle)
+    .map(e => e.id);
+  return { near, further };
+}
