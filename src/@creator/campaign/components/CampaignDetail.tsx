@@ -151,9 +151,21 @@ export function CampaignDetail({
       if (key) setSection(key);
       setSub(sub);
     };
+    // A link or a typed address changes the hash behind the router's back,
+    // and the next server action's refresh would put the old address back.
+    // Telling the router about it (its replaceState is watched) keeps the
+    // address and the page agreeing.
+    const changed = () => {
+      read();
+      window.history.replaceState(
+        window.history.state,
+        '',
+        window.location.href
+      );
+    };
     read();
-    window.addEventListener('hashchange', read);
-    return () => window.removeEventListener('hashchange', read);
+    window.addEventListener('hashchange', changed);
+    return () => window.removeEventListener('hashchange', changed);
   }, []);
 
   const go = useCallback((target: string) => {

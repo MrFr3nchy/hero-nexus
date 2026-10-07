@@ -199,7 +199,7 @@ export function HerePanel({
           size={14}
           className="text-gold"
         />
-        <span className="min-w-0 flex-1 truncate text-xs text-ink-muted">
+        <span className="min-w-0 flex-1 basis-[calc(100%-1.5rem)] truncate text-xs text-ink-muted">
           {place
             ? pathLabel(path)
             : world.whereabouts.here

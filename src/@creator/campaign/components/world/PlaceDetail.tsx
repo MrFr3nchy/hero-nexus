@@ -327,8 +327,14 @@ export function PlaceDetail({
     !isStaff && place
       ? 'glance'
       : (tabs.find(t => count[t.key] > 0)?.key ?? tabs[0].key);
-  // A new place opens on its own first tab; somebody sent here opens People.
-  const arrival: PlaceTab = focusNpc ? 'people' : firstFull;
+  // A new place opens on its own first tab; somebody sent here opens People,
+  // and anything else sent here (a faction, a relic) opens Inside.
+  const focused = focusNpc ? byId.get(focusNpc) : undefined;
+  const arrival: PlaceTab = focused
+    ? focused.kind === 'npc'
+      ? 'people'
+      : 'inside'
+    : firstFull;
   const [picked, setPicked] = useState<{ at: string | null; tab: PlaceTab }>({
     at: placeId,
     tab: arrival,
@@ -394,10 +400,20 @@ export function PlaceDetail({
   const upTheRoad = (what: 'quests' | 'clocks') => {
     const list = what === 'quests' ? fromAbove?.quests : fromAbove?.clocks;
     if (!parent || !list || list.length === 0) return null;
+    // Named for where each actually is: the city two places up, not the
+    // district in between.
+    const from = [
+      ...new Set(
+        list
+          .map(t => (t.placeId ? byId.get(t.placeId)?.title : null))
+          .filter((t): t is string => Boolean(t))
+      ),
+    ];
     return (
       <div className="space-y-2 pt-2">
         <Caption>
-          From up the road, in {parent.title || 'the place above'}
+          From up the road
+          {from.length > 0 && `, in ${from.join(' and ')}`}
         </Caption>
         {what === 'quests'
           ? fromAbove!.quests.map(q => questRow(q, true))
@@ -611,7 +627,7 @@ export function PlaceDetail({
       <div
         role="tablist"
         aria-label={`What is in ${place?.title || 'the world'}`}
-        className="flex gap-0.5 overflow-x-auto overflow-y-hidden border-b border-line px-2 @md:px-3"
+        className="flex gap-0.5 overflow-x-auto overflow-y-hidden border-b border-line px-2 [scrollbar-width:none] @md:px-3"
       >
         {tabs.map(t => {
           const lit = t.key === tab;

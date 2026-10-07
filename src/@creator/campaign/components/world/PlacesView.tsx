@@ -322,7 +322,7 @@ export function PlacesView({
         {/* ---- the place, as a sheet ---- */}
         <aside
           aria-label={place?.title || 'The world'}
-          className="relative z-10 min-w-0 overflow-hidden rounded-[14px] border border-line bg-surface [box-shadow:var(--shadow-card)] max-sm:-mx-1 max-sm:-mt-14 max-sm:rounded-b-none max-sm:rounded-t-[18px] @6xl:w-[440px] @6xl:shrink-0"
+          className="relative z-10 min-w-0 overflow-hidden rounded-[14px] border border-line bg-surface [box-shadow:var(--shadow-card)] max-sm:rounded-t-[18px] max-sm:[&_button]:min-h-11 @6xl:w-[440px] @6xl:shrink-0"
         >
           <div aria-hidden className="flex justify-center pt-2 sm:hidden">
             <span className="h-1 w-10 rounded-full bg-line" />

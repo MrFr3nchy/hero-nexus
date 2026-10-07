@@ -76,7 +76,7 @@ export function WorldPanel({
   useEffect(() => {
     if (reloadKey) void refresh();
   }, [reloadKey, refresh]);
-  /** "Add to <place>" is open. */
+  /** "Add to <place>" is open — for the place it was opened at. */
   const [adding, setAdding] = useState(false);
 
   const params = useSearchParams();
@@ -97,6 +97,11 @@ export function WorldPanel({
           },
     [parsed]
   );
+
+  // Walking to another place closes the sheet: it was for the last one.
+  useEffect(() => {
+    setAdding(false);
+  }, [route.scope, route.placeId]);
 
   const go = useCallback(
     (next: Partial<WorldRoute>) =>
@@ -312,7 +317,7 @@ export function WorldPanel({
         <div
           role="radiogroup"
           aria-label="How much of the world"
-          className="inline-flex h-8 items-center gap-0.5 rounded-lg border border-line bg-surface-2 p-0.5"
+          className="inline-flex h-8 max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-line bg-surface-2 p-0.5"
         >
           {SCOPES.map(s => {
             const lit = route.scope === s.key;

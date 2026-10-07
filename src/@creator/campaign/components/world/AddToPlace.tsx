@@ -244,7 +244,7 @@ export function AddToPlace({
         </Button>
       </div>
 
-      <div className="space-y-4 px-4 py-4 @md:px-5">
+      <div className="flex flex-col gap-5 px-4 py-4 @md:px-5">
         {made ? (
           <div className="space-y-3">
             <p className="text-sm text-ink">
@@ -442,7 +442,7 @@ export function AddToPlace({
                     ))}
                   </Select>
                 )}
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                   <p className="text-sm text-ink">Steps, each somewhere</p>
                   {steps.map((step, i) => (
                     <div key={i} className="flex flex-wrap items-end gap-2">

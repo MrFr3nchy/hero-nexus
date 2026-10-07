@@ -450,16 +450,27 @@ export function EverywhereView({
             {unplaced.length > 0 && (
               <>
                 <span className="mx-1 my-1.5 h-px bg-line" />
-                <a
-                  href="#ledger-not-placed"
-                  className="flex min-h-8 items-center gap-2 rounded-md px-2 text-[0.8125rem] text-warning hover:bg-surface-2"
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Not an anchor: the hash is the campaign page's route.
+                    if (placeId) onPick(null);
+                    window.setTimeout(
+                      () =>
+                        document
+                          .getElementById('ledger-not-placed')
+                          ?.scrollIntoView({ behavior: 'smooth' }),
+                      60
+                    );
+                  }}
+                  className="flex min-h-8 items-center gap-2 rounded-md px-2 text-left text-[0.8125rem] text-warning hover:bg-surface-2"
                 >
                   <Glyph name="question" size={13} />
                   <span className="flex-1">Not placed yet</span>
                   <span className="text-[0.7rem] tabular-nums">
                     {unplaced.length}
                   </span>
-                </a>
+                </button>
               </>
             )}
           </nav>

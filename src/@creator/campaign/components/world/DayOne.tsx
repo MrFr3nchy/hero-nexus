@@ -117,7 +117,7 @@ export function DayOne({
           There is no map on the table yet
         </h3>
         <Marginalia>every great campaign starts on a napkin</Marginalia>
-        <div className="w-full max-w-sm space-y-2 text-left">
+        <div className="flex w-full max-w-sm flex-col gap-3 text-left">
           <ImagePicker
             campaignId={campaignId}
             value={imageId}
