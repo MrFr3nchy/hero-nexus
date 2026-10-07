@@ -1447,13 +1447,18 @@ export function DmScreen({
          always lands in a gutter and never crosses a box. Below `lg` the
          columns stack and the fold goes: a phone has no middle. */
           <div
-            className="grid min-h-0 flex-1 gap-2 p-2 max-lg:!grid-cols-1 max-lg:overflow-y-auto"
+            className="grid min-h-0 min-w-0 flex-1 gap-2 p-2 max-lg:!grid-cols-1 max-lg:overflow-y-auto"
             style={{
               // A crease in every gutter, not just the middle one. A real screen
               // folds between each pair of panels, and with an odd number of
               // columns there is no middle gutter to put a single fold in.
               gridTemplateColumns: layout.columns
-                .map((_, i) => (i === 0 ? '1fr' : 'auto 1fr'))
+                // minmax(0, 1fr), not 1fr: a column's floor is zero, not its
+                // widest content, so the columns give way when a hit opens
+                // beside them instead of pushing it off the window.
+                .map((_, i) =>
+                  i === 0 ? 'minmax(0, 1fr)' : 'auto minmax(0, 1fr)'
+                )
                 .join(' '),
             }}
           >

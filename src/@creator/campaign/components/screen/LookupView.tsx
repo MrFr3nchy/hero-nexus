@@ -1,7 +1,13 @@
 'use client';
 
 import { Button, Link, Switch } from '@heroui/react';
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import { StatBlock } from '@/@shared/components/StatBlock';
 import { useDiceTray } from '@/@shared/components/dice';
@@ -141,7 +147,14 @@ function Where({ glyph, children }: { glyph: GlyphName; children: ReactNode }) {
   );
 }
 
+/**
+ * Whether the view sits under a row that already names it (a kept row in
+ * Lookups), so the name is not said twice in one eyeful.
+ */
+const Untitled = createContext(false);
+
 function Title({ children }: { children: ReactNode }) {
+  if (useContext(Untitled)) return null;
   return (
     <h3 className="font-display text-xl leading-tight text-ink">{children}</h3>
   );
@@ -528,6 +541,32 @@ export function LookupView({
   lookup,
   isStaff,
   onError,
+  untitled = false,
+}: {
+  campaignId: string;
+  lookup: LookupRef;
+  isStaff: boolean;
+  onError: (message: string) => void;
+  /** Leave out the name: the row above already says it. */
+  untitled?: boolean;
+}) {
+  return (
+    <Untitled.Provider value={untitled}>
+      <LookupBody
+        campaignId={campaignId}
+        lookup={lookup}
+        isStaff={isStaff}
+        onError={onError}
+      />
+    </Untitled.Provider>
+  );
+}
+
+function LookupBody({
+  campaignId,
+  lookup,
+  isStaff,
+  onError,
 }: {
   campaignId: string;
   lookup: LookupRef;
@@ -579,7 +618,8 @@ export function LookupView({
           {entry.ref.source === 'homebrew' ? ' · homebrew' : ' · SRD'}
         </Where>
         <Title>{entry.name}</Title>
-        <StatBlock entry={entry} headless showSource />
+        {/* The attacks first: mid-session the rolls are why a DM opened it,
+            and the block runs long. */}
         {isStaff && type === 'creature' && (
           <CreatureRolls
             campaignId={campaignId}
@@ -588,6 +628,7 @@ export function LookupView({
             onError={onError}
           />
         )}
+        <StatBlock entry={entry} headless showSource />
       </div>
     );
   }

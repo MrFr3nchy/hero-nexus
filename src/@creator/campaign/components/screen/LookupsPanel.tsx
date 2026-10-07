@@ -82,6 +82,7 @@ export function LookupsPanel({
                   lookup={item.ref}
                   isStaff={isStaff}
                   onError={onError}
+                  untitled
                 />
               </div>
             )}
