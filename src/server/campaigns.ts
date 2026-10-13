@@ -3,6 +3,7 @@ import 'server-only';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import { addCampaignContent, listCampaignContentIds } from './campaign-content';
+import { bumpVersion } from './live-hub';
 import { requireUserId } from './session-user';
 import { db } from '@/db';
 import {
@@ -569,6 +570,8 @@ export async function leaveCampaign(campaignId: string): Promise<void> {
         eq(campaignMembers.userId, userId)
       )
     );
+  // The party on every open screen is read off the member rows.
+  bumpVersion(campaignId);
 }
 
 export async function removeMember(
@@ -585,6 +588,7 @@ export async function removeMember(
         eq(campaignMembers.userId, targetUserId)
       )
     );
+  bumpVersion(campaignId);
 }
 
 /**

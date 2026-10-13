@@ -1,13 +1,21 @@
 'use client';
 
-import { Button, Tooltip } from '@heroui/react';
+import {
+  Button,
+  NumberInput,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Tooltip,
+} from '@heroui/react';
 import { useState } from 'react';
 
 import type { EntryRow } from '@/server/session';
-import { legendaryLeft } from '../../lib/monsters';
+import { legendaryLeft, type LegendaryCounter } from '../../lib/monsters';
 import {
   setEntryGroupAction,
   setLairAction,
+  setLegendaryAction,
   spendLegendaryActionAction,
   spendLegendaryResistanceAction,
   spendRechargeFeatureAction,
@@ -151,12 +159,121 @@ export function LegendaryControls({
           </Button>
         </Tooltip>
       )}
+      {leg && (leg.actions.max > 0 || leg.resistances.max > 0) && (
+        <LegendaryCounters
+          actions={leg.actions}
+          resistances={leg.resistances}
+          onSave={patch => act(setLegendaryAction(entry.id, patch))}
+        />
+      )}
       {refused && (
         <div className="basis-full">
           <Refused refusal={refused} onDismiss={() => setRefused(null)} />
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The counters by hand: a mis-tapped pip given back, a resistance the DM
+ * rules was never spent, a stat block whose numbers the table plays
+ * differently. Pips only ever spend, so this is the one way back up.
+ */
+function LegendaryCounters({
+  actions,
+  resistances,
+  onSave,
+}: {
+  actions: LegendaryCounter;
+  resistances: LegendaryCounter;
+  onSave: (patch: {
+    actions: LegendaryCounter;
+    resistances: LegendaryCounter;
+  }) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [aMax, setAMax] = useState(actions.max);
+  const [aLeft, setALeft] = useState(legendaryLeft(actions));
+  const [rMax, setRMax] = useState(resistances.max);
+  const [rLeft, setRLeft] = useState(legendaryLeft(resistances));
+
+  const reset = () => {
+    setAMax(actions.max);
+    setALeft(legendaryLeft(actions));
+    setRMax(resistances.max);
+    setRLeft(legendaryLeft(resistances));
+  };
+
+  const counter = (max: number, left: number): LegendaryCounter => ({
+    max,
+    used: Math.max(0, max - Math.min(left, max)),
+  });
+
+  const field = (
+    label: string,
+    value: number,
+    onChange: (n: number) => void,
+    max: number
+  ) => (
+    <NumberInput
+      size="sm"
+      label={label}
+      labelPlacement="outside"
+      minValue={0}
+      maxValue={max}
+      value={value}
+      onValueChange={n => onChange(Number.isFinite(n) ? n : 0)}
+    />
+  );
+
+  return (
+    <Popover
+      placement="bottom-start"
+      isOpen={open}
+      onOpenChange={next => {
+        if (next) reset();
+        setOpen(next);
+      }}
+    >
+      <PopoverTrigger>
+        <Button
+          size="sm"
+          variant="light"
+          className="h-6 min-w-0 px-1.5 text-[0.65rem] text-ink-subtle"
+        >
+          Counters
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-3">
+        <div className="flex w-full flex-col gap-3">
+          <div className="grid grid-cols-2 gap-2">
+            {field('Legendary actions', aMax, setAMax, 9)}
+            {field('Left', aLeft, setALeft, aMax)}
+            {field('Resistance', rMax, setRMax, 9)}
+            {field('Left', rLeft, setRLeft, rMax)}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              color="primary"
+              onPress={async () => {
+                setOpen(false);
+                await onSave({
+                  actions: counter(aMax, aLeft),
+                  resistances: counter(rMax, rLeft),
+                });
+              }}
+            >
+              Set the counters
+            </Button>
+            <Button size="sm" variant="light" onPress={() => setOpen(false)}>
+              Not now
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

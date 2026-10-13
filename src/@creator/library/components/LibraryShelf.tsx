@@ -9,6 +9,7 @@ import {
   EmptyState,
   EntryCard,
   Glyph,
+  HoardScene,
   Ledger,
   Marginalia,
   Pill,
@@ -22,7 +23,11 @@ import {
   type ContentType,
 } from '@/@shared/content';
 
-import { listShelfAction } from '../actions';
+import {
+  listMyPublicationsAction,
+  listShelfAction,
+  listTakenPublicationsAction,
+} from '../actions';
 import {
   publicationKindMeta,
   PUBLICATION_KIND_ORDER,
@@ -47,6 +52,20 @@ import { AdoptControls } from './AdoptControls';
 
 type KindFilter = PublicationKind | 'all';
 
+/**
+ * Which cards the page is showing. The library is what is listed today; the
+ * other two are the reader's own, and keep withdrawn and unlisted listings
+ * that have left the library — an author relists from Yours, a reader finds
+ * what they took after its author withdrew it (sharing-model rule 4).
+ */
+type Lens = 'library' | 'yours' | 'taken';
+
+const LENS_OPTIONS: { key: Lens; label: string }[] = [
+  { key: 'library', label: 'The library' },
+  { key: 'yours', label: 'Yours' },
+  { key: 'taken', label: 'Taken' },
+];
+
 const KIND_OPTIONS: { key: KindFilter; label: string }[] = [
   { key: 'all', label: 'Everything' },
   ...PUBLICATION_KIND_ORDER.map(k => ({
@@ -61,8 +80,19 @@ const TYPE_OPTIONS: { key: string; label: string }[] = [
   ...CONTENT_TYPE_ORDER.map(t => ({ key: t, label: contentMeta(t).plural })),
 ];
 
-export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
+export function LibraryShelf({
+  initial,
+  mine: initialMine,
+  taken: initialTaken,
+}: {
+  initial: PublicationCard[];
+  mine: PublicationCard[];
+  taken: PublicationCard[];
+}) {
   const [cards, setCards] = useState(initial);
+  const [mineCards, setMineCards] = useState(initialMine);
+  const [takenCards, setTakenCards] = useState(initialTaken);
+  const [lens, setLens] = useState<Lens>('library');
   const [kind, setKind] = useState<KindFilter>('all');
   const [contentType, setContentType] = useState<ContentType | ''>('');
   const [query, setQuery] = useState('');
@@ -92,6 +122,17 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
     }
   }, [kind, contentType, tag, author, query, sort]);
 
+  /** After a take, copy, withdraw or delete: all three lists may have moved. */
+  const refreshAll = useCallback(async () => {
+    const [mine, taken] = await Promise.all([
+      listMyPublicationsAction(),
+      listTakenPublicationsAction(),
+      refresh(),
+    ]);
+    setMineCards(mine);
+    setTakenCards(taken);
+  }, [refresh]);
+
   useEffect(() => {
     // The shelf arrives rendered from the server; only a changed filter needs
     // to go back for more. Typing is debounced so a five-letter search is one
@@ -100,19 +141,36 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
     return () => clearTimeout(timer);
   }, [refresh, query]);
 
-  const taken = cards.filter(c => c.adopted !== null).length;
-  const mine = cards.filter(c => c.mine).length;
+  // The two personal lenses are filtered here rather than on the server: they
+  // are one reader's handful, and the library's filters mean the same thing
+  // over them.
+  const shown = useMemo(() => {
+    if (lens === 'library') return cards;
+    const q = query.trim().toLowerCase();
+    const list = (lens === 'yours' ? mineCards : takenCards).filter(
+      c =>
+        (kind === 'all' || c.kind === kind) &&
+        (!contentType || c.contentType === contentType) &&
+        (!tag || c.tags.includes(tag)) &&
+        (!q ||
+          c.title.toLowerCase().includes(q) ||
+          c.summary.toLowerCase().includes(q))
+    );
+    return sort === 'adopted'
+      ? [...list].sort((a, b) => b.adoptions - a.adoptions)
+      : list;
+  }, [lens, cards, mineCards, takenCards, kind, contentType, tag, query, sort]);
 
   const tags = useMemo(() => {
     const seen = new Map<string, number>();
-    for (const card of cards) {
+    for (const card of shown) {
       for (const t of card.tags) seen.set(t, (seen.get(t) ?? 0) + 1);
     }
     return [...seen.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .map(([t]) => t);
-  }, [cards]);
+  }, [shown]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -120,8 +178,8 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
         <Ledger
           items={[
             { value: cards.length, label: 'in the library' },
-            { value: taken, label: 'you have taken' },
-            { value: mine, label: 'yours' },
+            { value: takenCards.length, label: 'you have taken' },
+            { value: mineCards.length, label: 'yours' },
           ]}
         />
         <Marginalia dash>
@@ -131,10 +189,26 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
 
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
+          <Select
+            size="sm"
+            className="max-w-[10rem]"
+            aria-label="Whose listings"
+            selectedKeys={[lens]}
+            onSelectionChange={keys => {
+              const picked = Array.from(keys)[0] as Lens | undefined;
+              if (picked) setLens(picked);
+            }}
+          >
+            {LENS_OPTIONS.map(option => (
+              <SelectItem key={option.key} textValue={option.label}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </Select>
           <Input
             size="sm"
             className="max-w-xs"
-            placeholder="Search the shelf…"
+            placeholder="Search the library…"
             value={query}
             onValueChange={setQuery}
             startContent={
@@ -187,7 +261,7 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
           </Button>
         </div>
 
-        {author && (
+        {author && lens === 'library' && (
           <div className="flex items-center gap-2 text-sm text-ink-muted">
             <span>Everything left here by {author.name}.</span>
             <button
@@ -195,7 +269,7 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
               onClick={() => setAuthor(null)}
               className="underline underline-offset-2 hover:text-ink"
             >
-              Show the whole shelf
+              Show the whole library
             </button>
           </div>
         )}
@@ -220,9 +294,31 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
         )}
       </div>
 
-      {refreshing && cards.length === 0 ? (
+      {lens === 'library' && refreshing && cards.length === 0 ? (
         <DiceSpinner label="Reading the library…" />
-      ) : cards.length === 0 ? (
+      ) : lens === 'yours' && shown.length === 0 ? (
+        <EmptyState
+          scene={<TomeScene />}
+          title="Nothing of yours is in the library"
+          description="Publish a piece of homebrew, a hero or a whole campaign and it will wait here, withdrawn or not."
+          action={
+            <Button as={Link} href="/creator/homebrew" color="primary">
+              Go to the Forge
+            </Button>
+          }
+        />
+      ) : lens === 'taken' && shown.length === 0 ? (
+        <EmptyState
+          scene={<HoardScene />}
+          title="You have taken nothing yet"
+          description="Take or copy something from the library and it stays here, even if its author withdraws it."
+          action={
+            <Button color="primary" onPress={() => setLens('library')}>
+              Browse the library
+            </Button>
+          }
+        />
+      ) : shown.length === 0 ? (
         <EmptyState
           scene={<TomeScene />}
           title="The library is bare"
@@ -235,12 +331,15 @@ export function LibraryShelf({ initial }: { initial: PublicationCard[] }) {
         />
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
-          {cards.map(card => (
+          {shown.map(card => (
             <ShelfCard
               key={card.id}
               card={card}
-              onChanged={refresh}
-              onAuthor={setAuthor}
+              onChanged={refreshAll}
+              onAuthor={author => {
+                setLens('library');
+                setAuthor(author);
+              }}
             />
           ))}
         </div>
@@ -276,6 +375,13 @@ function ShelfCard({
       badges={
         <>
           {card.mine && <Ribbon tone="gold">Yours</Ribbon>}
+          {card.status === 'withdrawn' ? (
+            <Ribbon tone="neutral">Withdrawn</Ribbon>
+          ) : (
+            card.visibility === 'unlisted' && (
+              <Ribbon tone="neutral">Unlisted</Ribbon>
+            )
+          )}
           {card.adopted === 'linked' && <Ribbon tone="arcane">Taken</Ribbon>}
           {card.adopted === 'forked' && <Ribbon tone="arcane">Copied</Ribbon>}
         </>

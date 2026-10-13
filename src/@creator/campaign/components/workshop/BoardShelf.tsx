@@ -30,7 +30,12 @@ import {
   Ribbon,
   useConfirm,
 } from '@/@shared/components/ui';
+import type { CampaignAudioRow } from '@/server/audio';
 import type { listBattleMaps } from '@/server/battlemap';
+import {
+  listCampaignAudioAction,
+  setBoardAudioAction,
+} from '../../audio-actions';
 import {
   createBattleMapAction,
   deleteBattleMapAction,
@@ -154,19 +159,24 @@ export function NewBoardForm({
 function BoardCard({
   campaignId,
   board,
+  tracks,
   busy,
   onActive,
   onVisibility,
   onRename,
   onDelete,
+  onTrack,
 }: {
   campaignId: string;
   board: BoardRow;
+  /** The campaign's uploaded tracks; none means no picker. */
+  tracks: CampaignAudioRow[];
   busy: boolean;
   onActive: (active: boolean) => Promise<void>;
   onVisibility: (shared: boolean) => Promise<void>;
   onRename: (name: string) => Promise<void>;
   onDelete: () => Promise<void>;
+  onTrack: (audioId: string | null) => Promise<void>;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(board.name);
@@ -276,6 +286,30 @@ function BoardCard({
           Take down
         </Button>
       </div>
+
+      {/* Tracks are uploaded from Ambience on the session screen; until there
+          is one, there is nothing to choose and no picker. */}
+      {tracks.length > 0 && (
+        <Select
+          size="sm"
+          label="Music when it is put in play"
+          labelPlacement="outside-left"
+          className="max-w-md"
+          isDisabled={busy}
+          selectedKeys={[board.audioId ?? 'none']}
+          onSelectionChange={keys => {
+            const picked = String(Array.from(keys)[0] ?? 'none');
+            const next = picked === 'none' ? null : picked;
+            if (next !== board.audioId) void onTrack(next);
+          }}
+        >
+          {[{ id: 'none', title: 'No music' }, ...tracks].map(t => (
+            <SelectItem key={t.id} textValue={t.title}>
+              {t.title}
+            </SelectItem>
+          ))}
+        </Select>
+      )}
     </li>
   );
 }
@@ -289,6 +323,7 @@ export function BoardShelf({
   initial?: BoardRow[];
 }) {
   const [boards, setBoards] = useState<BoardRow[] | null>(initial ?? null);
+  const [tracks, setTracks] = useState<CampaignAudioRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { confirm, dialog } = useConfirm();
@@ -300,6 +335,14 @@ export function BoardShelf({
   useEffect(() => {
     if (!initial) refresh();
   }, [initial, refresh]);
+
+  useEffect(() => {
+    // A board starts something that loops under the room, never a one-press
+    // sound effect.
+    listCampaignAudioAction(campaignId).then(rows =>
+      setTracks(rows.filter(t => t.kind === 'ambience'))
+    );
+  }, [campaignId]);
 
   const act = async (p: Promise<{ ok: boolean; error?: string }>) => {
     setBusy(true);
@@ -349,6 +392,7 @@ export function BoardShelf({
                 key={b.id}
                 campaignId={campaignId}
                 board={b}
+                tracks={tracks}
                 busy={busy}
                 onActive={active => act(setBattleMapActiveAction(b.id, active))}
                 onVisibility={shared =>
@@ -357,6 +401,7 @@ export function BoardShelf({
                   )
                 }
                 onRename={name => act(renameBattleMapAction(b.id, name))}
+                onTrack={audioId => act(setBoardAudioAction(b.id, audioId))}
                 onDelete={async () => {
                   const yes = await confirm({
                     title: `Take down ${b.name || 'this board'}?`,

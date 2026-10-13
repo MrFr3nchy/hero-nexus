@@ -426,6 +426,8 @@ export async function listBattleMaps(campaignId: string): Promise<
     visibility: 'dm' | 'shared';
     isActive: boolean;
     encounterId: string | null;
+    /** The track that starts when the board is put in play, if any. */
+    audioId: string | null;
     updatedAt: string;
   }[]
 > {
@@ -445,6 +447,7 @@ export async function listBattleMaps(campaignId: string): Promise<
       visibility: r.visibility,
       isActive: r.isActive,
       encounterId: r.encounterId,
+      audioId: r.audioId,
       updatedAt: r.updatedAt,
     };
   });

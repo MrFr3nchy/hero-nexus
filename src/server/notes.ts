@@ -451,8 +451,31 @@ async function staffForReveal(revealId: string) {
     where: eq(campaignReveals.id, revealId),
   });
   if (!reveal) throw new Error('NOT_FOUND');
-  await staff(reveal.campaignId);
-  return reveal;
+  const { userId } = await staff(reveal.campaignId);
+  return { ...reveal, staffId: userId };
+}
+
+/**
+ * Tell the people a reveal has just reached, the way `revealExcerpt` tells
+ * the first ones — so a line passed on later still arrives as a slip, not as
+ * something they happen across in the timeline.
+ */
+function announceReveal(
+  reveal: { campaignId: string; body: string; staffId: string },
+  audience: 'everyone' | { users: string[] }
+): void {
+  const body = reveal.body;
+  publish(
+    reveal.campaignId,
+    {
+      kind: 'reveal',
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      by: reveal.staffId,
+      excerpt: body.length > 160 ? `${body.slice(0, 157)}…` : body,
+    },
+    audience
+  );
 }
 
 /**
@@ -472,6 +495,7 @@ export async function widenRevealToParty(revealId: string): Promise<void> {
   await db
     .delete(campaignRevealTargets)
     .where(eq(campaignRevealTargets.revealId, revealId));
+  announceReveal(reveal, 'everyone');
 }
 
 /** Address an existing private reveal to one more person. */
@@ -495,6 +519,7 @@ export async function addRevealTarget(
   await db
     .insert(campaignRevealTargets)
     .values({ revealId, userId: targetUserId });
+  announceReveal(reveal, { users: [targetUserId] });
 }
 
 /**

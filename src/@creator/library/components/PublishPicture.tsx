@@ -33,7 +33,7 @@ export function PublishPicture({
   const [done, setDone] = useState(false);
 
   if (done) {
-    return <span className="text-xs text-ink-subtle">On the shelf.</span>;
+    return <span className="text-xs text-ink-subtle">In the library.</span>;
   }
 
   if (!open) {

@@ -1,8 +1,7 @@
 import 'server-only';
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
-import type { AdoptionMode } from '@/@creator/library/lib/publication';
 import { fromHomebrew, type ContentEntry } from '@/@shared/content';
 
 import { db } from '@/db';
@@ -33,19 +32,6 @@ import { requireUserId } from './session-user';
  * the filters, the "yours to edit" affordance and the compendium detail pane all
  * read `origin` rather than guessing from `ref.source`.
  */
-
-export interface AdoptionRow {
-  id: string;
-  publicationId: string;
-  mode: AdoptionMode;
-  /** What it resolves to: the author's row for a link, the reader's for a fork. */
-  homebrewId: string | null;
-  characterId: string | null;
-  campaignId: string | null;
-  /** The listing's version when it was taken. */
-  version: number;
-  createdAt: string;
-}
 
 /**
  * Read the listing a reader is about to take, and refuse the cases that are not
@@ -250,26 +236,6 @@ export async function unadopt(publicationId: string): Promise<void> {
         eq(adoptions.publicationId, publicationId)
       )
     );
-}
-
-/** Everything the signed-in reader has taken, newest first. */
-export async function listAdoptions(): Promise<AdoptionRow[]> {
-  const userId = await requireUserId();
-  const rows = await db
-    .select()
-    .from(adoptions)
-    .where(eq(adoptions.userId, userId))
-    .orderBy(desc(adoptions.createdAt));
-  return rows.map(row => ({
-    id: row.id,
-    publicationId: row.publicationId,
-    mode: row.mode,
-    homebrewId: row.homebrewId,
-    characterId: row.characterId,
-    campaignId: row.campaignId,
-    version: row.version,
-    createdAt: row.createdAt,
-  }));
 }
 
 /**

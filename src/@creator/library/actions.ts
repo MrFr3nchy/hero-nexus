@@ -3,17 +3,12 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
-import {
-  adopt,
-  fork,
-  listAdoptions,
-  unadopt,
-  type AdoptionRow,
-} from '@/server/adoptions';
+import { adopt, fork, unadopt } from '@/server/adoptions';
 import {
   deletePublication,
   listMyHomebrewPublications,
   listMyPublications,
+  listTakenPublications,
   listShelf,
   publishHomebrew,
   publishImage,
@@ -106,6 +101,13 @@ export async function listShelfAction(
 
 export async function listMyPublicationsAction(): Promise<PublicationCard[]> {
   return listMyPublications();
+}
+
+/** What the reader has taken or copied, withdrawn listings included. */
+export async function listTakenPublicationsAction(): Promise<
+  PublicationCard[]
+> {
+  return listTakenPublications();
 }
 
 /** The author's own listings, so the Forge can mark what is already out. */
@@ -297,8 +299,4 @@ export async function unadoptAction(
   } catch (err) {
     return fail(err);
   }
-}
-
-export async function listAdoptionsAction(): Promise<AdoptionRow[]> {
-  return listAdoptions();
 }

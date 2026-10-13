@@ -472,6 +472,27 @@ export async function listMyPublications(): Promise<PublicationCard[]> {
 }
 
 /**
+ * Everything the signed-in reader has taken or copied, as cards, whatever the
+ * listing's status since. A withdrawn listing leaves the shelf but not the
+ * reader's hands (sharing-model rule 4), so this is where they still find it.
+ */
+export async function listTakenPublications(): Promise<PublicationCard[]> {
+  const userId = await requireUserId();
+  const rows = (await selectCards()
+    .where(
+      inArray(
+        publications.id,
+        db
+          .select({ id: adoptions.publicationId })
+          .from(adoptions)
+          .where(eq(adoptions.userId, userId))
+      )
+    )
+    .orderBy(desc(publications.updatedAt))) as CardQueryRow[];
+  return decorate(rows, userId);
+}
+
+/**
  * One listing, whatever its status.
  *
  * A withdrawn or unlisted publication resolves here on purpose: the adopters who

@@ -13,9 +13,11 @@ import {
   useConfirm,
 } from '@/@shared/components/ui';
 import { formatCalendarDate } from '@/@shared/lib/dates';
-import type { CampaignRole } from '@/server/campaigns';
+import type { CampaignMemberRow, CampaignRole } from '@/server/campaigns';
 import type { RevealRow } from '@/server/notes';
+import { listMembersAction } from '../actions';
 import {
+  addRevealTargetAction,
   deleteRevealAction,
   listRevealsAction,
   revealExcerptAction,
@@ -24,8 +26,8 @@ import {
 
 const SOURCE_LABEL: Record<RevealRow['sourceKind'], string> = {
   note: 'from the notebook',
-  session: 'from a sitting',
-  quest: 'from a thread',
+  session: 'from a session',
+  quest: 'from a quest',
   canon: 'from the canon',
   free: 'said at the table',
 };
@@ -55,7 +57,17 @@ export function RevealTimeline({
   const [error, setError] = useState<string | null>(null);
   const [body, setBody] = useState('');
   const [saying, setSaying] = useState(false);
+  /** Who a private line could also go to. Staff only; read once. */
+  const [members, setMembers] = useState<CampaignMemberRow[]>([]);
+  const [passingOn, setPassingOn] = useState<string | null>(null);
   const { confirm, dialog } = useConfirm();
+
+  useEffect(() => {
+    if (!isStaff) return;
+    listMembersAction(campaignId)
+      .then(rows => setMembers(rows.filter(m => m.status === 'active')))
+      .catch(() => setMembers([]));
+  }, [campaignId, isStaff]);
 
   const refresh = useCallback(async () => {
     try {
@@ -194,9 +206,56 @@ export function RevealTimeline({
                       }}
                       className="text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle hover:text-ink"
                     >
-                      tell the rest
+                      show the party
                     </button>
                   )}
+                  {r.visibility === 'selected' &&
+                    (passingOn === r.id ? (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        {members
+                          .filter(
+                            m => !r.targets.some(t => t.userId === m.userId)
+                          )
+                          .map(m => (
+                            <button
+                              key={m.userId}
+                              type="button"
+                              onClick={async () => {
+                                const res = await addRevealTargetAction(
+                                  campaignId,
+                                  r.id,
+                                  m.userId
+                                );
+                                if (!res.ok) setError(res.error);
+                                setPassingOn(null);
+                                await refresh();
+                              }}
+                              className="rounded-md border border-line px-1.5 py-0.5 text-xs text-ink-muted hover:border-arcane/60 hover:text-ink"
+                            >
+                              {m.name ?? m.email ?? 'Someone'}
+                            </button>
+                          ))}
+                        <button
+                          type="button"
+                          onClick={() => setPassingOn(null)}
+                          className="text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle hover:text-ink"
+                        >
+                          not now
+                        </button>
+                      </span>
+                    ) : (
+                      members.some(
+                        m => !r.targets.some(t => t.userId === m.userId)
+                      ) && (
+                        <button
+                          type="button"
+                          onClick={() => setPassingOn(r.id)}
+                          className="text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle hover:text-ink"
+                        >
+                          show one more
+                        </button>
+                      )
+                    ))}
                   <button
                     type="button"
                     onClick={async () => {

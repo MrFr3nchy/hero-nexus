@@ -7,6 +7,7 @@ import {
   Input,
   Select,
   SelectItem,
+  Textarea,
 } from '@heroui/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -34,6 +35,7 @@ import {
   listCampaignContentAction,
   listMyHomebrewAction,
   removeCampaignContentAction,
+  setCampaignContentNoteAction,
 } from '../content-actions';
 
 /**
@@ -66,18 +68,71 @@ function EntryBody({
   item,
   isStaff,
   onRemove,
+  onNoteSaved,
 }: {
   item: LibraryEntry;
   isStaff: boolean;
   onRemove: (item: LibraryEntry) => void;
+  onNoteSaved: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(item.note);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    const res = await setCampaignContentNoteAction(
+      item.campaignId,
+      item.id,
+      draft
+    );
+    setSaving(false);
+    if (!res.ok) {
+      setError(res.error ?? 'Failed to save the note.');
+      return;
+    }
+    setEditing(false);
+    onNoteSaved();
+  };
+
   return (
     <div className="space-y-4 pb-2">
-      {item.note && (
-        <p className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-ink-muted">
-          <span className="font-medium text-ink">At this table: </span>
-          {item.note}
-        </p>
+      {editing ? (
+        <div className="flex flex-col gap-2">
+          <Textarea
+            size="sm"
+            minRows={2}
+            label="Note for the party"
+            labelPlacement="outside"
+            value={draft}
+            onValueChange={setDraft}
+          />
+          {error && <p className="text-sm text-danger">{error}</p>}
+          <div className="flex gap-2">
+            <Button size="sm" color="primary" isLoading={saving} onPress={save}>
+              Save the note
+            </Button>
+            <Button
+              size="sm"
+              variant="light"
+              onPress={() => {
+                setDraft(item.note);
+                setEditing(false);
+              }}
+            >
+              Not now
+            </Button>
+          </div>
+        </div>
+      ) : (
+        item.note && (
+          <p className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-ink-muted">
+            <span className="font-medium text-ink">At this table: </span>
+            {item.note}
+          </p>
+        )
       )}
       <StatBlock entry={item.entry} headless />
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
@@ -85,14 +140,28 @@ function EntryBody({
           Added by {item.addedByName ?? 'someone since departed'}
         </p>
         {isStaff && (
-          <Button
-            size="sm"
-            variant="light"
-            className="text-ink-muted data-[hover=true]:text-danger"
-            onPress={() => onRemove(item)}
-          >
-            Take out of play
-          </Button>
+          <div className="flex gap-1">
+            {!editing && (
+              <Button
+                size="sm"
+                variant="light"
+                onPress={() => {
+                  setDraft(item.note);
+                  setEditing(true);
+                }}
+              >
+                {item.note ? 'Edit the note' : 'Add a note'}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="light"
+              className="text-ink-muted data-[hover=true]:text-danger"
+              onPress={() => onRemove(item)}
+            >
+              Take out of play
+            </Button>
+          </div>
         )}
       </div>
     </div>
@@ -309,6 +378,7 @@ export function CampaignContentPanel({
                         item={item}
                         isStaff={isStaff}
                         onRemove={remove}
+                        onNoteSaved={load}
                       />
                     </AccordionItem>
                   ))}
