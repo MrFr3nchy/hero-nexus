@@ -332,6 +332,9 @@ export async function updateSession(
     .update(campaignSessions)
     .set(set)
     .where(eq(campaignSessions.id, sessionId));
+  // The live sitting is on every open table; a retitle or a status change
+  // there is news to all of them. Prep and recap edits elsewhere are not.
+  if (session.status === 'live') bumpVersion(session.campaignId);
 
   const status = set.status ?? session.status;
   if (dateMoved && set.scheduledFor && status === 'planned') {
@@ -363,6 +366,9 @@ export async function markSessionPlayed(sessionId: string): Promise<void> {
       updatedAt: new Date().toISOString(),
     })
     .where(eq(campaignSessions.id, sessionId));
+  // Marking the live sitting played from the chronicle closes it, exactly as
+  // `closeSitting` does.
+  if (session.status === 'live') bumpVersion(session.campaignId);
 
   const existing = await db
     .select({ userId: campaignSessionAttendance.userId })
@@ -784,8 +790,9 @@ export async function setAttendance(
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  await staffForSession(sessionId);
+  const { session } = await staffForSession(sessionId);
   await db.delete(campaignSessions).where(eq(campaignSessions.id, sessionId));
+  if (session.status === 'live') bumpVersion(session.campaignId);
 }
 
 /**
