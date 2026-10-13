@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import {
   addToPurse,
@@ -25,6 +25,8 @@ import {
   campaignMembers,
   campaignShopStock,
   campaignShops,
+  canonEntries,
+  canonReveals,
   characterHistory,
   characters,
   downtimeActions,
@@ -72,6 +74,10 @@ export interface ShopRow {
   markupPercent: number;
   buysAtPercent: number;
   visibility: 'dm' | 'shared';
+  /** Where it stands (0072), when the viewer may see that place. */
+  placeId: string | null;
+  /** Who keeps it (0072), when the viewer may see that NPC. */
+  keeper: { id: string; title: string } | null;
   stock: StockRow[];
   createdAt: string;
 }
@@ -116,7 +122,7 @@ export function shelfPrice(
  * yet a place the party has found.
  */
 export async function listShops(campaignId: string): Promise<ShopRow[]> {
-  const { role } = await requireCampaignRole(campaignId, [
+  const { role, userId } = await requireCampaignRole(campaignId, [
     'gm',
     'co-gm',
     'player',
@@ -131,12 +137,18 @@ export async function listShops(campaignId: string): Promise<ShopRow[]> {
   );
   if (visible.length === 0) return [];
 
-  const stock = await db
+  const mine = await db
     .select()
     .from(campaignShopStock)
+    .where(
+      inArray(
+        campaignShopStock.shopId,
+        visible.map(v => v.id)
+      )
+    )
     .orderBy(asc(campaignShopStock.sortOrder));
-  const mine = stock.filter(s => visible.some(v => v.id === s.shopId));
   const resolved = await resolveContentRefs(mine.map(toRef));
+  const known = await knownEntries(campaignId, userId, isStaffRole(role));
 
   return visible.map(shop => ({
     id: shop.id,
@@ -146,6 +158,11 @@ export async function listShops(campaignId: string): Promise<ShopRow[]> {
     markupPercent: shop.markupPercent,
     buysAtPercent: shop.buysAtPercent,
     visibility: shop.visibility,
+    placeId: shop.placeId && known.has(shop.placeId) ? shop.placeId : null,
+    keeper:
+      shop.keeperId && known.has(shop.keeperId)
+        ? { id: shop.keeperId, title: known.get(shop.keeperId)! }
+        : null,
     createdAt: shop.createdAt,
     stock: mine
       .filter(s => s.shopId === shop.id)
@@ -171,6 +188,40 @@ export async function listShops(campaignId: string): Promise<ShopRow[]> {
   }));
 }
 
+/**
+ * The canon entries a viewer may name, by id: every one for staff, the shared
+ * and the shown for a player. A shop's keeper and place reach a player only
+ * once the party knows who and where they are.
+ */
+async function knownEntries(
+  campaignId: string,
+  userId: string,
+  isStaff: boolean
+): Promise<Map<string, string>> {
+  const rows = await db
+    .select({
+      id: canonEntries.id,
+      title: canonEntries.title,
+      visibility: canonEntries.visibility,
+    })
+    .from(canonEntries)
+    .where(eq(canonEntries.campaignId, campaignId));
+  if (isStaff) return new Map(rows.map(r => [r.id, r.title]));
+  const told = new Set(
+    (
+      await db
+        .select({ entryId: canonReveals.entryId })
+        .from(canonReveals)
+        .where(eq(canonReveals.userId, userId))
+    ).map(r => r.entryId)
+  );
+  return new Map(
+    rows
+      .filter(r => r.visibility === 'shared' || told.has(r.id))
+      .map(r => [r.id, r.title])
+  );
+}
+
 /* --- the DM's side --------------------------------------------------- */
 
 export interface ShopInput {
@@ -179,6 +230,40 @@ export interface ShopInput {
   markupPercent?: number;
   buysAtPercent?: number;
   visibility?: 'dm' | 'shared';
+  /** Where it stands: a `location` entry at this table, or null. */
+  placeId?: string | null;
+  /** Who keeps it: an `npc` entry at this table, or null. */
+  keeperId?: string | null;
+}
+
+/** A canon entry of the right kind at this table, for a shop to point at. */
+async function checkShopLink(
+  campaignId: string,
+  id: string | null | undefined,
+  kind: 'location' | 'npc'
+): Promise<string | null | undefined> {
+  if (id === undefined || id === null) return id;
+  const row = await db.query.canonEntries.findFirst({
+    columns: { id: true, kind: true },
+    where: and(
+      eq(canonEntries.id, id),
+      eq(canonEntries.campaignId, campaignId)
+    ),
+  });
+  if (!row) throw new Error('NOT_FOUND');
+  if (row.kind !== kind) {
+    throw new Error(kind === 'location' ? 'NOT_A_PLACE' : 'NOT_AN_NPC');
+  }
+  return row.id;
+}
+
+async function cleanLinks(campaignId: string, input: ShopInput) {
+  const out: Partial<typeof campaignShops.$inferInsert> = {};
+  const placeId = await checkShopLink(campaignId, input.placeId, 'location');
+  const keeperId = await checkShopLink(campaignId, input.keeperId, 'npc');
+  if (placeId !== undefined) out.placeId = placeId;
+  if (keeperId !== undefined) out.keeperId = keeperId;
+  return out;
 }
 
 function cleanShop(input: ShopInput) {
@@ -210,7 +295,11 @@ export async function createShop(
   await requireCampaignRole(campaignId, ['gm', 'co-gm']);
   const [row] = await db
     .insert(campaignShops)
-    .values({ campaignId, ...cleanShop(input) })
+    .values({
+      campaignId,
+      ...cleanShop(input),
+      ...(await cleanLinks(campaignId, input)),
+    })
     .returning({ id: campaignShops.id });
   bumpVersion(campaignId);
   return row.id;
@@ -221,10 +310,12 @@ export async function updateShop(
   input: ShopInput
 ): Promise<void> {
   const { shop } = await staffForShop(shopId);
-  await db
-    .update(campaignShops)
-    .set(cleanShop(input))
-    .where(eq(campaignShops.id, shopId));
+  const set = {
+    ...cleanShop(input),
+    ...(await cleanLinks(shop.campaignId, input)),
+  };
+  if (Object.keys(set).length === 0) return;
+  await db.update(campaignShops).set(set).where(eq(campaignShops.id, shopId));
   bumpVersion(shop.campaignId);
 }
 

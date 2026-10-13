@@ -91,6 +91,8 @@ import { applyPlayPatchUnchecked } from './play';
 import { applyHpUnchecked } from './hp';
 import { requireUserId } from './session-user';
 import { effectiveRules, fence } from './table-rules';
+import type { RollEvent } from '@/@shared/table/events';
+import { announceAttackRoll } from './roll-announce';
 import { takeActionUnchecked } from './turn';
 
 type Entry = typeof initiativeEntries.$inferSelect;
@@ -544,7 +546,7 @@ async function record(
       outcome: what.outcome ?? null,
     })
     .returning({ id: campaignRolls.id });
-  publish(campaignId, {
+  const event: Omit<RollEvent, 'verdict'> = {
     kind: 'roll',
     id: randomUUID(),
     at: new Date().toISOString(),
@@ -555,7 +557,16 @@ async function record(
     total: r.total,
     tone: critToneOf(r.notation, r.dice, r.dropped) ?? 'plain',
     secret: false,
-  });
+  };
+  // A spell attack says whether it landed, per side of the screen, the same
+  // as a weapon's (`announceAttackRoll`); damage and healing rolls have no
+  // verdict and go to everyone as before.
+  if (what.outcome && what.outcome.hit !== null) {
+    const rules = await effectiveRules(campaignId, caster.encounterId);
+    announceAttackRoll(campaignId, event, what.outcome, rules.showHitMiss);
+  } else {
+    publish(campaignId, event);
+  }
   return row.id;
 }
 

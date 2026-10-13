@@ -23,8 +23,11 @@ import {
 } from '@/@shared/components/ui';
 import type { CombatantChoice } from '@/server/content';
 import type { PlanRow } from '@/server/encounter-plans';
+import { listCanonAction } from '../canon-actions';
 import { listCombatantChoicesAction } from '../content-actions';
+import type { CanonEntryRow } from '../lib/canon';
 import { PlanSpots } from './PlanSpots';
+import { PlacePicker } from './world/PlacePicker';
 import {
   addPlanLineAction,
   createPlanAction,
@@ -44,6 +47,7 @@ function Plan({
   campaignId,
   plan,
   choices,
+  places,
   refresh,
   onError,
   onRan,
@@ -51,6 +55,8 @@ function Plan({
   campaignId: string;
   plan: PlanRow;
   choices: CombatantChoice[] | null;
+  /** Canon, for where the fight happens. */
+  places: CanonEntryRow[];
   refresh: () => Promise<void>;
   onError: (message: string) => void;
   onRan: (skipped: number, placed: number, unplaced: number) => void;
@@ -80,11 +86,18 @@ function Plan({
   return (
     <SectionCard
       title={plan.name}
-      description={
+      description={[
         m.partyAverageLevel !== null
           ? `Against ${m.partySize} at an average level ${m.partyAverageLevel}`
-          : `Against ${m.partySize} at the table`
-      }
+          : `Against ${m.partySize} at the table`,
+        plan.ranAt
+          ? plan.ranSession
+            ? `fought in ${plan.ranSession}`
+            : 'fought'
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')}
       actions={
         <>
           <Button
@@ -103,7 +116,7 @@ function Plan({
               onRan(res.data.skipped, res.data.placed, res.data.unplaced);
             }}
           >
-            Call for initiative
+            Roll for initiative
           </Button>
           <Button
             size="sm"
@@ -127,6 +140,15 @@ function Plan({
       {dialog}
 
       <div className="flex flex-col gap-4">
+        <PlacePicker
+          entries={places}
+          value={plan.placeId}
+          label="Where it happens"
+          className="max-w-xs"
+          onChange={placeId =>
+            act(updatePlanAction(campaignId, plan.id, { placeId }))
+          }
+        />
         {/* The sums, as a ledger line rather than a row of tiles — they are
             context for the fight, not the subject (design rule 2). */}
         <Ledger
@@ -312,11 +334,17 @@ export function EncounterPlanner({ campaignId }: { campaignId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const [places, setPlaces] = useState<CanonEntryRow[]>([]);
 
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      setPlans(await listPlansAction(campaignId));
+      const [list, canon] = await Promise.all([
+        listPlansAction(campaignId),
+        listCanonAction(campaignId),
+      ]);
+      setPlans(list);
+      setPlaces(canon);
     } catch {
       setError('Failed to open the plans.');
     }
@@ -399,6 +427,7 @@ export function EncounterPlanner({ campaignId }: { campaignId: string }) {
               campaignId={campaignId}
               plan={plan}
               choices={choices}
+              places={places}
               refresh={refresh}
               onError={setError}
               onRan={(skipped, placed, unplaced) => {

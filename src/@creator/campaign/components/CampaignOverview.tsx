@@ -178,7 +178,7 @@ export function CampaignOverview({
         glyph: 'scroll',
         label: 'Write the first quest',
         line: 'Something for the party to pull on. A clock beside it is the deadline they do not know about.',
-        section: 'quests',
+        section: 'world/everywhere/quests',
       });
     }
     if (pulse.boardsBuilt === 0) {
@@ -204,7 +204,7 @@ export function CampaignOverview({
         glyph: 'crossed-swords',
         label: 'Plan an encounter',
         line: 'Pick the monsters, place them on the board, and start the fight in one press later.',
-        section: 'encounters',
+        section: 'world/everywhere/encounters',
       });
     }
     if (!pulse.next) {
@@ -267,7 +267,7 @@ export function CampaignOverview({
       glyph: 'scroll',
       label: 'What the party is pulling on',
       line: 'Every quest you have been told about, and how far along it is.',
-      section: 'quests',
+      section: 'world/everywhere/quests',
     });
     moves.push({
       key: 'journal',

@@ -35,6 +35,44 @@ group('describe', () => {
     expect(roll({ label: '' }).title).toBe('Kessa · 17');
   });
 
+  it('says whether an attack landed, and against what only when told', () => {
+    const attack = (
+      verdict: Extract<TableEvent, { kind: 'roll' }>['verdict']
+    ) =>
+      describe(
+        {
+          ...base,
+          kind: 'roll',
+          actorName: 'Kestrel Vane',
+          label: 'Rapier vs Ghoul 2',
+          notation: '1d20+7',
+          total: 19,
+          tone: 'plain',
+          secret: false,
+          verdict,
+        },
+        viewer
+      );
+    expect(attack({ result: 'hit', target: 'Ghoul 2', ac: 12 })).toMatchObject({
+      title: 'Kestrel Vane · Rapier vs Ghoul 2 · 19 · hit',
+      detail: '1d20+7 · vs AC 12',
+      tone: 'gold',
+    });
+    // A player's copy carries no AC, so the slip names none.
+    expect(
+      attack({ result: 'miss', target: 'Ghoul 2', ac: null })
+    ).toMatchObject({
+      title: 'Kestrel Vane · Rapier vs Ghoul 2 · 19 · miss',
+      detail: '1d20+7',
+    });
+    expect(
+      attack({ result: 'critical', target: 'Ghoul 2', ac: 12 })
+    ).toMatchObject({ tone: 'success' });
+    expect(attack(undefined).title).toBe(
+      'Kestrel Vane · Rapier vs Ghoul 2 · 19'
+    );
+  });
+
   it('addresses a turn to the reader whose turn it is, and asks of them', () => {
     const turn = (characterId: string | null) =>
       describe(

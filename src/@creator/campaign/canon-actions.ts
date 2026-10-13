@@ -5,10 +5,12 @@ import { z } from 'zod';
 
 import {
   CANON_KINDS,
+  addPartyNote,
   createCanonCollection,
   createCanonEntry,
   deleteCanonCollection,
   deleteCanonEntry,
+  deletePartyNote,
   linkCanon,
   listCanon,
   listCanonCollections,
@@ -18,6 +20,8 @@ import {
   unrevealCanonTo,
   updateCanonCollection,
   updateCanonEntry,
+  updatePartyNote,
+  MAX_PARTY_NOTE,
   type CanonCollectionRow,
   type CanonEntryRow,
 } from '@/server/canon';
@@ -35,6 +39,11 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     FORBIDDEN: 'Only the DM can edit canon.',
     NOT_A_MEMBER: 'That person is not in this campaign.',
     CANNOT_LINK_SELF: 'An entry cannot link to itself.',
+    NOT_A_PLACE: 'Only a place can have things in it.',
+    PLACE_LOOP: 'A place cannot sit inside a place that is inside it.',
+    PLACE_IN_USE:
+      'People and places are still in it. Move them somewhere else first.',
+    EMPTY_NOTE: 'Write something first.',
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
   // invisible in a bug report. Keep the real one in the server log.
@@ -51,7 +60,8 @@ const entrySchema = z.object({
   collectionId: z.string().nullable().optional(),
   imageId: z.string().nullable().optional(),
   // Keys are checked against the kind's field list server-side (`tidyFields`).
-  fields: z.record(z.string(), z.string().max(200)).optional(),
+  fields: z.record(z.string(), z.string().max(400)).optional(),
+  placeId: z.string().min(1).max(64).nullable().optional(),
 });
 
 const collectionSchema = z.object({
@@ -237,6 +247,63 @@ export async function revealCanonAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Failed to reveal the entry.');
+  }
+}
+
+/* --- party notes ---------------------------------------------------------- */
+
+const noteBody = z
+  .string()
+  .trim()
+  .min(1, 'Write something first.')
+  .max(MAX_PARTY_NOTE);
+
+export async function addPartyNoteAction(
+  campaignId: string,
+  entryId: string,
+  body: unknown
+): Promise<Result<{ id: string }>> {
+  const parsed = noteBody.safeParse(body);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Too long.' };
+  }
+  try {
+    const id = await addPartyNote(entryId, parsed.data);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true, data: { id } };
+  } catch (err) {
+    return fail(err, 'Failed to write that down.');
+  }
+}
+
+export async function updatePartyNoteAction(
+  campaignId: string,
+  noteId: string,
+  body: unknown
+): Promise<Result> {
+  const parsed = noteBody.safeParse(body);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Too long.' };
+  }
+  try {
+    await updatePartyNote(noteId, parsed.data);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to change that note.');
+  }
+}
+
+export async function deletePartyNoteAction(
+  campaignId: string,
+  noteId: string
+): Promise<Result> {
+  try {
+    await deletePartyNote(noteId);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to take that note down.');
   }
 }
 

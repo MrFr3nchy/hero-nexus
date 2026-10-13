@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, inArray, max } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, max } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
@@ -14,6 +14,7 @@ import {
   campaignSessions,
   canonEntries,
   canonReveals,
+  encounterPlans,
   mapJourney,
   playerJournals,
   users,
@@ -72,6 +73,16 @@ export interface MapPinRow {
   canonEntryId: string | null;
   /** The linked entry's title, when the viewer may see that entry at all. */
   canonTitle: string | null;
+  /** The linked entry's kind: a `location` makes this the mark for a place. */
+  canonKind: string | null;
+  /** A map drawn of the place this mark is for, when the viewer may open it. */
+  opensMapId: string | null;
+  /**
+   * A battle mark (0072): a planned fight happens here. `encounter` is staff
+   * only; a player sees `battle` and the mark's own words, never the plan.
+   */
+  battle: boolean;
+  encounter: (MapLink & { ran: string | null }) | null;
   quest: MapLink | null;
   session: MapLink | null;
   journal: MapLink | null;
@@ -90,6 +101,8 @@ export interface MapRow {
   id: string;
   imageId: string;
   title: string;
+  /** The place this map shows (0072), when the viewer may see that place. */
+  placeId: string | null;
   visibility: 'dm' | 'shared';
   /** Lit on every screen at the table right now. At most one per campaign. */
   spotlighted: boolean;
@@ -181,6 +194,8 @@ export async function listMaps(campaignId: string): Promise<MapRow[]> {
       .where(inArray(mapJourney.mapId, mapIds))
       .orderBy(asc(mapJourney.seq)),
   ]);
+  // Where the party is headed is the DM's until shown.
+  const stopsSeen = stops.filter(s => isStaff || s.visibility === 'shared');
 
   const revealedOf = new Map(
     visible.map(m => [m.id, new Set(normalizeRevealed(m.revealed))])
@@ -203,26 +218,27 @@ export async function listMaps(campaignId: string): Promise<MapRow[]> {
   // Everything a mark can point at, read once, and only what this viewer
   // may see: a mark on the party's map must not hand over the name of a
   // DM-only quest or somebody's private journal page.
-  const [canonRows, revealRows, questRows, sessionRows, journalRows] =
+  // Canon is read whole rather than by the marks' ids: a map's own place
+  // decides whether a player may know what the map is of, too.
+  const [canonRows, revealRows, questRows, sessionRows, journalRows, planRows] =
     await Promise.all([
-      ids('canonEntryId').length
-        ? db
-            .select()
-            .from(canonEntries)
-            .where(
-              and(
-                eq(canonEntries.campaignId, campaignId),
-                inArray(canonEntries.id, ids('canonEntryId'))
-              )
-            )
-        : [],
-      !isStaff && ids('canonEntryId').length
+      db
+        .select({
+          id: canonEntries.id,
+          title: canonEntries.title,
+          kind: canonEntries.kind,
+          visibility: canonEntries.visibility,
+        })
+        .from(canonEntries)
+        .where(eq(canonEntries.campaignId, campaignId)),
+      !isStaff
         ? db
             .select({ entryId: canonReveals.entryId })
             .from(canonReveals)
+            .innerJoin(canonEntries, eq(canonEntries.id, canonReveals.entryId))
             .where(
               and(
-                inArray(canonReveals.entryId, ids('canonEntryId')),
+                eq(canonEntries.campaignId, campaignId),
                 eq(canonReveals.userId, userId)
               )
             )
@@ -243,13 +259,31 @@ export async function listMaps(campaignId: string): Promise<MapRow[]> {
             .from(playerJournals)
             .where(inArray(playerJournals.id, ids('journalId')))
         : [],
+      isStaff && ids('encounterPlanId').length
+        ? db
+            .select({
+              id: encounterPlans.id,
+              name: encounterPlans.name,
+              ranSessionId: encounterPlans.ranSessionId,
+              ranAt: encounterPlans.ranAt,
+            })
+            .from(encounterPlans)
+            .where(inArray(encounterPlans.id, ids('encounterPlanId')))
+        : [],
     ]);
   const toldMe = new Set(revealRows.map(r => r.entryId));
-  const canonTitle = new Map(
-    canonRows
-      .filter(r => isStaff || r.visibility === 'shared' || toldMe.has(r.id))
-      .map(r => [r.id, r.title])
+  const canonSeen = canonRows.filter(
+    r => isStaff || r.visibility === 'shared' || toldMe.has(r.id)
   );
+  const canonTitle = new Map(canonSeen.map(r => [r.id, r.title]));
+  const canonKind = new Map(canonSeen.map(r => [r.id, r.kind]));
+  // A mark for a place opens the map drawn of it, if this viewer may open it.
+  const mapOfPlace = new Map<string, string>();
+  for (const m of visible) {
+    if (m.placeId && canonTitle.has(m.placeId) && !mapOfPlace.has(m.placeId)) {
+      mapOfPlace.set(m.placeId, m.id);
+    }
+  }
   const questTitle = new Map(
     questRows
       .filter(q => isStaff || q.visibility === 'shared')
@@ -257,6 +291,20 @@ export async function listMaps(campaignId: string): Promise<MapRow[]> {
   );
   const sessionById = new Map(
     sessionRows.map(s => [s.id, sessionLabel(s.number, s.title)])
+  );
+  const planById = new Map(
+    planRows.map(p => [
+      p.id,
+      {
+        id: p.id,
+        title: p.name || 'An encounter',
+        ran: p.ranAt
+          ? p.ranSessionId && sessionById.has(p.ranSessionId)
+            ? `Fought in ${sessionById.get(p.ranSessionId)}`
+            : 'Fought'
+          : null,
+      },
+    ])
   );
   const journalTitle = new Map(
     journalRows
@@ -306,14 +354,17 @@ export async function listMaps(campaignId: string): Promise<MapRow[]> {
     id && titles.has(id) ? { id, title: titles.get(id)! } : null;
 
   return visible.map(map => {
-    const journey: JourneyStop[] = stops
+    const journey: JourneyStop[] = stopsSeen
       .filter(s => s.mapId === map.id)
       .map(s => {
         return {
           id: s.id,
           seq: s.seq,
-          x: s.x,
-          y: s.y,
+          planned: s.planned,
+          visibility: s.visibility,
+          // A map's own stops always have a point on it.
+          x: s.x ?? 0.5,
+          y: s.y ?? 0.5,
           label: s.label,
           pinId: s.pinId,
           sessionId: s.sessionId,
@@ -336,6 +387,7 @@ export async function listMaps(campaignId: string): Promise<MapRow[]> {
       id: map.id,
       imageId: map.imageId,
       title: map.title,
+      placeId: map.placeId && canonTitle.has(map.placeId) ? map.placeId : null,
       visibility: map.visibility,
       spotlighted: map.spotlighted,
       sortOrder: map.sortOrder,
@@ -362,6 +414,17 @@ export async function listMaps(campaignId: string): Promise<MapRow[]> {
             canonTitle: p.canonEntryId
               ? (canonTitle.get(p.canonEntryId) ?? null)
               : null,
+            canonKind: p.canonEntryId
+              ? (canonKind.get(p.canonEntryId) ?? null)
+              : null,
+            opensMapId:
+              p.canonEntryId && mapOfPlace.get(p.canonEntryId) !== map.id
+                ? (mapOfPlace.get(p.canonEntryId) ?? null)
+                : null,
+            battle: Boolean(p.encounterPlanId),
+            encounter: p.encounterPlanId
+              ? (planById.get(p.encounterPlanId) ?? null)
+              : null,
             quest: link(p.questId, questTitle),
             session: link(p.sessionId, sessionById),
             journal: link(p.journalId, journalTitle),
@@ -369,7 +432,9 @@ export async function listMaps(campaignId: string): Promise<MapRow[]> {
             byName: byPlayer ? (nameById.get(p.createdBy!) ?? null) : null,
             mine,
             canEdit: isStaff || mine,
-            stops: journey.filter(s => s.pinId === p.id).map(s => s.seq),
+            stops: journey
+              .filter(s => s.pinId === p.id && !s.planned)
+              .map(s => s.seq),
           } satisfies MapPinRow;
         }),
     };
@@ -380,6 +445,26 @@ export interface MapInput {
   imageId: string;
   title?: string;
   visibility?: 'dm' | 'shared';
+  /** The place it shows: a `location` entry at this table. */
+  placeId?: string | null;
+}
+
+/** A place a map may show: a `location` entry at this table, or nothing. */
+async function checkMapPlace(
+  campaignId: string,
+  placeId: string | null | undefined
+): Promise<string | null> {
+  if (!placeId) return null;
+  const row = await db.query.canonEntries.findFirst({
+    columns: { id: true, kind: true },
+    where: and(
+      eq(canonEntries.id, placeId),
+      eq(canonEntries.campaignId, campaignId)
+    ),
+  });
+  if (!row) throw new Error('NOT_FOUND');
+  if (row.kind !== 'location') throw new Error('NOT_A_PLACE');
+  return row.id;
 }
 
 export async function createMap(
@@ -412,6 +497,7 @@ export async function createMap(
       imageId: input.imageId,
       title: (input.title ?? '').trim(),
       visibility: input.visibility ?? 'dm',
+      placeId: await checkMapPlace(campaignId, input.placeId),
       sortOrder: next,
       createdBy: userId,
     })
@@ -432,6 +518,35 @@ export async function setMapVisibility(
       // Taking a map back from the party takes the spotlight with it. A lit
       // map the party may not see would be a promise the filter then breaks.
       spotlighted: visibility === 'shared' ? map.spotlighted : false,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(campaignMaps.id, mapId));
+  bumpVersion(map.campaignId);
+}
+
+/** Say which place a map shows, or that it shows no place in particular. */
+export async function setMapPlace(
+  mapId: string,
+  placeId: string | null
+): Promise<void> {
+  const map = await staffForMap(mapId);
+  await db
+    .update(campaignMaps)
+    .set({
+      placeId: await checkMapPlace(map.campaignId, placeId),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(campaignMaps.id, mapId));
+  bumpVersion(map.campaignId);
+}
+
+/** Retitle a map. */
+export async function renameMap(mapId: string, title: string): Promise<void> {
+  const map = await staffForMap(mapId);
+  await db
+    .update(campaignMaps)
+    .set({
+      title: title.trim().slice(0, 120),
       updatedAt: new Date().toISOString(),
     })
     .where(eq(campaignMaps.id, mapId));
@@ -534,6 +649,8 @@ export interface PinInput {
   questId?: string | null;
   sessionId?: string | null;
   journalId?: string | null;
+  /** A battle mark: staff only. */
+  encounterPlanId?: string | null;
   visibility?: 'dm' | 'shared';
 }
 
@@ -546,9 +663,28 @@ export interface PinInput {
 async function checkLinks(
   campaignId: string,
   viewer: { userId: string; isStaff: boolean },
-  input: Pick<PinInput, 'canonEntryId' | 'questId' | 'sessionId' | 'journalId'>
+  input: Pick<
+    PinInput,
+    'canonEntryId' | 'questId' | 'sessionId' | 'journalId' | 'encounterPlanId'
+  >
 ): Promise<Partial<typeof campaignMapPins.$inferInsert>> {
   const out: Partial<typeof campaignMapPins.$inferInsert> = {};
+  // A plan is prep: only staff tie a mark to one, and a player's edit never
+  // touches the link.
+  if (input.encounterPlanId !== undefined && viewer.isStaff) {
+    out.encounterPlanId = null;
+    if (input.encounterPlanId) {
+      const row = await db.query.encounterPlans.findFirst({
+        columns: { id: true },
+        where: and(
+          eq(encounterPlans.id, input.encounterPlanId),
+          eq(encounterPlans.campaignId, campaignId)
+        ),
+      });
+      if (!row) throw new Error('NOT_FOUND');
+      out.encounterPlanId = row.id;
+    }
+  }
   if (input.canonEntryId !== undefined) {
     out.canonEntryId = null;
     if (input.canonEntryId) {
@@ -699,6 +835,49 @@ export async function deletePin(pinId: string): Promise<void> {
   bumpVersion(map.campaignId);
 }
 
+/**
+ * Make it real: a player's guess — a rumour mark — becomes a place.
+ *
+ * Staff only, in one transaction: a `location` entry is written from the
+ * mark's label and the party's note, placed in the place the map shows; the
+ * mark is pointed at it and becomes a mark for a place. `created_by` is left
+ * alone, so the mark still says whose guess it was.
+ */
+export async function promoteRumour(pinId: string): Promise<string> {
+  const pin = await db.query.campaignMapPins.findFirst({
+    where: eq(campaignMapPins.id, pinId),
+  });
+  if (!pin) throw new Error('NOT_FOUND');
+  const map = await staffForMap(pin.mapId);
+  const { userId } = await staff(map.campaignId);
+  if (pin.kind !== 'rumour') throw new Error('NOT_A_RUMOUR');
+
+  const entryId = randomUUID();
+  const now = new Date().toISOString();
+  db.transaction(tx => {
+    tx.insert(canonEntries)
+      .values({
+        id: entryId,
+        campaignId: map.campaignId,
+        kind: 'location',
+        title: pin.label.trim() || 'A place somebody guessed at',
+        partyBody: pin.note,
+        dmBody: '',
+        // The party guessed it, so the party knows of it.
+        visibility: pin.visibility === 'shared' ? 'shared' : 'dm',
+        placeId: map.placeId ?? null,
+        createdBy: userId,
+      })
+      .run();
+    tx.update(campaignMapPins)
+      .set({ canonEntryId: entryId, kind: 'place', updatedAt: now })
+      .where(eq(campaignMapPins.id, pinId))
+      .run();
+  });
+  bumpVersion(map.campaignId);
+  return entryId;
+}
+
 /* --- the journey -------------------------------------------------------------- */
 
 /**
@@ -709,7 +888,14 @@ export async function deletePin(pinId: string): Promise<void> {
  */
 export async function addJourneyStop(
   mapId: string,
-  input: { x: number; y: number; label?: string; pinId?: string | null }
+  input: {
+    x: number;
+    y: number;
+    label?: string;
+    pinId?: string | null;
+    /** Where the party is headed, not where it is: unnumbered, the DM's. */
+    planned?: boolean;
+  }
 ): Promise<string> {
   const map = await staffForMap(mapId);
   const { userId } = await staff(map.campaignId);
@@ -732,10 +918,30 @@ export async function addJourneyStop(
     label = label || pin.label;
   }
 
+  if (input.planned) {
+    const [row] = await db
+      .insert(mapJourney)
+      .values({
+        campaignId: map.campaignId,
+        mapId,
+        seq: 0,
+        planned: true,
+        visibility: 'dm',
+        x,
+        y,
+        label,
+        pinId,
+        createdBy: userId,
+      })
+      .returning({ id: mapJourney.id });
+    bumpVersion(map.campaignId);
+    return row.id;
+  }
+
   const [{ top }] = await db
     .select({ top: max(mapJourney.seq) })
     .from(mapJourney)
-    .where(eq(mapJourney.mapId, mapId));
+    .where(and(eq(mapJourney.mapId, mapId), eq(mapJourney.planned, false)));
   const live = await db.query.campaignSessions.findFirst({
     where: and(
       eq(campaignSessions.campaignId, map.campaignId),
@@ -776,35 +982,244 @@ export async function addJourneyStop(
   return row.id;
 }
 
+/**
+ * A stop, and the staff check it needs: through its map, or — for a stop at
+ * a place with no map (0074) — through its campaign. `sameLine` is the
+ * filter for the stops it is numbered among: its map's, or the campaign's
+ * stops with no map.
+ */
+async function staffForStop(stopId: string) {
+  const stop = await db.query.mapJourney.findFirst({
+    where: eq(mapJourney.id, stopId),
+  });
+  if (!stop) throw new Error('NOT_FOUND');
+  const map = stop.mapId ? await staffForMap(stop.mapId) : null;
+  if (!map) await staff(stop.campaignId);
+  const sameLine = stop.mapId
+    ? eq(mapJourney.mapId, stop.mapId)
+    : and(eq(mapJourney.campaignId, stop.campaignId), isNull(mapJourney.mapId));
+  return { stop, map, sameLine };
+}
+
+/** A stop at a place with no picture (0074), as the World reads it. */
+export interface PlaceStopRow {
+  id: string;
+  seq: number;
+  planned: boolean;
+  visibility: 'dm' | 'shared';
+  placeId: string | null;
+  label: string;
+  createdAt: string;
+}
+
+/**
+ * The stops at places with no map: day one, before a map is pinned up, or a
+ * party moved to a place nobody has marked. A player sees the reached ones
+ * and the planned ones they have been shown, and a place only if they may
+ * read it.
+ */
+export async function listPlaceStops(
+  campaignId: string
+): Promise<PlaceStopRow[]> {
+  const { role, userId } = await requireCampaignRole(campaignId, [
+    'gm',
+    'co-gm',
+    'player',
+  ]);
+  const isStaff = isStaffRole(role);
+  const rows = await db
+    .select()
+    .from(mapJourney)
+    .where(and(eq(mapJourney.campaignId, campaignId), isNull(mapJourney.mapId)))
+    .orderBy(asc(mapJourney.createdAt));
+  const seen = isStaff
+    ? null
+    : await (async () => {
+        const [shared, told] = await Promise.all([
+          db
+            .select({ id: canonEntries.id })
+            .from(canonEntries)
+            .where(
+              and(
+                eq(canonEntries.campaignId, campaignId),
+                eq(canonEntries.visibility, 'shared')
+              )
+            ),
+          db
+            .select({ id: canonReveals.entryId })
+            .from(canonReveals)
+            .where(eq(canonReveals.userId, userId)),
+        ]);
+        return new Set([...shared, ...told].map(r => r.id));
+      })();
+  return rows
+    .filter(r => isStaff || r.visibility === 'shared')
+    .map(r => ({
+      id: r.id,
+      seq: r.seq,
+      planned: r.planned,
+      visibility: r.visibility,
+      placeId:
+        r.placeId && (seen === null || seen.has(r.placeId)) ? r.placeId : null,
+      label: r.label,
+      createdAt: r.createdAt,
+    }));
+}
+
+/**
+ * The party is here, at a place with no map — or headed there. The same
+ * act as on a map, stamped the same way; numbered among the campaign's
+ * stops with no map.
+ */
+export async function addPlaceStop(
+  campaignId: string,
+  placeId: string,
+  options: { planned?: boolean } = {}
+): Promise<string> {
+  const { userId } = await staff(campaignId);
+  const place = await db.query.canonEntries.findFirst({
+    where: and(
+      eq(canonEntries.id, placeId),
+      eq(canonEntries.campaignId, campaignId)
+    ),
+  });
+  if (!place) throw new Error('NOT_FOUND');
+  if (place.kind !== 'location') throw new Error('NOT_A_PLACE');
+
+  if (options.planned) {
+    const [row] = await db
+      .insert(mapJourney)
+      .values({
+        campaignId,
+        seq: 0,
+        planned: true,
+        visibility: 'dm',
+        placeId,
+        label: place.title,
+        createdBy: userId,
+      })
+      .returning({ id: mapJourney.id });
+    bumpVersion(campaignId);
+    return row.id;
+  }
+
+  const [{ top }] = await db
+    .select({ top: max(mapJourney.seq) })
+    .from(mapJourney)
+    .where(
+      and(
+        eq(mapJourney.campaignId, campaignId),
+        isNull(mapJourney.mapId),
+        eq(mapJourney.planned, false)
+      )
+    );
+  const live = await db.query.campaignSessions.findFirst({
+    where: and(
+      eq(campaignSessions.campaignId, campaignId),
+      eq(campaignSessions.status, 'live')
+    ),
+  });
+  const clock = await readWorldClock(campaignId);
+  const [row] = await db
+    .insert(mapJourney)
+    .values({
+      campaignId,
+      seq: (top ?? 0) + 1,
+      placeId,
+      label: place.title,
+      sessionId: live?.id ?? null,
+      worldDate: clock.time,
+      createdBy: userId,
+    })
+    .returning({ id: mapJourney.id });
+  bumpVersion(campaignId);
+  return row.id;
+}
+
+/**
+ * The party got there: a planned stop becomes the next one on the journey,
+ * numbered and stamped exactly as "The party is here" would stamp it, and
+ * the party can see it.
+ */
+export async function arriveAtStop(stopId: string): Promise<void> {
+  const { stop, map, sameLine } = await staffForStop(stopId);
+  if (!stop.planned) return;
+
+  const [{ top }] = await db
+    .select({ top: max(mapJourney.seq) })
+    .from(mapJourney)
+    .where(and(sameLine, eq(mapJourney.planned, false)));
+  const live = await db.query.campaignSessions.findFirst({
+    where: and(
+      eq(campaignSessions.campaignId, stop.campaignId),
+      eq(campaignSessions.status, 'live')
+    ),
+  });
+  const clock = await readWorldClock(stop.campaignId);
+  const seq = (top ?? 0) + 1;
+  await db
+    .update(mapJourney)
+    .set({
+      planned: false,
+      visibility: 'shared',
+      seq,
+      sessionId: live?.id ?? null,
+      worldDate: clock.time,
+      // Put down now: "here" is the stop reached last, not planned first.
+      createdAt: new Date().toISOString(),
+    })
+    .where(eq(mapJourney.id, stopId));
+  bumpVersion(stop.campaignId);
+
+  if (map?.visibility === 'shared') {
+    announceJourney(stop.campaignId, {
+      mapTitle: map.title || 'the map',
+      label: stop.label || null,
+      seq,
+      worldDate: clock.time
+        ? formatWorldTime(clock.calendar, clock.time, 'short')
+        : null,
+    });
+  }
+}
+
+/** Show the party where it is headed, or keep it back again. */
+export async function setStopVisibility(
+  stopId: string,
+  visibility: 'dm' | 'shared'
+): Promise<void> {
+  const { stop } = await staffForStop(stopId);
+  // Where the party has been is not a secret to be kept back.
+  if (!stop.planned) return;
+  await db
+    .update(mapJourney)
+    .set({ visibility })
+    .where(eq(mapJourney.id, stopId));
+  bumpVersion(stop.campaignId);
+}
+
 /** Name a stop — one dropped on the map mid-session arrives without one. */
 export async function renameJourneyStop(
   stopId: string,
   label: string
 ): Promise<void> {
-  const stop = await db.query.mapJourney.findFirst({
-    where: eq(mapJourney.id, stopId),
-  });
-  if (!stop) throw new Error('NOT_FOUND');
-  const map = await staffForMap(stop.mapId);
+  const { stop } = await staffForStop(stopId);
   await db
     .update(mapJourney)
     .set({ label: label.trim().slice(0, 120) })
     .where(eq(mapJourney.id, stopId));
-  bumpVersion(map.campaignId);
+  bumpVersion(stop.campaignId);
 }
 
 /** Take a stop off the journey; the ones after it close up. */
 export async function removeJourneyStop(stopId: string): Promise<void> {
-  const stop = await db.query.mapJourney.findFirst({
-    where: eq(mapJourney.id, stopId),
-  });
-  if (!stop) throw new Error('NOT_FOUND');
-  const map = await staffForMap(stop.mapId);
+  const { stop, sameLine } = await staffForStop(stopId);
   await db.delete(mapJourney).where(eq(mapJourney.id, stopId));
+  // Planned stops have no number to close up.
   const rest = await db
     .select({ id: mapJourney.id })
     .from(mapJourney)
-    .where(eq(mapJourney.mapId, stop.mapId))
+    .where(and(sameLine, eq(mapJourney.planned, false)))
     .orderBy(asc(mapJourney.seq));
   for (const [i, r] of rest.entries()) {
     await db
@@ -812,7 +1227,7 @@ export async function removeJourneyStop(stopId: string): Promise<void> {
       .set({ seq: i + 1 })
       .where(eq(mapJourney.id, r.id));
   }
-  bumpVersion(map.campaignId);
+  bumpVersion(stop.campaignId);
 }
 
 /* --- the other way round ------------------------------------------------------ */
@@ -855,7 +1270,7 @@ export async function recordsOnMaps(
       });
     }
     for (const s of map.journey) {
-      if (!s.sessionId) continue;
+      if (!s.sessionId || s.planned) continue;
       out.push({
         mapId: map.id,
         mapTitle: map.title || 'Map',

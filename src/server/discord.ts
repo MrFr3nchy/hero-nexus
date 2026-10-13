@@ -464,7 +464,7 @@ export function announceJourney(
     return {
       trigger: 'journey',
       content: `**${name}** — the party ${where} (stop ${stop.seq} on ${stop.mapTitle}${when}).\n${appUrl(
-        `/campaigns/${campaignId}#canon`
+        `/campaigns/${campaignId}#world`
       )}`,
       mentions: [],
     };

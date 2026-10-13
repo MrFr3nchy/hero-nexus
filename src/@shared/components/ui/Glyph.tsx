@@ -104,7 +104,11 @@ export type GlyphName =
   | 'weather'
   // ambient sound (12): a speaker, on and off
   | 'speaker'
-  | 'speaker-off';
+  | 'speaker-off'
+  // the kinds of place (the World): a harbour, a market, a marsh
+  | 'anchor'
+  | 'stall'
+  | 'marsh';
 
 /** Every glyph's artwork, drawn inside a 24×24 box. */
 const PATHS: Record<GlyphName, React.ReactNode> = {
@@ -456,6 +460,36 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
     <>
       <path d="M4 9.5h3.5L13 5v14l-5.5-4.5H4z" />
       <path d="M16 9.5l5 5M21 9.5l-5 5" />
+    </>
+  ),
+  // A harbour: ring, stock, shank and the two flukes. No chain — it is mud
+  // at 16px.
+  anchor: (
+    <>
+      <circle cx="12" cy="5" r="2" />
+      <path d="M12 7v13.5" />
+      <path d="M8.5 10.5h7" />
+      <path d="M4.5 13.5c0 4 3.4 7 7.5 7s7.5-3 7.5-7" />
+      <path d="M3 15l1.5-1.5L6 15M18 15l1.5-1.5L21 15" />
+    </>
+  ),
+  // A market: a striped awning over a counter, on two posts.
+  stall: (
+    <>
+      <path d="M3.5 9.5 5 4.5h14l1.5 5" />
+      <path d="M3.5 9.5c0 1.4 1.1 2.2 2.4 2.2s2.4-.8 2.4-2.2c0 1.4 1.1 2.2 2.4 2.2s2.4-.8 2.4-2.2c0 1.4 1.1 2.2 2.4 2.2s2.4-.8 2.4-2.2c0 1.4 1 2.2 2.2 2.2" />
+      <path d="M9.5 4.5 8.3 9.5M14.5 4.5l1.2 5" />
+      <path d="M5.5 11.7v8.8M18.5 11.7v8.8M3.5 20.5h17" />
+      <path d="M8.5 15.5h7" />
+    </>
+  ),
+  // A marsh: reeds standing out of still water.
+  marsh: (
+    <>
+      <path d="M3 18c1.5-1 3-1 4.5 0s3 1 4.5 0 3-1 4.5 0 3 1 4.5 0" />
+      <path d="M3 21c1.5-1 3-1 4.5 0s3 1 4.5 0 3-1 4.5 0 3 1 4.5 0" />
+      <path d="M8 16V8M12 16V4.5M16 16V9" />
+      <path d="M8 8c-.9-.5-1.4-1.4-1.4-2.6M12 4.5c.9.6 1.4 1.6 1.4 2.8M16 9c.9-.6 1.6-1.6 1.6-2.8" />
     </>
   ),
   // Reveal and hide a password. The struck-through eye is the one in use

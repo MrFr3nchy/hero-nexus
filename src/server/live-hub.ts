@@ -38,7 +38,12 @@ import type { TableEvent } from '@/@shared/table/events';
  * one rule, in one place. A payload must be safe for its audience; where
  * there is any doubt, publish a kind and an id and let the browser re-read.
  */
-export type Audience = 'everyone' | 'staff' | { users: string[] };
+/**
+ * Who a moment is published to. `players` is everyone *but* staff: the other
+ * half of a moment published twice, once to each side of the screen, because
+ * the two copies say different things (an attack's AC goes to staff only).
+ */
+export type Audience = 'everyone' | 'staff' | 'players' | { users: string[] };
 
 export function reaches(
   audience: Audience,
@@ -47,6 +52,9 @@ export function reaches(
   if (audience === 'everyone') return true;
   if (audience === 'staff') {
     return viewer.role === 'gm' || viewer.role === 'co-gm';
+  }
+  if (audience === 'players') {
+    return viewer.role !== 'gm' && viewer.role !== 'co-gm';
   }
   // Staff see everything addressed at anybody at their own table: a DM who
   // cannot see the check they just pushed cannot tell whether it landed.

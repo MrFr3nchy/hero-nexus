@@ -12,10 +12,15 @@ import {
 import {
   createRandomTable,
   deleteRandomTable,
+  drawFromTable,
   findRandomTable,
   listRandomTables,
+  pluckIntoPlace,
+  restoreEntry,
   rollRandomTable,
+  strikeEntry,
   updateRandomTable,
+  type Drawn,
   type RandomTableResult,
 } from '@/server/random-tables';
 
@@ -34,6 +39,10 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     EMPTY_TABLE: 'That random table has nothing on it to roll.',
     BAD_DIE: 'Pick a die: d4, d6, d8, d10, d12, d20 or d100.',
     OVERLAP: 'Two entries claim the same face. Give each face to one entry.',
+    ALL_STRUCK:
+      'Every entry on that random table has been used. Restore one, or add more.',
+    TABLE_CHANGED: 'That random table changed. Roll again.',
+    NOT_A_PLACE: 'Pick a place to fill.',
   };
   if (!messages[code]) console.error('[random-table-action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
@@ -140,5 +149,71 @@ export async function rollRandomTableByNameAction(
     return { ok: true, data: await rollRandomTable(table.id, false) };
   } catch (err) {
     return fail(err, 'The dice did not land.');
+  }
+}
+
+/* --- plucking (0072) ---------------------------------------------------- */
+
+/** Draw names without using them up: the 🎲 beside a name on a form. */
+export async function drawFromTableAction(
+  id: string,
+  count = 1
+): Promise<Result<Drawn[]>> {
+  try {
+    const n = Number.isFinite(count) ? count : 1;
+    return { ok: true, data: await drawFromTable(id, n) };
+  } catch (err) {
+    return fail(err, 'Could not roll on that random table.');
+  }
+}
+
+/** Strike a drawn entry through: it became the canon entry `entryId`. */
+export async function strikeEntryAction(
+  id: string,
+  index: number,
+  text: string,
+  entryId: string | null
+): Promise<Result> {
+  if (!Number.isInteger(index) || typeof text !== 'string') {
+    return { ok: false, error: 'That did not read.' };
+  }
+  try {
+    await strikeEntry(id, index, text, entryId || null);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not strike that through.');
+  }
+}
+
+export async function restoreEntryAction(
+  id: string,
+  index: number
+): Promise<Result> {
+  if (!Number.isInteger(index))
+    return { ok: false, error: 'That did not read.' };
+  try {
+    await restoreEntry(id, index);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Could not bring that back.');
+  }
+}
+
+/** Fill a place with people drawn from a random table of names. */
+export async function pluckIntoPlaceAction(
+  id: string,
+  placeId: string,
+  count: number
+): Promise<Result<{ ids: string[] }>> {
+  if (typeof placeId !== 'string' || !Number.isFinite(count)) {
+    return { ok: false, error: 'That did not read.' };
+  }
+  try {
+    return {
+      ok: true,
+      data: { ids: await pluckIntoPlace(id, placeId, count) },
+    };
+  } catch (err) {
+    return fail(err, 'Could not fill that place.');
   }
 }

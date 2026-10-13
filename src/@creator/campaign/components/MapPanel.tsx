@@ -16,15 +16,20 @@ import {
 } from '@/@shared/components/ui';
 import type { CampaignRole } from '@/server/campaigns';
 import type { MapRow } from '@/server/maps';
+import type { CanonEntryRow } from '../lib/canon';
+import { listCanonAction } from '../canon-actions';
 import {
   createMapAction,
   deleteMapAction,
   listMapsAction,
+  renameMapAction,
+  setMapPlaceAction,
   setMapVisibilityAction,
   spotlightMapAction,
 } from '../map-actions';
 import { ImagePicker } from './ImagePicker';
 import { PartyMap, type PendingLink } from './PartyMap';
+import { PlacePicker } from './world/PlacePicker';
 
 /**
  * A map, with things marked on it — the party's map.
@@ -39,7 +44,7 @@ import { PartyMap, type PendingLink } from './PartyMap';
  * in those fractions and only multiplies by the rendered size at the last
  * moment.
  */
-function MapSheet({
+export function MapSheet({
   campaignId,
   map,
   isStaff,
@@ -48,6 +53,9 @@ function MapSheet({
   focusMark,
   pendingLink,
   onPlacedLink,
+  entries,
+  onOpenPlace,
+  onOpenMap,
 }: {
   campaignId: string;
   map: MapRow;
@@ -57,8 +65,13 @@ function MapSheet({
   focusMark: string | null;
   pendingLink: PendingLink | null;
   onPlacedLink: () => void;
+  /** Canon, for "which place this map shows". */
+  entries: CanonEntryRow[];
+  onOpenPlace?: (placeId: string) => void;
+  onOpenMap?: (mapId: string) => void;
 }) {
   const { confirm, dialog } = useConfirm();
+  const shows = map.placeId ? entries.find(e => e.id === map.placeId) : null;
 
   const act = async (p: Promise<{ ok: boolean; error?: string }>) => {
     const res = await p;
@@ -139,6 +152,46 @@ function MapSheet({
       }
     >
       {dialog}
+      {isStaff ? (
+        <div className="mb-3 grid gap-2 sm:grid-cols-2">
+          <Input
+            key={`${map.id}:${map.title}`}
+            size="sm"
+            label="Title"
+            labelPlacement="outside"
+            defaultValue={map.title}
+            onBlur={e => {
+              if (e.target.value.trim() !== map.title) {
+                void act(renameMapAction(map.id, e.target.value));
+              }
+            }}
+          />
+          <PlacePicker
+            entries={entries}
+            value={map.placeId}
+            label="A map of"
+            nowhere="No place in particular"
+            onChange={placeId => act(setMapPlaceAction(map.id, placeId))}
+          />
+        </div>
+      ) : (
+        shows && (
+          <p className="mb-2 text-xs text-ink-muted">
+            A map of{' '}
+            {onOpenPlace ? (
+              <button
+                type="button"
+                className="text-ink underline-offset-2 hover:underline"
+                onClick={() => onOpenPlace(shows.id)}
+              >
+                {shows.title}
+              </button>
+            ) : (
+              shows.title
+            )}
+          </p>
+        )
+      )}
       <PartyMap
         campaignId={campaignId}
         map={map}
@@ -148,6 +201,8 @@ function MapSheet({
         focusMark={focusMark}
         pendingLink={pendingLink}
         onPlacedLink={onPlacedLink}
+        onOpenPlace={onOpenPlace}
+        onOpenMap={onOpenMap}
       />
     </SectionCard>
   );
@@ -156,13 +211,19 @@ function MapSheet({
 export function MapPanel({
   campaignId,
   viewerRole,
+  onOpenPlace,
+  onOpenMap,
 }: {
   campaignId: string;
   viewerRole: CampaignRole;
+  onOpenPlace?: (placeId: string) => void;
+  onOpenMap?: (mapId: string) => void;
 }) {
   const isStaff = viewerRole === 'gm' || viewerRole === 'co-gm';
 
   const [maps, setMaps] = useState<MapRow[] | null>(null);
+  const [entries, setEntries] = useState<CanonEntryRow[]>([]);
+  const [placeId, setPlaceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /*
    * Deep links from elsewhere in the record: `?mark=<id>` opens a mark's
@@ -173,7 +234,7 @@ export function MapPanel({
   const focusMark = params.get('mark');
   const [pendingLink, setPendingLink] = useState<PendingLink | null>(null);
   useEffect(() => {
-    const m = /^(quest|session|journal):([\w-]{1,64})$/.exec(
+    const m = /^(quest|session|journal|place|encounter):([\w-]{1,64})$/.exec(
       params.get('place') ?? ''
     );
     setPendingLink(m ? { kind: m[1] as PendingLink['kind'], id: m[2] } : null);
@@ -190,7 +251,12 @@ export function MapPanel({
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      setMaps(await listMapsAction(campaignId));
+      const [list, canon] = await Promise.all([
+        listMapsAction(campaignId),
+        listCanonAction(campaignId),
+      ]);
+      setMaps(list);
+      setEntries(canon);
     } catch {
       setError('Failed to unroll the maps.');
     }
@@ -237,19 +303,33 @@ export function MapPanel({
                 onValueChange={setTitle}
                 className="min-w-40 flex-1"
               />
+              <PlacePicker
+                entries={entries}
+                value={placeId}
+                label="A map of"
+                nowhere="No place in particular"
+                className="min-w-40 flex-1"
+                onChange={setPlaceId}
+              />
               <Button
                 size="sm"
                 color="primary"
                 isDisabled={!imageId}
                 onPress={async () => {
                   if (!imageId) return;
-                  const res = await createMapAction(campaignId, imageId, title);
+                  const res = await createMapAction(
+                    campaignId,
+                    imageId,
+                    title,
+                    placeId
+                  );
                   if (!res.ok) {
                     setError(res.error);
                     return;
                   }
                   setImageId(null);
                   setTitle('');
+                  setPlaceId(null);
                   await refresh();
                 }}
               >
@@ -280,6 +360,9 @@ export function MapPanel({
               isStaff={isStaff}
               refresh={refresh}
               onError={setError}
+              entries={entries}
+              onOpenPlace={onOpenPlace}
+              onOpenMap={onOpenMap}
               focusMark={
                 map.pins.some(p => p.id === focusMark) ? focusMark : null
               }

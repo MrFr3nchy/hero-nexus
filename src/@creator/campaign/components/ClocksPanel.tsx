@@ -13,7 +13,9 @@ import {
 } from '@/@shared/components/ui';
 import type { CampaignRole } from '@/server/campaigns';
 import type { ClockRow } from '@/server/clocks';
+import type { CanonEntryRow } from '../lib/canon';
 import { CLOCK_SEGMENTS } from '../lib/clocks';
+import { PlaceChip } from './world/PlaceChip';
 import {
   createClockAction,
   deleteClockAction,
@@ -86,18 +88,62 @@ function ClockFace({
   );
 }
 
-function Clock({
+/**
+ * The clock as a row of segments — the face's small form, for a list where a
+ * ring per row would be a wall of rings. Same state: filled is how far.
+ */
+export function ClockSegments({
+  segments,
+  filled,
+  done,
+}: {
+  segments: number;
+  filled: number;
+  done: boolean;
+}) {
+  return (
+    <span
+      role="img"
+      aria-label={`${filled} of ${segments} segments filled`}
+      className="inline-flex shrink-0 gap-[3px]"
+    >
+      {Array.from({ length: segments }, (_, i) => (
+        <span
+          key={i}
+          className={`h-2.5 w-2.5 rounded-[2px] border ${
+            i < filled
+              ? done
+                ? 'border-danger bg-danger/80'
+                : 'border-gold-strong bg-gold/80 dark:border-gold'
+              : 'border-ink-subtle'
+          }`}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** As much of the World as a clock needs to say where it is ticking. */
+export interface ClockWorld {
+  entries: CanonEntryRow[];
+  byId: ReadonlyMap<string, CanonEntryRow>;
+  onOpenPlace?: (placeId: string) => void;
+}
+
+export function ClockCard({
   campaignId,
   clock,
   isStaff,
   refresh,
   onError,
+  world,
 }: {
   campaignId: string;
   clock: ClockRow;
   isStaff: boolean;
   refresh: () => Promise<void>;
   onError: (message: string) => void;
+  world?: ClockWorld;
 }) {
   const [note, setNote] = useState(clock.dmNote ?? '');
   const [dirty, setDirty] = useState(false);
@@ -130,6 +176,25 @@ function Clock({
           )}
           {isStaff && clock.visibility === 'shared' && (
             <span className="text-xs text-ink-subtle">the party sees this</span>
+          )}
+          {world && (clock.placeId || isStaff) && (
+            <PlaceChip
+              placeId={clock.placeId}
+              entries={world.entries}
+              byId={world.byId}
+              onOpen={world.onOpenPlace}
+              label="Where it is ticking"
+              onChange={
+                isStaff
+                  ? next =>
+                      act(
+                        updateClockAction(campaignId, clock.id, {
+                          placeId: next,
+                        })
+                      )
+                  : undefined
+              }
+            />
           )}
         </div>
 
@@ -332,7 +397,7 @@ export function ClocksPanel({
       ) : (
         <div>
           {clocks.map(c => (
-            <Clock
+            <ClockCard
               key={c.id}
               campaignId={campaignId}
               clock={c}

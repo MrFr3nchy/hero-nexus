@@ -6,6 +6,7 @@ import {
   describeCapture,
   parseCapture,
   parseRollCapture,
+  resolveCapturePlace,
   specFor,
 } from './capture';
 
@@ -104,5 +105,70 @@ describe('specFor / captureWords', () => {
     expect(captureWords()).toEqual(CAPTURE_SPECS.map(s => s.words[0]));
     const words = CAPTURE_SPECS.flatMap(s => s.words);
     expect(new Set(words).size).toBe(words.length);
+  });
+});
+
+describe('where a capture lands', () => {
+  it('reads a trailing @Place before the comma tail', () => {
+    const c = parseCapture('+ clock The tide, 6 @Gullrow Docks');
+    expect(c).toMatchObject({
+      title: 'The tide',
+      number: 6,
+      at: 'Gullrow Docks',
+    });
+    expect(
+      parseCapture('+ quest Find the bell @Old Chapel Hill')
+    ).toMatchObject({
+      title: 'Find the bell',
+      at: 'Old Chapel Hill',
+      tail: '',
+    });
+    expect(
+      parseCapture('+ npc Quill, keeper of lamps @ Lantern Ward')
+    ).toMatchObject({
+      title: 'Quill',
+      tail: 'keeper of lamps',
+      at: 'Lantern Ward',
+    });
+  });
+
+  it('keeps an @ inside a word, or with nothing after the title, as no place', () => {
+    expect(parseCapture('+ quest Write to bob@inn')).toMatchObject({
+      title: 'Write to bob@inn',
+      at: null,
+    });
+    expect(parseCapture('+ quest Meet her')?.at).toBeNull();
+  });
+
+  it('reads a bare trailing @ as "somewhere, not named"', () => {
+    expect(parseCapture('+ quest The bell @')).toMatchObject({
+      title: 'The bell',
+      at: '',
+    });
+  });
+
+  it('leaves the @ in the title for a kind that cannot be somewhere', () => {
+    expect(parseCapture('+ random table Names @Saltmarrow')).toMatchObject({
+      title: 'Names @Saltmarrow',
+      at: null,
+    });
+    expect(parseCapture('+ session Night one @Inn')?.at).toBeNull();
+  });
+
+  it('finds the one place by that name, and never guesses between two', () => {
+    const entries = [
+      { id: 'a', kind: 'location', title: 'Gullrow Docks' },
+      { id: 'b', kind: 'location', title: 'The Well' },
+      { id: 'c', kind: 'location', title: 'the well' },
+      { id: 'd', kind: 'npc', title: 'Gullrow Docks' },
+    ];
+    expect(resolveCapturePlace('gullrow docks', entries).place?.id).toBe('a');
+    const two = resolveCapturePlace('The Well', entries);
+    expect(two.place).toBeNull();
+    expect(two.candidates.map(c => c.id)).toEqual(['b', 'c']);
+    expect(resolveCapturePlace('Nowhere', entries)).toEqual({
+      place: null,
+      candidates: [],
+    });
   });
 });

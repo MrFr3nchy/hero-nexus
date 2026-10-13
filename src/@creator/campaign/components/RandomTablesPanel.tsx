@@ -26,9 +26,11 @@ import {
   createRandomTableAction,
   deleteRandomTableAction,
   listRandomTablesAction,
+  restoreEntryAction,
   rollRandomTableAction,
   updateRandomTableAction,
 } from '../random-table-actions';
+import { listCanonAction } from '../canon-actions';
 import type { RandomTableResult } from '@/server/random-tables';
 
 /**
@@ -56,10 +58,17 @@ export function RandomTablesPanel({
   const [rolling, setRolling] = useState<string | null>(null);
   const { confirm, dialog } = useConfirm();
 
+  /** Who each struck name became, by canon entry id. */
+  const [became, setBecame] = useState<Map<string, string>>(new Map());
+
   const load = useCallback(async () => {
-    const res = await listRandomTablesAction(campaignId);
+    const [res, canon] = await Promise.all([
+      listRandomTablesAction(campaignId),
+      listCanonAction(campaignId).catch(() => []),
+    ]);
     if (res.ok) setTables(res.data);
     else setError(res.error);
+    setBecame(new Map(canon.map(c => [c.id, c.title])));
   }, [campaignId]);
 
   useEffect(() => {
@@ -147,8 +156,14 @@ export function RandomTablesPanel({
             result={last[t.id] ?? null}
             rolling={rolling === t.id}
             compact={compact}
+            became={became}
             onRoll={show => roll(t.id, show)}
             onEdit={() => setEditing(t.id)}
+            onRestore={async index => {
+              const res = await restoreEntryAction(t.id, index);
+              if (!res.ok) setError(res.error);
+              await load();
+            }}
           />
         )
       )}
@@ -198,26 +213,36 @@ function TableCard({
   result,
   rolling,
   compact,
+  became,
   onRoll,
   onEdit,
+  onRestore,
 }: {
   table: RandomTableRow;
   result: RandomTableResult | null;
   rolling: boolean;
   compact: boolean;
+  /** Canon titles by id: who a struck name became. */
+  became: Map<string, string>;
   onRoll: (show: boolean) => void;
   onEdit: () => void;
+  onRestore: (index: number) => void;
 }) {
   const empty = t.entries.length === 0;
+  const spent = !empty && t.entries.every(e => e.struck);
+  const used = t.entries.filter(e => e.struck).length;
   return (
     <div className="rounded-md border border-line bg-surface px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="flex-1 font-medium text-ink">{t.title}</span>
+        {used > 0 && (
+          <span className="text-xs text-ink-subtle">{used} used</span>
+        )}
         <span className="font-mono text-xs text-ink-subtle">d{t.die}</span>
         <Button
           size="sm"
           variant="flat"
-          isDisabled={empty}
+          isDisabled={empty || spent}
           isLoading={rolling}
           onPress={() => onRoll(false)}
         >
@@ -226,7 +251,7 @@ function TableCard({
         <Button
           size="sm"
           variant="light"
-          isDisabled={empty || rolling}
+          isDisabled={empty || spent || rolling}
           onPress={() => onRoll(true)}
         >
           Roll and show the party
@@ -283,7 +308,27 @@ function TableCard({
                 <span className="w-14 shrink-0 text-right font-mono text-xs tabular-nums text-ink-subtle">
                   {rangeLabel(t.die, e)}
                 </span>
-                <span className="flex-1">{e.text}</span>
+                {e.struck ? (
+                  <span className="flex flex-1 flex-wrap items-baseline gap-x-2">
+                    <span className="line-through opacity-60">{e.text}</span>
+                    <span className="text-xs text-ink-subtle">
+                      {e.struck.entryId && became.has(e.struck.entryId)
+                        ? `became ${became.get(e.struck.entryId)}`
+                        : 'used'}
+                    </span>
+                    {!compact && (
+                      <button
+                        type="button"
+                        onClick={() => onRestore(i)}
+                        className="text-xs text-ink-subtle underline-offset-2 hover:text-ink hover:underline"
+                      >
+                        bring it back
+                      </button>
+                    )}
+                  </span>
+                ) : (
+                  <span className="flex-1">{e.text}</span>
+                )}
                 {hit && result && (
                   <Ribbon tone="gold">
                     Rolled {faceLabel(t.die, result.face)}

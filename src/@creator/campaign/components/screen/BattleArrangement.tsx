@@ -1,5 +1,6 @@
 'use client';
 
+import { useMediaQuery } from '@/@shared/hooks/useMediaQuery';
 import {
   Drawer,
   DrawerBody,
@@ -61,18 +62,6 @@ function Badge({
  * The board takes the screen and the panels become a sheet from the bottom.
  */
 const LANDSCAPE_PHONE = '(orientation: landscape) and (max-height: 500px)';
-
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    const mql = window.matchMedia(query);
-    const update = () => setMatches(mql.matches);
-    update();
-    mql.addEventListener('change', update);
-    return () => mql.removeEventListener('change', update);
-  }, [query]);
-  return matches;
-}
 
 /**
  * The fight's arrangement: the battle board in the middle, panels around it.
@@ -485,7 +474,7 @@ export function BattleArrangement({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 p-2">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2">
       <div className="flex min-h-0 flex-1 flex-col gap-2 lg:flex-row">
         {flank('left')}
 

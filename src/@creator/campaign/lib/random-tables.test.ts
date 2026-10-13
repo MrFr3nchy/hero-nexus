@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  carryStrikes,
   checkRanges,
+  drawEntries,
   entryForFace,
   faceLabel,
   formatBulkEntries,
+  liveEntries,
   normalizeTable,
   parseBulkEntries,
   rangeLabel,
@@ -148,5 +151,60 @@ describe('rolling', () => {
     const long = rollLabel('Tavern names', 'x'.repeat(200));
     expect(long).toHaveLength(80);
     expect(long.endsWith('…')).toBe(true);
+  });
+});
+
+describe('plucking names', () => {
+  const names = [
+    { text: 'Durnan', from: 1, to: 1 },
+    { text: 'Mira', from: 2, to: 4, struck: { entryId: 'npc-1' } },
+    { text: 'Osk', from: 5, to: 6 },
+  ];
+
+  it('keeps a strike through normalising, and drops a malformed one', () => {
+    const { entries } = normalizeTable(6, [
+      ...names,
+      { text: 'Bad', from: 1, to: 1, struck: 'yes' },
+    ]);
+    expect(entries.find(e => e.text === 'Mira')?.struck).toEqual({
+      entryId: 'npc-1',
+    });
+    expect(entries.find(e => e.text === 'Bad')?.struck).toBeUndefined();
+    expect(
+      normalizeTable(6, [{ text: 'X', from: 1, to: 1, struck: {} }]).entries[0]
+        .struck
+    ).toEqual({ entryId: null });
+  });
+
+  it('never draws a struck name, nor the same name twice', () => {
+    expect(liveEntries(names).map(e => e.entry.text)).toEqual([
+      'Durnan',
+      'Osk',
+    ]);
+    for (const r of [0, 0.3, 0.5, 0.99]) {
+      const drawn = drawEntries(names, 5, () => r);
+      expect(drawn.map(d => d.entry.text).sort()).toEqual(['Durnan', 'Osk']);
+      expect(drawn.every(d => names[d.index] === d.entry)).toBe(true);
+    }
+  });
+
+  it('draws as the die would: a wider entry is likelier', () => {
+    // Durnan owns face 1, Osk faces 5–6: of three live faces, Osk has two.
+    expect(drawEntries(names, 1, () => 0)[0].entry.text).toBe('Durnan');
+    expect(drawEntries(names, 1, () => 0.34)[0].entry.text).toBe('Osk');
+    expect(drawEntries([names[1]], 1, () => 0)).toEqual([]);
+  });
+
+  it('keeps strikes when the list is pasted back in', () => {
+    const after = carryStrikes(names, [
+      { text: 'durnan', from: 1, to: 2 },
+      { text: 'MIRA ', from: 3, to: 4 },
+      { text: 'Pell', from: 5, to: 6 },
+    ]);
+    expect(after.map(e => e.struck ?? null)).toEqual([
+      null,
+      { entryId: 'npc-1' },
+      null,
+    ]);
   });
 });

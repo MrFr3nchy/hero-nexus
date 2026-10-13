@@ -85,13 +85,16 @@ That is the load-bearing part: the next campaign-scoped table anybody adds is op
 **out** by default, and opting it in means editing the list on purpose.
 
 Carried: name, description, settings, canon collections/entries/links, quests and
-objectives, prep notes, maps and pins, the pictures those point at, and the homebrew the
-campaign's library holds. **Both bodies** of canon and quests travel, secrets included —
+objectives, prep notes, maps and pins, random tables, shops and their stock, encounter
+plans and their monsters (without their spots on a battle board — boards do not travel),
+where each of those is (`place_id`, 0072), the pictures those point at, and the homebrew
+the campaign's library holds. **Both bodies** of canon and quests travel, secrets included —
 the adopter becomes the DM, and prep with the secret half stripped is not prep.
 
 Never carried: members, invites, the join code, characters and their sheets, sessions,
 attendance, rolls, journals, downtime, awards, initiative, clocks, screen layouts, loot,
-treasury, handouts, reveals, approvals and the soundtrack. Some of that is other users'
+treasury, handouts, reveals, approvals, the soundtrack, the journey, party notes, and when
+an encounter plan was fought. Some of that is other users'
 rows outright; the rest is the record of a table that was played, not a thing to run —
 and a track somebody uploaded is not a thing to publish.
 

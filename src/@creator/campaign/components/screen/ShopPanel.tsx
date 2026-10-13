@@ -22,9 +22,12 @@ import {
   Marginalia,
 } from '@/@shared/components/ui';
 import type { DowntimePeriodRow } from '@/@creator/campaign/lib/downtime';
+import type { CanonEntryRow } from '@/@creator/campaign/lib/canon';
 import type { SellQuote, ShopRow } from '@/server/shops';
 import type { LiveState } from '@/server/session';
+import { listCanonAction } from '../../canon-actions';
 import { listDowntimeAction } from '../../downtime-actions';
+import { PlacePicker } from '../world/PlacePicker';
 import { getPlayLoadoutAction } from '../../play-actions';
 import {
   addStockAction,
@@ -60,14 +63,25 @@ export function ShopPanel({
   state,
   isStaff,
   onError,
+  placeId,
+  placeName,
+  onOpenNpc,
 }: {
   campaignId: string;
   state: LiveState;
   isStaff: boolean;
   onError: (message: string) => void;
+  /**
+   * Only the shops standing here, and a new one opens here (0072). Omit for
+   * every shop at the table — the session screen's panel.
+   */
+  placeId?: string;
+  /** The place's name, for the empty shelf's sentence. */
+  placeName?: string;
+  /** Open the keeper, from their name on the shop's sign. */
+  onOpenNpc?: (entryId: string) => void;
 }) {
   const [shops, setShops] = useState<ShopRow[] | null>(null);
-  const [newName, setNewName] = useState('');
   // Whose purse. A player's is their seated hero; the DM picks from the party.
   const [characterId, setCharacterId] = useState<string | null>(
     state.viewerCharacterId
@@ -123,6 +137,24 @@ export function ShopPanel({
 
   if (shops === null) {
     return <p className="text-sm text-ink-subtle">Opening the shutters…</p>;
+  }
+  const here =
+    placeId === undefined ? shops : shops.filter(s => s.placeId === placeId);
+  // In a place with no shop, the purse line is noise: there is nothing to
+  // spend it on.
+  if (placeId !== undefined && here.length === 0) {
+    return isStaff ? (
+      <OpenShop
+        campaignId={campaignId}
+        placeId={placeId}
+        act={act}
+        label={`Open a shop in ${placeName || 'this place'}`}
+      />
+    ) : (
+      <p className="text-sm text-ink-subtle">
+        No merchant here that the party knows of.
+      </p>
+    );
   }
 
   return (
@@ -186,7 +218,7 @@ export function ShopPanel({
         </p>
       )}
 
-      {shops.length === 0 && (
+      {here.length === 0 && (
         <EmptyState
           scene={<HoardScene />}
           title={isStaff ? 'No shop open yet' : 'No merchant in sight'}
@@ -198,11 +230,13 @@ export function ShopPanel({
         />
       )}
 
-      {shops.map(shop => (
+      {here.map(shop => (
         <Shop
           key={shop.id}
           campaignId={campaignId}
           shop={shop}
+          onOpenNpc={onOpenNpc}
+          capped={placeId !== undefined}
           isStaff={isStaff}
           characterId={characterId}
           periodId={periodId}
@@ -216,34 +250,62 @@ export function ShopPanel({
       ))}
 
       {isStaff && (
-        <form
-          className="flex flex-wrap items-end gap-2 border-t border-line pt-3"
-          onSubmit={async e => {
-            e.preventDefault();
-            if (!newName.trim()) return;
-            await act(createShopAction(campaignId, { name: newName.trim() }));
-            setNewName('');
-          }}
-        >
-          <Input
-            size="sm"
-            label="Open a shop"
-            placeholder="The Gilded Mortar"
-            value={newName}
-            onValueChange={setNewName}
-            className="min-w-48 flex-1"
-          />
-          <Button
-            size="sm"
-            color="primary"
-            type="submit"
-            isDisabled={!newName.trim()}
-          >
-            Open it
-          </Button>
-        </form>
+        <OpenShop
+          campaignId={campaignId}
+          placeId={placeId ?? null}
+          act={act}
+          label={placeId ? 'Open another shop here' : 'Open a shop'}
+        />
       )}
     </div>
+  );
+}
+
+/** The DM opening a shop — in a place, when there is one. */
+function OpenShop({
+  campaignId,
+  placeId,
+  act,
+  label,
+}: {
+  campaignId: string;
+  placeId: string | null;
+  act: Act;
+  label: string;
+}) {
+  const [newName, setNewName] = useState('');
+  return (
+    <form
+      className="flex flex-wrap items-end gap-2 border-t border-line pt-3"
+      onSubmit={async e => {
+        e.preventDefault();
+        if (!newName.trim()) return;
+        await act(
+          createShopAction(campaignId, {
+            name: newName.trim(),
+            ...(placeId ? { placeId } : {}),
+          })
+        );
+        setNewName('');
+      }}
+    >
+      <Input
+        size="sm"
+        label={label}
+        placeholder="The Gilded Mortar"
+        value={newName}
+        onValueChange={setNewName}
+        className="min-w-48 flex-1"
+      />
+      <Button
+        size="sm"
+        color="primary"
+        type="submit"
+        isDisabled={!newName.trim()}
+      >
+        Open it
+      </Button>
+    </form>
   );
 }
 
@@ -258,9 +320,14 @@ function Shop({
   act,
   onTrade,
   onError,
+  onOpenNpc,
+  capped = false,
 }: {
   campaignId: string;
   shop: ShopRow;
+  onOpenNpc?: (entryId: string) => void;
+  /** On a page, not a panel: a long shelf scrolls in its own box. */
+  capped?: boolean;
   isStaff: boolean;
   characterId: string | null;
   periodId: string | null;
@@ -304,6 +371,22 @@ function Shop({
         <span className="font-display text-base text-ink">
           {shop.name || 'The shop'}
         </span>
+        {shop.keeper && (
+          <span className="text-xs text-ink-muted">
+            kept by{' '}
+            {onOpenNpc ? (
+              <button
+                type="button"
+                className="text-ink underline-offset-2 hover:underline"
+                onClick={() => onOpenNpc(shop.keeper!.id)}
+              >
+                {shop.keeper.title || 'somebody'}
+              </button>
+            ) : (
+              <span className="text-ink">{shop.keeper.title}</span>
+            )}
+          </span>
+        )}
         {shop.markupPercent !== 0 && (
           <span className="text-xs text-ink-subtle">
             {shop.markupPercent > 0 ? '+' : ''}
@@ -395,7 +478,9 @@ function Shop({
           Nothing on the shelf by that name.
         </p>
       ) : (
-        <ul className="divide-y divide-line">
+        <ul
+          className={`divide-y divide-line ${capped ? 'max-h-96 overflow-y-auto' : ''}`}
+        >
           {shown.map(row => {
             const out = row.quantity !== null && row.quantity <= 0;
             const chips = row.entry ? contentChips(row.entry).slice(0, 3) : [];
@@ -504,10 +589,17 @@ function ShopEditor({
   const [price, setPrice] = useState('');
   const [count, setCount] = useState('');
   const [busy, setBusy] = useState(false);
+  const [canon, setCanon] = useState<CanonEntryRow[] | null>(null);
 
   useEffect(() => {
     listShopItemChoicesAction(campaignId).then(setChoices);
+    listCanonAction(campaignId)
+      .then(setCanon)
+      .catch(() => setCanon([]));
   }, [campaignId]);
+  const npcs = (canon ?? [])
+    .filter(e => e.kind === 'npc')
+    .sort((a, b) => a.title.localeCompare(b.title));
 
   const chosen = useMemo(
     () => choices?.find(c => `${c.source}:${c.key}` === picked) ?? null,
@@ -546,6 +638,37 @@ function ShopEditor({
           value={buysAt}
           onValueChange={v => setBuysAt(Number(v) || 0)}
         />
+        {canon && (
+          <>
+            <PlacePicker
+              entries={canon}
+              value={shop.placeId}
+              label="Stands in"
+              onChange={placeId => act(updateShopAction(shop.id, { placeId }))}
+            />
+            <Select
+              size="sm"
+              label="Kept by"
+              labelPlacement="outside"
+              placeholder="Nobody named"
+              selectedKeys={shop.keeper ? [shop.keeper.id] : []}
+              onSelectionChange={keys => {
+                const key = Array.from(keys)[0];
+                void act(
+                  updateShopAction(shop.id, {
+                    keeperId: key ? String(key) : null,
+                  })
+                );
+              }}
+            >
+              {npcs.map(n => (
+                <SelectItem key={n.id} textValue={n.title}>
+                  {n.title}
+                </SelectItem>
+              ))}
+            </Select>
+          </>
+        )}
       </div>
       <div className="flex flex-wrap gap-2">
         <Button

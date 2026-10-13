@@ -15,6 +15,8 @@ import {
 } from '@/@shared/components/ui';
 import type { CampaignRole } from '@/server/campaigns';
 import type { ObjectiveRow, QuestRow, QuestStatus } from '@/server/quests';
+import type { CanonEntryRow } from '../lib/canon';
+import { isPlace, residentsOf } from '../lib/world';
 import {
   addObjectiveAction,
   createQuestAction,
@@ -22,22 +24,36 @@ import {
   deleteQuestAction,
   listQuestsAction,
   setObjectiveDoneAction,
+  setObjectivePlaceAction,
   setObjectiveVisibilityAction,
   updateQuestAction,
 } from '../quest-actions';
 import { OnTheMap, useMapLinks, type MapLinks } from './OnTheMap';
+import { PlaceChip } from './world/PlaceChip';
+import { PlacePicker } from './world/PlacePicker';
+
+/**
+ * The World, as much of it as a quest needs to say where it happens and who
+ * handed it out. Absent, a quest card is the plain quest log it always was.
+ */
+export interface QuestWorld {
+  entries: CanonEntryRow[];
+  byId: ReadonlyMap<string, CanonEntryRow>;
+  onOpenPlace?: (placeId: string) => void;
+}
 
 const STATUS: {
   key: QuestStatus;
   label: string;
   tone: 'gold' | 'default' | 'success' | 'warning';
 }[] = [
-  { key: 'rumour', label: 'Rumor', tone: 'default' },
+  { key: 'rumour', label: 'Rumour', tone: 'default' },
   { key: 'active', label: 'In hand', tone: 'gold' },
   { key: 'done', label: 'Done', tone: 'success' },
   { key: 'failed', label: 'Failed', tone: 'warning' },
 ];
 
+export const QUEST_STATUS = STATUS;
 const STATUS_BY_KEY = Object.fromEntries(STATUS.map(s => [s.key, s]));
 
 type Act = (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
@@ -52,17 +68,28 @@ function Objectives({
   objectives,
   isStaff,
   act,
+  world,
 }: {
   objectives: ObjectiveRow[];
   isStaff: boolean;
   act: Act;
+  world?: QuestWorld;
 }) {
   if (objectives.length === 0) return null;
+  // The next step is the first one not done: the one the party is on.
+  const next = objectives.find(o => !o.done)?.id;
 
   return (
     <ul className="mt-2 space-y-1">
       {objectives.map(o => (
-        <li key={o.id} className="group flex items-start gap-2">
+        <li
+          key={o.id}
+          className={`group flex flex-wrap items-start gap-x-2 ${
+            o.visibility === 'dm' && isStaff
+              ? 'status-hatch rounded-sm px-1'
+              : ''
+          }`}
+        >
           <button
             type="button"
             disabled={!isStaff}
@@ -76,11 +103,31 @@ function Objectives({
           </button>
           <span
             className={`flex-1 font-hand text-[1.1875rem] leading-snug ${
-              o.done ? 'text-ink-subtle line-through' : 'text-ink-muted'
+              o.done
+                ? 'text-ink-subtle line-through'
+                : o.id === next
+                  ? 'text-ink'
+                  : 'text-ink-muted'
             }`}
           >
             {o.body}
           </span>
+          {world && (o.placeId || isStaff) && (
+            <span className="mt-0.5 shrink-0">
+              <PlaceChip
+                placeId={o.placeId}
+                entries={world.entries}
+                byId={world.byId}
+                onOpen={world.onOpenPlace}
+                label="Where this step happens"
+                onChange={
+                  isStaff
+                    ? next => act(setObjectivePlaceAction(o.id, next))
+                    : undefined
+                }
+              />
+            </span>
+          )}
           {isStaff && (
             <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               <button
@@ -115,13 +162,18 @@ function Objectives({
 
 /* --- one quest -------------------------------------------------------- */
 
-function QuestEntry({
+/**
+ * One quest, whole: what the party was told, the steps (each somewhere), and
+ * the DM's half. The quest log's card, and the World's.
+ */
+export function QuestCard({
   campaignId,
   quest,
   isStaff,
   refresh,
   onError,
   mapLinks,
+  world,
 }: {
   campaignId: string;
   quest: QuestRow;
@@ -129,6 +181,7 @@ function QuestEntry({
   refresh: () => Promise<void>;
   onError: (message: string) => void;
   mapLinks: MapLinks | null;
+  world?: QuestWorld;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
@@ -136,9 +189,39 @@ function QuestEntry({
     summary: quest.summary,
     dmNotes: quest.dmNotes ?? '',
     giver: quest.giver,
+    giverId: quest.giverId,
     reward: quest.reward,
   });
   const [objective, setObjective] = useState('');
+  const [objectivePlace, setObjectivePlace] = useState<string | null>(null);
+  const giverEntry = quest.giverId ? world?.byId.get(quest.giverId) : null;
+  const giverName = giverEntry?.title || quest.giver;
+
+  // Who could have handed it out: the people who live where it is, first.
+  const npcs = world
+    ? (() => {
+        const all = world.entries.filter(e => e.kind === 'npc');
+        const local = quest.placeId
+          ? residentsOf(quest.placeId, world.entries).filter(
+              e => e.kind === 'npc'
+            )
+          : [];
+        const localIds = new Set(local.map(e => e.id));
+        return [
+          ...local,
+          ...all
+            .filter(e => !localIds.has(e.id))
+            .sort((a, b) => a.title.localeCompare(b.title)),
+        ];
+      })()
+    : [];
+  const addStep = async () => {
+    if (!objective.trim()) return;
+    await act(
+      addObjectiveAction(quest.id, objective, 'shared', objectivePlace)
+    );
+    setObjective('');
+  };
   const { confirm, dialog } = useConfirm();
 
   const act: Act = async p => {
@@ -177,12 +260,33 @@ function QuestEntry({
           <h3 className="font-display text-lg text-ink">
             {quest.title || 'Untitled thread'}
           </h3>
-          {(quest.giver || quest.reward) && (
+          {(giverName || quest.reward) && (
             <p className="text-xs text-ink-subtle">
-              {quest.giver && <>From {quest.giver}</>}
-              {quest.giver && quest.reward && ' · '}
+              {giverName && <>From {giverName}</>}
+              {giverName && quest.reward && ' · '}
               {quest.reward && <>for {quest.reward}</>}
             </p>
+          )}
+          {world && (quest.placeId || isStaff) && (
+            <div className="mt-1">
+              <PlaceChip
+                placeId={quest.placeId}
+                entries={world.entries}
+                byId={world.byId}
+                onOpen={world.onOpenPlace}
+                label="Where it starts"
+                onChange={
+                  isStaff
+                    ? next =>
+                        act(
+                          updateQuestAction(campaignId, quest.id, {
+                            placeId: next,
+                          })
+                        )
+                    : undefined
+                }
+              />
+            </div>
           )}
           <div className="mt-1">
             <OnTheMap
@@ -196,7 +300,7 @@ function QuestEntry({
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           <Pill tone={status.tone}>{status.label}</Pill>
           {isStaff && quest.visibility === 'dm' && (
-            <Pill tone="warning">Yours alone</Pill>
+            <Pill tone="warning">Only you</Pill>
           )}
         </div>
       </div>
@@ -210,14 +314,51 @@ function QuestEntry({
             onValueChange={v => setDraft(d => ({ ...d, title: v }))}
           />
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Input
-              size="sm"
-              label="Given by"
-              placeholder="Mother Aldys"
-              value={draft.giver}
-              onValueChange={v => setDraft(d => ({ ...d, giver: v }))}
-              className="flex-1"
-            />
+            {npcs.length > 0 ? (
+              <Select
+                size="sm"
+                label="Given by"
+                className="flex-1"
+                selectedKeys={[draft.giverId ?? '__text__']}
+                onSelectionChange={keys => {
+                  const key = String(Array.from(keys)[0] ?? '__text__');
+                  setDraft(d => ({
+                    ...d,
+                    giverId: key === '__text__' ? null : key,
+                  }));
+                }}
+              >
+                {[
+                  <SelectItem key="__text__" textValue="Somebody not written">
+                    <span className="text-ink-muted">
+                      Somebody not in the canon
+                    </span>
+                  </SelectItem>,
+                  ...npcs.map(n => (
+                    <SelectItem key={n.id} textValue={n.title || 'Somebody'}>
+                      {n.title || 'Somebody'}
+                      {quest.placeId &&
+                        n.placeId === quest.placeId &&
+                        world?.byId.get(quest.placeId) && (
+                          <span className="ml-1 text-xs text-ink-subtle">
+                            lives here
+                          </span>
+                        )}
+                    </SelectItem>
+                  )),
+                ]}
+              </Select>
+            ) : null}
+            {(npcs.length === 0 || !draft.giverId) && (
+              <Input
+                size="sm"
+                label={npcs.length > 0 ? 'Or by name' : 'Given by'}
+                placeholder="Mother Aldys"
+                value={draft.giver}
+                onValueChange={v => setDraft(d => ({ ...d, giver: v }))}
+                className="flex-1"
+              />
+            )}
             <Input
               size="sm"
               label="Reward"
@@ -275,6 +416,7 @@ function QuestEntry({
             objectives={quest.objectives}
             isStaff={isStaff}
             act={act}
+            world={world}
           />
 
           {isStaff && quest.dmNotes && (
@@ -298,25 +440,30 @@ function QuestEntry({
           <div className="flex flex-wrap items-end gap-2">
             <Input
               size="sm"
+              aria-label="Another step"
               placeholder="Add an objective…"
               value={objective}
               onValueChange={setObjective}
               className="min-w-40 flex-1"
-              onKeyDown={async e => {
-                if (e.key === 'Enter' && objective.trim()) {
-                  await act(addObjectiveAction(quest.id, objective, 'shared'));
-                  setObjective('');
-                }
+              onKeyDown={e => {
+                if (e.key === 'Enter') void addStep();
               }}
             />
+            {world && world.entries.some(isPlace) && (
+              <PlacePicker
+                entries={world.entries}
+                value={objectivePlace}
+                onChange={setObjectivePlace}
+                label=""
+                nowhere="Wherever the quest is"
+                className="w-44"
+              />
+            )}
             <Button
               size="sm"
               variant="flat"
               isDisabled={!objective.trim()}
-              onPress={async () => {
-                await act(addObjectiveAction(quest.id, objective, 'shared'));
-                setObjective('');
-              }}
+              onPress={addStep}
             >
               Add
             </Button>
@@ -516,7 +663,7 @@ export function QuestPanel({
 
           <div className="space-y-3">
             {shown.map(q => (
-              <QuestEntry
+              <QuestCard
                 key={q.id}
                 campaignId={campaignId}
                 quest={q}

@@ -14,6 +14,7 @@ import {
   getLedger,
   listQuests,
   setObjectiveDone,
+  setObjectivePlace,
   setObjectiveVisibility,
   updateLoot,
   updateQuest,
@@ -33,6 +34,8 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     SESSION_STALE: 'Your session is out of date. Sign in again.',
     NOT_FOUND: 'That no longer exists.',
     FORBIDDEN: 'You do not have permission to do that.',
+    NOT_A_PLACE: 'A quest can only be placed in a place.',
+    NOT_AN_NPC: 'Only somebody in the canon can hand out a quest.',
   };
   // Unmapped errors reach the client as a generic sentence, which makes them
   // invisible in a bug report. Keep the real one in the server log.
@@ -48,6 +51,8 @@ const questSchema = z.object({
   reward: z.string().trim().max(400).optional(),
   status: z.enum(['rumour', 'active', 'done', 'failed']).optional(),
   visibility: z.enum(['dm', 'shared']).optional(),
+  placeId: z.string().min(1).nullable().optional(),
+  giverId: z.string().min(1).nullable().optional(),
 });
 
 const lootSchema = z.object({
@@ -134,14 +139,32 @@ export async function deleteQuestAction(
 export async function addObjectiveAction(
   questId: string,
   body: string,
-  visibility: 'dm' | 'shared'
-): Promise<Result> {
+  visibility: 'dm' | 'shared',
+  placeId: string | null = null
+): Promise<Result<{ id: string }>> {
   if (!body.trim()) return { ok: false, error: 'Write the objective first.' };
   try {
-    await addObjective(questId, body.slice(0, 400), visibility);
-    return { ok: true };
+    const id = await addObjective(
+      questId,
+      body.slice(0, 400),
+      visibility,
+      placeId
+    );
+    return { ok: true, data: { id } };
   } catch (err) {
     return fail(err, 'Failed to add the objective.');
+  }
+}
+
+export async function setObjectivePlaceAction(
+  objectiveId: string,
+  placeId: string | null
+): Promise<Result> {
+  try {
+    await setObjectivePlace(objectiveId, placeId);
+    return { ok: true };
+  } catch (err) {
+    return fail(err, 'Failed to place that step.');
   }
 }
 

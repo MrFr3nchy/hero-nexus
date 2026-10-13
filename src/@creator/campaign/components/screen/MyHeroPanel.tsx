@@ -21,6 +21,7 @@ import { RestSheet } from '../session/RestPanel';
 import { consumeItemAction, getPlayLoadoutAction } from '../../play-actions';
 import { passInspirationAction } from '../../time-actions';
 import { PlayCard } from '../PlayCard';
+import { SheetRolls } from './SheetRolls';
 import { Refused, type RefusedState } from '../Refused';
 import type { LiveState } from '@/server/session';
 
@@ -347,6 +348,12 @@ export function MyHeroPanel({
             restOpen={live?.rest?.kind ?? null}
             onRest={refresh}
             onChange={setLocal}
+            onError={onError}
+          />
+          <SheetRolls
+            campaignId={campaignId}
+            play={local}
+            refresh={refresh}
             onError={onError}
           />
           {live && refresh && (

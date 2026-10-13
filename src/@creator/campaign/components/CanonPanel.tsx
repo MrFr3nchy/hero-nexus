@@ -44,6 +44,9 @@ import {
 } from '../canon-actions';
 import { FactionStanding, NpcDepth } from './NpcDepth';
 import { ImagePicker } from './ImagePicker';
+import { PartyNotes } from './world/PartyNotes';
+import { PlacePicker } from './world/PlacePicker';
+import { pathLabel, placePath } from '../lib/world';
 
 /**
  * Shelves used to store whatever emoji the DM typed. They store a glyph name
@@ -116,7 +119,7 @@ import { RevealControls } from './RevealControls';
  * paragraph. Reveals stay per entry: a shelf is never secret, its contents are.
  */
 
-type Draft = {
+export type Draft = {
   kind: CanonKind;
   title: string;
   dmBody: string;
@@ -124,9 +127,10 @@ type Draft = {
   collectionId: string | null;
   imageId: string | null;
   fields: Record<string, string>;
+  placeId: string | null;
 };
 
-const emptyDraft: Draft = {
+export const emptyDraft: Draft = {
   kind: 'npc',
   title: '',
   dmBody: '',
@@ -134,6 +138,33 @@ const emptyDraft: Draft = {
   collectionId: null,
   imageId: null,
   fields: {},
+  placeId: null,
+};
+
+/** A draft of an entry as it stands, for the editor. */
+export function draftOf(entry: CanonEntryRow): Draft {
+  return {
+    kind: entry.kind,
+    title: entry.title,
+    dmBody: entry.dmBody ?? '',
+    partyBody: entry.partyBody,
+    collectionId: entry.collectionId,
+    imageId: entry.imageId,
+    fields: entry.fields,
+    placeId: entry.placeId,
+  };
+}
+
+/** What "where it is" means, for each kind. */
+export const PLACE_LABEL: Record<CanonKind, string> = {
+  npc: 'Lives in',
+  creature: 'Found in',
+  location: 'Inside',
+  faction: 'Seat',
+  item: 'Lies in',
+  spell: 'Where',
+  lore: 'Where',
+  note: 'Where',
 };
 
 const LOOSE = '__loose__';
@@ -263,15 +294,7 @@ export function CanonPanel({
           act={act}
           onEdit={() => {
             setEditingId(entry.id);
-            setDraft({
-              kind: entry.kind,
-              title: entry.title,
-              dmBody: entry.dmBody ?? '',
-              partyBody: entry.partyBody,
-              collectionId: entry.collectionId,
-              imageId: entry.imageId,
-              fields: entry.fields,
-            });
+            setDraft(draftOf(entry));
           }}
         />
       ))}
@@ -356,6 +379,8 @@ export function CanonPanel({
           campaignId={campaignId}
           draft={draft}
           shelves={shelves}
+          entries={entries}
+          entryId={editingId}
           editing={Boolean(editingId)}
           onChange={setDraft}
           onSave={save}
@@ -487,7 +512,7 @@ export function CanonPanel({
 
 /* --- one entry ----------------------------------------------------------- */
 
-function CanonCard({
+export function CanonCard({
   campaignId,
   entry,
   entries,
@@ -496,6 +521,9 @@ function CanonCard({
   isStaff,
   act,
   onEdit,
+  onOpenPlace,
+  defaultOpen,
+  extra,
 }: {
   campaignId: string;
   entry: CanonEntryRow;
@@ -505,10 +533,21 @@ function CanonCard({
   isStaff: boolean;
   act: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
   onEdit: () => void;
+  /** Open a place in the World: the "where" line becomes a way there. */
+  onOpenPlace?: (placeId: string) => void;
+  defaultOpen?: boolean;
+  /** More, under the facts: the shop an NPC keeps. */
+  extra?: React.ReactNode;
 }) {
-  const facts = CANON_KIND_FIELDS[entry.kind]
+  // Short facts are the line under the name; a sentence is its own row.
+  const defs = CANON_KIND_FIELDS[entry.kind];
+  const facts = defs
+    .filter(f => !f.long)
     .map(f => (entry.fields[f.key] ? `${f.label}: ${entry.fields[f.key]}` : ''))
     .filter(Boolean);
+  const sentences = defs.filter(f => f.long && entry.fields[f.key]);
+  const byId = new Map(entries.map(e => [e.id, e]));
+  const where = entry.placeId ? placePath(entry.placeId, byId) : [];
 
   const linkable = entries.filter(
     o => o.id !== entry.id && !entry.links.some(l => l.id === o.id)
@@ -530,14 +569,47 @@ function CanonCard({
       }
       imageAlt={entry.title}
       tone={entry.visibility === 'shared' ? 'gold' : 'arcane'}
-      meta={facts.length > 0 ? facts.join(' · ') : undefined}
+      defaultOpen={defaultOpen}
+      meta={
+        facts.length > 0 || where.length > 0 ? (
+          <>
+            {where.length > 0 && (
+              <span className="mr-2 inline-flex items-center gap-1">
+                <Glyph name="compass" size={11} />
+                {onOpenPlace ? (
+                  <button
+                    type="button"
+                    className="underline-offset-2 hover:text-ink hover:underline"
+                    onClick={() => onOpenPlace(entry.placeId!)}
+                  >
+                    {pathLabel(where)}
+                  </button>
+                ) : (
+                  pathLabel(where)
+                )}
+              </span>
+            )}
+            {facts.join(' · ')}
+          </>
+        ) : undefined
+      }
       badges={
         entry.visibility === 'shared' ? (
           <Pill tone="gold">Party knows</Pill>
         ) : entry.revealedToMe ? (
           <Pill tone="arcane">Told to you</Pill>
         ) : (
-          isStaff && <Pill tone="warning">DM only</Pill>
+          isStaff &&
+          (entry.revealedTo.length > 0 ? (
+            <Pill tone="arcane">
+              Told to{' '}
+              {entry.revealedTo.map(r => r.name || 'a player').join(', ')}
+            </Pill>
+          ) : (
+            <Pill tone="warning">
+              {entry.kind === 'npc' ? 'Not met yet' : 'DM only'}
+            </Pill>
+          ))
         )
       }
       summary={
@@ -549,6 +621,19 @@ function CanonCard({
       }
     >
       <div className="space-y-3 text-sm">
+        {sentences.length > 0 && (
+          <dl className="space-y-1">
+            {sentences.map(f => (
+              <div key={f.key}>
+                <dt className="text-[0.65rem] uppercase tracking-[0.1em] text-ink-subtle">
+                  {f.label}
+                </dt>
+                <dd className="text-ink-muted">{entry.fields[f.key]}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+
         {entry.partyBody.trim() && (
           <div>
             <p className="text-[0.65rem] uppercase tracking-[0.1em] text-ink-subtle">
@@ -609,6 +694,18 @@ function CanonCard({
 
         {entry.kind === 'faction' && (
           <FactionStanding entry={entry} isStaff={isStaff} act={act} />
+        )}
+
+        {extra}
+
+        {(entry.kind === 'npc' || entry.kind === 'location') && (
+          <PartyNotes
+            campaignId={campaignId}
+            entryId={entry.id}
+            notes={entry.partyNotes}
+            act={act}
+            place={entry.kind === 'location'}
+          />
         )}
 
         {isStaff && (
@@ -774,24 +871,35 @@ function ShelfControls({
 
 /* --- the editor ---------------------------------------------------------- */
 
-function EntryEditor({
+export function EntryEditor({
   campaignId,
   draft,
   shelves,
+  entries,
+  entryId = null,
   editing,
   onChange,
   onSave,
   onCancel,
+  extra,
 }: {
   campaignId: string;
   draft: Draft;
   shelves: CanonCollectionRow[];
+  /** Every entry, for the "where" picker. */
+  entries: CanonEntryRow[];
+  /** The entry being edited — kept off its own "where" list. */
+  entryId?: string | null;
   editing: boolean;
   onChange: (next: Draft) => void;
   onSave: () => void;
   onCancel: () => void;
+  /** More controls beside the name: a die that rolls one. */
+  extra?: React.ReactNode;
 }) {
   const fields = CANON_KIND_FIELDS[draft.kind];
+  const short = fields.filter(f => !f.long);
+  const long = fields.filter(f => f.long);
 
   return (
     <SectionCard
@@ -818,12 +926,16 @@ function EntryEditor({
             </SelectItem>
           ))}
         </Select>
-        <Input
-          aria-label="Title"
-          placeholder="Name of the NPC, place, spell…"
-          value={draft.title}
-          onValueChange={v => onChange({ ...draft, title: v })}
-        />
+        <div className="flex items-center gap-2">
+          <Input
+            aria-label="Title"
+            placeholder="Name of the NPC, place, spell…"
+            value={draft.title}
+            onValueChange={v => onChange({ ...draft, title: v })}
+            className="flex-1"
+          />
+          {extra}
+        </div>
       </div>
 
       <div className="mt-3 grid gap-4 sm:grid-cols-[auto_1fr]">
@@ -859,9 +971,17 @@ function EntryEditor({
             </Select>
           )}
 
-          {fields.length > 0 && (
+          <PlacePicker
+            entries={entries}
+            value={draft.placeId}
+            within={draft.kind === 'location' ? entryId : null}
+            label={PLACE_LABEL[draft.kind]}
+            onChange={placeId => onChange({ ...draft, placeId })}
+          />
+
+          {short.length > 0 && (
             <div className="grid gap-2 sm:grid-cols-2">
-              {fields.map(field => (
+              {short.map(field => (
                 <Input
                   key={field.key}
                   size="sm"
@@ -880,6 +1000,27 @@ function EntryEditor({
           )}
         </div>
       </div>
+
+      {long.length > 0 && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {long.map(field => (
+            <Textarea
+              key={field.key}
+              size="sm"
+              minRows={2}
+              label={field.label}
+              placeholder={field.placeholder}
+              value={draft.fields[field.key] ?? ''}
+              onValueChange={v =>
+                onChange({
+                  ...draft,
+                  fields: { ...draft.fields, [field.key]: v },
+                })
+              }
+            />
+          ))}
+        </div>
+      )}
 
       <Textarea
         className="mt-3"

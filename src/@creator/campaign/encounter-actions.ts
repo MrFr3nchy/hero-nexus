@@ -30,6 +30,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     FORBIDDEN: 'You do not have permission to do that.',
     NOT_A_CREATURE: 'Only a creature can be put in a fight.',
     NO_SUCH_CREATURE: 'That creature is no longer in the bestiary.',
+    NOT_A_PLACE: 'A fight happens in a place — pick one that is.',
   };
   if (!messages[code]) console.error('[action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
@@ -39,6 +40,7 @@ const planSchema = z.object({
   name: z.string().trim().min(1, 'Name the fight.').max(160),
   notes: z.string().max(8000).optional(),
   sessionId: z.string().min(1).nullable().optional(),
+  placeId: z.string().min(1).max(64).nullable().optional(),
 });
 
 const refSchema = z.object({

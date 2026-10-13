@@ -131,7 +131,12 @@ export function fogRuns(
 
 export interface JourneyStop {
   id: string;
+  /** 1, 2, 3… in the order the party went. 0 while planned. */
   seq: number;
+  /** Not reached yet: where the party is headed. */
+  planned: boolean;
+  /** A planned stop is the DM's until shown; a reached one is the party's. */
+  visibility: 'dm' | 'shared';
   x: number;
   y: number;
   label: string;
@@ -144,16 +149,30 @@ export interface JourneyStop {
   createdAt: string;
 }
 
-/** The stops up to and including `upTo` (a seq), in order. */
+/** The stops the party has actually reached, in order. */
+export function reachedStops(stops: readonly JourneyStop[]): JourneyStop[] {
+  return stops.filter(s => !s.planned).sort((a, b) => a.seq - b.seq);
+}
+
+/** Where the party is headed, in the order the DM planned them. */
+export function plannedStops(stops: readonly JourneyStop[]): JourneyStop[] {
+  return stops
+    .filter(s => s.planned)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/** The reached stops up to and including `upTo` (a seq), in order. */
 export function journeyUpTo(
   stops: readonly JourneyStop[],
   upTo: number
 ): JourneyStop[] {
-  return [...stops].sort((a, b) => a.seq - b.seq).filter(s => s.seq <= upTo);
+  return reachedStops(stops).filter(s => s.seq <= upTo);
 }
 
 /** The SVG polyline points for a run of stops, in a 0–100 box. */
-export function trailPoints(stops: readonly JourneyStop[]): string {
+export function trailPoints(
+  stops: readonly Pick<JourneyStop, 'x' | 'y'>[]
+): string {
   return stops.map(s => `${s.x * 100},${s.y * 100}`).join(' ');
 }
 

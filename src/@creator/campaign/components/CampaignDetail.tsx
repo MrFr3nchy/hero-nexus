@@ -25,28 +25,44 @@ import type { CampaignRow } from '@/server/campaigns';
 import { getCampaignPulseAction } from '../chronicle-actions';
 import { describeRules } from '../lib/rules';
 import type { TableKind } from '../lib/screen';
+import { FOLDED_SECTIONS, readWorldRoute } from '../lib/world-route';
 import { describeTableRules } from '../lib/table-rules';
 import { CampaignOverview } from './CampaignOverview';
 import { CaptureBox } from './CaptureBox';
-import { CanonPanel } from './CanonPanel';
 import { AwardsPanel } from './AwardsPanel';
 import { ChroniclePanel } from './ChroniclePanel';
-import { ClocksPanel } from './ClocksPanel';
 import { DowntimePanel } from './DowntimePanel';
 import { CampaignContentPanel } from './CampaignContentPanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { LedgerPanel } from './LedgerPanel';
 import { JournalPanel } from './JournalPanel';
-import { MapPanel } from './MapPanel';
 import { MembersPanel } from './MembersPanel';
-import { RandomTablesPanel } from './RandomTablesPanel';
 import { SafetyPanel } from './SafetyPanel';
 import { NotebookPanel, SharedNotes } from './NotebookPanel';
 import { PartySecrets } from './PartySecrets';
-import { QuestPanel } from './QuestPanel';
 import { RevealTimeline } from './RevealTimeline';
-import { EncounterPlanner } from './EncounterPlanner';
 import { BoardShelf } from './workshop/BoardShelf';
+import { WorldPanel } from './world/WorldPanel';
+
+/**
+ * Section keys that moved, and the full address each now means. `canon`
+ * became the World (0072); quests, random tables and encounters folded into
+ * it as Everywhere filters. Old bookmarks, Discord links and the overview's
+ * buttons still land.
+ */
+const ALIASES: Record<string, string> = {
+  canon: 'world/everywhere/canon',
+  ...FOLDED_SECTIONS,
+};
+
+/** `world/here/abc` → the section `world` and the route `here/abc`. */
+function splitHash(hash: string): { key: string; sub: string } {
+  const [head, ...rest] = hash.replace(/^#/, '').split('/');
+  const alias = ALIASES[head];
+  if (!alias) return { key: head, sub: rest.join('/') };
+  const [key, ...more] = alias.split('/');
+  return { key, sub: [...more, ...rest].join('/') };
+}
 
 const ROLE_LABEL = { gm: 'DM', 'co-gm': 'Co-DM', player: 'Player' } as const;
 const ROLE_TONE = { gm: 'gold', 'co-gm': 'arcane', player: 'neutral' } as const;
@@ -109,7 +125,11 @@ export function CampaignDetail({
   // Bumped when the notebook shows something to the party, so the timeline
   // beside it re-reads without the DM having to leave and come back.
   const [revealSeq, setRevealSeq] = useState(0);
+  // Bumped when the capture box writes, so the World re-reads what it shows.
+  const [wroteSeq, setWroteSeq] = useState(0);
   const [section, setSection] = useState('overview');
+  /** What follows the section in the address: where in the World. */
+  const [sub, setSub] = useState('');
 
   const loadPulse = useCallback(async () => {
     setPulse(await getCampaignPulseAction(campaign.id));
@@ -127,18 +147,43 @@ export function CampaignDetail({
    */
   useEffect(() => {
     const read = () => {
-      const key = window.location.hash.replace(/^#/, '');
+      const { key, sub } = splitHash(window.location.hash);
       if (key) setSection(key);
+      setSub(sub);
+    };
+    // A link or a typed address changes the hash behind the router's back,
+    // and the next server action's refresh would put the old address back.
+    // Telling the router about it (its replaceState is watched) keeps the
+    // address and the page agreeing.
+    const changed = () => {
+      read();
+      window.history.replaceState(
+        window.history.state,
+        '',
+        window.location.href
+      );
     };
     read();
-    window.addEventListener('hashchange', read);
-    return () => window.removeEventListener('hashchange', read);
+    window.addEventListener('hashchange', changed);
+    return () => window.removeEventListener('hashchange', changed);
   }, []);
 
-  const go = useCallback((key: string) => {
+  const go = useCallback((target: string) => {
+    const { key, sub } = splitHash(target);
     setSection(key);
-    window.history.replaceState(null, '', `#${key}`);
+    setSub(sub);
+    window.history.replaceState(null, '', `#${target}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  /** Move within a section without jumping the page back to the top. */
+  const route = useCallback((key: string, next: string) => {
+    setSub(next);
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.search}#${next ? `${key}/${next}` : key}`
+    );
   }, []);
 
   /* --- the rules card, shared by the Rules section ---------------------- */
@@ -270,38 +315,20 @@ export function CampaignDetail({
       ),
     },
     {
-      key: 'quests',
+      key: 'world',
       group: 'The world',
-      label: 'Quests',
-      glyph: 'scroll',
-      line: 'What the party is pulling on, and the deadlines they have not been told about.',
+      label: 'World',
+      glyph: 'compass',
+      line: 'Every place, who lives there, what they sell, what is going on in it and where the party is — on the map.',
       content: (
-        <div className="space-y-5 pt-4">
-          <QuestPanel campaignId={campaign.id} viewerRole={campaign.role} />
-          {/* A clock is a quest with a deadline the party has not been told
-              about, so it belongs beside them and not on a section of its
-              own. */}
-          <ClocksPanel campaignId={campaign.id} viewerRole={campaign.role} />
-        </div>
-      ),
-    },
-    {
-      key: 'canon',
-      group: 'The world',
-      label: 'Canon',
-      glyph: 'tome',
-      line: 'The people, places and things this world is made of — and where they are.',
-      content: (
-        <div className="space-y-5 pt-4">
-          <CanonPanel
-            campaignId={campaign.id}
-            viewerId={viewerId}
-            viewerRole={campaign.role}
-          />
-          {/* Maps sit with the canon because a pin is a way into it: the
-              places are already written down, this says where they are. */}
-          <MapPanel campaignId={campaign.id} viewerRole={campaign.role} />
-        </div>
+        <WorldPanel
+          campaignId={campaign.id}
+          viewerId={viewerId}
+          viewerRole={campaign.role}
+          route={sub}
+          onRoute={next => route('world', next)}
+          reloadKey={wroteSeq}
+        />
       ),
     },
     {
@@ -333,19 +360,6 @@ export function CampaignDetail({
               reloadKey={revealSeq}
             />
           </SectionCard>
-        </div>
-      ),
-    },
-    {
-      key: 'random-tables',
-      group: 'The world',
-      label: 'Random tables',
-      glyph: 'die',
-      line: 'What could happen — tavern names, weather, who comes down the road — rolled when you need one.',
-      staffOnly: true,
-      content: (
-        <div className="pt-4">
-          <RandomTablesPanel campaignId={campaign.id} />
         </div>
       ),
     },
@@ -413,19 +427,6 @@ export function CampaignDetail({
       ),
     },
     {
-      key: 'encounters',
-      group: 'Battle',
-      label: 'Encounters',
-      glyph: 'crossed-swords',
-      line: 'Fights built ahead of time: the monsters, where they stand, and what it is worth.',
-      staffOnly: true,
-      content: (
-        <div className="pt-4">
-          <EncounterPlanner campaignId={campaign.id} />
-        </div>
-      ),
-    },
-    {
       key: 'content',
       group: 'Content',
       label: 'Allowed content',
@@ -456,6 +457,11 @@ export function CampaignDetail({
   ];
 
   const visible = sections.filter(s => isStaff || !s.staffOnly);
+
+  // A line typed while a place is open in the World lands in that place.
+  const worldRoute = section === 'world' ? readWorldRoute(sub) : null;
+  const worldPlace =
+    worldRoute?.kind === 'route' ? worldRoute.route.placeId : null;
   const open = visible.find(s => s.key === section) ?? visible[0];
 
   return (
@@ -545,7 +551,11 @@ export function CampaignDetail({
           campaignId={campaign.id}
           isStaff={isStaff}
           onGo={go}
-          onWrote={loadPulse}
+          onWrote={async () => {
+            setWroteSeq(n => n + 1);
+            await loadPulse();
+          }}
+          defaultPlaceId={worldPlace}
         />
 
         <div className="flex flex-col gap-6 lg:flex-row">

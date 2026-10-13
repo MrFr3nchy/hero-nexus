@@ -58,7 +58,7 @@ export function OnTheMap({
       {here.map(r => (
         <a
           key={`${r.mapId}-${r.pinId ?? ''}-${r.stop ?? ''}`}
-          href={r.pinId ? `${base}?mark=${r.pinId}#canon` : `${base}#canon`}
+          href={r.pinId ? `${base}?mark=${r.pinId}#world` : `${base}#world`}
           className="inline-flex items-center gap-1 rounded-md border border-gold/40 px-2 py-0.5 text-ink-muted hover:border-gold hover:text-ink"
         >
           <Glyph
@@ -73,7 +73,7 @@ export function OnTheMap({
       ))}
       {links.canPlace && (
         <a
-          href={`${base}?place=${kind}:${id}#canon`}
+          href={`${base}?place=${kind}:${id}#world`}
           className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ink-subtle hover:text-ink"
         >
           <Glyph name="map" size={12} />

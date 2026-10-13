@@ -38,6 +38,8 @@ import {
   type InitiativeRoll,
   type RollInput,
 } from '@/server/session';
+import { rollFromSheet, type SheetRollMode } from '@/server/sheet-rolls';
+import type { SheetRoll } from '@/@creator/campaign/lib/sheet-rolls';
 import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -550,6 +552,49 @@ export async function rollAction(
         ok: false,
         error:
           'Those faces do not fit the roll — one per die, each within its die.',
+      };
+    }
+    return fail(err, 'The dice did not land.');
+  }
+}
+/**
+ * Roll off the viewer's own sheet (or, for staff, any hero at the table). The
+ * browser names the roll; the bonus is read on the server.
+ */
+export async function rollFromSheetAction(
+  campaignId: string,
+  characterId: string,
+  roll: SheetRoll,
+  mode: SheetRollMode,
+  faces?: number[]
+): Promise<Result<NotationRoll>> {
+  try {
+    const data = await rollFromSheet(
+      campaignId,
+      characterId,
+      roll,
+      mode,
+      faces
+    );
+    return { ok: true, data };
+  } catch (err) {
+    const code = err instanceof Error ? err.message : '';
+    if (code === 'NOT_AT_TABLE') {
+      return { ok: false, error: 'That hero is not sitting at this table.' };
+    }
+    if (code === 'NOT_YOUR_CHARACTER') {
+      return { ok: false, error: 'That hero is not yours to roll.' };
+    }
+    if (code === 'PHYSICAL_DICE_OFF') {
+      return {
+        ok: false,
+        error: 'This table rolls in the app. Ask the DM to allow real dice.',
+      };
+    }
+    if (code === 'BAD_FACES') {
+      return {
+        ok: false,
+        error: 'Those faces do not fit — one per die, each from 1 to 20.',
       };
     }
     return fail(err, 'The dice did not land.');

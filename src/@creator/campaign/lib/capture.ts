@@ -20,6 +20,11 @@
  * that has no second field keeps the comma in the title, because "Quill,
  * keeper of the chapel" is a name.
  *
+ * And a trailing `@Place name` says where it is, for the kinds that can be
+ * somewhere — `+ clock The tide, 6 @Gullrow Docks`. Read first, before the
+ * comma, and only at the end of the line after a space: an `@` inside a word
+ * or a title is the title's.
+ *
  * Pure: no React, no server, no database. The box parses, shows what it is
  * about to write, and only then calls an action.
  */
@@ -47,6 +52,8 @@ export interface CaptureSpec {
   hint: string;
   /** False for anything a player has no business writing. */
   players: boolean;
+  /** It can stand in a place, so a trailing `@Place` means something. */
+  placeable: boolean;
 }
 
 /**
@@ -63,6 +70,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'summary',
     hint: 'A quest the party can pull on. After a comma: what it is about.',
     players: false,
+    placeable: true,
   },
   {
     kind: 'clock',
@@ -71,6 +79,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'segments',
     hint: 'A hidden deadline. After a comma: how many segments (4, 6, 8…).',
     players: false,
+    placeable: true,
   },
   {
     kind: 'session',
@@ -79,6 +88,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'date',
     hint: 'A night on the books. After a comma: the date, as 2026-10-02.',
     players: false,
+    placeable: false,
   },
   {
     kind: 'note',
@@ -87,6 +97,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'body',
     hint: 'A line of your own prep. After a comma: the note itself.',
     players: false,
+    placeable: false,
   },
   {
     kind: 'loot',
@@ -95,6 +106,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'quantity',
     hint: 'Something the party is carrying. After a comma: how many.',
     players: false,
+    placeable: false,
   },
   {
     // Two words, always: "table" alone is the people playing (naming.md).
@@ -104,6 +116,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: null,
     hint: 'A random table to roll on. Its entries go in on the campaign page; roll it with “roll <its name>”.',
     players: false,
+    placeable: false,
   },
   {
     kind: 'npc',
@@ -112,6 +125,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'summary',
     hint: 'Somebody in the world. After a comma: who they are.',
     players: false,
+    placeable: true,
   },
   {
     kind: 'location',
@@ -120,6 +134,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'summary',
     hint: 'Somewhere in the world. After a comma: what it is.',
     players: false,
+    placeable: true,
   },
   {
     kind: 'faction',
@@ -128,6 +143,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'summary',
     hint: 'A group with its own designs. After a comma: what they want.',
     players: false,
+    placeable: true,
   },
   {
     kind: 'creature',
@@ -136,6 +152,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'summary',
     hint: 'A creature in the world. After a comma: what it is.',
     players: false,
+    placeable: true,
   },
   {
     kind: 'item',
@@ -144,6 +161,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'summary',
     hint: 'A thing with a story. After a comma: what it is.',
     players: false,
+    placeable: true,
   },
   {
     kind: 'lore',
@@ -152,6 +170,7 @@ export const CAPTURE_SPECS: readonly CaptureSpec[] = [
     tail: 'summary',
     hint: 'Something true about the world. After a comma: what it says.',
     players: false,
+    placeable: true,
   },
 ];
 
@@ -173,6 +192,12 @@ export interface Capture {
   tail: string;
   /** `tail` read as a number, when the kind wants one. */
   number: number | null;
+  /**
+   * The place named after a trailing `@`, as typed — not yet a place, only
+   * a name to look for. Empty when the line ended in a bare `@`; null when
+   * it named none.
+   */
+  at: string | null;
 }
 
 /**
@@ -196,23 +221,34 @@ export function parseCapture(line: string): Capture | null {
   if (!match) return null;
   const spec = match.sp;
 
-  const body = rest.slice(match.w.length).trim();
+  let body = rest.slice(match.w.length).trim();
   if (!body) return null;
+
+  // Where it is, read off the end first: the place's name may hold a comma
+  // of its own, and the comma tail must not swallow it.
+  let at: string | null = null;
+  if (spec.placeable) {
+    const m = /^(.*\S)\s+@([^@]*)$/.exec(body);
+    if (m) {
+      body = m[1].trim();
+      at = m[2].trim();
+    }
+  }
 
   // A kind with no second field keeps its commas: "Quill, keeper of the
   // chapel" is one name, not a name and a number.
   if (spec.tail === null) {
-    return { spec, title: body, tail: '', number: null };
+    return { spec, title: body, tail: '', number: null, at };
   }
 
   // The first comma, so a summary may carry commas of its own: "Quill,
   // keeper of the chapel, warden of the bells" is a name and one summary.
   const comma = body.indexOf(',');
-  if (comma < 0) return { spec, title: body, tail: '', number: null };
+  if (comma < 0) return { spec, title: body, tail: '', number: null, at };
 
   const title = body.slice(0, comma).trim();
   const tail = body.slice(comma + 1).trim();
-  if (!title) return { spec, title: body, tail: '', number: null };
+  if (!title) return { spec, title: body, tail: '', number: null, at };
 
   // A numeric tail is only a number for the kinds that want one; "Ambrose
   // Quill, 3rd of his name" is not a clock with three segments, and those
@@ -227,6 +263,26 @@ export function parseCapture(line: string): Capture | null {
     title,
     tail,
     number: Number.isFinite(asNumber) ? asNumber : null,
+    at,
+  };
+}
+
+/**
+ * The place a typed `@name` means: the one place whose title is that name,
+ * ignoring case. None, or more than one, is null with the candidates — the
+ * box asks, and never guesses.
+ */
+export function resolveCapturePlace<
+  T extends { id: string; title: string; kind: string },
+>(name: string, entries: readonly T[]): { place: T | null; candidates: T[] } {
+  const want = name.trim().toLowerCase();
+  if (!want) return { place: null, candidates: [] };
+  const candidates = entries.filter(
+    e => e.kind === 'location' && e.title.trim().toLowerCase() === want
+  );
+  return {
+    place: candidates.length === 1 ? candidates[0] : null,
+    candidates,
   };
 }
 

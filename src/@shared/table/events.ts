@@ -80,6 +80,23 @@ export interface RollEvent extends BaseEvent {
   secret: boolean;
   /** The faces came off real dice on the table. */
   physical?: boolean;
+  /**
+   * Whether an attack landed, for the reader this copy was published to.
+   *
+   * Staff get it with the AC; players get it only where the table shows hit
+   * and miss (`rules.showHitMiss`), and never the AC — the server publishes
+   * the two copies to two audiences rather than trusting the browser to
+   * hide a number it was sent. Absent on anything that is not an attack.
+   */
+  verdict?: RollVerdict;
+}
+
+export interface RollVerdict {
+  result: 'hit' | 'miss' | 'critical';
+  /** Who was attacked: "Ghoul 2". */
+  target: string;
+  /** Null for players, always, and when the app knows no AC. */
+  ac: number | null;
 }
 
 /** The order moved on. */
@@ -525,11 +542,18 @@ export function describe(
         : event.physical
           ? ' · real dice'
           : '';
+      const v = event.verdict;
+      // The word a DM says aloud after an attack, on the slip, so nobody
+      // reads "19" and then goes looking for the goblin's AC.
+      const said = v
+        ? ` · ${v.result === 'critical' ? 'critical hit' : v.result}`
+        : '';
+      const against = v?.ac != null ? ` · vs AC ${v.ac}` : '';
       return {
         glyph,
-        title: `${event.actorName}${forWhat} · ${event.total}`,
-        detail: `${event.notation}${how}`,
-        tone,
+        title: `${event.actorName}${forWhat} · ${event.total}${said}`,
+        detail: `${event.notation}${against}${how}`,
+        tone: v?.result === 'critical' ? 'success' : tone,
       };
     }
 

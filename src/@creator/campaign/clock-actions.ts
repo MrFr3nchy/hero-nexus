@@ -23,6 +23,7 @@ function fail(err: unknown, fallback: string): { ok: false; error: string } {
     SESSION_STALE: 'Your session is out of date. Sign in again.',
     NOT_FOUND: 'That clock no longer exists.',
     FORBIDDEN: 'You do not have permission to do that.',
+    NOT_A_PLACE: 'A clock can only tick in a place.',
   };
   if (!messages[code]) console.error('[action]', fallback, err);
   return { ok: false, error: messages[code] ?? fallback };
@@ -33,6 +34,7 @@ const clockSchema = z.object({
   dmNote: z.string().max(4000).optional(),
   segments: z.number().int().optional(),
   visibility: z.enum(['dm', 'shared']).optional(),
+  placeId: z.string().min(1).nullable().optional(),
 });
 
 export async function listClocksAction(
