@@ -13,7 +13,10 @@ import {
   type CharacterStatus,
   type CharacterWithSheet,
 } from '@/server/characters';
-import { listPickableContent, resolveContentRefs } from '@/server/content';
+import {
+  listPickableContent,
+  resolveReadableContentRefs,
+} from '@/server/content';
 import type { ContentEntry, ContentRef, ContentType } from '@/@shared/content';
 import { loadBuildCatalog, loadClassDef } from './lib/srd/catalog';
 import type { BuildCatalog, ClassDef } from './lib/srd/types';
@@ -140,7 +143,7 @@ export async function listPickableContentAction(
 export async function resolveContentAction(
   refs: ContentRef[]
 ): Promise<ContentEntry[]> {
-  const resolved = await resolveContentRefs(refs);
+  const resolved = await resolveReadableContentRefs(refs);
   return [...resolved.values()];
 }
 
