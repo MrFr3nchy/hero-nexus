@@ -46,7 +46,7 @@ export function RulesFields({
         />
         <NumberInput
           size={size}
-          label="Most one raise adds (gp)"
+          label="Largest raise (gp)"
           className="w-44"
           minValue={0}
           maxValue={RULE_LIMITS.raiseCapCp.max / 100}

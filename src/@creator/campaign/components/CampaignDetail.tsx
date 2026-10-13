@@ -44,6 +44,7 @@ import { PartySecrets } from './PartySecrets';
 import { RevealTimeline } from './RevealTimeline';
 import { BoardShelf } from './workshop/BoardShelf';
 import { WorldPanel } from './world/WorldPanel';
+import { TavernSection } from './TavernSection';
 
 /**
  * Section keys that moved, and the full address each now means. `canon`
@@ -413,6 +414,14 @@ export function CampaignDetail({
           />
         </div>
       ),
+    },
+    {
+      key: 'tavern',
+      group: 'Play',
+      label: 'Tavern games',
+      glyph: 'tankard',
+      line: 'The games played here, by the house’s rules, and who came out ahead.',
+      content: <TavernSection campaignId={campaign.id} isStaff={isStaff} />,
     },
     {
       key: 'boards',

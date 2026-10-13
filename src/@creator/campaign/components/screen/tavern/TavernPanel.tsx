@@ -195,7 +195,7 @@ export function TavernPanel({
           </div>
           <div className="text-xs text-ink-muted">{subtitle}</div>
         </div>
-        {(t.inRound || t.potCp > 0) && t.status !== 'ended' && (
+        {t.inRound && (
           <div className="text-right">
             <div className="font-display text-xl font-semibold tabular-nums text-gold-strong">
               {cpWords(t.potCp)}
@@ -367,6 +367,18 @@ function SeatList({ t, isStaff }: { t: TavernView; isStaff: boolean }) {
     <ul className="flex flex-col">
       {seats.map(s => {
         const waiting = t.turn === s.id && (s.yours || (isStaff && s.npc));
+        // What only the DM reads about a seat, on a line of its own so a
+        // narrow column never squeezes the name out.
+        const staffLine = isStaff
+          ? s.npc
+            ? [s.attitude, s.statBlock ?? 'no stat block']
+            : s.passives
+              ? [
+                  `passive Perception ${s.passives.perception}`,
+                  `Insight ${s.passives.insight}`,
+                ]
+              : []
+          : [];
         return (
           <li
             key={s.id}
@@ -374,44 +386,39 @@ function SeatList({ t, isStaff }: { t: TavernView; isStaff: boolean }) {
               s.yours ? statusEdge('yours') : ''
             } ${waiting ? statusEdge('waiting') : ''}`}
           >
-            <span
-              className={`min-w-0 flex-1 truncate ${s.yours ? 'font-semibold' : ''} ${
-                s.status === 'out' || s.folded ? 'text-ink-muted' : ''
-              }`}
-            >
-              {s.name}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`truncate ${s.yours ? 'font-semibold' : ''} ${
+                    s.status === 'out' || s.folded ? 'text-ink-muted' : ''
+                  }`}
+                >
+                  {s.name}
+                </span>
+                {s.yours && <StatusWord kind="yours" />}
+                {waiting && <StatusWord kind="waiting" />}
+              </div>
+              {staffLine.length > 0 && (
+                <div className="truncate text-[0.68rem] text-ink-subtle">
+                  {s.attitude === 'hostile' ? (
+                    <span className="text-danger">hostile</span>
+                  ) : (
+                    staffLine[0]
+                  )}
+                  {staffLine.slice(1).map(x => ` · ${x}`)}
+                </div>
+              )}
+            </div>
+            <span className="shrink-0 text-xs text-ink-muted">
+              {seatNote(s, t)}
             </span>
-            {s.yours && <StatusWord kind="yours" />}
-            {waiting && <StatusWord kind="waiting" />}
-            {isStaff && s.attitude && (
-              <span
-                className={`rounded-full border px-1.5 text-[0.65rem] ${
-                  s.attitude === 'hostile'
-                    ? 'border-danger text-danger'
-                    : 'border-line text-ink-muted'
-                }`}
-              >
-                {s.attitude}
-              </span>
-            )}
-            {isStaff && s.npc && (
-              <span className="text-[0.65rem] text-ink-subtle">
-                {s.statBlock ?? 'no stat block'}
-              </span>
-            )}
-            {isStaff && !s.npc && s.passives && (
-              <span className="text-[0.65rem] tabular-nums text-ink-subtle">
-                PP {s.passives.perception} · Ins {s.passives.insight}
-              </span>
-            )}
-            <span className="text-xs text-ink-muted">{seatNote(s, t)}</span>
             {s.dice !== null && (
-              <span className="w-12 text-right text-xs tabular-nums text-ink-muted">
+              <span className="w-11 shrink-0 text-right text-xs tabular-nums text-ink-muted">
                 {s.dice} {s.dice === 1 ? 'die' : 'dice'}
               </span>
             )}
             {t.inRound && (
-              <span className="w-12 text-right text-xs tabular-nums">
+              <span className="w-11 shrink-0 text-right text-xs tabular-nums">
                 {s.inCp > 0 ? cpWords(s.inCp) : ''}
               </span>
             )}
@@ -766,10 +773,10 @@ function PalmDie({
         <Button
           size="sm"
           color="primary"
-          isDisabled={busy}
+          isDisabled={busy || cup[index] === face}
           onPress={() => onPalm({ dieIndex: index, face })}
         >
-          Palm it
+          {cup[index] === face ? 'It already shows that' : 'Palm it'}
         </Button>
         <Button size="sm" variant="light" onPress={() => setIndex(null)}>
           Not now

@@ -440,6 +440,6 @@ until caught, end mid-round, then check the purses and the character history.
   (dudo's own rule), not the seat to their left.
 - [x] PR 2 tables, house games, packages — migration 0075; 3 server tests
 - [x] PR 3 playing, on the server — 11 server tests (filtering, coin, cheat audience, refunds)
-- [x] PR 4 the session-screen panel — typecheck, lint, tests green; browser pass with PR 5
-- [ ] PR 5 the campaign page section
+- [x] PR 4 the session-screen panel — looked at as DM in light, dark and 400 px: open, sit, a round to the lift, a cheat, end mid-round, Crowns dealt
+- [x] PR 5 the campaign page section — house game written through the UI; record and rail
 - [ ] PR 6 vocabulary and docs
