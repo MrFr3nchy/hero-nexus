@@ -38,6 +38,7 @@ export const SCREEN_PANEL_KEYS = [
   'here',
   'randomTables',
   'lookups',
+  'tavern',
 ] as const;
 
 export type ScreenPanelKey = (typeof SCREEN_PANEL_KEYS)[number];
@@ -245,6 +246,14 @@ export const SCREEN_PANELS: Record<ScreenPanelKey, ScreenPanelMeta> = {
     glyph: 'magnifier',
     description:
       'What you found with Search and kept on the screen: a spell, a person, a rule.',
+    players: true,
+  },
+  tavern: {
+    key: 'tavern',
+    label: 'Tavern games',
+    glyph: 'tankard',
+    description:
+      'Liar’s dice and Crowns, for real coin: bid, bluff, read, and maybe cheat.',
     players: true,
   },
 };

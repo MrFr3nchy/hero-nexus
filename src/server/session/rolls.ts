@@ -12,7 +12,7 @@ import { db } from '@/db';
 import { campaignRolls, characters, users } from '@/db/schema';
 import { requireCampaignRole } from '../campaigns';
 
-import { bumpVersion, publish } from '../live-hub';
+import { bumpVersion, publish, type Audience } from '../live-hub';
 import { claimedFaces } from '../dice-claims';
 import { staff } from './encounter';
 
@@ -78,50 +78,97 @@ export async function rollForCampaign(
     actorName = user?.name || (isStaff ? 'The DM' : 'A player');
   }
 
-  await db.insert(campaignRolls).values({
-    campaignId,
+  const secret = isStaff && (input.visibility ?? 'table') === 'dm';
+  await recordRoll(campaignId, {
     actorUserId: userId,
     characterId,
     actorName,
-    label: (input.label ?? '').trim().slice(0, 80),
-    notation: result.notation.slice(0, 60),
-    dice: result.dice,
-    dropped: result.dropped,
-    modifier: result.modifier,
-    total: result.total,
-    visibility: isStaff ? (input.visibility ?? 'table') : 'table',
+    label: input.label ?? '',
+    result,
+    secret,
     physical,
+    /*
+     * The announcement. A roll behind the screen publishes to staff and to
+     * nobody else — the audience is the whole of the secrecy decision, so it
+     * sits beside the `visibility` that decided it rather than three files
+     * away.
+     */
+    audience: secret ? 'staff' : 'everyone',
+  });
+
+  // Handed back so the roller can animate the faces the server actually
+  // rolled. The log is still the record; this is only what to draw.
+  return result;
+}
+
+/**
+ * One row in Dice, its bump, and its announcement — every roll the server
+ * makes ends here, so a roll from the sheet, a tavern game's cup and a typed
+ * `1d20` are one kind of row.
+ *
+ * `secret` writes `visibility = 'dm'`: the row is read by staff and by
+ * whoever rolled it (`getLiveState`), never by the rest of the table. Only
+ * server modules choose it for a player — a tavern game's cheat — because
+ * `rollForCampaign` keeps a player's own input to the table.
+ *
+ * `audience: null` writes the row without a slip: a tavern game's cups come
+ * up together and the game announces the lift once, rather than five dice
+ * slips burying it.
+ */
+export async function recordRoll(
+  campaignId: string,
+  roll: {
+    actorUserId: string | null;
+    characterId: string | null;
+    actorName: string;
+    label: string;
+    result: NotationRoll;
+    secret: boolean;
+    physical?: boolean;
+    audience: Audience | null;
+  }
+): Promise<void> {
+  const label = roll.label.trim().slice(0, 80);
+  await db.insert(campaignRolls).values({
+    campaignId,
+    actorUserId: roll.actorUserId,
+    characterId: roll.characterId,
+    actorName: roll.actorName,
+    label,
+    notation: roll.result.notation.slice(0, 60),
+    dice: roll.result.dice,
+    dropped: roll.result.dropped,
+    modifier: roll.result.modifier,
+    total: roll.result.total,
+    visibility: roll.secret ? 'dm' : 'table',
+    physical: roll.physical ?? false,
   });
 
   bumpVersion(campaignId);
+  if (!roll.audience) return;
 
-  /*
-   * The announcement. A roll behind the screen publishes to staff and to
-   * nobody else — the audience is the whole of the secrecy decision, so it
-   * sits beside the `visibility` that decided it rather than three files away.
-   */
-  const secret = isStaff && (input.visibility ?? 'table') === 'dm';
   publish(
     campaignId,
     {
       kind: 'roll',
       id: randomUUID(),
       at: new Date().toISOString(),
-      by: userId,
-      actorName,
-      label: (input.label ?? '').trim().slice(0, 80),
-      notation: result.notation,
-      total: result.total,
-      tone: critToneOf(result.notation, result.dice, result.dropped) ?? 'plain',
-      secret,
-      physical,
+      by: roll.actorUserId,
+      actorName: roll.actorName,
+      label,
+      notation: roll.result.notation,
+      total: roll.result.total,
+      tone:
+        critToneOf(
+          roll.result.notation,
+          roll.result.dice,
+          roll.result.dropped
+        ) ?? 'plain',
+      secret: roll.secret,
+      physical: roll.physical ?? false,
     },
-    secret ? 'staff' : 'everyone'
+    roll.audience
   );
-
-  // Handed back so the roller can animate the faces the server actually
-  // rolled. The log is still the record; this is only what to draw.
-  return result;
 }
 
 /** Clear the log. Staff only — it is the table's record, not one player's. */

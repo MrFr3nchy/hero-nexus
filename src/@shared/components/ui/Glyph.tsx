@@ -108,7 +108,11 @@ export type GlyphName =
   // the kinds of place (the World): a harbour, a market, a marsh
   | 'anchor'
   | 'stall'
-  | 'marsh';
+  | 'marsh'
+  // tavern games: a hand of cards, and the suits Crowns adds to coins and sword
+  | 'cards'
+  | 'goblet'
+  | 'stave';
 
 /** Every glyph's artwork, drawn inside a 24×24 box. */
 const PATHS: Record<GlyphName, React.ReactNode> = {
@@ -563,6 +567,36 @@ const PATHS: Record<GlyphName, React.ReactNode> = {
     <>
       <path d="M7 15a4 4 0 0 1 .4-8A5 5 0 0 1 17 8.2 3.4 3.4 0 0 1 17 15z" />
       <path d="M8 18l-1 2.5M12 18l-1 2.5M16 18l-1 2.5" />
+    </>
+  ),
+  // Two cards fanned: the back one tilted, the front one square.
+  cards: (
+    <>
+      <rect
+        x="3.2"
+        y="6"
+        width="10"
+        height="14"
+        rx="1.6"
+        transform="rotate(-12 8.2 13)"
+      />
+      <rect x="10" y="4" width="10" height="14" rx="1.6" />
+      <path d="M15 8.5v5M12.5 11h5" />
+    </>
+  ),
+  // The Cups suit: a goblet on a stem.
+  goblet: (
+    <>
+      <path d="M6.5 3.5h11v3a5.5 5.5 0 0 1-11 0Z" />
+      <path d="M12 12v6M8 20.5h8" />
+    </>
+  ),
+  // The Staves suit: a knotted staff, a leaf at the head.
+  stave: (
+    <>
+      <path d="m6 21 11-15" />
+      <path d="m9.3 16.5 1.6 1.2M12.6 12l1.6 1.2" />
+      <path d="M17 6c.2-1.8 1.3-3 3-3.3-.2 1.8-1.3 3-3 3.3Z" />
     </>
   ),
 };

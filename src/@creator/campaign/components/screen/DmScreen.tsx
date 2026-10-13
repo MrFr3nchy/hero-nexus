@@ -53,6 +53,7 @@ import {
 } from '../../actions';
 import { undoLastAction } from '../../monster-actions';
 import { RandomTablesPanel } from '../RandomTablesPanel';
+import { TavernPanel, tavernWaiting } from './tavern/TavernPanel';
 import { XCardButton } from '../XCardButton';
 import { useSelectedToken } from '@/@shared/battlemap/selection';
 import { SHORTCUTS, useDmShortcuts } from './useDmShortcuts';
@@ -732,6 +733,17 @@ function PanelContents({
       return ctx.isStaff ? (
         <RandomTablesPanel campaignId={ctx.campaignId} compact />
       ) : null;
+
+    case 'tavern':
+      return live.state ? (
+        <TavernPanel
+          campaignId={ctx.campaignId}
+          state={live.state}
+          isStaff={ctx.isStaff}
+          refresh={live.refresh}
+          onError={ctx.onError}
+        />
+      ) : null;
   }
 }
 
@@ -790,6 +802,7 @@ const LIVE_PANELS: ReadonlySet<ScreenPanelKey> = new Set<ScreenPanelKey>([
   'rules',
   'shop',
   'feed',
+  'tavern',
 ]);
 
 /** Panels only the DM's side of the table can see: "only you". */
@@ -811,7 +824,7 @@ function panelStatus(
   }
 ): { status: PanelStatus; detail?: ReactNode; badge?: number } {
   const badge = ctx.badges[key];
-  if (key === 'rolls' && badge) {
+  if ((key === 'rolls' || key === 'tavern') && badge) {
     return { status: 'waiting', badge };
   }
   if (key === 'mine') return { status: 'yours' };
@@ -1118,6 +1131,7 @@ export function DmScreen({
   const badges: Partial<Record<ScreenPanelKey, number>> = live.state
     ? {
         rolls: live.state.checks.filter(c => c.mine).length,
+        tavern: tavernWaiting(live.state.tavern, isStaff),
         whispers: unreadWhispers(
           live.state.whispers,
           preferences.whispersReadAt[campaign.id]

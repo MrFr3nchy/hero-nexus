@@ -55,6 +55,7 @@ import {
 } from '@/@creator/campaign/lib/monsters';
 import { peekUndo } from '../undo';
 import { readAmbience } from '../audio';
+import { tavernViewFor } from '../tavern/view';
 import { ROLL_LOG_LIMIT } from './shared';
 import type {
   EntryRow,
@@ -357,7 +358,12 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
     : tableRules;
 
   const rolls: RollRow[] = rollRows
-    .filter(r => isStaff || r.visibility === 'table')
+    // A roll behind the screen reaches staff and whoever rolled it: a
+    // player's own hidden roll (a tavern game's cheat) is theirs to see, and
+    // nothing is ever hidden from the DM.
+    .filter(
+      r => isStaff || r.visibility === 'table' || r.actorUserId === userId
+    )
     .map(r => {
       const outcome = (r.outcome as RollOutcome | null) ?? null;
       return {
@@ -506,5 +512,6 @@ async function assembleLiveState(campaignId: string): Promise<LiveState> {
     turnEntryIds,
     undo: isStaff ? peekUndo(campaignId) : null,
     ambience,
+    tavern: await tavernViewFor(campaignId, { userId, role }),
   };
 }
