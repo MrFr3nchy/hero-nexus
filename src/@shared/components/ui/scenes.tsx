@@ -470,3 +470,52 @@ export function QuietDeskScene({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/** No tavern game running: a stacked cup and two cold dice on the board. */
+export function TavernScene({ className }: { className?: string }) {
+  return (
+    <svg
+      width="98"
+      height="76"
+      viewBox="0 0 98 76"
+      aria-hidden="true"
+      className={className}
+    >
+      {/* the cup, upside down */}
+      <path
+        d="M22 62 26 30h22l4 32z"
+        fill="var(--surface-2)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+      />
+      <path d="M25 36h24" stroke="var(--line)" strokeWidth="1.2" />
+      {/* two dice */}
+      <rect
+        x="58"
+        y="50"
+        width="12"
+        height="12"
+        rx="2.5"
+        fill="var(--surface)"
+        stroke="var(--line)"
+        strokeWidth="1.2"
+        transform="rotate(-12 64 56)"
+      />
+      <circle cx="64" cy="56" r="1.4" fill="var(--ink-subtle)" />
+      <rect
+        x="74"
+        y="51"
+        width="11"
+        height="11"
+        rx="2.5"
+        fill="var(--gold)"
+        opacity="0.85"
+        transform="rotate(14 79.5 56.5)"
+      />
+      <circle cx="77" cy="54" r="1.2" fill="var(--surface)" opacity="0.8" />
+      <circle cx="82" cy="59" r="1.2" fill="var(--surface)" opacity="0.8" />
+      <path d="M12 64h74" stroke="var(--line)" strokeWidth="1.4" />
+      <ellipse cx="49" cy="69" rx="36" ry="3.5" fill="var(--surface-2)" />
+    </svg>
+  );
+}

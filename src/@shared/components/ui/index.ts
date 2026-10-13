@@ -26,6 +26,7 @@ export {
   QuestScene,
   QuietDeskScene,
   SealedLetterScene,
+  TavernScene,
   TomeScene,
 } from './scenes';
 export { Glyph, GLYPH_NAMES, isGlyphName } from './Glyph';
