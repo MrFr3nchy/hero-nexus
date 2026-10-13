@@ -21,7 +21,6 @@ import {
   clearRolls,
   createEncounter,
   createNote,
-  deleteEncounter,
   deleteHandout as deleteHandoutSrv,
   endEncounter,
   resumeTimers,
@@ -469,9 +468,6 @@ export async function endEncounterAction(
   } catch (err) {
     return fail(err, 'Could not end the fight.');
   }
-}
-export async function deleteEncounterAction(id: string): Promise<Result> {
-  return sessionAction(() => deleteEncounter(id));
 }
 export async function advanceTurnAction(
   id: string,

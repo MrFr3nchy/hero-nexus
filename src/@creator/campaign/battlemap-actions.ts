@@ -31,7 +31,6 @@ import {
   setBattleMapVisibility,
   updateToken,
   setThingEffect,
-  searchNearby,
   operateThing,
   takeLink,
   getWorkshopBoard,
@@ -467,18 +466,6 @@ export async function setThingEffectAction(
     return { ok: true };
   } catch (err) {
     return fail(err, 'Could not set what it does.');
-  }
-}
-
-/** Search the ground within 5 ft for anything hidden (08). */
-export async function searchNearbyAction(
-  entryId: string
-): Promise<Result<{ found: string[] }>> {
-  try {
-    const found = await searchNearby(entryId);
-    return { ok: true, data: { found } };
-  } catch (err) {
-    return fail(err, 'Could not search.');
   }
 }
 

@@ -234,33 +234,6 @@ export async function listSessions(campaignId: string): Promise<SessionRow[]> {
 }
 
 /**
- * The next planned sitting, for the campaign overview and the dashboard rail.
- * Readable by any member; carries no prep and no unshared recap.
- */
-export async function nextSession(campaignId: string): Promise<{
-  id: string;
-  number: number;
-  title: string;
-  scheduledFor: string | null;
-} | null> {
-  await requireCampaignRole(campaignId, ['gm', 'co-gm', 'player']);
-  const row = await db.query.campaignSessions.findFirst({
-    where: and(
-      eq(campaignSessions.campaignId, campaignId),
-      eq(campaignSessions.status, 'planned')
-    ),
-    orderBy: [asc(campaignSessions.number)],
-  });
-  if (!row) return null;
-  return {
-    id: row.id,
-    number: row.number,
-    title: row.title,
-    scheduledFor: row.scheduledFor,
-  };
-}
-
-/**
  * Open the next sitting. The number is the campaign's highest plus one rather
  * than a count, so deleting session 3 leaves 4 as 4 and the chronicle keeps
  * matching what the table calls each evening.
@@ -401,36 +374,6 @@ export async function markSessionPlayed(sessionId: string): Promise<void> {
 }
 
 /* --- the sitting the table is in ------------------------------------- */
-
-/**
- * The evening currently being played, if there is one.
- *
- * Readable by anybody at the table, because the point of it is the way in: a
- * player who was not told the table had sat down is exactly the person this
- * whole feature exists for.
- */
-export async function liveSitting(campaignId: string): Promise<{
-  id: string;
-  number: number;
-  title: string;
-  startedAt: string | null;
-} | null> {
-  await requireCampaignRole(campaignId, ['gm', 'co-gm', 'player']);
-  const row = await db.query.campaignSessions.findFirst({
-    where: and(
-      eq(campaignSessions.campaignId, campaignId),
-      eq(campaignSessions.status, 'live')
-    ),
-  });
-  return row
-    ? {
-        id: row.id,
-        number: row.number,
-        title: row.title,
-        startedAt: row.startedAt,
-      }
-    : null;
-}
 
 /**
  * The sitting the signed-in person should be at, if any.

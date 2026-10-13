@@ -16,7 +16,6 @@ import {
   deletePin,
   listMaps,
   mapLinks,
-  recordsOnMaps,
   removeJourneyStop,
   renameJourneyStop,
   renameMap,
@@ -353,17 +352,6 @@ export async function removeJourneyStopAction(stopId: string): Promise<Result> {
     return { ok: true };
   } catch (err) {
     return fail(err, 'Could not take that stop off.');
-  }
-}
-
-/** Where on the maps each quest, session and journal page is. */
-export async function recordsOnMapsAction(
-  campaignId: string
-): Promise<RecordOnMap[]> {
-  try {
-    return await recordsOnMaps(campaignId);
-  } catch {
-    return [];
   }
 }
 

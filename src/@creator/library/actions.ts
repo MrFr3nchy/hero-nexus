@@ -12,7 +12,6 @@ import {
 } from '@/server/adoptions';
 import {
   deletePublication,
-  getPublication,
   listMyHomebrewPublications,
   listMyPublications,
   listShelf,
@@ -20,7 +19,6 @@ import {
   publishImage,
   setPublicationStatus,
   updatePublication,
-  type PublicationDetail,
   type ShelfFilters,
 } from '@/server/library';
 import { publishCampaign } from '@/server/library-campaign-package';
@@ -104,12 +102,6 @@ export async function listShelfAction(
 ): Promise<PublicationCard[]> {
   const parsed = shelfFilters.safeParse(filters ?? {});
   return listShelf((parsed.success ? parsed.data : {}) as ShelfFilters);
-}
-
-export async function getPublicationAction(
-  id: string
-): Promise<PublicationDetail | null> {
-  return getPublication(id);
 }
 
 export async function listMyPublicationsAction(): Promise<PublicationCard[]> {

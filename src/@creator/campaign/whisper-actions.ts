@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 
-import { listWhispers, sendWhisper, type WhisperRow } from '@/server/whispers';
+import { sendWhisper } from '@/server/whispers';
 
 type Result<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
@@ -26,16 +26,6 @@ const whisperSchema = z.object({
   body: z.string().trim().min(1, 'Say something.').max(500),
   targetUserIds: z.array(z.string().min(1)).min(1).max(50),
 });
-
-export async function listWhispersAction(
-  campaignId: string
-): Promise<WhisperRow[]> {
-  try {
-    return await listWhispers(campaignId);
-  } catch {
-    return [];
-  }
-}
 
 export async function sendWhisperAction(
   campaignId: string,

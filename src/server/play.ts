@@ -1615,26 +1615,7 @@ export async function spendHitDice(
 }
 
 /**
- * Rest the whole party.
- *
- * A DM saying "you take a long rest" is one sentence at the table and was five
- * separate presses here, one per sheet, with the fifth forgotten. Staff only,
- * because it moves everybody's numbers.
- *
- * A short rest here does *not* spend anyone's hit dice: how many to burn is
- * each player's own decision, and spending them for somebody is the one part
- * of a rest that is not the DM's call.
- */
-export async function restParty(
-  campaignId: string,
-  kind: 'short' | 'long'
-): Promise<number> {
-  await requireCampaignRole(campaignId, ['gm', 'co-gm']);
-  return (await applyRestUnchecked(campaignId, kind)).rested;
-}
-
-/**
- * The write behind `restParty`, for the rest flow (`server/rests.ts`), which
+ * The write a confirmed rest makes, for the rest flow (`server/rests.ts`), which
  * has already checked who is confirming. Never exported to an action.
  */
 export async function applyRestUnchecked(

@@ -29,8 +29,6 @@ const GUARDS = new Set([
 const PUBLIC: Record<string, string> = {
   'src/@creator/library/actions.ts#listShelfAction':
     'the shelf renders for a stranger, filtered to listed public items',
-  'src/@creator/library/actions.ts#getPublicationAction':
-    'a listing is reachable by its link, including unlisted ones',
   'src/app/dev/mail/actions.ts#clearOutboxAction':
     'the dev mail sink; it refuses to run in production',
 };

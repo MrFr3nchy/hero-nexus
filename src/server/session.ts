@@ -1088,15 +1088,6 @@ async function fightSpoils(
   };
 }
 
-export async function deleteEncounter(encounterId: string): Promise<void> {
-  const campaignId = await encounterCampaign(encounterId);
-  await staff(campaignId);
-  await db
-    .delete(initiativeEncounters)
-    .where(eq(initiativeEncounters.id, encounterId));
-  bumpVersion(campaignId);
-}
-
 export async function advanceTurn(
   encounterId: string,
   direction: 1 | -1

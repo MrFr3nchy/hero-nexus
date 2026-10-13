@@ -9,10 +9,8 @@ import {
   deleteSession,
   fileUnderSession,
   listSessions,
-  liveSitting,
   markSessionPlayed,
   mySitting,
-  nextSession,
   openSitting,
   setAttendance,
   setRecapVisibility,
@@ -68,10 +66,6 @@ export async function listSessionsAction(
   campaignId: string
 ): Promise<SessionRow[]> {
   return listSessions(campaignId);
-}
-
-export async function nextSessionAction(campaignId: string) {
-  return nextSession(campaignId);
 }
 
 /* --- mutations -------------------------------------------------------- */
@@ -225,17 +219,6 @@ export async function getCampaignPulseAction(
 }
 
 /* --- the sitting the table is in -------------------------------------- */
-
-/** The evening being played right now, or null. Any member may ask. */
-export async function liveSittingAction(campaignId: string) {
-  try {
-    return await liveSitting(campaignId);
-  } catch {
-    // A campaign the caller is not at answers the same as one that is quiet.
-    // Whether somebody else's table is sitting is not their business.
-    return null;
-  }
-}
 
 /** Take your seats. Staff only. */
 export async function openSittingAction(

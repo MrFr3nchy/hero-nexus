@@ -110,7 +110,7 @@ const BUFFER_LIMIT = 200;
 /**
  * Bumps inside this window become one nudge.
  *
- * `addPartyToEncounter` writes five rows in a loop and `restParty` writes one
+ * `addPartyToEncounter` writes five rows in a loop and `applyRestUnchecked` writes one
  * per character. Coalescing here means every caller can bump freely without
  * knowing whether it is in a loop — which is the only way a rule like "bump
  * after every write" survives contact with the next person to add a write.
