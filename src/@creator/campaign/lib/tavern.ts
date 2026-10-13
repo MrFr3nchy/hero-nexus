@@ -329,3 +329,138 @@ export interface HouseGameRow {
   /** `rulesLines`, composed on the server so every reader sees the same. */
   lines: string[];
 }
+
+/* --- a running tavern game, as one viewer may see it ---------------------- */
+
+export type SeatStatus = 'invited' | 'seated' | 'declined' | 'out';
+export type TavernStatus = 'seating' | 'playing' | 'ended';
+
+/** A seat's passive numbers, for the DM reading who would notice a cheat. */
+export interface SeatPassives {
+  perception: number;
+  insight: number;
+  deception: number;
+}
+
+export interface TavernSeatView {
+  id: string;
+  name: string;
+  npc: boolean;
+  characterId: string | null;
+  status: SeatStatus;
+  /** The viewer's own seat. */
+  yours: boolean;
+  /** Put in this round. */
+  inCp: number;
+  folded: boolean;
+  /** Liar's dice: dice left in the cup. Null in Crowns. */
+  dice: number | null;
+  /** Crowns: cards in hand. Null in liar's dice. */
+  cards: number | null;
+  netCp: number;
+  /** Staff only: an NPC's attitude (DM-private, `docs/naming.md`). */
+  attitude: string | null;
+  /** Staff only: the stat block an NPC plays off, by name. */
+  statBlock: string | null;
+  /** Staff only. */
+  passives: SeatPassives | null;
+}
+
+export interface TavernYou {
+  seatId: string;
+  status: SeatStatus;
+  /** What bidding, calling or holding costs right now. */
+  holdCp: number;
+  /** The hero's whole purse, copper. */
+  purseCp: number;
+  /** Proficient with this game's gaming set: advantage on reads and cheats. */
+  proficient: boolean;
+  insight: number;
+  sleight: number;
+  /** Done off the sheet this round. */
+  used: SheetMove[];
+}
+
+/** A seat the DM plays, with its numbers off the stat block. */
+export interface TavernNpcSeat {
+  seatId: string;
+  holdCp: number;
+  insight: number;
+  sleight: number;
+  used: SheetMove[];
+}
+
+export interface TavernResultView {
+  line: string;
+  winners: string[];
+  loser: string | null;
+}
+
+export interface TavernLogLine {
+  id: string;
+  round: number;
+  line: string;
+  /** Seen by staff and whoever did it. */
+  hidden: boolean;
+}
+
+export interface TavernView {
+  id: string;
+  kind: TavernKind;
+  name: string;
+  blurb: string;
+  rules: TavernRules;
+  lines: string[];
+  status: TavernStatus;
+  round: number;
+  staff: boolean;
+  seats: TavernSeatView[];
+  /** Whose turn, by seat id; null between rounds. */
+  turn: string | null;
+  /** A round is being played. */
+  inRound: boolean;
+  potCp: number;
+  stakeCp: number;
+  carryCp: number;
+  you: TavernYou | null;
+  /** Staff: the NPC seats the DM plays. */
+  npcs: TavernNpcSeat[];
+  liars: {
+    bid: { count: number; face: number; by: string } | null;
+    cups: Record<string, number[] | null>;
+    diceOut: number;
+  } | null;
+  crowns: {
+    phase: 'bet1' | 'draw' | 'bet2' | 'show';
+    crown: { suit: 'coins' | 'cups' | 'blades' | 'staves'; rank: number };
+    hands: Record<
+      string,
+      { suit: 'coins' | 'cups' | 'blades' | 'staves'; rank: number }[] | null
+    >;
+    totals: Record<string, number> | null;
+    draws: Record<string, number>;
+  } | null;
+  result: TavernResultView | null;
+  log: TavernLogLine[];
+}
+
+/** Liar's dice bids in words: "four 5s", "one 6". */
+export function bidWords(count: number, face: number): string {
+  const words = [
+    'no',
+    'one',
+    'two',
+    'three',
+    'four',
+    'five',
+    'six',
+    'seven',
+    'eight',
+    'nine',
+    'ten',
+    'eleven',
+    'twelve',
+  ];
+  const n = words[count] ?? String(count);
+  return `${n} ${face}${count === 1 ? '' : 's'}`;
+}

@@ -40,12 +40,19 @@ function critTone(roll: RollRow): 'crit' | 'fumble' | null {
  */
 function RollLine({
   roll,
+  viewerIsStaff,
   canApply,
   canReroll,
   onApply,
   onReroll,
 }: {
   roll: RollRow;
+  /**
+   * A hidden roll reaches a player only when it is their own (a tavern
+   * game's cheat), and to them it is not "behind the screen" — it is theirs
+   * and the DM's.
+   */
+  viewerIsStaff: boolean;
   canApply: boolean;
   /** Heroic Inspiration (10): this is the viewer's newest d20, and they hold one. */
   canReroll: boolean;
@@ -76,7 +83,7 @@ function RollLine({
           )}
           {roll.visibility === 'dm' && (
             <span className="ml-1.5 rounded-sm border border-line px-1 py-0.5 text-[0.6rem] uppercase tracking-[0.1em] text-ink-subtle">
-              behind the screen
+              {viewerIsStaff ? 'behind the screen' : 'only you and the DM'}
             </span>
           )}
           {roll.physical && (
@@ -425,6 +432,7 @@ export function RollPanel({
                 <RollLine
                   key={r.id}
                   roll={r}
+                  viewerIsStaff={isStaff}
                   canReroll={
                     // The newest d20 the viewer's own hero rolled, while they
                     // hold Heroic Inspiration — the test in front of them.

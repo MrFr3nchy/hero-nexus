@@ -55,6 +55,7 @@ const KIND_LABEL: Record<(typeof TABLE_EVENT_KINDS)[number], string> = {
   undo: 'Undo',
   ambience: 'Music',
   safety: 'X-card',
+  tavern: 'Tavern games',
 };
 
 /**
@@ -79,7 +80,7 @@ const KIND_GROUPS: { label: string; kinds: TableEventKind[] }[] = [
   },
   {
     label: 'The table',
-    kinds: ['sitting', 'time', 'rest', 'levelup', 'rules', 'timer'],
+    kinds: ['sitting', 'time', 'rest', 'levelup', 'rules', 'timer', 'tavern'],
   },
   {
     label: 'Between people',

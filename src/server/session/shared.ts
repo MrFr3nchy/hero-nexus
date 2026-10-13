@@ -21,6 +21,7 @@ import { type WorldClock } from '../world-time';
 import { type RestRow } from '../rests';
 import { type Legendary } from '@/@creator/campaign/lib/monsters';
 import { type Ambience } from '../audio';
+import { type TavernView } from '@/@creator/campaign/lib/tavern';
 
 /** How much of the roll log the live view carries. */
 export const ROLL_LOG_LIMIT = 40;
@@ -243,4 +244,10 @@ export interface LiveState {
   undo: { label: string; recordedAt: string } | null;
   /** What is playing for the table (12), or null. Listening is the reader's own. */
   ambience: Ambience | null;
+  /**
+   * The tavern game in front of the table, filtered for this viewer by
+   * `tavernViewFor` — the one place a cup, a hand or the deck is hidden. Null
+   * when none is running.
+   */
+  tavern: TavernView | null;
 }

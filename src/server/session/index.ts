@@ -44,7 +44,7 @@ export {
   updateEntry,
 } from './entries';
 export type { EntryInput, HpSnapshot, InitiativeRoll } from './entries';
-export { clearRolls, rollForCampaign } from './rolls';
+export { clearRolls, recordRoll, rollForCampaign } from './rolls';
 export type { RollInput } from './rolls';
 export {
   canViewHandout,

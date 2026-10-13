@@ -48,6 +48,7 @@ export const TABLE_EVENT_KINDS = [
   'sound',
   'ping',
   'safety',
+  'tavern',
 ] as const;
 
 export type TableEventKind = (typeof TABLE_EVENT_KINDS)[number];
@@ -428,6 +429,20 @@ export interface AmbienceEvent extends BaseEvent {
   title: string;
 }
 
+/**
+ * Something happened at a tavern game: a bid, a call, a pot paid, a round
+ * shaken. `line` is composed on the server for the audience it is published
+ * to — a cheat's line goes to staff only (`secret`), so a public line never
+ * carries what a cup holds.
+ */
+export interface TavernEvent extends BaseEvent {
+  kind: 'tavern';
+  gameId: string;
+  line: string;
+  /** Staff-only: a cheat, caught or not. */
+  secret: boolean;
+}
+
 export type TableEvent =
   | RollEvent
   | TurnEvent
@@ -454,7 +469,8 @@ export type TableEvent =
   | AmbienceEvent
   | SoundEvent
   | PingEvent
-  | SafetyEvent;
+  | SafetyEvent
+  | TavernEvent;
 
 /* --- how one reads ----------------------------------------------------- */
 
@@ -512,6 +528,7 @@ const GLYPHS: Record<TableEventKind, GlyphName> = {
   levelup: 'star',
   undo: 'gavel',
   ambience: 'candle',
+  tavern: 'tankard',
 };
 
 /**
@@ -869,6 +886,14 @@ export function describe(
         tone: event.state === 'done' ? 'success' : 'danger',
       };
     }
+
+    case 'tavern':
+      return {
+        glyph,
+        title: event.line,
+        detail: event.secret ? 'Only you see this.' : undefined,
+        tone: event.secret ? 'arcane' : 'gold',
+      };
 
     case 'safety':
       return {
