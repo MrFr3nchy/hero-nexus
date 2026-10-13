@@ -1,6 +1,6 @@
 # Tavern games
 
-Status: **Stage 1 done** · **Stage 2 done** · **Stage 3 done** · Stage 4
+Status: **Stage 1 done** · **Stage 2 done** · **Stage 3 done** · **Stage 4 done** (on `feat/tavern-games`, not pushed)
 Branch base: `main` @ `1989348`
 Baseline: `npx tsc --noEmit -p .` exit 0 · `npm test` 40 files / 309 tests passed (2026-10-13)
 
@@ -52,21 +52,21 @@ Everything else is reuse.
 
 ## What already exists (reuse these)
 
-| Need                                   | Existing                                                                                                                                 |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Server rolls, Dice row, announcement   | `rollForCampaign` `src/server/session/rolls.ts:42`                                                                                       |
+| Need                                    | Existing                                                                                                                                 |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Server rolls, Dice row, announcement    | `rollForCampaign` `src/server/session/rolls.ts:42`                                                                                       |
 | A roll off the sheet, bonus server-side | `rollFromSheet` `src/server/sheet-rolls.ts`, `sheetRollBonus` `campaign/lib/sheet-rolls.ts` (exhaustion via `d20PenaltyFor`)             |
-| Skill / ability maths                  | `skillBonus`, `abilityMod`, `proficiencyBonus`, `passivePerception` `character/lib/derive.ts`                                             |
-| Paying out of a purse, with history    | `payFromPurse` / `addToPurse` / `purseInCp` / `cpWords` `character/lib/coins.ts`; the transaction shape in `src/server/shops.ts:579-640` |
-| Coin between two seated characters     | `src/server/play/trading.ts:291-340` (`NOT_ENOUGH_COIN`, two `character_history` rows)                                                   |
-| NPC attitude and stat block            | `canon_entries.attitude`, `stat_source`/`stat_key` (0069); `src/server/npcs.ts` (staff-only)                                             |
-| NPC passive Insight / Perception       | creature `data.passive_perception`, `skill_bonuses.insight`, `ability_scores` `@shared/content/schemas.ts:530-539`                         |
-| Live updates                           | `bumpVersion` / `publish` with `Audience` `'everyone' \| 'staff' \| 'players' \| { users }` `src/server/live-hub.ts:46`                    |
-| Announcements                          | `TABLE_EVENT_KINDS` `@shared/table/events.ts` (one entry plus one `describe` line per kind)                                              |
-| A private line to some players + staff | `WhisperEvent` / `src/server/whispers.ts` (the audience pattern a cheat result follows)                                                  |
-| Session screen panels                  | `SCREEN_PANEL_KEYS` / `SCREEN_PANELS` `campaign/lib/screen.ts:15`                                                                         |
-| Package exclusion                      | `NEVER_CARRIED` `src/server/library-campaign-package.ts:108`                                                                             |
-| Dice animation                         | `Dice3DRoller` `@shared/components/ui/Dice3DRoller.tsx`                                                                                  |
+| Skill / ability maths                   | `skillBonus`, `abilityMod`, `proficiencyBonus`, `passivePerception` `character/lib/derive.ts`                                            |
+| Paying out of a purse, with history     | `payFromPurse` / `addToPurse` / `purseInCp` / `cpWords` `character/lib/coins.ts`; the transaction shape in `src/server/shops.ts:579-640` |
+| Coin between two seated characters      | `src/server/play/trading.ts:291-340` (`NOT_ENOUGH_COIN`, two `character_history` rows)                                                   |
+| NPC attitude and stat block             | `canon_entries.attitude`, `stat_source`/`stat_key` (0069); `src/server/npcs.ts` (staff-only)                                             |
+| NPC passive Insight / Perception        | creature `data.passive_perception`, `skill_bonuses.insight`, `ability_scores` `@shared/content/schemas.ts:530-539`                       |
+| Live updates                            | `bumpVersion` / `publish` with `Audience` `'everyone' \| 'staff' \| 'players' \| { users }` `src/server/live-hub.ts:46`                  |
+| Announcements                           | `TABLE_EVENT_KINDS` `@shared/table/events.ts` (one entry plus one `describe` line per kind)                                              |
+| A private line to some players + staff  | `WhisperEvent` / `src/server/whispers.ts` (the audience pattern a cheat result follows)                                                  |
+| Session screen panels                   | `SCREEN_PANEL_KEYS` / `SCREEN_PANELS` `campaign/lib/screen.ts:15`                                                                        |
+| Package exclusion                       | `NEVER_CARRIED` `src/server/library-campaign-package.ts:108`                                                                             |
+| Dice animation                          | `Dice3DRoller` `@shared/components/ui/Dice3DRoller.tsx`                                                                                  |
 
 ## Recommendation (ranked)
 
@@ -165,6 +165,7 @@ every read and cheat is a d20 and lands in Dice.
 round by round, with real coin, and with reads and cheats off the sheet.
 
 Artboards:
+
 1. **Main**: the "Tavern games" panel, a player's view mid-round in liar's dice. It
    shows your cup, the bid line, the pot, the seats, and the action row (Bid / Liar! /
    Fold, plus Read and Cheat). Interactive.
@@ -270,45 +271,45 @@ tests. Next migration: **`0075`** (`ls src/db/migrations | tail -1` is `0074_pla
 
 (See the stage-1 table above; all anchors re-checked 2026-10-13.) Added for the build:
 
-| Need                                   | Existing                                                                                     |
-| -------------------------------------- | -------------------------------------------------------------------------------------------- |
-| d20 notation with advantage            | `sheetRollNotation(bonus, mode)` `campaign/lib/sheet-rolls.ts:172`                            |
-| Skill keys incl. `sleightOfHand`       | `SKILL_KEYS` `character/schema.ts`; creature `skill_bonuses` uses the same keys (`schemas.ts:539`) |
-| Creature data off a ref                | `resolveContentRefs` `server/content.ts:132` + `parseContentData('creature', …)`              |
-| NPC's stat block columns               | `canon_entries.stat_source` / `stat_key`, read the way `server/canon.ts:169` does             |
-| The sitting in progress                | `campaignSessions` where `status = 'live'` (`server/session/live.ts:442`)                     |
-| A DM-authored, carried campaign table  | random tables: `server/random-tables.ts`, `random-table-actions.ts`, package lines 94/340/513/860 |
-| Screen panel registry + render switch  | `SCREEN_PANELS` `lib/screen.ts:56`; `renderPanel` switch `screen/DmScreen.tsx:~560-735`       |
-| Campaign page section list             | `sections` `components/CampaignDetail.tsx:258` (group `Play`, after Downtime)                 |
-| Feed labels per event kind             | `KIND_LABEL` / `KIND_GROUPS` `screen/FeedPanel.tsx:31`                                        |
-| Server test harness                    | `test/db.ts` + `src/server/random-tables.test.ts` (pattern)                                   |
+| Need                                  | Existing                                                                                           |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| d20 notation with advantage           | `sheetRollNotation(bonus, mode)` `campaign/lib/sheet-rolls.ts:172`                                 |
+| Skill keys incl. `sleightOfHand`      | `SKILL_KEYS` `character/schema.ts`; creature `skill_bonuses` uses the same keys (`schemas.ts:539`) |
+| Creature data off a ref               | `resolveContentRefs` `server/content.ts:132` + `parseContentData('creature', …)`                   |
+| NPC's stat block columns              | `canon_entries.stat_source` / `stat_key`, read the way `server/canon.ts:169` does                  |
+| The sitting in progress               | `campaignSessions` where `status = 'live'` (`server/session/live.ts:442`)                          |
+| A DM-authored, carried campaign table | random tables: `server/random-tables.ts`, `random-table-actions.ts`, package lines 94/340/513/860  |
+| Screen panel registry + render switch | `SCREEN_PANELS` `lib/screen.ts:56`; `renderPanel` switch `screen/DmScreen.tsx:~560-735`            |
+| Campaign page section list            | `sections` `components/CampaignDetail.tsx:258` (group `Play`, after Downtime)                      |
+| Feed labels per event kind            | `KIND_LABEL` / `KIND_GROUPS` `screen/FeedPanel.tsx:31`                                             |
+| Server test harness                   | `test/db.ts` + `src/server/random-tables.test.ts` (pattern)                                        |
 
 ## Decisions
 
 1. **House games are DM-named rule sets on one of the two games.** A house game is
    `{ name, kind, blurb, rules }`, where `rules` holds that kind's own settings, clamped
    by a pure `normalizeRules`. "Brannoc's Bones: six dice, no wild ones, spot on allowed,
-   ante 2 gp" is a house game. *Why:* it gives the DM authorship over names and rules
+   ante 2 gp" is a house game. _Why:_ it gives the DM authorship over names and rules
    without a rules language, and every setting is one the engine already understands.
    The two plain games are always on offer as "Liar's dice" and "Crowns" with default
    rules; house games appear beside them in the Open form.
 2. **House games are prep, so they are `CARRIED`**; tavern games, seats and moves are
-   play history, so they are `NEVER_CARRIED`. *Why:* a house game is exactly like a
+   play history, so they are `NEVER_CARRIED`. _Why:_ a house game is exactly like a
    random table, a thing to run. The owner's rule "game records are play history" holds.
 3. **A tavern game snapshots its rules when opened.** Editing or deleting a house game
    never changes a game in progress (`house_game_id` set null on delete, `rules` copied).
-4. **One running tavern game per campaign.** The panel shows it. *Why:* one at a time is
+4. **One running tavern game per campaign.** The panel shows it. _Why:_ one at a time is
    how a table plays, and it keeps "the" game unambiguous for players and for the
    `LiveState` field.
 5. **The running game rides on `LiveState`** as `tavern: TavernView | null`, built per
-   viewer by `tavernViewFor()`. *Why:* `shared.ts:174-186` argues "one answer, one
+   viewer by `tavernViewFor()`. _Why:_ `shared.ts:174-186` argues "one answer, one
    request" for every live panel. Cups, hands and the deck are filtered there and only
    there.
 6. **Round state is one JSON column, written in a transaction.** Each move reads the row,
    checks whose turn it is, and writes the new state plus any coin changes together.
    Moves are logged as rows (`tavern_game_moves`) for the record and the history page.
 7. **Hidden dice reuse `visibility = 'dm'`.** The roll-log filter widens from
-   `isStaff || table` to `isStaff || table || actorUserId === viewer`. *Why:* no player
+   `isStaff || table` to `isStaff || table || actorUserId === viewer`. _Why:_ no player
    has ever been able to make a `'dm'` roll, so no existing row changes meaning, and the
    rule "nothing is hidden from the DM" holds. Players still can't choose `'dm'` through
    `rollForCampaign`'s input. Only the tavern module asks for it.
@@ -321,7 +322,7 @@ tests. Next migration: **`0075`** (`ls src/db/migrations | tail -1` is `0074_pla
 9. **Cards are shuffled with `node:crypto` `randomInt`** and never touch Dice (they are
    not dice). The deck order lives in the round state, which is never sent to a player.
 10. **The DM sees every cup.** Heroes' cups are behind a "Show me the heroes' cups"
-    switch, off by default (UI only). *Why:* nothing is hidden from the DM, but a DM who
+    switch, off by default (UI only). _Why:_ nothing is hidden from the DM, but a DM who
     plays the NPCs honestly would rather not see them.
 11. **Coin.** Antes and holds come out of the purse when paid, and the pot is paid out
     at round end, each with a `character_history` `currency` row. NPC coin is notional.
@@ -437,9 +438,30 @@ until caught, end mid-round, then check the purses and the character history.
 ## Progress
 
 - [x] PR 1 the rules, pure — 24 tests. Deviation: the loser of a call opens the next round
-  (dudo's own rule), not the seat to their left.
+      (dudo's own rule), not the seat to their left.
 - [x] PR 2 tables, house games, packages — migration 0075; 3 server tests
 - [x] PR 3 playing, on the server — 11 server tests (filtering, coin, cheat audience, refunds)
 - [x] PR 4 the session-screen panel — looked at as DM in light, dark and 400 px: open, sit, a round to the lift, a cheat, end mid-round, Crowns dealt
 - [x] PR 5 the campaign page section — house game written through the UI; record and rail
-- [ ] PR 6 vocabulary and docs
+- [x] PR 6 vocabulary and docs
+
+## Build notes (2026-10-13)
+
+Gates on the final commit: `npm run check` clean · `npx tsc --noEmit -p .` exit 0 ·
+`npm test` 45 files / 347 tests · `npm run build` exit 0.
+
+Looked at in the running app as the DM, in light and dark and at 400 px: wrote a house
+game, opened it from the screen, sat a hero, played a liar's dice round to the lift, palmed
+a die, ended a game mid-round (stakes back), and dealt a Crowns round.
+
+**Not looked at in a browser:** a second account's view (the player's own cup only, the
+invitation from the other side). The server tests assert it (`src/server/tavern/games.test.ts`),
+but a sign-in as `mrfrenchj+user@gmail.com` on the "Tavern test" campaign would show it.
+
+The local dev database has migration 0075 applied, plus a scratch campaign "Tavern test"
+(id `tavern-test-0000-4000-8000-000000000001`) with two heroes, two NPCs and the games
+played above. Delete the campaign when done with it.
+
+Deviations from the plan: the loser of a liar's dice call opens the next round (PR 1). A
+read or a cheat in liar's dice may be made any time in the round, not only on your turn;
+Crowns' cheat is a draw, so it stays on your turn.

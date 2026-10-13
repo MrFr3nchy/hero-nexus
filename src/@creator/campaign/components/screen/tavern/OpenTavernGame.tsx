@@ -246,7 +246,7 @@ export function OpenTavernGame({
 
       <Marginalia>
         {seats < MIN_SEATS
-          ? 'nobody gambles alone. pick at least two.'
+          ? 'nobody plays alone. pick at least two.'
           : `${seats} of ${MAX_SEATS} chairs. the back room is always cramped.`}
       </Marginalia>
 
