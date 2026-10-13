@@ -30,7 +30,6 @@
     "@hookform/resolvers": "^5.1.1",
     "@node-rs/argon2": "^2.0.2",
     "@types/three": "^0.185.4",
-    "autoprefixer": "^10.4.21",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
     "framer-motion": "^12.23.12",

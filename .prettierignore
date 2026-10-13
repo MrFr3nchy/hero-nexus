@@ -1,7 +1,4 @@
 # Generated / vendored files
-dataconnect-generated/
-dataconnect/
-public/index.html
 data/
 
 # Build outputs
@@ -25,6 +22,4 @@ package-lock.json
 # TypeScript declaration files
 *.d.ts
 
-# Generated GraphQL files
-*.gql
 docs/concepts/
