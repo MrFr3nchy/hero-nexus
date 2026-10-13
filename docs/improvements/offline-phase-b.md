@@ -28,7 +28,11 @@ does stays online-only, and the control says so while offline.
   aloud — a merge rule nobody can explain is worse than an overwrite everybody
   can.
 - Replayed in order when the network answers (`online`, and the banner's
-  probe), through the existing actions, one at a time.
+  probe), through the existing actions, one at a time. That keeps
+  [content-model rule 7](../content-model.md): the server diffs each replayed
+  write into `character_history` against the row as it is at replay, so an
+  overwrite the queue wins is still on the DM's log, and the client is never
+  asked what changed.
 - **Visible:** "3 changes waiting to sync" beside the banner, and each
   replayed write then appears in Table log as normal. A write the server
   refuses on replay (the hero left the table, the DM locked HP) is shown and

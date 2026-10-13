@@ -157,8 +157,8 @@ sudo -u hero -H npm --prefix "$APP_DIR" ci
 sudo -u hero -H bash -c "cd '$APP_DIR' && NODE_OPTIONS=--max-old-space-size=1536 npm run build"
 
 log "migrate + seed"
-# The seed pulls the SRD from api.open5e.com — the only outbound call the app
-# ever makes, and it takes a few minutes (classes and spells render slowly
+# The seed pulls the SRD from api.open5e.com — a one-off call, not one the app
+# makes while running — and it takes a few minutes (classes and spells render slowly
 # upstream). It is idempotent; re-run `npm run db:seed` to pick up changes.
 sudo -u hero -H bash -c "cd '$APP_DIR' && set -a && . '$ENV_FILE' && set +a && npm run db:migrate && npm run db:seed"
 

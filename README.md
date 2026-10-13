@@ -53,9 +53,10 @@ after a `git pull` you usually only need `npm run dev`.
 ## Auth
 
 Email/password via Auth.js credentials provider, JWT sessions, argon2 hashes.
-Registration: `POST /api/register`. Password reset is not self-service on a
-self-hosted instance — change your password from **Account → Settings** while
-signed in.
+Registration: `POST /api/register`. A forgotten password is reset from
+**Forgot password?** on the sign-in page, which mails a reset link (in
+development it lands in the dev inbox below). Signed in, change it from
+**Account → Settings**.
 
 ## Email in development
 
