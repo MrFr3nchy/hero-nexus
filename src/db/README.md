@@ -5,13 +5,14 @@ and is created/updated by the migration runner.
 
 ## Layout
 
-| File               | Purpose                                                                                               |
-| ------------------ | ----------------------------------------------------------------------------------------------------- |
-| `index.ts`         | `better-sqlite3` connection + Drizzle instance (`server-only`). Import `db` from here in server code. |
-| `schema.ts`        | Drizzle table definitions — the **query-time** source of truth.                                       |
-| `migrations/*.sql` | Hand-written SQL, applied once each, in lexical order.                                                |
-| `migrate.ts`       | Custom migration runner. Not drizzle-kit.                                                             |
-| `seed.ts`          | Loads `data/srd/*.json` into `reference_data`; seeds `rpg_systems`.                                   |
+| File                | Purpose                                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------------------------- |
+| `index.ts`          | `better-sqlite3` connection + Drizzle instance (`server-only`). Import `db` from here in server code. |
+| `schema.ts`         | Drizzle table definitions — the **query-time** source of truth.                                       |
+| `migrations/*.sql`  | Hand-written SQL, applied once each, in lexical order.                                                |
+| `migrate.ts`        | Custom migration runner. Not drizzle-kit.                                                             |
+| `seed.ts`           | Seeds `rpg_systems`, then runs `sync-reference.ts`.                                                   |
+| `sync-reference.ts` | Fetches SRD 5.2 from the Open5e API into `reference_data`. See `data/reference/README.md`.            |
 
 ## Migration system
 
@@ -22,11 +23,13 @@ We do **not** use drizzle-kit's migrate/journal. Migrations are plain SQL files:
 - Each file runs in a single transaction; a failure rolls back and stops the runner.
 - There are no down migrations (single-instance self-host — intentional).
 
-The runner executes automatically on server boot (`src/instrumentation.ts`) and via:
+The runner executes automatically on server boot (`src/instrumentation-node.ts`, reached
+through `src/instrumentation.ts`) and via:
 
 ```bash
 npm run db:migrate   # apply pending migrations
-npm run db:seed      # (re)load SRD reference data
+npm run db:seed      # seed rpg_systems, then sync reference data from Open5e
+npm run db:sync      # re-sync reference data from Open5e only
 npm run db:reset     # delete the db file, migrate, seed
 npm run db:studio    # drizzle-kit studio — inspection only
 ```
@@ -39,7 +42,7 @@ Drizzle does not generate or verify the SQL for us. When you add a column:
 1. Write an `ALTER TABLE` in a new `migrations/NNNN_*.sql`.
 2. Add the matching column to `schema.ts`.
 
-`0016_campaign_content.sql` is the most recent example — it adds
+`0016_campaign_content.sql` is a worked example — it adds
 `campaign_homebrew`, the table that says what homebrew is in play at a campaign
 (see [docs/content-model.md](../../docs/content-model.md), rule 6), and its
 Drizzle definition landed in `schema.ts` in the same commit. Nothing generated

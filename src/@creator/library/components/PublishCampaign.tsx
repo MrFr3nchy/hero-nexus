@@ -61,7 +61,7 @@ export function PublishCampaign({
     <SectionCard
       title="Share this campaign"
       description="Somebody else can take your prep and run it at their own table."
-      actions={listed ? <Ribbon tone="gold">On the shelf</Ribbon> : undefined}
+      actions={listed ? <Ribbon tone="gold">In the library</Ribbon> : undefined}
     >
       <div className="flex flex-col gap-3">
         <div className="grid gap-3 text-sm sm:grid-cols-2">
@@ -126,7 +126,7 @@ export function PublishCampaign({
                   )
                 }
               >
-                {listed ? 'Freeze it again' : 'Put it on the shelf'}
+                {listed ? 'Freeze it again' : 'Put it in the library'}
               </Button>
               <Button size="sm" variant="light" onPress={() => setOpen(false)}>
                 Not now

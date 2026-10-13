@@ -706,7 +706,7 @@ cmd_migrate() {
 
 cmd_seed() {
 	step "seeding reference data from api.open5e.com"
-	note "the only outbound call this app makes, and it takes a few minutes"
+	note "a one-off fetch from Open5e, and it takes a few minutes"
 	run_with_env "npm run db:seed"
 }
 

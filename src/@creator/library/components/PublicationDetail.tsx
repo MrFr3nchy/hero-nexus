@@ -23,6 +23,7 @@ import {
 } from '../actions';
 import { publicationKindMeta } from '../lib/publication';
 import { AdoptControls } from './AdoptControls';
+import { EditListing } from './EditListing';
 
 /**
  * One listing, full-bleed.
@@ -105,7 +106,7 @@ export function PublicationDetail({ detail }: { detail: Detail }) {
           {card.adopted === 'linked' && <Ribbon tone="arcane">Taken</Ribbon>}
           {card.adopted === 'forked' && <Ribbon tone="arcane">Copied</Ribbon>}
           {card.status === 'withdrawn' && (
-            <Ribbon tone="danger">Off the shelf</Ribbon>
+            <Ribbon tone="danger">Out of the library</Ribbon>
           )}
           {card.visibility === 'unlisted' && (
             <Ribbon tone="neutral">Unlisted</Ribbon>
@@ -175,6 +176,7 @@ export function PublicationDetail({ detail }: { detail: Detail }) {
 
         {card.mine && (
           <div className="flex flex-col gap-2">
+            <EditListing card={card} onSaved={() => router.refresh()} />
             <Button
               variant="bordered"
               isDisabled={busy}
@@ -188,8 +190,8 @@ export function PublicationDetail({ detail }: { detail: Detail }) {
               }
             >
               {card.status === 'listed'
-                ? 'Take it off the shelf'
-                : 'Put it back on the shelf'}
+                ? 'Take it out of the library'
+                : 'Put it back in the library'}
             </Button>
             <Button
               variant="light"

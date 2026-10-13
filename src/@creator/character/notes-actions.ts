@@ -9,16 +9,10 @@ import {
   deleteSecret,
   deleteSheetNote,
   listPartySecrets,
-  listSecrets,
-  listSheetNotes,
   setSecretVisibility,
   setSheetNoteVisibility,
 } from '@/server/sheet-notes';
-import {
-  NOTE_SECTIONS,
-  type SecretRow,
-  type SheetNoteRow,
-} from './lib/note-sections';
+import { NOTE_SECTIONS } from './lib/note-sections';
 
 /**
  * Actions behind the DM's sheet annotations and the per-character secret log.
@@ -60,18 +54,6 @@ const noteVisibilitySchema = z.enum(['shared', 'dm']);
 const secretVisibilitySchema = z.enum(['dm', 'player', 'party']);
 
 /* --- reads --------------------------------------------------------------- */
-
-export async function listSheetNotesAction(
-  characterId: string
-): Promise<SheetNoteRow[]> {
-  return listSheetNotes(characterId);
-}
-
-export async function listSecretsAction(
-  characterId: string
-): Promise<SecretRow[]> {
-  return listSecrets(characterId);
-}
 
 export async function listPartySecretsAction(campaignId: string) {
   return listPartySecrets(campaignId);

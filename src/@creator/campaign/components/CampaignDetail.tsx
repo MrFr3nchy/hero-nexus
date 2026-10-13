@@ -36,6 +36,7 @@ import { CampaignContentPanel } from './CampaignContentPanel';
 import { HomebrewApprovalPanel } from './HomebrewApprovalPanel';
 import { LedgerPanel } from './LedgerPanel';
 import { JournalPanel } from './JournalPanel';
+import { LeaveCampaign } from './LeaveCampaign';
 import { MembersPanel } from './MembersPanel';
 import { SafetyPanel } from './SafetyPanel';
 import { NotebookPanel, SharedNotes } from './NotebookPanel';
@@ -519,6 +520,12 @@ export function CampaignDetail({
               >
                 Settings
               </Button>
+            )}
+            {campaign.role !== 'gm' && (
+              <LeaveCampaign
+                campaignId={campaign.id}
+                campaignName={campaign.name}
+              />
             )}
           </>
         }

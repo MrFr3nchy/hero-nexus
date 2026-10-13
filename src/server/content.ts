@@ -14,8 +14,14 @@ import {
 
 import { listAdoptedContent } from './adoptions';
 import { listCampaignContent } from './campaign-content';
-import { getHomebrewByIds, listHomebrew, toContentEntries } from './homebrew';
+import {
+  getHomebrewByIds,
+  listHomebrew,
+  readableHomebrewIds,
+  toContentEntries,
+} from './homebrew';
 import { getReference } from './reference';
+import { requireUserId } from './session-user';
 
 /**
  * Loading content out of the two places it lives.
@@ -151,6 +157,26 @@ export async function resolveContentRefs(
   }
 
   return out;
+}
+
+/**
+ * `resolveContentRefs` for refs that came from the browser.
+ *
+ * The browser can send any homebrew id, so this drops the ones the signed-in
+ * user may not read (`readableHomebrewIds`) before resolving. Dropped refs
+ * look exactly like deleted ones: absent from the result.
+ */
+export async function resolveReadableContentRefs(
+  refs: ContentRef[]
+): Promise<Map<string, ContentEntry>> {
+  const userId = await requireUserId();
+  const readable = await readableHomebrewIds(
+    userId,
+    refs.filter(r => r.source === 'homebrew').map(r => r.key)
+  );
+  return resolveContentRefs(
+    refs.filter(r => r.source !== 'homebrew' || readable.has(r.key))
+  );
 }
 
 /**

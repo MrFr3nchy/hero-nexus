@@ -6,11 +6,8 @@ import {
   applyLoadoutPatch,
   applyPlayPatch,
   getPlayLoadout,
-  getPlayState,
   giveCoin,
   giveItem,
-  listPartyPlayState,
-  restParty,
   rollDeathSave,
   setOwnConditions,
   setPlayConditions,
@@ -100,23 +97,6 @@ const patchSchema = z.object({
   exhaustionDelta: z.number().int().min(-1).max(1).optional(),
 });
 
-export async function getPlayStateAction(
-  characterId: string,
-  campaignId: string | null
-): Promise<PlayState | null> {
-  try {
-    return await getPlayState(characterId, campaignId);
-  } catch {
-    return null;
-  }
-}
-
-export async function listPartyPlayStateAction(
-  campaignId: string
-): Promise<PlayState[]> {
-  return listPartyPlayState(campaignId);
-}
-
 export async function applyPlayPatchAction(
   characterId: string,
   campaignId: string | null,
@@ -155,19 +135,6 @@ export async function spendHitDiceAction(
     return { ok: true, data };
   } catch (err) {
     return fail(err, 'Failed to spend the hit dice.');
-  }
-}
-
-/** Rest the whole party at once. Staff only. */
-export async function restPartyAction(
-  campaignId: string,
-  kind: 'short' | 'long'
-): Promise<Result<{ rested: number }>> {
-  try {
-    const rested = await restParty(campaignId, kind);
-    return { ok: true, data: { rested } };
-  } catch (err) {
-    return fail(err, 'Failed to call the rest.');
   }
 }
 

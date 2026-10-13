@@ -7,7 +7,8 @@ import { useState } from 'react';
 import { Glyph, Marginalia, Stat } from '@/@shared/components/ui';
 import type { PlayState } from '@/server/play';
 import { WeightChip } from '@/@creator/character/components/WeightChip';
-import { conditionDef } from '../lib/conditions';
+import { conditionDef, parseConditions } from '../lib/conditions';
+import { ConditionPicker } from './session/ConditionPicker';
 import { effectDetail, effectName, type EffectRow } from '../lib/effects';
 import { FaceEntry, useDiceTray } from '@/@shared/components/dice';
 import type { DeathSaveMode } from '@/@creator/character/lib/dying';
@@ -15,6 +16,7 @@ import { startTimerAction } from '../actions';
 import {
   applyPlayPatchAction,
   rollDeathSaveAction,
+  setPlayConditionsAction,
   spendHitDiceAction,
 } from '../play-actions';
 import {
@@ -316,6 +318,7 @@ export function PlayCard({
   clocks = [],
   restOpen = null,
   canInspire = false,
+  canSetConditions = false,
   onRest,
   onChange,
   onError,
@@ -329,6 +332,11 @@ export function PlayCard({
   restOpen?: 'short' | 'long' | null;
   /** Staff: the star that hands over Heroic Inspiration, or takes it back. */
   canInspire?: boolean;
+  /**
+   * Staff: put the hero under a condition, or lift one, outside a fight —
+   * the poison that outlasts the ambush, the exhaustion from the march.
+   */
+  canSetConditions?: boolean;
   /** Called after a hit die is spent into the rest, so the caller re-reads. */
   onRest?: () => void | Promise<void>;
   /** Drop the ability rail and the slots — for the DM's party list. */
@@ -536,8 +544,35 @@ export function PlayCard({
       </div>
 
       {(state.conditions.length > 0 ||
-        clocks.some(c => c.kind === 'effect')) && (
-        <div className="mt-2 flex flex-wrap gap-1">
+        clocks.some(c => c.kind === 'effect') ||
+        (canSetConditions && campaignId)) && (
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          {canSetConditions && campaignId && (
+            <div
+              className={busy ? 'pointer-events-none opacity-60' : undefined}
+            >
+              <ConditionPicker
+                stored={state.conditions.join(',')}
+                onChange={async keys => {
+                  setBusy(true);
+                  const res = await setPlayConditionsAction(
+                    state.characterId,
+                    campaignId,
+                    keys
+                  );
+                  setBusy(false);
+                  if (!res.ok) {
+                    onError(res.error ?? 'Failed to set conditions.');
+                    return;
+                  }
+                  onChange({
+                    ...state,
+                    conditions: parseConditions(keys.join(',')),
+                  });
+                }}
+              />
+            </div>
+          )}
           {state.conditions.map(key => {
             const def = conditionDef(key);
             if (!def) return null;

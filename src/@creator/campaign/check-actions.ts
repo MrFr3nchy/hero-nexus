@@ -10,10 +10,8 @@ import {
   answerConsent,
   cancelCheck,
   dismissCheck,
-  listChecks,
   requestCheck,
   requestCheckFrom,
-  type CheckRow,
 } from '@/server/checks';
 import { resumeCast, settleSpellSave } from '@/server/casting';
 
@@ -75,16 +73,6 @@ const checkSchema = z
     v => v.kind !== 'free' || !!v.prompt?.trim(),
     'Say what you are asking for.'
   );
-
-export async function listChecksAction(
-  campaignId: string
-): Promise<CheckRow[]> {
-  try {
-    return await listChecks(campaignId);
-  } catch {
-    return [];
-  }
-}
 
 export async function requestCheckAction(
   campaignId: string,

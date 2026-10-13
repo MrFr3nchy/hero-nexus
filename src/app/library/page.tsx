@@ -1,7 +1,11 @@
 import { LibraryShelf } from '@/@creator/library/components';
 import ProtectedRoute from '@/@shared/components/ProtectedRoute';
 import { PageHeader, PageShell } from '@/@shared/components/ui';
-import { listShelf } from '@/server/library';
+import {
+  listMyPublications,
+  listShelf,
+  listTakenPublications,
+} from '@/server/library';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +17,13 @@ export const dynamic = 'force-dynamic';
  * one surface in the app that deliberately shows one account's rows to another.
  */
 export default async function LibraryPage() {
-  const initial = await listShelf();
+  // The page is behind ProtectedRoute, so a reader is signed in; the two
+  // lenses beside the shelf are theirs, withdrawn listings included.
+  const [initial, mine, taken] = await Promise.all([
+    listShelf(),
+    listMyPublications().catch(() => []),
+    listTakenPublications().catch(() => []),
+  ]);
 
   return (
     <ProtectedRoute>
@@ -23,7 +33,7 @@ export default async function LibraryPage() {
           title="The Wandering Library"
           description="Everything other tables have left on the shelf. Take what you like — nothing here costs anything."
         />
-        <LibraryShelf initial={initial} />
+        <LibraryShelf initial={initial} mine={mine} taken={taken} />
       </PageShell>
     </ProtectedRoute>
   );

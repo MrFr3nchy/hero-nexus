@@ -3,25 +3,17 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
-import {
-  adopt,
-  fork,
-  listAdoptions,
-  unadopt,
-  type AdoptionRow,
-} from '@/server/adoptions';
+import { adopt, fork, unadopt } from '@/server/adoptions';
 import {
   deletePublication,
-  getPublication,
   listMyHomebrewPublications,
   listMyPublications,
+  listTakenPublications,
   listShelf,
-  publicationForHomebrew,
   publishHomebrew,
   publishImage,
   setPublicationStatus,
   updatePublication,
-  type PublicationDetail,
   type ShelfFilters,
 } from '@/server/library';
 import { publishCampaign } from '@/server/library-campaign-package';
@@ -70,7 +62,7 @@ export interface LibraryResult {
  */
 const MESSAGES: Record<string, string> = {
   NOT_AUTHENTICATED: 'You are not signed in.',
-  SESSION_STALE: 'Your session has expired. Sign in again.',
+  SESSION_STALE: 'Your session is out of date. Sign in again.',
   NOT_FOUND: 'That listing is not on the shelf.',
   NOT_YOUR_HOMEBREW: 'That homebrew is not yours to publish.',
   NOT_YOUR_PUBLICATION: 'That listing is not yours.',
@@ -107,14 +99,15 @@ export async function listShelfAction(
   return listShelf((parsed.success ? parsed.data : {}) as ShelfFilters);
 }
 
-export async function getPublicationAction(
-  id: string
-): Promise<PublicationDetail | null> {
-  return getPublication(id);
-}
-
 export async function listMyPublicationsAction(): Promise<PublicationCard[]> {
   return listMyPublications();
+}
+
+/** What the reader has taken or copied, withdrawn listings included. */
+export async function listTakenPublicationsAction(): Promise<
+  PublicationCard[]
+> {
+  return listTakenPublications();
 }
 
 /** The author's own listings, so the Forge can mark what is already out. */
@@ -122,12 +115,6 @@ export async function listMyHomebrewPublicationsAction(): Promise<
   PublicationCard[]
 > {
   return listMyHomebrewPublications();
-}
-
-export async function publicationForHomebrewAction(
-  homebrewId: string
-): Promise<PublicationCard | null> {
-  return publicationForHomebrew(homebrewId);
 }
 
 export async function publishHomebrewAction(
@@ -312,8 +299,4 @@ export async function unadoptAction(
   } catch (err) {
     return fail(err);
   }
-}
-
-export async function listAdoptionsAction(): Promise<AdoptionRow[]> {
-  return listAdoptions();
 }

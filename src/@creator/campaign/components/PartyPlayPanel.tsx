@@ -150,6 +150,7 @@ export function PartyPlayPanel({
               compact={!isStaff}
               restOpen={state.rest?.kind ?? null}
               canInspire={isStaff}
+              canSetConditions={isStaff}
               onRest={refresh}
               onChange={replace}
               onError={onError}

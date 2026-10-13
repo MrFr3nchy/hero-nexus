@@ -650,7 +650,7 @@ export async function settleEffectSave(
  * A long rest ends anything measured in rounds on these characters — eight
  * hours outlasts any clock a fight runs on — and leaves "until removed" rows
  * alone, because a curse is not a nap away. One announcement names what
- * lifted. Called by `restParty` under its own staff check.
+ * lifted. Called by `applyRestUnchecked`, after `confirmRest` checked staff.
  */
 export async function clearRestedEffects(
   campaignId: string,

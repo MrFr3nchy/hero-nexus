@@ -6,13 +6,18 @@ HeroUI + Tailwind v4, Auth.js credentials, and a SQLite file that ships with the
 No external service is needed to run it. Three outbound calls exist, each one opt-in or
 one-off, and no fourth is added without a line here:
 
-- **The SRD seed** (`npm run db:seed`) fetches from api.open5e.com once, at setup.
+- **The SRD seed** (`npm run db:seed`) fetches from api.open5e.com once, at setup;
+  `npm run db:sync` repeats it by hand. The running app never calls it.
 - **Mail** (`src/server/mail.ts`) POSTs to Resend when `RESEND_API_KEY` is set;
-  without it mail is printed to the log.
+  without it mail is captured to `data/outbox/` and read at `/dev/mail`.
 - **Discord** (`src/server/discord.ts`) POSTs to a channel webhook a DM pasted into
   their campaign, fire-and-forget after the write, five-second timeout. Only Discord's
   own hosts and webhook path are accepted (`validateWebhookUrl`), which is the SSRF
   guard.
+
+Backups are not the app's calls. Litestream (`deploy/litestream.yml`) and the uploads
+mirror (`deploy/backup-uploads.sh`) are separate processes an operator installs from
+`docs/ops/restore.md`, and they write to a bucket that operator owns.
 
 This file is the index. The documents it points at are binding, not advisory: where one
 disagrees with the code, the code is wrong.

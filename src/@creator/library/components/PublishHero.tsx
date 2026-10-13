@@ -61,7 +61,7 @@ export function PublishHero({
     return (
       <div className="flex flex-col items-start gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          {listed && <Ribbon tone="gold">On the shelf</Ribbon>}
+          {listed && <Ribbon tone="gold">In the library</Ribbon>}
           <Button size="sm" variant="bordered" onPress={() => setOpen(true)}>
             <Glyph name="books" size={14} />
             {listed ? 'Refresh the listing' : 'Publish as a pregen'}
@@ -131,7 +131,7 @@ export function PublishHero({
             )
           }
         >
-          {listed ? 'Freeze them again' : 'Put them on the shelf'}
+          {listed ? 'Freeze them again' : 'Put them in the library'}
         </Button>
         <Button size="sm" variant="light" onPress={() => setOpen(false)}>
           Not now

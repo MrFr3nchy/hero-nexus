@@ -34,21 +34,6 @@ export interface DashboardData {
 
 const isReady = (c: CharacterRow) => c.status !== 'draft';
 
-export async function getDashboardSummaryAction(): Promise<DashboardSummary> {
-  const [characters, homebrew, campaigns] = await Promise.all([
-    listCharacters(),
-    listHomebrew(),
-    listCampaigns(),
-  ]);
-  return {
-    characters: characters.filter(isReady).length,
-    drafts: characters.length - characters.filter(isReady).length,
-    homebrew: homebrew.length,
-    campaigns: campaigns.length,
-    asDm: campaigns.filter(c => c.isGM).length,
-  };
-}
-
 /** Everything the dashboard renders, in one round trip. */
 export async function getDashboardDataAction(): Promise<DashboardData> {
   const [characters, homebrew, campaigns] = await Promise.all([
