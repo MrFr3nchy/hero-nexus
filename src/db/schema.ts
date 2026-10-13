@@ -3071,3 +3071,134 @@ export const mapJourney = sqliteTable(
     index('map_journey_campaign_idx').on(t.campaignId),
   ]
 );
+
+/* --- Tavern games (0075) -------------------------------------------------- */
+
+/**
+ * A DM's own named rules for one of the tavern games — "Brannoc's Bones" is
+ * liar's dice with six dice a cup and no wild ones. `rules` is the kind's
+ * settings, normalised by `normalizeRules` (`campaign/lib/tavern.ts`) on
+ * every write. Prep: carried in a campaign package, like a random table.
+ */
+export const tavernHouseGames = sqliteTable(
+  'tavern_house_games',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['liars-dice', 'crowns'] }).notNull(),
+    name: text('name').notNull().default(''),
+    /** The DM's own words about it. The rules themselves are composed. */
+    blurb: text('blurb').notNull().default(''),
+    rules: text('rules', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    updatedAt: text('updated_at').default(nowIso).notNull(),
+  },
+  t => [index('tavern_house_games_campaign_idx').on(t.campaignId)]
+);
+
+/**
+ * One tavern game. Its rules are copied in when it opens, so editing or
+ * deleting the house game never changes a game in progress. `state` is the
+ * whole round as JSON — cups, hands, the deck — and is only ever sent to a
+ * browser through `tavernViewFor`, which filters it per viewer. The record
+ * of a table that was played: never carried in a package.
+ */
+export const tavernGames = sqliteTable(
+  'tavern_games',
+  {
+    id: uuid(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
+    houseGameId: text('house_game_id').references(() => tavernHouseGames.id, {
+      onDelete: 'set null',
+    }),
+    kind: text('kind', { enum: ['liars-dice', 'crowns'] }).notNull(),
+    name: text('name').notNull().default(''),
+    blurb: text('blurb').notNull().default(''),
+    rules: text('rules', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
+    status: text('status', { enum: ['seating', 'playing', 'ended'] })
+      .notNull()
+      .default('seating'),
+    round: integer('round').notNull().default(0),
+    state: text('state', { mode: 'json' })
+      .notNull()
+      .default(sql`'{}'`),
+    sessionId: text('session_id').references(() => campaignSessions.id, {
+      onDelete: 'set null',
+    }),
+    createdBy: text('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').default(nowIso).notNull(),
+    endedAt: text('ended_at'),
+  },
+  t => [
+    index('tavern_games_campaign_idx').on(t.campaignId, t.createdAt),
+    // At most one running per campaign: the panel shows "the" game.
+    uniqueIndex('tavern_games_running_idx')
+      .on(t.campaignId)
+      .where(sql`"status" != 'ended'`),
+  ]
+);
+
+/** Who sits at a tavern game: a hero, or an NPC the DM plays. */
+export const tavernGameSeats = sqliteTable(
+  'tavern_game_seats',
+  {
+    id: uuid(),
+    gameId: text('game_id')
+      .notNull()
+      .references(() => tavernGames.id, { onDelete: 'cascade' }),
+    seatOrder: integer('seat_order').notNull().default(0),
+    characterId: text('character_id').references(() => characters.id, {
+      onDelete: 'set null',
+    }),
+    canonEntryId: text('canon_entry_id').references(() => canonEntries.id, {
+      onDelete: 'set null',
+    }),
+    /** Kept so a seat still reads as somebody after either is deleted. */
+    name: text('name').notNull().default(''),
+    status: text('status', {
+      enum: ['invited', 'seated', 'declined', 'out'],
+    })
+      .notNull()
+      .default('invited'),
+    /** Won less staked, over the whole game. Copper. */
+    netCp: integer('net_cp').notNull().default(0),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('tavern_game_seats_game_idx').on(t.gameId, t.seatOrder)]
+);
+
+/**
+ * What happened at a tavern game, line by line. A `hidden` line — a read, a
+ * cheat, a catch — is for staff and whoever did it, filtered on the server.
+ */
+export const tavernGameMoves = sqliteTable(
+  'tavern_game_moves',
+  {
+    id: uuid(),
+    gameId: text('game_id')
+      .notNull()
+      .references(() => tavernGames.id, { onDelete: 'cascade' }),
+    round: integer('round').notNull().default(0),
+    seatId: text('seat_id').references(() => tavernGameSeats.id, {
+      onDelete: 'set null',
+    }),
+    actorUserId: text('actor_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    kind: text('kind').notNull().default(''),
+    line: text('line').notNull().default(''),
+    hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').default(nowIso).notNull(),
+  },
+  t => [index('tavern_game_moves_game_idx').on(t.gameId, t.createdAt)]
+);

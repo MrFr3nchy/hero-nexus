@@ -438,7 +438,7 @@ until caught, end mid-round, then check the purses and the character history.
 
 - [x] PR 1 the rules, pure — 24 tests. Deviation: the loser of a call opens the next round
   (dudo's own rule), not the seat to their left.
-- [ ] PR 2 tables, house games, packages
+- [x] PR 2 tables, house games, packages — migration 0075; 3 server tests
 - [ ] PR 3 playing, on the server
 - [ ] PR 4 the session-screen panel
 - [ ] PR 5 the campaign page section

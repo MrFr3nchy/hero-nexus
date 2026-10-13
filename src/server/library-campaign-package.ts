@@ -4,6 +4,13 @@ import { and, eq, inArray } from 'drizzle-orm';
 
 import { normaliseTags } from '@/@creator/library/lib/publication';
 import { normalizeTable } from '@/@creator/campaign/lib/random-tables';
+import {
+  MAX_BLURB,
+  MAX_NAME,
+  isTavernKind,
+  normalizeRules,
+  type TavernKind,
+} from '@/@creator/campaign/lib/tavern';
 import { isAttitude } from '@/@creator/campaign/lib/standing';
 import { isMarkKind } from '@/@creator/campaign/lib/party-map';
 
@@ -30,6 +37,7 @@ import {
   publicationItems,
   publications,
   randomTables,
+  tavernHouseGames,
 } from '@/db/schema';
 import {
   createCampaign,
@@ -92,6 +100,7 @@ export const CARRIED = [
   'campaign_maps',
   'campaign_map_pins',
   'random_tables',
+  'tavern_house_games',
   'campaign_shops',
   'campaign_shop_stock',
   'encounter_plans',
@@ -141,6 +150,9 @@ export const NEVER_CARRIED = [
   'campaign_reveal_targets',
   'canon_reveals',
   'homebrew_approvals',
+  'tavern_games',
+  'tavern_game_seats',
+  'tavern_game_moves',
 ] as const;
 
 /* --- the frozen shape ------------------------------------------------- */
@@ -279,6 +291,8 @@ export interface CampaignPackagePayload {
   /** Absent in a package frozen before the world (0072). */
   shops?: PackagedShop[];
   plans?: PackagedPlan[];
+  /** Absent in a package frozen before tavern games (0075). */
+  houseGames?: { kind: string; name: string; blurb: string; rules: unknown }[];
 }
 
 /* --- building --------------------------------------------------------- */
@@ -308,6 +322,7 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
     tables,
     shops,
     plans,
+    houseGames,
   ] = await Promise.all([
     db
       .select()
@@ -347,6 +362,10 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
       .select()
       .from(encounterPlans)
       .where(eq(encounterPlans.campaignId, campaignId)),
+    db
+      .select()
+      .from(tavernHouseGames)
+      .where(eq(tavernHouseGames.campaignId, campaignId)),
   ]);
   if (!row) throw new Error('NOT_FOUND');
 
@@ -514,6 +533,12 @@ export async function buildCampaignPackage(campaignId: string): Promise<{
       title: t.title,
       die: t.die,
       entries: t.entries,
+    })),
+    houseGames: houseGames.map(g => ({
+      kind: g.kind,
+      name: g.name,
+      blurb: g.blurb,
+      rules: g.rules,
     })),
     shops: shops.map(s => ({
       name: s.name,
@@ -876,6 +901,26 @@ export async function adoptCampaign(publicationId: string): Promise<string> {
           };
         })(),
       }))
+    );
+  }
+
+  // House games (0075): prep, normalised on the way in like everything else
+  // a package carries — it is somebody else's data.
+  const houseGames = (payload.houseGames ?? []).filter(g =>
+    isTavernKind(g.kind)
+  );
+  if (houseGames.length > 0) {
+    await db.insert(tavernHouseGames).values(
+      houseGames.map(g => {
+        const kind = g.kind as TavernKind;
+        return {
+          campaignId,
+          kind,
+          name: String(g.name ?? '').slice(0, MAX_NAME) || 'House game',
+          blurb: String(g.blurb ?? '').slice(0, MAX_BLURB),
+          rules: normalizeRules(kind, g.rules),
+        };
+      })
     );
   }
 

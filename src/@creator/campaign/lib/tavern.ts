@@ -316,3 +316,16 @@ export const CHEAT_LABEL: Record<TavernKind, string> = {
   'liars-dice': 'Palm a die',
   crowns: 'Deal from the bottom',
 };
+
+/* --- house games, as the browser sees them -------------------------------- */
+
+export interface HouseGameRow {
+  id: string;
+  kind: TavernKind;
+  name: string;
+  /** The DM's own words. */
+  blurb: string;
+  rules: TavernRules;
+  /** `rulesLines`, composed on the server so every reader sees the same. */
+  lines: string[];
+}
