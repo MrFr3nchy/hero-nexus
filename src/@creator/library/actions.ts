@@ -16,7 +16,6 @@ import {
   listMyHomebrewPublications,
   listMyPublications,
   listShelf,
-  publicationForHomebrew,
   publishHomebrew,
   publishImage,
   setPublicationStatus,
@@ -70,7 +69,7 @@ export interface LibraryResult {
  */
 const MESSAGES: Record<string, string> = {
   NOT_AUTHENTICATED: 'You are not signed in.',
-  SESSION_STALE: 'Your session has expired. Sign in again.',
+  SESSION_STALE: 'Your session is out of date. Sign in again.',
   NOT_FOUND: 'That listing is not on the shelf.',
   NOT_YOUR_HOMEBREW: 'That homebrew is not yours to publish.',
   NOT_YOUR_PUBLICATION: 'That listing is not yours.',
@@ -122,12 +121,6 @@ export async function listMyHomebrewPublicationsAction(): Promise<
   PublicationCard[]
 > {
   return listMyHomebrewPublications();
-}
-
-export async function publicationForHomebrewAction(
-  homebrewId: string
-): Promise<PublicationCard | null> {
-  return publicationForHomebrew(homebrewId);
 }
 
 export async function publishHomebrewAction(

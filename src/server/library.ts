@@ -522,19 +522,6 @@ export async function getPublication(
   };
 }
 
-/** The listing for one homebrew row, so the Forge can say whether it is out. */
-export async function publicationForHomebrew(
-  homebrewId: string
-): Promise<PublicationCard | null> {
-  const readerId = await optionalUserId();
-  const [row] = (await selectCards()
-    .where(eq(publications.homebrewId, homebrewId))
-    .limit(1)) as CardQueryRow[];
-  if (!row) return null;
-  const [card] = await decorate([row], readerId);
-  return card;
-}
-
 /** The listing for one campaign, so its manage page can say whether it is out. */
 export async function publicationForCampaign(
   campaignId: string
