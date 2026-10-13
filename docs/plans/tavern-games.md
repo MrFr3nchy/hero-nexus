@@ -465,3 +465,67 @@ played above. Delete the campaign when done with it.
 Deviations from the plan: the loser of a liar's dice call opens the next round (PR 1). A
 read or a cheat in liar's dice may be made any time in the round, not only on your turn;
 Crowns' cheat is a draw, so it stays on your turn.
+
+---
+
+# Addendum: dice games of the DM's own rules (2026-10-13)
+
+The owner's ask: a DM puts together a dice game from rules ("roll N dice, wins on …") and
+names it, instead of only tuning the two built-in games. Their answers:
+
+1. The DM can play too: either as **the house** (every player against the DM, paid at set
+   odds), with the house played as "the house" or as one of the NPCs, or through NPC seats
+   as before.
+2. **Push your luck** is in, as one of the options.
+3. **Any combination** is allowed, plus templates and recommended options.
+
+## The rules (a third kind, `custom-dice`, label "Dice game")
+
+| Rule         | Options                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------- |
+| Dice         | 1–10 dice of d4, d6, d8, d10, d12 or d20                                                    |
+| A turn       | one roll · hold and reroll (up to 3 rerolls) · push your luck (roll until you stop or bust) |
+| Score        | sum · highest die · how many show N or more · most of a kind · longest straight             |
+| Wins on      | highest · lowest · closest to N without going over · exactly N · first to N points          |
+| Bust face    | none, or a face: any die showing it busts (in push your luck, loses the turn's points)      |
+| Wild face    | none, or a face that counts as whatever helps most                                          |
+| Instant win  | none · every die at its highest face · every die alike                                      |
+| Dice seen    | in the open, or under cups until the show (reads only work under cups)                      |
+| Who you play | each other, for the pot · the house, which pays N to 1, and ties push                       |
+
+Normalising fixes the impossible, not the odd: push your luck without a bust face gets one
+(a 1); first-to-N against the house becomes highest (there is no pot to race for).
+
+## Decisions
+
+16. **Migration 0076 rebuilds the four tavern tables** to widen the `kind` CHECK. The
+    runner keeps foreign keys on and a `DROP TABLE` cascades, so the new tables are made
+    first, rows copied, the old ones dropped children-first, and the new ones renamed
+    (SQLite 3.53 rewrites the foreign-key references on rename).
+17. **The house is a seat** with no character and no canon entry, or an NPC's. It's stored
+    as `state.houseSeat`, seated last, and played by staff like any NPC seat.
+18. **Every roll lands in Dice.** In the open, each roll is a quiet row and the game line
+    announces it. Under cups, each roll is a hidden row (the roller and staff), and the
+    final dice are written as table rows at the show, like the liar's dice lift.
+19. **Read** (cups only): is that seat ahead of you right now? **Cheat**: on your turn,
+    after a roll, set one of your dice to a face.
+
+## The work: PR 7 (one commit on the same branch)
+
+`lib/custom-dice.ts` + tests; `lib/tavern.ts` kind, rules, defaults, templates, lines;
+0076 + schema; the server (open with a house, rounds, roll/reroll/stop, house payouts,
+first-to points, read, cheat, view); the rules builder with templates; the play view.
+
+## PR 7 progress (stopped mid-way, 2026-10-13)
+
+- [x] `lib/tavern.ts`: the `custom-dice` kind, `CustomDiceRules`, defaults, `normalizeRules`
+      (only the impossible is fixed), `customLines`, `DICE_TEMPLATES` (Pig, Beat the banker,
+      Five alike, Under the cups, Under twenty-one, Sailor's straight), `customAdvice`.
+- [x] Migration 0076 + `schema.ts` kind enums. Proved on a copy of the dev DB: row counts
+      kept, foreign keys on the final names, `foreign_key_check` clean, indexes back.
+- [ ] `lib/custom-dice.ts` engine + tests (bet pass, one-roll / hold / push turns, scoring
+      with wilds, bust, instant win, each-other pot vs house payouts at odds, first-to points).
+- [ ] Server: open with a house seat (`state.houseSeat`, "The house" or an NPC), rounds,
+      roll / reroll(hold) / stop moves, settle, read (cups only), cheat, view `custom`.
+- [ ] UI: rules builder with templates and advice; house picker on the Open form; play view.
+- [ ] Tests, naming rows ("Dice game", "the house"), gates, browser pass.

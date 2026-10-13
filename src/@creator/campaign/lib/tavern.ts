@@ -19,7 +19,7 @@
  */
 import { cpWords } from '@/@creator/character/lib/coins';
 
-export const TAVERN_KINDS = ['liars-dice', 'crowns'] as const;
+export const TAVERN_KINDS = ['liars-dice', 'crowns', 'custom-dice'] as const;
 export type TavernKind = (typeof TAVERN_KINDS)[number];
 
 export function isTavernKind(value: unknown): value is TavernKind {
@@ -29,6 +29,7 @@ export function isTavernKind(value: unknown): value is TavernKind {
 export const TAVERN_KIND_LABEL: Record<TavernKind, string> = {
   'liars-dice': 'Liar’s dice',
   crowns: 'Crowns',
+  'custom-dice': 'Dice game',
 };
 
 /** A tavern game needs somebody to lose to, and a back room has six chairs. */
@@ -68,12 +69,67 @@ export interface CrownsRules extends StakeRules {
   maxDraws: number;
 }
 
+/* The dice game of the house's own rules: every choice the engine knows. */
+export const DIE_SIDES = [4, 6, 8, 10, 12, 20] as const;
+export const TURN_KINDS = ['one-roll', 'hold', 'push'] as const;
+export const SCORE_KINDS = [
+  'sum',
+  'highest',
+  'count-at-least',
+  'most-alike',
+  'straight',
+] as const;
+export const WIN_KINDS = [
+  'highest',
+  'lowest',
+  'closest-under',
+  'exact',
+  'first-to',
+] as const;
+export const INSTANT_KINDS = ['none', 'all-max', 'all-same'] as const;
+export const OPPONENT_KINDS = ['each-other', 'house'] as const;
+
+export type TurnKind = (typeof TURN_KINDS)[number];
+export type ScoreKind = (typeof SCORE_KINDS)[number];
+export type WinKind = (typeof WIN_KINDS)[number];
+export type InstantKind = (typeof INSTANT_KINDS)[number];
+export type OpponentKind = (typeof OPPONENT_KINDS)[number];
+
+export interface CustomDiceRules extends StakeRules {
+  /** Dice each seat rolls. */
+  count: number;
+  /** Faces on each die: 4, 6, 8, 10, 12 or 20. */
+  sides: number;
+  /** One roll; hold some and reroll the rest; or roll until you stop or bust. */
+  turn: TurnKind;
+  /** Hold and reroll: how many rerolls a turn allows. */
+  rerolls: number;
+  score: ScoreKind;
+  /** "How many show N or more": the N. */
+  threshold: number;
+  winsOn: WinKind;
+  /** The number "closest under", "exactly" and "first to" are measured against. */
+  target: number;
+  /** A face that busts, or 0 for none. */
+  bustFace: number;
+  /** A face that counts as whatever helps most, or 0 for none. */
+  wildFace: number;
+  instantWin: InstantKind;
+  /** Dice stay under cups until the show. */
+  hidden: boolean;
+  /** Seats play each other for the pot, or the house, which pays at odds. */
+  opponent: OpponentKind;
+  /** Against the house: a win pays this many to one. */
+  odds: number;
+}
+
 export interface RulesFor {
   'liars-dice': LiarsDiceRules;
   crowns: CrownsRules;
+  'custom-dice': CustomDiceRules;
 }
 
-export type TavernRules = LiarsDiceRules | CrownsRules;
+export type TavernRules = LiarsDiceRules | CrownsRules | CustomDiceRules;
 
 export const DEFAULT_RULES: RulesFor = {
   'liars-dice': {
@@ -91,6 +147,24 @@ export const DEFAULT_RULES: RulesFor = {
     dealt: 2,
     maxDraws: 2,
   },
+  'custom-dice': {
+    anteCp: 100,
+    raiseCapCp: 500,
+    count: 3,
+    sides: 6,
+    turn: 'one-roll',
+    rerolls: 0,
+    score: 'sum',
+    threshold: 5,
+    winsOn: 'highest',
+    target: 15,
+    bustFace: 0,
+    wildFace: 0,
+    instantWin: 'none',
+    hidden: false,
+    opponent: 'each-other',
+    odds: 1,
+  },
 };
 
 /** The limits, so the form and the server agree on them. */
@@ -102,6 +176,11 @@ export const RULE_LIMITS = {
   crownMultiplier: { min: 2, max: 3 },
   dealt: { min: 2, max: 3 },
   maxDraws: { min: 0, max: 3 },
+  count: { min: 1, max: 10 },
+  rerolls: { min: 0, max: 3 },
+  threshold: { min: 1, max: 20 },
+  customTarget: { min: 1, max: 500 },
+  odds: { min: 1, max: 5 },
 } as const;
 
 function clampInt(
@@ -116,6 +195,62 @@ function clampInt(
 
 function bool(raw: unknown, fallback: boolean): boolean {
   return typeof raw === 'boolean' ? raw : fallback;
+}
+
+function oneOf<T extends string>(
+  raw: unknown,
+  list: readonly T[],
+  fallback: T
+): T {
+  return (list as readonly unknown[]).includes(raw) ? (raw as T) : fallback;
+}
+
+/**
+ * A dice game's rules, made playable. Odd is allowed — "lowest die, but
+ * sixes bust" is a real house's real game — and only the impossible is
+ * fixed: push your luck with nothing to bust on would never end, so it busts
+ * on a 1; racing to N points against the house has no pot to race for, so it
+ * becomes highest; a face past the die's sides is no face at all.
+ */
+function normalizeCustom(
+  r: Record<string, unknown>,
+  stake: StakeRules
+): CustomDiceRules {
+  const d = DEFAULT_RULES['custom-dice'];
+  const sides = (DIE_SIDES as readonly number[]).includes(Number(r.sides))
+    ? Number(r.sides)
+    : d.sides;
+  const face = (raw: unknown) => {
+    const n = clampInt(raw, { min: 0, max: sides }, 0);
+    return n;
+  };
+  const turn = oneOf(r.turn, TURN_KINDS, d.turn);
+  const opponent = oneOf(r.opponent, OPPONENT_KINDS, d.opponent);
+  let winsOn = oneOf(r.winsOn, WIN_KINDS, d.winsOn);
+  if (opponent === 'house' && winsOn === 'first-to') winsOn = 'highest';
+  let bustFace = face(r.bustFace);
+  if (turn === 'push' && bustFace === 0) bustFace = 1;
+  return {
+    ...stake,
+    count: clampInt(r.count, RULE_LIMITS.count, d.count),
+    sides,
+    turn,
+    rerolls: turn === 'hold' ? clampInt(r.rerolls, RULE_LIMITS.rerolls, 2) : 0,
+    score: oneOf(r.score, SCORE_KINDS, d.score),
+    threshold: clampInt(
+      r.threshold,
+      { min: 1, max: sides },
+      Math.min(d.threshold, sides)
+    ),
+    winsOn,
+    target: clampInt(r.target, RULE_LIMITS.customTarget, d.target),
+    bustFace,
+    wildFace: face(r.wildFace),
+    instantWin: oneOf(r.instantWin, INSTANT_KINDS, d.instantWin),
+    hidden: bool(r.hidden, d.hidden),
+    opponent,
+    odds: clampInt(r.odds, RULE_LIMITS.odds, d.odds),
+  };
 }
 
 /**
@@ -145,6 +280,12 @@ export function normalizeRules<K extends TavernKind>(
       onesWild: bool(r.onesWild, d.onesWild),
       spotOn: bool(r.spotOn, d.spotOn),
     } as RulesFor[K];
+  }
+  if (kind === 'custom-dice') {
+    return normalizeCustom(
+      r,
+      stake(DEFAULT_RULES['custom-dice'])
+    ) as RulesFor[K];
   }
   const d = DEFAULT_RULES.crowns;
   return {
@@ -190,6 +331,9 @@ export function rulesLines(kind: TavernKind, rules: TavernRules): string[] {
       ...stakes,
     ];
   }
+  if (kind === 'custom-dice') {
+    return [...customLines(rules as CustomDiceRules), ...stakes];
+  }
   const r = rules as CrownsRules;
   return [
     `Dealt ${r.dealt}, then one card is turned up: the crown. Its suit counts ${
@@ -201,6 +345,183 @@ export function rulesLines(kind: TavernKind, rules: TavernRules): string[] {
     'Ties split the pot. If everyone busts, the pot rolls over.',
     ...stakes,
   ];
+}
+
+const SCORE_WORDS: Record<ScoreKind, (r: CustomDiceRules) => string> = {
+  sum: () => 'the dice added up',
+  highest: () => 'the highest die',
+  'count-at-least': r => `how many show ${r.threshold} or more`,
+  'most-alike': () => 'the most dice alike',
+  straight: () => 'the longest straight',
+};
+
+/** The dice game's rules as sentences, for the player deciding to sit. */
+export function customLines(r: CustomDiceRules): string[] {
+  const dice = `${r.count}d${r.sides}`;
+  const turn =
+    r.turn === 'one-roll'
+      ? `Each seat rolls ${dice} once.`
+      : r.turn === 'hold'
+        ? `Each seat rolls ${dice}, then may keep some and reroll the rest, up to ${r.rerolls} ${r.rerolls === 1 ? 'time' : 'times'}.`
+        : `Each seat rolls ${dice} as often as they dare, adding each roll to the turn, and stops when they like.`;
+  const score = `Your score is ${SCORE_WORDS[r.score](r)}.`;
+  const wins: Record<WinKind, string> = {
+    highest: 'Highest score wins.',
+    lowest: 'Lowest score wins.',
+    'closest-under': `Closest to ${r.target} without going over wins.`,
+    exact: `Only exactly ${r.target} wins.`,
+    'first-to': `Scores add up round to round; the first to ${r.target} takes the pot.`,
+  };
+  const lines = [turn, score, wins[r.winsOn]];
+  if (r.bustFace) {
+    lines.push(
+      r.turn === 'push'
+        ? `Roll a ${r.bustFace} and you bust: the turn's points are lost.`
+        : `Any ${r.bustFace} showing busts you.`
+    );
+  }
+  if (r.wildFace)
+    lines.push(
+      `A ${r.wildFace} is wild: it counts as whatever helps you most.`
+    );
+  if (r.instantWin === 'all-max')
+    lines.push(`Every die showing ${r.sides} wins outright.`);
+  if (r.instantWin === 'all-same') lines.push('Every die alike wins outright.');
+  if (r.hidden) lines.push('Dice stay under the cups until the show.');
+  lines.push(
+    r.opponent === 'house'
+      ? `You play the house. A win pays ${r.odds} to 1, and a tie gives the stake back.`
+      : 'Ties split the pot. If nobody wins, it rolls over.'
+  );
+  return lines;
+}
+
+/**
+ * Templates for a dice game of the house's own — real starting points a DM
+ * edits rather than an empty form. Original names; Pig is the one folk game
+ * among them, and it is public domain.
+ */
+export const DICE_TEMPLATES: {
+  key: string;
+  name: string;
+  line: string;
+  rules: Partial<CustomDiceRules>;
+}[] = [
+  {
+    key: 'pig',
+    name: 'Pig',
+    line: 'One die, push your luck, a 1 loses the turn. First to 50.',
+    rules: {
+      count: 1,
+      sides: 6,
+      turn: 'push',
+      score: 'sum',
+      winsOn: 'first-to',
+      target: 50,
+      bustFace: 1,
+      opponent: 'each-other',
+    },
+  },
+  {
+    key: 'banker',
+    name: 'Beat the banker',
+    line: 'Two dice against the house, highest wins, double sixes win outright. Pays even.',
+    rules: {
+      count: 2,
+      sides: 6,
+      turn: 'one-roll',
+      score: 'sum',
+      winsOn: 'highest',
+      instantWin: 'all-max',
+      opponent: 'house',
+      odds: 1,
+    },
+  },
+  {
+    key: 'alike',
+    name: 'Five alike',
+    line: 'Five dice, keep and reroll twice, most dice alike wins. All five alike wins outright.',
+    rules: {
+      count: 5,
+      sides: 6,
+      turn: 'hold',
+      rerolls: 2,
+      score: 'most-alike',
+      winsOn: 'highest',
+      instantWin: 'all-same',
+    },
+  },
+  {
+    key: 'cups',
+    name: 'Under the cups',
+    line: 'Three dice under cups, ones wild, highest sum. Read and cheat to your heart’s content.',
+    rules: {
+      count: 3,
+      sides: 6,
+      turn: 'one-roll',
+      score: 'sum',
+      winsOn: 'highest',
+      wildFace: 1,
+      hidden: true,
+    },
+  },
+  {
+    key: 'twenty-one',
+    name: 'Under twenty-one',
+    line: 'Push your luck on two dice. Closest to 21 without going over; a 1 busts the turn.',
+    rules: {
+      count: 2,
+      sides: 6,
+      turn: 'push',
+      score: 'sum',
+      winsOn: 'closest-under',
+      target: 21,
+      bustFace: 1,
+    },
+  },
+  {
+    key: 'straight',
+    name: 'Sailor’s straight',
+    line: 'Five dice, keep and reroll twice, longest straight wins.',
+    rules: {
+      count: 5,
+      sides: 6,
+      turn: 'hold',
+      rerolls: 2,
+      score: 'straight',
+      winsOn: 'highest',
+    },
+  },
+];
+
+/**
+ * A word of advice for a combination that plays strangely — never a refusal.
+ * The builder shows it under the rules; the DM decides.
+ */
+export function customAdvice(r: CustomDiceRules): string | null {
+  if (r.score === 'straight' && r.count < 3) {
+    return 'A straight needs at least three dice to mean much.';
+  }
+  if (r.score === 'most-alike' && r.count < 2) {
+    return 'With one die, every hand is "one alike". Add dice.';
+  }
+  if (r.winsOn === 'exact' && r.turn === 'one-roll') {
+    return 'Exactly one number on one roll rarely happens; expect pots to roll over.';
+  }
+  if (
+    r.winsOn === 'first-to' &&
+    r.turn !== 'push' &&
+    r.target > r.count * r.sides * 4
+  ) {
+    return 'That target will take a long evening to reach.';
+  }
+  if (r.wildFace && r.wildFace === r.bustFace) {
+    return 'The wild face also busts: it will only ever bust.';
+  }
+  if (r.hidden && r.opponent === 'house') {
+    return 'Under cups against the house, only reads between players matter.';
+  }
+  return null;
 }
 
 /* --- betting, shared by both games --------------------------------------- */
@@ -301,7 +622,7 @@ export type SheetMove = 'read' | 'cheat';
  */
 export function gamingSetProficient(tools: string, kind: TavernKind): boolean {
   const text = tools ?? '';
-  return kind === 'liars-dice'
+  return kind !== 'crowns'
     ? /\bdice\b/i.test(text)
     : /\bplaying[- ]?cards?\b|\bcard set\b/i.test(text);
 }
@@ -309,12 +630,14 @@ export function gamingSetProficient(tools: string, kind: TavernKind): boolean {
 export const GAMING_SET_LABEL: Record<TavernKind, string> = {
   'liars-dice': 'Dice set',
   crowns: 'Playing cards',
+  'custom-dice': 'Dice set',
 };
 
 /** What each game calls cheating, as the button says it. */
 export const CHEAT_LABEL: Record<TavernKind, string> = {
   'liars-dice': 'Palm a die',
   crowns: 'Deal from the bottom',
+  'custom-dice': 'Palm a die',
 };
 
 /* --- house games, as the browser sees them -------------------------------- */

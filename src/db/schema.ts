@@ -3087,7 +3087,9 @@ export const tavernHouseGames = sqliteTable(
     campaignId: text('campaign_id')
       .notNull()
       .references(() => campaigns.id, { onDelete: 'cascade' }),
-    kind: text('kind', { enum: ['liars-dice', 'crowns'] }).notNull(),
+    kind: text('kind', {
+      enum: ['liars-dice', 'crowns', 'custom-dice'],
+    }).notNull(),
     name: text('name').notNull().default(''),
     /** The DM's own words about it. The rules themselves are composed. */
     blurb: text('blurb').notNull().default(''),
@@ -3117,7 +3119,9 @@ export const tavernGames = sqliteTable(
     houseGameId: text('house_game_id').references(() => tavernHouseGames.id, {
       onDelete: 'set null',
     }),
-    kind: text('kind', { enum: ['liars-dice', 'crowns'] }).notNull(),
+    kind: text('kind', {
+      enum: ['liars-dice', 'crowns', 'custom-dice'],
+    }).notNull(),
     name: text('name').notNull().default(''),
     blurb: text('blurb').notNull().default(''),
     rules: text('rules', { mode: 'json' })
