@@ -3,6 +3,11 @@ import 'server-only';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 import { handsFor, handTotal } from '@/@creator/campaign/lib/crowns';
+import {
+  currentScore,
+  diceFor,
+  scoreWords,
+} from '@/@creator/campaign/lib/custom-dice';
 import { cupsFor, diceOut } from '@/@creator/campaign/lib/liars-dice';
 import {
   holdCp,
@@ -111,6 +116,7 @@ export async function tavernViewFor(
       characterId: s.characterId,
       status: s.status,
       yours: s.id === mine?.id,
+      house: s.id === state.houseSeat,
       inCp: round?.betting.inCp[s.id] ?? 0,
       folded: round?.folded.includes(s.id) ?? false,
       dice: kind === 'liars-dice' ? (state.diceLeft[s.id] ?? null) : null,
@@ -198,6 +204,44 @@ export async function tavernViewFor(
               hands,
               totals,
               draws: round.draws,
+            };
+          })()
+        : null,
+    custom:
+      round?.kind === 'custom-dice'
+        ? (() => {
+            const r = normalizeRules('custom-dice', game.rules);
+            const dice = diceFor(round, r, seen);
+            const scores: Record<string, number | null> = {};
+            const words: Record<string, string> = {};
+            for (const s of round.order) {
+              // A score is known when its dice are, or when the show says.
+              const known = round.result
+                ? round.result.scores[s]
+                : dice[s] !== null || (r.turn === 'push' && !r.hidden)
+                  ? currentScore(round, s, r)
+                  : undefined;
+              if (known === undefined) continue;
+              scores[s] = known;
+              words[s] = scoreWords(known, r);
+            }
+            return {
+              phase: round.phase,
+              dice,
+              rolls: round.rolls,
+              turnTotal:
+                r.hidden && !round.result && !staff
+                  ? Object.fromEntries(
+                      Object.entries(round.turnTotal).filter(
+                        ([s]) => s === seen.seat
+                      )
+                    )
+                  : round.turnTotal,
+              busted: round.busted,
+              scores,
+              words,
+              points: round.result?.points ?? state.points,
+              house: round.house,
             };
           })()
         : null,

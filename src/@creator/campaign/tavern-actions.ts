@@ -65,8 +65,14 @@ const MESSAGES: Record<string, string> = {
   NOT_IN_ROUND: 'You are not in this round.',
   BAD_TARGET: 'Pick somebody else at the game.',
   BAD_DIE: 'Pick one of your dice, and a face from 1 to 6.',
-  CANT_CHEAT_NOW: 'Dealing from the bottom happens on your draw.',
+  CANT_CHEAT_NOW:
+    'Not now: a die is palmed on your turn after you roll, and a card dealt from the bottom on your draw.',
   BAD_MOVE: 'That is not a move in this game.',
+  NO_MORE_ROLLS: 'No more rolls this turn. Stand, or stop.',
+  ROLL_FIRST: 'Roll first.',
+  NOT_UNDER_CUPS: 'The dice are in the open. There is nothing to read.',
+  NOT_ROLLED:
+    'Both of you need to have rolled before there is anything to read.',
 };
 
 function fail(err: unknown, fallback: string): { ok: false; error: string } {
@@ -144,6 +150,7 @@ const openSchema = z.object({
   rules: z.record(z.string(), z.unknown()).optional(),
   npcIds: ids,
   characterIds: ids,
+  houseNpcId: z.string().max(64).nullish(),
 });
 
 export async function tavernSeatChoicesAction(
@@ -210,18 +217,25 @@ const moveSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('draw') }),
   z.object({ kind: z.literal('stand') }),
+  z.object({
+    kind: z.literal('roll'),
+    hold: z.array(z.number().int().min(0).max(9)).max(10).optional(),
+  }),
+  z.object({ kind: z.literal('stop') }),
 ]);
 
 export async function tavernMoveAction(
   gameId: string,
   move: unknown,
   asSeat?: string | null
-): Promise<Result> {
+): Promise<Result<{ roll: NotationRoll | null }>> {
   const parsed = moveSchema.safeParse(move);
   if (!parsed.success) return { ok: false, error: MESSAGES.BAD_MOVE };
   try {
-    await tavernMove(gameId, parsed.data, asSeat ?? null);
-    return { ok: true };
+    return {
+      ok: true,
+      data: await tavernMove(gameId, parsed.data, asSeat ?? null),
+    };
   } catch (err) {
     return fail(err, 'That move did not land.');
   }

@@ -18,6 +18,18 @@ import {
   type CrownsRound,
 } from '@/@creator/campaign/lib/crowns';
 import {
+  applyBet as customBet,
+  applyFold as customFold,
+  applyRoll,
+  applyStop,
+  isAhead,
+  newRound as newCustomRound,
+  palmDie as palmCustomDie,
+  scoreDice,
+  scoreWords,
+  type CustomRound,
+} from '@/@creator/campaign/lib/custom-dice';
+import {
   applyBid,
   applyCall,
   applyFold as liarsFold,
@@ -41,6 +53,7 @@ import {
   nextSeat,
   normalizeRules,
   type CrownsRules,
+  type CustomDiceRules,
   type LiarsDiceRules,
   type SheetMove,
   type TavernKind,
@@ -259,6 +272,11 @@ export interface OpenInput {
   npcIds: string[];
   /** Heroes at this campaign, asked to sit. */
   characterIds: string[];
+  /**
+   * A dice game against the house: the NPC who keeps the bank, or null for
+   * the DM as "the house" itself.
+   */
+  houseNpcId?: string | null;
 }
 
 export async function openTavernGame(
@@ -295,15 +313,19 @@ export async function openTavernGame(
   const given = (input.name ?? '').trim().slice(0, MAX_NAME);
   if (given) name = given;
 
-  const npcIds = [...new Set(input.npcIds)];
+  const vsHouse =
+    kind === 'custom-dice' && (rules as CustomDiceRules).opponent === 'house';
+  const houseNpcId = vsHouse ? (input.houseNpcId ?? null) : null;
+  // The NPC keeping the bank is the house, not a player against it.
+  const npcIds = [...new Set(input.npcIds)].filter(id => id !== houseNpcId);
   const charIds = [...new Set(input.characterIds)];
-  if (npcIds.length + charIds.length < MIN_SEATS) {
+  if (npcIds.length + charIds.length < (vsHouse ? 1 : MIN_SEATS)) {
     throw new Error('TOO_FEW_SEATS');
   }
   if (npcIds.length + charIds.length > MAX_SEATS) {
     throw new Error('TOO_MANY_SEATS');
   }
-  const [npcs, heroes, sitting] = await Promise.all([
+  const [npcs, heroes, sitting, banker] = await Promise.all([
     npcIds.length
       ? db.select().from(canonEntries).where(inArray(canonEntries.id, npcIds))
       : [],
@@ -316,8 +338,15 @@ export async function openTavernGame(
         eq(campaignSessions.status, 'live')
       ),
     }),
+    houseNpcId
+      ? db.query.canonEntries.findFirst({
+          where: eq(canonEntries.id, houseNpcId),
+        })
+      : null,
   ]);
   if (
+    (houseNpcId &&
+      (!banker || banker.campaignId !== campaignId || banker.kind !== 'npc')) ||
     npcs.length !== npcIds.length ||
     npcs.some(n => n.campaignId !== campaignId || n.kind !== 'npc') ||
     heroes.length !== charIds.length ||
@@ -339,6 +368,7 @@ export async function openTavernGame(
   }
 
   const gameId = randomUUID();
+  const houseSeat = vsHouse ? randomUUID() : null;
   try {
     db.transaction(tx => {
       tx.insert(tavernGames)
@@ -353,7 +383,7 @@ export async function openTavernGame(
           status: 'seating',
           sessionId: sitting?.id ?? null,
           createdBy: userId,
-          state: readState(null),
+          state: { ...readState(null), houseSeat },
         })
         .run();
       tx.insert(tavernGameSeats)
@@ -369,6 +399,20 @@ export async function openTavernGame(
           }))
         )
         .run();
+      if (houseSeat) {
+        // The bank sits last, played by the DM: as an NPC, or as itself.
+        tx.insert(tavernGameSeats)
+          .values({
+            id: houseSeat,
+            gameId,
+            seatOrder: order.length,
+            characterId: null,
+            canonEntryId: banker?.id ?? null,
+            name: (banker?.title || 'The house').slice(0, MAX_NAME),
+            status: 'seated',
+          })
+          .run();
+      }
       writeMoves(tx, gameId, 0, [
         { kind: 'open', line: `The DM opens ${name}.`, actorUserId: userId },
       ]);
@@ -436,7 +480,9 @@ export async function startRound(
   const rules = rulesOf(game, kind);
   const { numbers } = await seatNumbers(seats, kind);
 
-  const seated = seats.filter(s => s.status === 'seated');
+  // The house keeps the bank: it never antes, and it is never short of coin.
+  const houseSeat = state.houseSeat;
+  const seated = seats.filter(s => s.status === 'seated' && s.id !== houseSeat);
   const diceLeft = { ...state.diceLeft };
   if (kind === 'liars-dice') {
     for (const s of seated) {
@@ -459,7 +505,7 @@ export async function startRound(
     seatId: s.id,
   }));
 
-  if (players.length < MIN_SEATS) {
+  if (players.length < (houseSeat ? 1 : MIN_SEATS)) {
     db.transaction(tx => {
       for (const s of broke) {
         tx.update(tavernGameSeats)
@@ -477,7 +523,7 @@ export async function startRound(
   }
 
   const order = players.map(s => s.id);
-  let current: LiarsDiceRound | CrownsRound;
+  let current: LiarsDiceRound | CrownsRound | CustomRound;
   let opening: string;
   if (kind === 'liars-dice') {
     const r = rules as LiarsDiceRules;
@@ -488,6 +534,22 @@ export async function startRound(
       return roll ? roll.dice : [];
     });
     opening = `Round ${round}. Everyone antes ${cpWords(r.anteCp)}, and the cups are shaken.`;
+  } else if (kind === 'custom-dice') {
+    const r = rules as CustomDiceRules;
+    const starter =
+      state.starter && order.includes(state.starter) ? state.starter : order[0];
+    current = newCustomRound(
+      order,
+      houseSeat,
+      r,
+      starter,
+      state.carryCp,
+      state.points
+    );
+    const bank = houseSeat ? nameOf(seats, houseSeat) : null;
+    opening = `Round ${round}. Everyone ${
+      bank ? 'bets at least' : 'antes'
+    } ${cpWords(r.anteCp)}${bank ? `, and ${bank} keeps the bank` : ''}.`;
   } else {
     const r = rules as CrownsRules;
     const starter =
@@ -507,11 +569,12 @@ export async function startRound(
     ...state,
     diceLeft,
     carryCp: 0,
-    // Crowns passes the deal round the table; liar's dice sets it at the call.
+    // Crowns and dice games pass the first turn round the table; liar's dice
+    // sets it at the call.
     starter:
-      kind === 'crowns'
-        ? nextSeat(order, current.turn ?? order[0], [])
-        : state.starter,
+      kind === 'liars-dice'
+        ? state.starter
+        : nextSeat(order, current.turn ?? order[0], []),
     current,
     result: null,
   };
@@ -561,17 +624,20 @@ interface Settled {
   outs: string[];
   /** The game ends with this round. */
   over: boolean;
-  /** Cups to write into Dice, now they are up. */
-  lift: LiarsDiceRound | null;
+  /** Dice to write into Dice now they are shown: lifted cups, or dice under cups. */
+  lift: { seatId: string; dice: number[]; sides: number }[];
 }
 
 function settle(
   game: GameRow,
   seats: SeatRow[],
   state: StoredState,
-  round: LiarsDiceRound | CrownsRound
+  round: LiarsDiceRound | CrownsRound | CustomRound
 ): Settled {
   const pot = round.betting.potCp;
+  if (round.kind === 'custom-dice') {
+    return settleDice(game, seats, state, round);
+  }
   if (round.kind === 'liars-dice') {
     const res = round.result!;
     const diceLeft = diceAfter(state.diceLeft, res);
@@ -625,7 +691,14 @@ function settle(
       shares: { [res.winner]: pot },
       outs,
       over,
-      lift: res.how === 'folds' ? null : round,
+      lift:
+        res.how === 'folds'
+          ? []
+          : round.order.map(s => ({
+              seatId: s,
+              dice: round.cups[s] ?? [],
+              sides: 6,
+            })),
     };
   }
 
@@ -654,7 +727,91 @@ function settle(
     shares: res.shares,
     outs: [],
     over: false,
-    lift: null,
+    lift: [],
+  };
+}
+
+/**
+ * A dice game's show, in words and coin. Against the house each player's
+ * line says what they won or lost, and the house's net is what it kept less
+ * what it paid; against each other it is Crowns' show. First to N ends the
+ * game when somebody gets there.
+ */
+function settleDice(
+  game: GameRow,
+  seats: SeatRow[],
+  state: StoredState,
+  round: CustomRound
+): Settled {
+  const rules = normalizeRules('custom-dice', game.rules);
+  const res = round.result!;
+  const pot = round.betting.potCp;
+  const words = (s: string) => scoreWords(res.scores[s] ?? null, rules);
+  const names = res.winners.map(w => nameOf(seats, w));
+  const shares = { ...res.shares };
+  let line: string;
+  if (res.how === 'folds') {
+    line = `${names[0]} takes ${cpWords(pot)} unrolled.`;
+  } else if (res.how === 'house') {
+    const house = round.house!;
+    const parts = round.order
+      .filter(s => s !== house && !round.folded.includes(s))
+      .map(s => {
+        const bet = round.betting.inCp[s] ?? 0;
+        const back = res.shares[s] ?? 0;
+        const outcome =
+          back > bet
+            ? `wins ${cpWords(back - bet)}`
+            : back === bet
+              ? 'gets the stake back'
+              : `loses ${cpWords(bet)}`;
+        return `${nameOf(seats, s)} (${words(s)}) ${outcome}`;
+      });
+    const paid = Object.values(res.shares).reduce((n, cp) => n + cp, 0);
+    // The bank keeps what it did not pay; on the record, not in a purse.
+    shares[house] = pot - paid;
+    line = `Against ${nameOf(seats, house)}’s ${words(house)}: ${
+      parts.join('; ') || 'nobody stayed in'
+    }.`;
+  } else if (res.how === 'rollover') {
+    line =
+      rules.winsOn === 'first-to'
+        ? `Nobody has ${rules.target} yet. The pot of ${cpWords(pot)} rolls over.`
+        : `Nobody wins. The pot of ${cpWords(pot)} rolls over.`;
+  } else if (res.over) {
+    line = `${names.join(' and ')} ${names.length === 1 ? 'reaches' : 'reach'} ${
+      res.points?.[res.winners[0]] ?? rules.target
+    } and ${names.length === 1 ? 'takes' : 'split'} ${cpWords(pot)}. ${game.name} is over.`;
+  } else if (res.instant.length > 0) {
+    line = `${names.join(' and ')} ${names.length === 1 ? 'wins' : 'win'} outright with ${words(res.winners[0])}, and ${
+      names.length === 1 ? 'takes' : 'split'
+    } ${cpWords(pot)}.`;
+  } else {
+    line =
+      names.length === 1
+        ? `The show: ${names[0]} takes ${cpWords(pot)} with ${words(res.winners[0])}.`
+        : `The show: ${names.join(' and ')} split ${cpWords(pot)}, each with ${words(res.winners[0])}.`;
+  }
+  return {
+    state: {
+      ...state,
+      carryCp: res.carryCp,
+      points: res.points ?? state.points,
+      current: round,
+      result: { line, winners: res.winners, loser: null },
+    },
+    lines: [{ kind: 'result', line }],
+    shares,
+    outs: [],
+    over: res.over,
+    // Under cups the dice go into Dice when they are shown; in the open,
+    // every roll already did.
+    lift:
+      rules.hidden && res.how !== 'folds'
+        ? round.order
+            .filter(s => (round.dice[s] ?? []).length > 0)
+            .map(s => ({ seatId: s, dice: round.dice[s], sides: rules.sides }))
+        : [],
   };
 }
 
@@ -667,7 +824,7 @@ async function commitMove(
   game: GameRow,
   seats: SeatRow[],
   state: StoredState,
-  round: LiarsDiceRound | CrownsRound,
+  round: LiarsDiceRound | CrownsRound | CustomRound,
   actor: { seat: SeatRow; userId: string },
   paidCp: number,
   lines: MoveLine[],
@@ -726,12 +883,14 @@ async function commitMove(
     writeMoves(tx, game.id, game.round, [...lines, ...(settled?.lines ?? [])]);
   });
 
-  if (settled?.lift) {
+  if (settled?.lift.length) {
     const label = `${game.name} · round ${game.round}`;
-    for (const seatId of settled.lift.order) {
-      const seat = seats.find(s => s.id === seatId);
-      const cup = settled.lift.cups[seatId] ?? [];
-      const result = rollNotation(`${cup.length}d6`, cup);
+    for (const shown of settled.lift) {
+      const seat = seats.find(s => s.id === shown.seatId);
+      const result = rollNotation(
+        `${shown.dice.length}d${shown.sides}`,
+        shown.dice
+      );
       if (!seat || !result) continue;
       await recordRoll(game.campaignId, {
         actorUserId: null,
@@ -759,7 +918,9 @@ export type TavernMove =
   | { kind: 'fold' }
   | { kind: 'bet'; raiseCp?: number }
   | { kind: 'draw' }
-  | { kind: 'stand' };
+  | { kind: 'stand' }
+  | { kind: 'roll'; hold?: number[] }
+  | { kind: 'stop' };
 
 function runningRound(state: StoredState) {
   if (!state.current || state.current.result) throw new Error('NO_ROUND');
@@ -767,14 +928,16 @@ function runningRound(state: StoredState) {
 }
 
 /**
- * Bid, call, fold, bet, draw or stand — whatever the game in front of you
- * asks for. `asSeat` is an NPC seat the DM is playing.
+ * Bid, call, fold, bet, draw, stand, roll or stop — whatever the game in
+ * front of you asks for. `asSeat` is an NPC seat (or the house) the DM is
+ * playing. A dice-game roll hands back the server's dice, so the roller's
+ * tray can throw them.
  */
 export async function tavernMove(
   gameId: string,
   move: TavernMove,
   asSeat?: string | null
-): Promise<void> {
+): Promise<{ roll: NotationRoll | null }> {
   const { game, seats } = await loadGame(gameId);
   if (game.status === 'ended') throw new Error('GAME_OVER');
   const actor = await actorFor(game, seats, asSeat);
@@ -785,10 +948,67 @@ export async function tavernMove(
   const kind = game.kind as TavernKind;
   const lines: MoveLine[] = [];
   let line: string | null = null;
-  let round: LiarsDiceRound | CrownsRound;
+  let round: LiarsDiceRound | CrownsRound | CustomRound;
   let paidCp = 0;
+  let thrown: NotationRoll | null = null;
 
-  if (kind === 'liars-dice' && current.kind === 'liars-dice') {
+  if (kind === 'custom-dice' && current.kind === 'custom-dice') {
+    const rules = rulesOf(game, 'custom-dice');
+    if (move.kind === 'bet') {
+      const raise = Math.trunc(move.raiseCp ?? 0);
+      const owed = Math.max(
+        0,
+        current.betting.stakeCp - (current.betting.inCp[me] ?? 0)
+      );
+      ({ round, paidCp } = customBet(current, me, raise, rules));
+      line = current.house
+        ? `${who} bets ${cpWords(round.betting.inCp[me] ?? 0)}.`
+        : raise > 0
+          ? `${who} raises the stake to ${cpWords(round.betting.stakeCp)}.`
+          : owed > 0
+            ? `${who} holds.`
+            : `${who} stays in.`;
+    } else if (move.kind === 'fold') {
+      round = customFold(current, me, rules);
+      line = `${who} folds.`;
+    } else if (move.kind === 'roll') {
+      const again = (current.rolls[me] ?? 0) > 0;
+      round = applyRoll(
+        current,
+        me,
+        rules,
+        (n, sides) => {
+          thrown = rollNotation(`${n}d${sides}`);
+          return thrown ? thrown.dice : [];
+        },
+        move.hold ?? []
+      );
+      const dice = round.dice[me] ?? [];
+      const busted = round.busted.includes(me);
+      const verb = again && rules.turn === 'hold' ? 'rerolls' : 'rolls';
+      if (rules.hidden) {
+        line = `${who} ${verb} under the cup${busted ? ' and busts' : ''}.`;
+      } else if (rules.turn === 'push') {
+        line = busted
+          ? `${who} rolls ${dice.join(', ')} and busts.`
+          : `${who} rolls ${dice.join(', ')}: ${round.turnTotal[me] ?? 0} this turn.`;
+      } else {
+        // The score as the dice lie, whether or not the turn is over.
+        line = `${who} ${verb} ${dice.join(', ')}: ${scoreWords(
+          scoreDice(dice, rules),
+          rules
+        )}.`;
+      }
+    } else if (move.kind === 'stop') {
+      round = applyStop(current, me, rules);
+      line =
+        rules.turn === 'push'
+          ? `${who} stops at ${current.turnTotal[me] ?? 0}.`
+          : `${who} stands.`;
+    } else {
+      throw new Error('BAD_MOVE');
+    }
+  } else if (kind === 'liars-dice' && current.kind === 'liars-dice') {
     const rules = rulesOf(game, 'liars-dice');
     if (move.kind === 'bid') {
       const raise = Math.trunc(move.raiseCp ?? 0);
@@ -854,21 +1074,40 @@ export async function tavernMove(
     });
   }
   await commitMove(game, seats, state, round, actor, paidCp, lines, line);
+  if (thrown) {
+    const rolled: NotationRoll = thrown;
+    // Every throw lands in Dice: in the open for all, under cups for the
+    // roller and staff. The game's own line is the announcement.
+    const rules = rulesOf(game, 'custom-dice');
+    await recordRoll(game.campaignId, {
+      actorUserId: actor.userId,
+      characterId: actor.seat.characterId,
+      actorName: who,
+      label: `${game.name} · round ${game.round}`,
+      result: rolled,
+      secret: rules.hidden,
+      audience: null,
+    });
+  }
+  return { roll: thrown };
 }
 
 /* --- off the sheet -------------------------------------------------------- */
 
-function markUsed(
-  round: LiarsDiceRound | CrownsRound,
+function markUsed<R extends LiarsDiceRound | CrownsRound | CustomRound>(
+  round: R,
   seat: string,
   what: SheetMove
-): LiarsDiceRound | CrownsRound {
+): R {
   const used = round.used[seat] ?? [];
   if (used.includes(what)) throw new Error('ALREADY_USED');
   return { ...round, used: { ...round.used, [seat]: [...used, what] } };
 }
 
-function inRound(round: LiarsDiceRound | CrownsRound, seat: string): void {
+function inRound(
+  round: LiarsDiceRound | CrownsRound | CustomRound,
+  seat: string
+): void {
   if (!round.order.includes(seat) || round.folded.includes(seat)) {
     throw new Error('NOT_IN_ROUND');
   }
@@ -904,6 +1143,13 @@ export async function readSeat(
   }
   const kind = game.kind as TavernKind;
   if (current.kind === 'liars-dice' && !current.bid) throw new Error('NO_BID');
+  if (current.kind === 'custom-dice') {
+    // Dice in the open need no reading.
+    if (!rulesOf(game, 'custom-dice').hidden) throw new Error('NOT_UNDER_CUPS');
+    if (!current.rolls[me] || !current.rolls[targetSeatId]) {
+      throw new Error('NOT_ROLLED');
+    }
+  }
   const round = markUsed(current, me, 'read');
 
   const { numbers } = await seatNumbers(seats, kind);
@@ -913,7 +1159,11 @@ export async function readSeat(
   const target = nameOf(seats, targetSeatId);
 
   let truth: string;
-  if (current.kind === 'liars-dice') {
+  if (current.kind === 'custom-dice') {
+    truth = isAhead(current, targetSeatId, me, rulesOf(game, 'custom-dice'))
+      ? `${target} is ahead of you.`
+      : `${target} is not ahead of you.`;
+  } else if (current.kind === 'liars-dice') {
     const rules = rulesOf(game, 'liars-dice');
     const face = current.bid!.face;
     truth = holdsFace(current, targetSeatId, face, rules.onesWild)
@@ -986,7 +1236,19 @@ export async function cheat(
   inRound(current, me);
   const kind = game.kind as TavernKind;
 
-  if (current.kind === 'liars-dice') {
+  if (current.kind === 'custom-dice') {
+    const rules = rulesOf(game, 'custom-dice');
+    // A push-your-luck roll is already counted: there is nothing to palm.
+    if (
+      rules.turn === 'push' ||
+      current.phase !== 'roll' ||
+      current.turn !== me ||
+      !current.rolls[me]
+    ) {
+      throw new Error('CANT_CHEAT_NOW');
+    }
+    palmCustomDie(current, me, input.dieIndex ?? -1, input.face ?? 0, rules);
+  } else if (current.kind === 'liars-dice') {
     const cup = current.cups[me] ?? [];
     const i = input.dieIndex ?? -1;
     if (!Number.isInteger(i) || i < 0 || i >= cup.length) {
@@ -1029,7 +1291,7 @@ export async function cheat(
   }
   const roll = d20(mine.sleight, mine.proficient);
   const worked = roll.total >= dc;
-  const verb = kind === 'liars-dice' ? 'palm a die' : 'deal from the bottom';
+  const verb = kind === 'crowns' ? 'deal from the bottom' : 'palm a die';
   const who = actor.seat.name;
   const seen = noticer
     ? `${nameOf(seats, noticer)}’s passive ${sense}`
@@ -1037,7 +1299,17 @@ export async function cheat(
 
   let change = '';
   if (worked) {
-    if (round.kind === 'liars-dice') {
+    if (round.kind === 'custom-dice') {
+      const before = round.dice[me][input.dieIndex!];
+      round = palmCustomDie(
+        round,
+        me,
+        input.dieIndex!,
+        input.face!,
+        rulesOf(game, 'custom-dice')
+      );
+      change = ` A ${before} became a ${input.face}.`;
+    } else if (round.kind === 'liars-dice') {
       const before = round.cups[me][input.dieIndex!];
       round = palmDie(round, me, input.dieIndex!, input.face!);
       change = ` A ${before} became a ${input.face}.`;

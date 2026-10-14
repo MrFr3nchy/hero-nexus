@@ -4,6 +4,7 @@ import { asc, eq, inArray } from 'drizzle-orm';
 
 import { d20PenaltyFor } from '@/@creator/campaign/lib/condition-effects';
 import type { CrownsRound } from '@/@creator/campaign/lib/crowns';
+import type { CustomRound } from '@/@creator/campaign/lib/custom-dice';
 import type { LiarsDiceRound } from '@/@creator/campaign/lib/liars-dice';
 import {
   gamingSetProficient,
@@ -41,7 +42,11 @@ export interface StoredState {
   carryCp: number;
   /** Who opens the next round. */
   starter: string | null;
-  current: LiarsDiceRound | CrownsRound | null;
+  current: LiarsDiceRound | CrownsRound | CustomRound | null;
+  /** A dice game against the house: the seat that keeps the bank. */
+  houseSeat: string | null;
+  /** A dice game played to N points: each seat's running total. */
+  points: Record<string, number> | null;
   /** The last round's outcome, in words, until the next one starts. */
   result: TavernResultView | null;
 }
@@ -53,6 +58,8 @@ export function readState(raw: unknown): StoredState {
     carryCp: s.carryCp ?? 0,
     starter: s.starter ?? null,
     current: s.current ?? null,
+    houseSeat: s.houseSeat ?? null,
+    points: s.points ?? null,
     result: s.result ?? null,
   };
 }

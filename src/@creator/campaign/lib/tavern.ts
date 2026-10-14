@@ -673,6 +673,8 @@ export interface TavernSeatView {
   status: SeatStatus;
   /** The viewer's own seat. */
   yours: boolean;
+  /** A dice game against the house: this seat keeps the bank. */
+  house: boolean;
   /** Put in this round. */
   inCp: number;
   folded: boolean;
@@ -762,6 +764,20 @@ export interface TavernView {
     >;
     totals: Record<string, number> | null;
     draws: Record<string, number>;
+  } | null;
+  custom: {
+    phase: 'bet' | 'roll' | 'show';
+    /** Dice this viewer may see; null is under a cup (or not yet thrown). */
+    dice: Record<string, number[] | null>;
+    rolls: Record<string, number>;
+    turnTotal: Record<string, number>;
+    busted: string[];
+    /** Each seat's score as this viewer may know it; absent is unknown. */
+    scores: Record<string, number | null>;
+    words: Record<string, string>;
+    /** First to N: the running totals. */
+    points: Record<string, number> | null;
+    house: string | null;
   } | null;
   result: TavernResultView | null;
   log: TavernLogLine[];

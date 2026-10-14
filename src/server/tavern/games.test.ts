@@ -400,3 +400,177 @@ describe('Crowns at the table', () => {
     expect(done!.crowns!.hands[brannoc]).toHaveLength(2);
   });
 });
+
+describe('a dice game of the house’s own', () => {
+  /** Every die the server throws lands on this face while `fn` runs. */
+  async function landing<T>(face: number, sides: number, fn: () => Promise<T>) {
+    const spy = vi
+      .spyOn(Math, 'random')
+      .mockReturnValue((face - 1) / sides + 0.0001);
+    try {
+      return await fn();
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it('plays the house: the DM keeps the bank as an NPC, and a win pays the odds', async () => {
+    signedIn = dm;
+    const running = await view.tavernViewFor(campaignId, as(dm, 'gm'));
+    if (running && running.status !== 'ended') {
+      await games.endTavernGame(running.id);
+    }
+    const gameId = await games.openTavernGame(campaignId, {
+      kind: 'custom-dice',
+      name: 'Beat the banker',
+      rules: {
+        count: 2,
+        sides: 6,
+        opponent: 'house',
+        odds: 2,
+        anteCp: 100,
+        raiseCapCp: 500,
+      },
+      npcIds: [],
+      characterIds: ['kessa'],
+      houseNpcId: 'brannoc',
+    });
+    let v = await view.tavernViewFor(campaignId, as(dm, 'gm'));
+    const house = v!.seats.find(s => s.house)!;
+    expect(house).toMatchObject({
+      name: 'Old Brannoc',
+      npc: true,
+      status: 'seated',
+    });
+    expect(v!.npcs.map(n => n.seatId)).toContain(house.id);
+
+    signedIn = kessaPlayer;
+    await games.answerSeat(gameId, true);
+    const before = gold('kessa');
+    signedIn = dm;
+    await games.startRound(gameId);
+    signedIn = kessaPlayer;
+    await games.tavernMove(gameId, { kind: 'bet', raiseCp: 100 });
+    expect(gold('kessa')).toBe(before - 200);
+
+    const { roll } = await landing(6, 6, () =>
+      games.tavernMove(gameId, { kind: 'roll' })
+    );
+    expect(roll!.dice).toEqual([6, 6]);
+    signedIn = dm;
+    await landing(1, 6, () =>
+      games.tavernMove(gameId, { kind: 'roll' }, house.id)
+    );
+
+    // A 2 gp bet won at 2 to 1: the stake back and 4 gp more.
+    expect(gold('kessa')).toBe(before - 200 + 600);
+    v = await view.tavernViewFor(campaignId, as(kessaPlayer, 'player'));
+    expect(v!.result!.line).toMatch(
+      /Against Old Brannoc’s 2: Kessa \(12\) wins 4 gp/
+    );
+    expect(v!.seats.find(s => s.house)!.netCp).toBe(200 - 600);
+
+    const db = rawDb();
+    const rows = db
+      .prepare(
+        "SELECT actor_name, dice, visibility FROM campaign_rolls WHERE label = 'Beat the banker · round 1' ORDER BY rowid"
+      )
+      .all() as { actor_name: string; dice: string; visibility: string }[];
+    db.close();
+    expect(
+      rows.map(r => [r.actor_name, JSON.parse(r.dice), r.visibility])
+    ).toEqual([
+      ['Kessa', [6, 6], 'table'],
+      ['Old Brannoc', [1, 1], 'table'],
+    ]);
+    signedIn = dm;
+    await games.endTavernGame(gameId);
+  });
+
+  it('keeps dice under the cups from everyone but the roller and the DM', async () => {
+    signedIn = dm;
+    const gameId = await games.openTavernGame(campaignId, {
+      kind: 'custom-dice',
+      name: 'Under the cups',
+      rules: { count: 3, sides: 6, hidden: true, anteCp: 0, raiseCapCp: 0 },
+      npcIds: ['brannoc'],
+      characterIds: ['kessa'],
+    });
+    signedIn = kessaPlayer;
+    await games.answerSeat(gameId, true);
+    signedIn = dm;
+    await games.startRound(gameId);
+    let v = await view.tavernViewFor(campaignId, as(dm, 'gm'));
+    const kessa = v!.seats.find(s => s.name === 'Kessa')!.id;
+    const brannoc = v!.seats.find(s => s.name === 'Old Brannoc')!.id;
+    // Nobody can raise, so each just stays in.
+    for (let i = 0; i < 2; i++) {
+      v = await view.tavernViewFor(campaignId, as(dm, 'gm'));
+      const turn = v!.turn!;
+      signedIn = turn === kessa ? kessaPlayer : dm;
+      await games.tavernMove(
+        gameId,
+        { kind: 'bet' },
+        turn === kessa ? null : turn
+      );
+    }
+    v = await view.tavernViewFor(campaignId, as(dm, 'gm'));
+    expect(v!.custom!.phase).toBe('roll');
+    const first = v!.turn!;
+    signedIn = first === kessa ? kessaPlayer : dm;
+    await landing(4, 6, () =>
+      games.tavernMove(gameId, { kind: 'roll' }, first === kessa ? null : first)
+    );
+
+    const k = await view.tavernViewFor(campaignId, as(kessaPlayer, 'player'));
+    const w = await view.tavernViewFor(campaignId, as(watcher, 'player'));
+    const d = await view.tavernViewFor(campaignId, as(dm, 'gm'));
+    expect(d!.custom!.dice[first]).toEqual([4, 4, 4]);
+    expect(w!.custom!.dice[first]).toBeNull();
+    expect(w!.custom!.scores[first]).toBeUndefined();
+    expect(k!.custom!.dice[first]).toEqual(first === kessa ? [4, 4, 4] : null);
+    expect(w!.log.some(l => /under the cup/.test(l.line))).toBe(true);
+
+    // In the open nothing is read; under cups a read needs both to have rolled.
+    const second = first === kessa ? brannoc : kessa;
+    signedIn = first === kessa ? kessaPlayer : dm;
+    await expect(
+      games.readSeat(gameId, second, first === kessa ? null : first)
+    ).rejects.toThrow('NOT_ROLLED');
+    signedIn = second === kessa ? kessaPlayer : dm;
+    await landing(2, 6, () =>
+      games.tavernMove(
+        gameId,
+        { kind: 'roll' },
+        second === kessa ? null : second
+      )
+    );
+    v = await view.tavernViewFor(campaignId, as(watcher, 'player'));
+    expect(v!.custom!.dice[first]).toEqual([4, 4, 4]);
+    expect(v!.result!.line).toMatch(/takes|rolls over/);
+    signedIn = dm;
+    await games.endTavernGame(gameId);
+  });
+
+  it('refuses an NPC that is not here as the bank, and a house game needs one player', async () => {
+    signedIn = dm;
+    await expect(
+      games.openTavernGame(campaignId, {
+        kind: 'custom-dice',
+        rules: { opponent: 'house' },
+        npcIds: [],
+        characterIds: [],
+        houseNpcId: 'brannoc',
+      })
+    ).rejects.toThrow('TOO_FEW_SEATS');
+    await expect(
+      games.openTavernGame(campaignId, {
+        kind: 'custom-dice',
+        rules: { opponent: 'house' },
+        npcIds: [],
+        characterIds: ['kessa'],
+        houseNpcId: 'nobody-here',
+      })
+    ).rejects.toThrow('BAD_SEAT');
+  });
+});
