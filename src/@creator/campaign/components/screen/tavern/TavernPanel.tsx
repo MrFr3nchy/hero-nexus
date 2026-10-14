@@ -1484,7 +1484,9 @@ function DiceGame({
 
       <div className="flex flex-col gap-1.5">
         {t.seats
-          .filter(s => game.dice[s.id] !== undefined)
+          // A seat appears here once it has thrown: before that it is a name
+          // with nothing beside it.
+          .filter(s => (game.rolls[s.id] ?? 0) > 0)
           .map(s => {
             const dice = game.dice[s.id];
             const yours = s.id === t.you?.seatId;
@@ -1708,7 +1710,7 @@ function DiceGame({
             </>
           )}
 
-          {actor.seatId !== game.house && (
+          {actor.seatId !== game.house && game.phase === 'roll' && (
             <OffSheet
               t={t}
               actor={actor}

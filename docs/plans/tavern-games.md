@@ -528,4 +528,14 @@ first-to points, read, cheat, view); the rules builder with templates; the play 
 - [x] Server: open with a house seat (`state.houseSeat`, "The house" or an NPC), rounds,
       roll / reroll(hold) / stop moves, settle, read (cups only), cheat, view `custom`.
 - [x] UI: rules builder with templates and advice; house picker on the Open form; play view.
-- [ ] Tests, naming rows ("Dice game", "the house"), gates, browser pass.
+- [x] Tests (19 engine, 3 server), naming rows, gates, browser pass.
+
+Browser pass (2026-10-14, as the DM, light): built "Brannoc's Bank" from the Beat the
+banker template on the campaign page, opened it with Old Brannoc keeping the bank, played a
+round against the house to its payout line; opened a plain Dice game from Five alike and
+played keep-and-reroll to the show. Fixed from it: move log order (rows written together
+are ordered by insertion), stakes wording against the house, the raise label, dice rows
+before anyone has thrown, the off-sheet box during betting. Not looked at in a browser:
+push your luck and dice under cups (engine and server tests cover both), and a second
+account's view. Seen but not ours: the shared confirm dialog's closing animation stalls
+under Chrome automation and keeps catching clicks until reload.

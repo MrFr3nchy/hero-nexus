@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import { handsFor, handTotal } from '@/@creator/campaign/lib/crowns';
 import {
@@ -97,7 +97,12 @@ export async function tavernViewFor(
       .select()
       .from(tavernGameMoves)
       .where(eq(tavernGameMoves.gameId, game.id))
-      .orderBy(asc(tavernGameMoves.createdAt), asc(tavernGameMoves.id)),
+      .orderBy(
+        asc(tavernGameMoves.createdAt),
+        // Lines written together share a millisecond: insertion order is the
+        // order they happened in.
+        asc(sql`rowid`)
+      ),
   ]);
   const { numbers, npc, owners } = await seatNumbers(seats, kind);
 
@@ -303,7 +308,7 @@ export async function listTavernGames(
               eq(tavernGameMoves.hidden, true)
             )
           )
-          .orderBy(asc(tavernGameMoves.createdAt))
+          .orderBy(asc(tavernGameMoves.createdAt), asc(sql`rowid`))
       : [],
   ]);
   return games.map(g => ({

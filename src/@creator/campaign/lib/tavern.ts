@@ -309,14 +309,25 @@ export function normalizeRules<K extends TavernKind>(
  * a house game sits above these, never in place of them.
  */
 export function rulesLines(kind: TavernKind, rules: TavernRules): string[] {
-  const stakes = [
-    rules.anteCp > 0
-      ? `Everyone antes ${cpWords(rules.anteCp)} a round.`
-      : 'No ante.',
-    rules.raiseCapCp > 0
-      ? `One raise can add up to ${cpWords(rules.raiseCapCp)}.`
-      : 'Nobody raises.',
-  ];
+  const vsHouse =
+    kind === 'custom-dice' && (rules as CustomDiceRules).opponent === 'house';
+  const stakes = vsHouse
+    ? [
+        rules.anteCp > 0
+          ? `Bets start at ${cpWords(rules.anteCp)}.`
+          : 'Bets start at nothing.',
+        rules.raiseCapCp > 0
+          ? `A bet can be raised by up to ${cpWords(rules.raiseCapCp)}.`
+          : 'Bets are not raised.',
+      ]
+    : [
+        rules.anteCp > 0
+          ? `Everyone antes ${cpWords(rules.anteCp)} a round.`
+          : 'No ante.',
+        rules.raiseCapCp > 0
+          ? `One raise can add up to ${cpWords(rules.raiseCapCp)}.`
+          : 'Nobody raises.',
+      ];
   if (kind === 'liars-dice') {
     const r = rules as LiarsDiceRules;
     return [

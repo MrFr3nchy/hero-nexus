@@ -61,7 +61,7 @@ export function RulesFields({
         />
         <NumberInput
           size={size}
-          label={vsHouse ? 'Most a bet may add (gp)' : 'Largest raise (gp)'}
+          label={vsHouse ? 'Raise a bet by (gp)' : 'Largest raise (gp)'}
           className="w-44"
           minValue={0}
           maxValue={RULE_LIMITS.raiseCapCp.max / 100}
