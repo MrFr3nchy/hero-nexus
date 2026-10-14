@@ -527,5 +527,5 @@ first-to points, read, cheat, view); the rules builder with templates; the play 
       with wilds, bust, instant win, each-other pot vs house payouts at odds, first-to points).
 - [x] Server: open with a house seat (`state.houseSeat`, "The house" or an NPC), rounds,
       roll / reroll(hold) / stop moves, settle, read (cups only), cheat, view `custom`.
-- [ ] UI: rules builder with templates and advice; house picker on the Open form; play view.
+- [x] UI: rules builder with templates and advice; house picker on the Open form; play view.
 - [ ] Tests, naming rows ("Dice game", "the house"), gates, browser pass.

@@ -243,3 +243,37 @@ export function RaisePicker({
     </div>
   );
 }
+
+/**
+ * Any die at rest: a d6 by its pips, anything else by its number in a
+ * rounded square (a d20 drawn with twenty pips is mud at 32px).
+ */
+export function DieFace({
+  value,
+  sides,
+  size = 32,
+  tone,
+}: {
+  value: number;
+  sides: number;
+  size?: number;
+  tone?: 'wild' | 'hit' | 'chosen' | null;
+}) {
+  if (sides === 6) return <PipDie value={value} size={size} tone={tone} />;
+  const ring =
+    tone === 'chosen' || tone === 'wild' || tone === 'hit'
+      ? 'border-gold text-gold-strong'
+      : 'border-ink text-ink';
+  return (
+    <span
+      role="img"
+      aria-label={`a ${value} on a d${sides}`}
+      style={{ width: size, height: size }}
+      className={`inline-flex shrink-0 items-center justify-center rounded-md font-display font-semibold tabular-nums ${
+        tone === 'chosen' ? 'border-2 bg-surface-2' : 'border bg-surface'
+      } ${ring}`}
+    >
+      <span style={{ fontSize: Math.round(size * 0.42) }}>{value}</span>
+    </span>
+  );
+}

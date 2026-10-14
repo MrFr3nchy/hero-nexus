@@ -15,6 +15,7 @@ import {
   TAVERN_KIND_LABEL,
   bidWords,
   type CrownsRules,
+  type CustomDiceRules,
   type LiarsDiceRules,
   type SheetMove,
   type TavernSeatView,
@@ -44,6 +45,7 @@ import {
 import { OpenTavernGame } from './OpenTavernGame';
 import {
   CardBack,
+  DieFace,
   HiddenDie,
   PipDie,
   PlayingCard,
@@ -161,16 +163,19 @@ export function TavernPanel({
     t.you.status === 'seated' &&
     !seatOf(t.you.seatId)?.folded &&
     (t.liars?.cups[t.you.seatId] !== undefined ||
-      t.crowns?.hands[t.you.seatId] !== undefined);
+      t.crowns?.hands[t.you.seatId] !== undefined ||
+      t.custom?.dice[t.you.seatId] !== undefined);
 
   const subtitle = [
     TAVERN_KIND_LABEL[t.kind],
     t.round > 0 ? `round ${t.round}` : 'not started',
-    t.kind === 'liars-dice'
-      ? (t.rules as LiarsDiceRules).onesWild
-        ? 'ones are wild'
-        : 'ones are only ones'
-      : `to ${(t.rules as CrownsRules).target}`,
+    t.kind === 'custom-dice'
+      ? diceSubtitle(t.rules as CustomDiceRules)
+      : t.kind === 'liars-dice'
+        ? (t.rules as LiarsDiceRules).onesWild
+          ? 'ones are wild'
+          : 'ones are only ones'
+        : `to ${(t.rules as CrownsRules).target}`,
   ].join(' · ');
 
   const endGame = async () => {
@@ -223,6 +228,16 @@ export function TavernPanel({
       )}
       {t.kind === 'crowns' && t.crowns && (
         <Crowns t={t} isStaff={isStaff} actor={actor} busy={busy} run={run} />
+      )}
+      {t.kind === 'custom-dice' && t.custom && (
+        <DiceGame
+          t={t}
+          isStaff={isStaff}
+          actor={actor}
+          youInRound={Boolean(youInRound)}
+          busy={busy}
+          run={run}
+        />
       )}
 
       {!actor && t.inRound && turnSeat && (
@@ -356,6 +371,11 @@ function seatNote(s: TavernSeatView, t: TavernView): string {
   if (s.status === 'out') return 'out';
   if (s.folded) return 'folded';
   if (t.turn === s.id) return 'to act';
+  if (t.custom) {
+    if (t.custom.busted.includes(s.id)) return 'bust';
+    if (t.custom.words[s.id]) return t.custom.words[s.id];
+    if (s.house) return 'keeps the bank';
+  }
   if (t.liars?.bid?.by === s.id)
     return `bid ${bidWords(t.liars.bid.count, t.liars.bid.face)}`;
   return '';
@@ -451,7 +471,9 @@ function OffSheet({
       !s.folded &&
       (t.liars
         ? t.liars.cups[s.id] !== undefined
-        : t.crowns?.hands[s.id] !== undefined)
+        : t.crowns
+          ? t.crowns.hands[s.id] !== undefined
+          : t.custom?.dice[s.id] !== undefined)
   );
   const lastBidder =
     t.liars?.bid && t.liars.bid.by !== actor.seatId ? t.liars.bid.by : null;
@@ -460,6 +482,8 @@ function OffSheet({
   );
   const readDone = actor.used.includes('read');
   const needsBid = t.kind === 'liars-dice' && !t.liars?.bid;
+  // Dice in the open need no reading.
+  const open = t.kind === 'custom-dice' && !(t.rules as CustomDiceRules).hidden;
   return (
     <div className="flex flex-col gap-2 border-t border-line pt-2.5">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -489,7 +513,7 @@ function OffSheet({
         <Button
           size="sm"
           variant="bordered"
-          isDisabled={busy || readDone || !target || needsBid}
+          isDisabled={busy || readDone || !target || needsBid || open}
           onPress={() => onRead(target)}
         >
           {readDone
@@ -497,6 +521,11 @@ function OffSheet({
             : `Read · Insight ${fmt(actor.insight)}`}
         </Button>
       </div>
+      {open && (
+        <p className="text-[0.7rem] text-ink-subtle">
+          The dice are in the open: there is nothing to read.
+        </p>
+      )}
       {needsBid && !readDone && (
         <p className="text-[0.7rem] text-ink-subtle">
           A read needs a bid to read against.
@@ -699,14 +728,16 @@ function PalmDie({
   cup,
   busy,
   onPalm,
+  sides = 6,
 }: {
   actor: Actor;
   cup: number[];
   busy: boolean;
   onPalm: (input: { dieIndex: number; face: number }) => void;
+  sides?: number;
 }) {
   const [index, setIndex] = useState<number | null>(null);
-  const [face, setFace] = useState(6);
+  const [face, setFace] = useState(sides);
   const done = actor.used.includes('cheat');
   if (done) {
     return (
@@ -748,12 +779,17 @@ function PalmDie({
             aria-pressed={i === index}
             onClick={() => setIndex(i)}
           >
-            <PipDie value={v} size={30} tone={i === index ? 'chosen' : null} />
+            <DieFace
+              value={v}
+              sides={sides}
+              size={30}
+              tone={i === index ? 'chosen' : null}
+            />
           </button>
         ))}
       </div>
-      <div className="flex gap-1.5">
-        {[1, 2, 3, 4, 5, 6].map(f => (
+      <div className="flex flex-wrap gap-1.5">
+        {Array.from({ length: sides }, (_, n) => n + 1).map(f => (
           <button
             key={f}
             type="button"
@@ -761,7 +797,12 @@ function PalmDie({
             aria-pressed={f === face}
             onClick={() => setFace(f)}
           >
-            <PipDie value={f} size={24} tone={f === face ? 'chosen' : null} />
+            <DieFace
+              value={f}
+              sides={sides}
+              size={24}
+              tone={f === face ? 'chosen' : null}
+            />
           </button>
         ))}
       </div>
@@ -1341,4 +1382,366 @@ export function tavernWaiting(t: TavernView | null, isStaff: boolean): number {
   if (t.turn && t.you?.seatId === t.turn) return 1;
   if (isStaff && t.turn && t.npcs.some(n => n.seatId === t.turn)) return 1;
   return 0;
+}
+
+/* --- a dice game of the house's own -------------------------------------- */
+
+function diceSubtitle(r: CustomDiceRules): string {
+  const turn =
+    r.turn === 'one-roll'
+      ? 'one roll'
+      : r.turn === 'hold'
+        ? `keep and reroll ×${r.rerolls}`
+        : 'push your luck';
+  return `${r.count}d${r.sides} · ${turn}${
+    r.opponent === 'house' ? ` · against the house at ${r.odds} to 1` : ''
+  }`;
+}
+
+/**
+ * A dice game built from the house's rules. One view for every combination:
+ * the bets, each seat's dice in turn (yours to keep and reroll by tapping
+ * them, or to push), the bank's turn for the DM, running points for a race
+ * to N, and reads and palms when the rules allow them.
+ */
+function DiceGame({
+  t,
+  isStaff,
+  actor,
+  youInRound,
+  busy,
+  run,
+}: {
+  t: TavernView;
+  isStaff: boolean;
+  actor: Actor | null;
+  youInRound: boolean;
+  busy: boolean;
+  run: (p: Promise<Result>) => Promise<boolean>;
+}) {
+  const game = t.custom!;
+  const rules = t.rules as CustomDiceRules;
+  const tray = useDiceTray();
+  const moves = useSheetMoves(t, run);
+  const [raise, setRaise] = useState(0);
+  const [held, setHeld] = useState<number[]>([]);
+  const [showHeroes, setShowHeroes] = useState(false);
+  const steps = raiseSteps(rules.raiseCapCp, rules.anteCp);
+  const shown = !t.inRound && t.result !== null;
+
+  // A wild face wears gold; everything else is plain ink.
+  const tone = (v: number) =>
+    rules.wildFace && v === rules.wildFace ? ('wild' as const) : null;
+
+  const roll = async (who: Actor, hold: number[]) => {
+    let thrown: NotationRoll | null = null;
+    const ok = await run(
+      tavernMoveAction(t.id, { kind: 'roll', hold }, who.as).then(r => {
+        if (r.ok) thrown = r.data.roll;
+        return r;
+      })
+    );
+    setHeld([]);
+    if (ok && thrown) {
+      await tray.showNotationRoll(thrown, { title: t.name });
+    }
+  };
+
+  const mine = actor ? (game.dice[actor.seatId] ?? null) : null;
+  const rolled = actor ? (game.rolls[actor.seatId] ?? 0) : 0;
+  const maxRolls =
+    rules.turn === 'one-roll'
+      ? 1
+      : rules.turn === 'hold'
+        ? 1 + rules.rerolls
+        : Infinity;
+  const youActor: Actor | null =
+    youInRound && t.you ? { ...t.you, as: null } : null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {game.points && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          <span className="font-semibold">Points, to {rules.target}</span>
+          {t.seats
+            .filter(s => game.points?.[s.id] !== undefined)
+            .map(s => (
+              <span key={s.id} className="tabular-nums text-ink-muted">
+                {s.name}{' '}
+                <strong className="text-ink">{game.points![s.id]}</strong>
+              </span>
+            ))}
+        </div>
+      )}
+
+      {isStaff && rules.hidden && !shown && (
+        <Switch size="sm" isSelected={showHeroes} onValueChange={setShowHeroes}>
+          <span className="text-xs text-ink-muted">
+            Show me the heroes’ dice
+          </span>
+        </Switch>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        {t.seats
+          .filter(s => game.dice[s.id] !== undefined)
+          .map(s => {
+            const dice = game.dice[s.id];
+            const yours = s.id === t.you?.seatId;
+            const hiddenForDm =
+              isStaff &&
+              rules.hidden &&
+              !shown &&
+              !s.npc &&
+              !showHeroes &&
+              !yours;
+            const thrown = (game.rolls[s.id] ?? 0) > 0;
+            return (
+              <div key={s.id} className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`w-28 truncate text-xs ${yours ? 'font-semibold' : ''} ${
+                    s.folded ? 'text-ink-muted' : ''
+                  }`}
+                >
+                  {s.name}
+                  {s.house ? ' · bank' : ''}
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {dice && !hiddenForDm
+                    ? dice.map((v, i) => (
+                        <DieFace
+                          key={i}
+                          value={v}
+                          sides={rules.sides}
+                          size={yours ? 34 : 26}
+                          tone={tone(v)}
+                        />
+                      ))
+                    : thrown
+                      ? Array.from({ length: rules.count }, (_, i) => (
+                          <HiddenDie key={i} />
+                        ))
+                      : null}
+                </div>
+                <span className="ml-auto text-xs tabular-nums">
+                  {game.busted.includes(s.id)
+                    ? 'bust'
+                    : rules.turn === 'push' &&
+                        game.turnTotal[s.id] !== undefined &&
+                        !game.words[s.id]
+                      ? `${game.turnTotal[s.id]} this turn`
+                      : !hiddenForDm
+                        ? (game.words[s.id] ?? '')
+                        : ''}
+                </span>
+                {rules.hidden && !shown && dice && !hiddenForDm && (
+                  <StatusWord kind="hidden" />
+                )}
+              </div>
+            );
+          })}
+      </div>
+
+      {actor && t.inRound && (
+        <div
+          className={`flex flex-col gap-3 rounded-lg p-3 ${statusEdge('waiting')}`}
+        >
+          <div className="flex items-center gap-2">
+            <StatusMark kind="waiting" />
+            <span className="text-sm font-semibold">
+              {actor.as
+                ? `${t.seats.find(s => s.id === actor.as)?.name} to act`
+                : 'Your turn'}
+            </span>
+            <StatusWord kind="waiting" className="ml-auto" />
+          </div>
+
+          {game.phase === 'bet' ? (
+            <>
+              {!game.house && actor.holdCp > 0 && (
+                <p className="text-xs text-ink-muted">
+                  The stake is {cpWords(t.stakeCp)}. Staying in holds{' '}
+                  <strong className="text-ink">{cpWords(actor.holdCp)}</strong>{' '}
+                  more.
+                </p>
+              )}
+              {game.house && (
+                <p className="text-xs text-ink-muted">
+                  Your bet is{' '}
+                  {cpWords(t.seats.find(s => s.id === actor.seatId)?.inCp ?? 0)}
+                  . Add to it, or keep it. A win pays {rules.odds} to 1.
+                </p>
+              )}
+              <RaisePicker
+                steps={steps}
+                value={raise}
+                onChange={setRaise}
+                affordCp={actor.purseCp - actor.holdCp}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  color="primary"
+                  isDisabled={busy || actor.holdCp + raise > actor.purseCp}
+                  onPress={async () => {
+                    if (
+                      await run(
+                        tavernMoveAction(
+                          t.id,
+                          { kind: 'bet', raiseCp: raise },
+                          actor.as
+                        )
+                      )
+                    )
+                      setRaise(0);
+                  }}
+                >
+                  {game.house
+                    ? raise > 0
+                      ? `Bet ${cpWords(raise)} more`
+                      : 'Keep the bet'
+                    : raise > 0
+                      ? `Raise ${cpWords(raise)}`
+                      : actor.holdCp > 0
+                        ? 'Hold'
+                        : 'Stay in'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="light"
+                  isDisabled={busy}
+                  onPress={() =>
+                    run(tavernMoveAction(t.id, { kind: 'fold' }, actor.as))
+                  }
+                >
+                  Fold
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              {rules.turn === 'hold' && rolled > 0 && mine && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-ink-muted">
+                    Tap the dice to keep. {maxRolls - rolled}{' '}
+                    {maxRolls - rolled === 1 ? 'reroll' : 'rerolls'} left.
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {mine.map((v, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        aria-label={`Keep the ${v}`}
+                        aria-pressed={held.includes(i)}
+                        onClick={() =>
+                          setHeld(h =>
+                            h.includes(i) ? h.filter(x => x !== i) : [...h, i]
+                          )
+                        }
+                      >
+                        <DieFace
+                          value={v}
+                          sides={rules.sides}
+                          size={36}
+                          tone={held.includes(i) ? 'chosen' : tone(v)}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {rules.turn === 'push' && rolled > 0 && (
+                <p className="text-xs text-ink-muted">
+                  <strong className="text-ink">
+                    {game.turnTotal[actor.seatId] ?? 0}
+                  </strong>{' '}
+                  this turn.
+                  {rules.bustFace ? ` A ${rules.bustFace} loses it.` : ''}
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {rolled < maxRolls && (
+                  <Button
+                    size="sm"
+                    color="primary"
+                    isDisabled={busy}
+                    onPress={() =>
+                      roll(actor, rules.turn === 'hold' ? held : [])
+                    }
+                  >
+                    {rolled === 0
+                      ? `Roll ${rules.count}d${rules.sides}`
+                      : rules.turn === 'hold'
+                        ? held.length === rules.count
+                          ? 'Reroll none'
+                          : `Reroll ${rules.count - held.length}`
+                        : 'Roll again'}
+                  </Button>
+                )}
+                {rolled > 0 && (
+                  <Button
+                    size="sm"
+                    variant="bordered"
+                    isDisabled={busy}
+                    onPress={() =>
+                      run(tavernMoveAction(t.id, { kind: 'stop' }, actor.as))
+                    }
+                  >
+                    {rules.turn === 'push'
+                      ? `Stop at ${game.turnTotal[actor.seatId] ?? 0}`
+                      : 'Stand'}
+                  </Button>
+                )}
+                {actor.seatId !== game.house && (
+                  <Button
+                    size="sm"
+                    variant="light"
+                    isDisabled={busy}
+                    onPress={() =>
+                      run(tavernMoveAction(t.id, { kind: 'fold' }, actor.as))
+                    }
+                  >
+                    Fold
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+
+          {actor.seatId !== game.house && (
+            <OffSheet
+              t={t}
+              actor={actor}
+              busy={busy}
+              onRead={target => moves.read(actor, target)}
+              cheat={
+                rules.turn !== 'push' &&
+                game.phase === 'roll' &&
+                rolled > 0 &&
+                mine ? (
+                  <PalmDie
+                    actor={actor}
+                    cup={mine}
+                    sides={rules.sides}
+                    busy={busy}
+                    onPalm={i => moves.cheat(actor, i)}
+                  />
+                ) : null
+              }
+            />
+          )}
+        </div>
+      )}
+
+      {!actor && youActor && rules.hidden && game.phase === 'roll' && (
+        <OffSheet
+          t={t}
+          actor={youActor}
+          busy={busy}
+          onRead={target => moves.read(youActor, target)}
+          cheat={null}
+        />
+      )}
+    </div>
+  );
 }

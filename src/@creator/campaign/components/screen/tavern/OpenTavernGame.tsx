@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Checkbox, Input } from '@heroui/react';
+import { Button, Checkbox, Input, Select, SelectItem } from '@heroui/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -10,6 +10,7 @@ import {
   MAX_SEATS,
   MIN_SEATS,
   TAVERN_KIND_LABEL,
+  type CustomDiceRules,
   type HouseGameRow,
   type TavernKind,
   type TavernRules,
@@ -53,6 +54,8 @@ export function OpenTavernGame({
   const [npcIds, setNpcIds] = useState<string[]>([]);
   const [heroIds, setHeroIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  /** Against the house: the NPC keeping the bank, or '' for the DM as the house. */
+  const [banker, setBanker] = useState('');
   // The screen hands a new `onError` each render; the read happens once.
   const report = useRef(onError);
   report.current = onError;
@@ -74,7 +77,14 @@ export function OpenTavernGame({
     () => houses?.find(h => h.id === pick.houseId) ?? null,
     [houses, pick.houseId]
   );
-  const seats = npcIds.length + heroIds.length;
+  const active = house?.rules ?? rules;
+  const vsHouse =
+    pick.kind === 'custom-dice' &&
+    (active as CustomDiceRules).opponent === 'house';
+  // The banker is the house, not a player against it.
+  const players = npcIds.filter(id => !(vsHouse && id === banker));
+  const seats = players.length + heroIds.length;
+  const fewest = vsHouse ? 1 : MIN_SEATS;
   const toggle = (list: string[], id: string) =>
     list.includes(id) ? list.filter(x => x !== id) : [...list, id];
 
@@ -97,6 +107,11 @@ export function OpenTavernGame({
       label: TAVERN_KIND_LABEL.crowns,
       line: 'A hand of cards, a crowned suit, closest to 31.',
     },
+    {
+      pick: { kind: 'custom-dice', houseId: null },
+      label: TAVERN_KIND_LABEL['custom-dice'],
+      line: 'Your own rules: how many dice, how a turn goes, what wins.',
+    },
     ...houses.map(h => ({
       pick: { kind: h.kind, houseId: h.id } as Pick,
       label: h.name,
@@ -111,8 +126,9 @@ export function OpenTavernGame({
       kind: pick.kind,
       name: name.trim() || undefined,
       rules: pick.houseId ? undefined : rules,
-      npcIds,
+      npcIds: players,
       characterIds: heroIds,
+      houseNpcId: vsHouse ? banker || null : null,
     });
     setBusy(false);
     if (!res.ok) onError(res.error);
@@ -244,9 +260,31 @@ export function OpenTavernGame({
         ))}
       </fieldset>
 
+      {vsHouse && (
+        <Select
+          size="sm"
+          label="Who keeps the bank"
+          labelPlacement="outside"
+          selectedKeys={[banker || 'house']}
+          onSelectionChange={k => {
+            const v = String(Array.from(k)[0] ?? 'house');
+            setBanker(v === 'house' ? '' : v);
+          }}
+        >
+          {[
+            <SelectItem key="house">The house (you)</SelectItem>,
+            ...choices.npcs.map(n => (
+              <SelectItem key={n.id}>{n.name}</SelectItem>
+            )),
+          ]}
+        </Select>
+      )}
+
       <Marginalia>
-        {seats < MIN_SEATS
-          ? 'nobody plays alone. pick at least two.'
+        {seats < fewest
+          ? vsHouse
+            ? 'the bank needs somebody to take money from.'
+            : 'nobody plays alone. pick at least two.'
           : `${seats} of ${MAX_SEATS} chairs. the back room is always cramped.`}
       </Marginalia>
 
@@ -255,7 +293,7 @@ export function OpenTavernGame({
           size="sm"
           color="primary"
           type="submit"
-          isDisabled={busy || seats < MIN_SEATS || seats > MAX_SEATS}
+          isDisabled={busy || seats < fewest || seats > MAX_SEATS}
         >
           Open it and ask them to sit
         </Button>
