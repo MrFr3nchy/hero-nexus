@@ -71,8 +71,7 @@ const MESSAGES: Record<string, string> = {
   NO_MORE_ROLLS: 'No more rolls this turn. Stand, or stop.',
   ROLL_FIRST: 'Roll first.',
   NOT_UNDER_CUPS: 'The dice are in the open. There is nothing to read.',
-  NOT_ROLLED:
-    'Both of you need to have rolled before there is anything to read.',
+  NOT_ROLLED: 'Nothing to read until they have rolled.',
 };
 
 function fail(err: unknown, fallback: string): { ok: false; error: string } {

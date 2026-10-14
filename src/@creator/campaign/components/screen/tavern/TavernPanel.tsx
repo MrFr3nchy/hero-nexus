@@ -477,9 +477,12 @@ function OffSheet({
   );
   const lastBidder =
     t.liars?.bid && t.liars.bid.by !== actor.seatId ? t.liars.bid.by : null;
-  const [target, setTarget] = useState<string>(
-    lastBidder ?? targets[0]?.id ?? ''
-  );
+  const [picked, setPicked] = useState<string>('');
+  // The same box serves whoever is acting: when the turn moves to another
+  // seat, a choice made for the last one may not be a target any more.
+  const target = targets.some(s => s.id === picked)
+    ? picked
+    : (lastBidder ?? targets[0]?.id ?? '');
   const readDone = actor.used.includes('read');
   const needsBid = t.kind === 'liars-dice' && !t.liars?.bid;
   // Dice in the open need no reading.
@@ -503,7 +506,7 @@ function OffSheet({
           aria-label="Who to read"
           className="w-36"
           selectedKeys={target ? [target] : []}
-          onSelectionChange={k => setTarget(String(Array.from(k)[0] ?? ''))}
+          onSelectionChange={k => setPicked(String(Array.from(k)[0] ?? ''))}
           isDisabled={readDone || targets.length === 0}
         >
           {targets.map(s => (
@@ -1710,28 +1713,32 @@ function DiceGame({
             </>
           )}
 
-          {actor.seatId !== game.house && game.phase === 'roll' && (
-            <OffSheet
-              t={t}
-              actor={actor}
-              busy={busy}
-              onRead={target => moves.read(actor, target)}
-              cheat={
-                rules.turn !== 'push' &&
-                game.phase === 'roll' &&
-                rolled > 0 &&
-                mine ? (
-                  <PalmDie
-                    actor={actor}
-                    cup={mine}
-                    sides={rules.sides}
-                    busy={busy}
-                    onPalm={i => moves.cheat(actor, i)}
-                  />
-                ) : null
-              }
-            />
-          )}
+          {actor.seatId !== game.house &&
+            game.phase === 'roll' &&
+            // Only when there is something to do: a read needs cups, a
+            // palm needs a roll that is not already counted.
+            (rules.hidden || rules.turn !== 'push') && (
+              <OffSheet
+                t={t}
+                actor={actor}
+                busy={busy}
+                onRead={target => moves.read(actor, target)}
+                cheat={
+                  rules.turn !== 'push' &&
+                  game.phase === 'roll' &&
+                  rolled > 0 &&
+                  mine ? (
+                    <PalmDie
+                      actor={actor}
+                      cup={mine}
+                      sides={rules.sides}
+                      busy={busy}
+                      onPalm={i => moves.cheat(actor, i)}
+                    />
+                  ) : null
+                }
+              />
+            )}
         </div>
       )}
 

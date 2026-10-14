@@ -507,8 +507,11 @@ Normalising fixes the impossible, not the odd: push your luck without a bust fac
 18. **Every roll lands in Dice.** In the open, each roll is a quiet row and the game line
     announces it. Under cups, each roll is a hidden row (the roller and staff), and the
     final dice are written as table rows at the show, like the liar's dice lift.
-19. **Read** (cups only): is that seat ahead of you right now? **Cheat**: on your turn,
-    after a roll, set one of your dice to a face.
+19. **Read** (cups only): a glimpse of one of that seat's dice, picked by the server,
+    any time after they have rolled. (First built as "are they ahead of you?", which
+    needed both seats to have rolled, so in a one-roll game nobody could ever read;
+    caught in the browser pass.) **Cheat**: on your turn, after a roll, set one of your
+    dice to a face.
 
 ## The work: PR 7 (one commit on the same branch)
 
@@ -539,3 +542,13 @@ before anyone has thrown, the off-sheet box during betting. Not looked at in a b
 push your luck and dice under cups (engine and server tests cover both), and a second
 account's view. Seen but not ours: the shared confirm dialog's closing animation stalls
 under Chrome automation and keeps catching clicks until reload.
+
+Second browser pass (2026-10-14, as the DM): push your luck (Pig) — running total, a 1
+busts and passes the turn, points and the rolled-over pot carry into the next round; dice
+under cups (Under the cups) — hidden throws, a read, the show revealing every seat. Fixed
+from it: the read under cups is now a glimpse of one die (the "ahead of you" version could
+never fire in a one-roll game); the read picker no longer goes blank when the turn moves
+to another seat; the off-sheet box hides when there is nothing to read or palm; a final
+throw's hidden Dice row is written before the show's public rows. A second account's view
+was not looked at in a browser (it needs the player to sign in); the server tests assert
+what a player is and is not sent.

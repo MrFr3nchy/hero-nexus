@@ -548,6 +548,16 @@ describe('a dice game of the house’s own', () => {
     v = await view.tavernViewFor(campaignId, as(watcher, 'player'));
     expect(v!.custom!.dice[first]).toEqual([4, 4, 4]);
     expect(v!.result!.line).toMatch(/takes|rolls over/);
+    // Each throw under the cup is hidden; the show then writes every seat's
+    // dice for the table — after the throws, never above them.
+    const db = rawDb();
+    const rows = db
+      .prepare(
+        "SELECT visibility FROM campaign_rolls WHERE label = 'Under the cups · round 1' ORDER BY rowid"
+      )
+      .all() as { visibility: string }[];
+    db.close();
+    expect(rows.map(r => r.visibility)).toEqual(['dm', 'dm', 'table', 'table']);
     signedIn = dm;
     await games.endTavernGame(gameId);
   });

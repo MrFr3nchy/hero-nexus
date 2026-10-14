@@ -612,25 +612,3 @@ export function diceFor(
     ])
   );
 }
-
-/**
- * What a successful read tells you: is that seat ahead of you as the dice
- * stand? A bust is never ahead; first to N counts the running points too.
- */
-export function isAhead(
-  round: CustomRound,
-  them: string,
-  you: string,
-  rules: CustomDiceRules
-): boolean {
-  const theirs = currentScore(round, them, rules) ?? null;
-  const yours = currentScore(round, you, rules) ?? null;
-  if (rules.winsOn === 'first-to') {
-    const total = (s: string, score: number | null) =>
-      (round.points?.[s] ?? 0) + (score ?? 0);
-    return total(them, theirs) > total(you, yours);
-  }
-  if (!counts(theirs, rules)) return false;
-  if (!counts(yours, rules)) return true;
-  return beats(theirs, yours, rules);
-}

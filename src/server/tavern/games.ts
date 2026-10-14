@@ -22,7 +22,6 @@ import {
   applyFold as customFold,
   applyRoll,
   applyStop,
-  isAhead,
   newRound as newCustomRound,
   palmDie as palmCustomDie,
   scoreDice,
@@ -1073,11 +1072,12 @@ export async function tavernMove(
       seatId: me,
     });
   }
-  await commitMove(game, seats, state, round, actor, paidCp, lines, line);
   if (thrown) {
     const rolled: NotationRoll = thrown;
     // Every throw lands in Dice: in the open for all, under cups for the
-    // roller and staff. The game's own line is the announcement.
+    // roller and staff. Written before the move commits, so a throw that ends
+    // the round sits above the dice the show reveals, not below them. The
+    // game's own line is the announcement.
     const rules = rulesOf(game, 'custom-dice');
     await recordRoll(game.campaignId, {
       actorUserId: actor.userId,
@@ -1089,6 +1089,7 @@ export async function tavernMove(
       audience: null,
     });
   }
+  await commitMove(game, seats, state, round, actor, paidCp, lines, line);
   return { roll: thrown };
 }
 
@@ -1146,9 +1147,7 @@ export async function readSeat(
   if (current.kind === 'custom-dice') {
     // Dice in the open need no reading.
     if (!rulesOf(game, 'custom-dice').hidden) throw new Error('NOT_UNDER_CUPS');
-    if (!current.rolls[me] || !current.rolls[targetSeatId]) {
-      throw new Error('NOT_ROLLED');
-    }
+    if (!current.rolls[targetSeatId]) throw new Error('NOT_ROLLED');
   }
   const round = markUsed(current, me, 'read');
 
@@ -1160,9 +1159,10 @@ export async function readSeat(
 
   let truth: string;
   if (current.kind === 'custom-dice') {
-    truth = isAhead(current, targetSeatId, me, rulesOf(game, 'custom-dice'))
-      ? `${target} is ahead of you.`
-      : `${target} is not ahead of you.`;
+    // A glimpse under the cup: one of their dice, chosen by the server.
+    const dice = current.dice[targetSeatId] ?? [];
+    const face = dice[randomInt(dice.length)];
+    truth = `One of ${target}’s dice shows a ${face}.`;
   } else if (current.kind === 'liars-dice') {
     const rules = rulesOf(game, 'liars-dice');
     const face = current.bid!.face;
