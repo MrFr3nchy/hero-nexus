@@ -523,7 +523,7 @@ first-to points, read, cheat, view); the rules builder with templates; the play 
       Five alike, Under the cups, Under twenty-one, Sailor's straight), `customAdvice`.
 - [x] Migration 0076 + `schema.ts` kind enums. Proved on a copy of the dev DB: row counts
       kept, foreign keys on the final names, `foreign_key_check` clean, indexes back.
-- [ ] `lib/custom-dice.ts` engine + tests (bet pass, one-roll / hold / push turns, scoring
+- [x] `lib/custom-dice.ts` engine + tests (19) (bet pass, one-roll / hold / push turns, scoring
       with wilds, bust, instant win, each-other pot vs house payouts at odds, first-to points).
 - [ ] Server: open with a house seat (`state.houseSeat`, "The house" or an NPC), rounds,
       roll / reroll(hold) / stop moves, settle, read (cups only), cheat, view `custom`.
