@@ -844,6 +844,13 @@ cmd_doctor() {
 		else
 			complain "AUTH_SECRET is not set — no session can be signed"
 		fi
+		# Optional: without it nobody can save an AI key, and nothing else
+		# changes. Its own secret so rotating AUTH_SECRET does not wipe keys.
+		if [[ -n "$(env_value AI_KEY_SECRET)" ]]; then
+			good "AI_KEY_SECRET is set — AI drafting is available"
+		else
+			note "AI_KEY_SECRET is not set — AI drafting is off (optional)"
+		fi
 		local key
 		for key in APP_URL HERO_NEXUS_DB_PATH HERO_NEXUS_UPLOADS_DIR; do
 			if [[ -n "$(env_value "$key")" ]]; then

@@ -15,6 +15,8 @@ import {
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { draftHomebrewAction } from '@/@creator/ai/actions';
+import { DraftWithAi } from '@/@creator/ai/components';
 import { listCampaignsAction } from '@/@creator/campaign/actions';
 import { listMyHomebrewPublicationsAction } from '@/@creator/library/actions';
 import { PublishToLibrary } from '@/@creator/library/components';
@@ -91,6 +93,20 @@ function draftFromRow(row: HomebrewRow): Draft {
     data: parseContentData(row.type, row.data),
   };
 }
+
+/** What to ask for, per kind — an example, not a template. */
+const DRAFT_PROMPTS: Record<ContentType, string> = {
+  class: 'A half-caster who binds storms into a tattooed drum…',
+  subclass: 'A rogue who steals memories instead of coin…',
+  species: 'Small moth-folk drawn to candlelight…',
+  background: 'A lighthouse keeper from a drowned coast…',
+  feat: 'An origin feat for someone raised by wolves…',
+  spell: 'A 2nd-level spell that turns a shadow into a rope…',
+  item: 'A rare cloak that remembers the last person who wore it…',
+  creature:
+    'The innkeeper at the Gilded Eel: a retired pirate, CR 2, fights with a hook…',
+  rule: 'Lingering injuries when a hero drops to 0 hit points…',
+};
 
 /** The draft as the thing it will become, so the preview is never a mock-up. */
 function draftEntry(draft: Draft): ContentEntry {
@@ -300,6 +316,33 @@ export function HomebrewCreator({
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
           {/* The form */}
           <div className="space-y-4">
+            {/*
+              Only on a new draft. Drafting over a row being edited would
+              replace the author's own work with the model's, and the
+              author would find out on save.
+            */}
+            {draft.id === null && (
+              <DraftWithAi
+                key={draft.type}
+                label={`Draft a ${meta.label.toLowerCase()} with AI`}
+                placeholder={DRAFT_PROMPTS[draft.type]}
+                onDraft={async prompt => {
+                  const res = await draftHomebrewAction(draft.type, prompt);
+                  if (!res.ok) return res.error;
+                  setDraft(d =>
+                    d.id === null && d.type === res.data.type
+                      ? {
+                          ...d,
+                          name: res.data.name,
+                          description: res.data.description,
+                          data: res.data.data,
+                        }
+                      : d
+                  );
+                  return null;
+                }}
+              />
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <Input
                 size="sm"

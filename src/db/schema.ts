@@ -3206,3 +3206,25 @@ export const tavernGameMoves = sqliteTable(
   },
   t => [index('tavern_game_moves_game_idx').on(t.gameId, t.createdAt)]
 );
+
+/* --- AI drafting (0077) -------------------------------------------------- */
+
+/**
+ * A user's own AI provider key. Sealed with AES-256-GCM under
+ * `AI_KEY_SECRET` (`@/server/ai/seal`); only `keyHint`, the last four
+ * characters, ever leaves the server. One provider per user.
+ */
+export const userAiKeys = sqliteTable('user_ai_keys', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  provider: text('provider', {
+    enum: ['openai', 'anthropic', 'gemini'],
+  }).notNull(),
+  model: text('model').notNull(),
+  keySealed: text('key_sealed').notNull(),
+  keyHint: text('key_hint').notNull().default(''),
+  /** The last failed call, for the settings card. Cleared by the next success. */
+  lastError: text('last_error'),
+  updatedAt: text('updated_at').default(nowIso).notNull(),
+});

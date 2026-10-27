@@ -115,7 +115,7 @@ async function staffForPlan(planId: string) {
 }
 
 /** The party's own numbers, which is half of what makes a total mean anything. */
-async function partyFacts(
+export async function partyFacts(
   campaignId: string
 ): Promise<{ size: number; averageLevel: number | null }> {
   const rows = await db

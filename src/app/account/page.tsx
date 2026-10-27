@@ -4,6 +4,7 @@ import { Avatar, Button, Input, Link } from '@heroui/react';
 import { useEffect, useState } from 'react';
 
 import { useAuth } from '@/@auth/context';
+import { AiKeyCard } from '@/@creator/ai/components';
 import { AuthError } from '@/@auth/types';
 import {
   CandleScene,
@@ -363,6 +364,7 @@ export default function AccountPage() {
       <div className="flex flex-col gap-6">
         <ProfileSheet />
         <KeysSheet />
+        <AiKeyCard />
       </div>
 
       <Marginalia className="mt-5">

@@ -10,6 +10,8 @@ import {
 } from '@heroui/react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { draftEncounterAction } from '@/@creator/ai/actions';
+import { DraftWithAi } from '@/@creator/ai/components';
 import { formatChallenge } from '@/@shared/content';
 import {
   BattlefieldScene,
@@ -21,6 +23,7 @@ import {
   SectionCard,
   useConfirm,
 } from '@/@shared/components/ui';
+import type { EncounterDraft } from '@/server/ai/drafts';
 import type { CombatantChoice } from '@/server/content';
 import type { PlanRow } from '@/server/encounter-plans';
 import { listCanonAction } from '../canon-actions';
@@ -335,6 +338,40 @@ export function EncounterPlanner({ campaignId }: { campaignId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [places, setPlaces] = useState<CanonEntryRow[]>([]);
+  const [proposal, setProposal] = useState<EncounterDraft | null>(null);
+  const [planning, setPlanning] = useState(false);
+
+  /**
+   * An AI draft becomes a plan only here, through the same two actions the
+   * DM's own typing goes through — so it is checked the same way, and a line
+   * the bestiary no longer has fails the same way.
+   */
+  const planProposal = async () => {
+    if (!proposal) return;
+    setPlanning(true);
+    try {
+      const res = await createPlanAction(campaignId, {
+        name: proposal.name,
+        notes: proposal.notes,
+      });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      for (const line of proposal.lines) {
+        const added = await addPlanLineAction(
+          res.data.id,
+          line.ref,
+          line.count
+        );
+        if (!added.ok) setError(added.error);
+      }
+      setProposal(null);
+      await refresh();
+    } finally {
+      setPlanning(false);
+    }
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -410,6 +447,64 @@ export function EncounterPlanner({ campaignId }: { campaignId: string }) {
           >
             Start it
           </Button>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3">
+          <DraftWithAi
+            label="Or describe it, and draft it with AI"
+            placeholder="Bandits on the river road, with a bugbear in charge and something worse in the reeds…"
+            onDraft={async prompt => {
+              const res = await draftEncounterAction(campaignId, prompt);
+              if (!res.ok) return res.error;
+              setProposal(res.data);
+              return null;
+            }}
+          />
+
+          {proposal && (
+            <div className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-line bg-surface p-4">
+              <p className="font-display text-lg text-ink">{proposal.name}</p>
+              <ul className="divide-y divide-line">
+                {proposal.lines.map(line => (
+                  <li
+                    key={`${line.ref.source}:${line.ref.key}`}
+                    className="flex items-center gap-3 py-1.5 text-sm"
+                  >
+                    <span className="w-8 text-right tabular-nums text-ink">
+                      {line.count}×
+                    </span>
+                    <span className="flex-1 text-ink">{line.name}</span>
+                    <span className="tabular-nums text-ink-muted">
+                      CR {formatChallenge(line.challengeRating)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {proposal.notes && (
+                <p className="whitespace-pre-line text-sm text-ink-muted">
+                  {proposal.notes}
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  color="primary"
+                  isLoading={planning}
+                  onPress={planProposal}
+                >
+                  Plan this fight
+                </Button>
+                <Button
+                  size="sm"
+                  variant="light"
+                  isDisabled={planning}
+                  onPress={() => setProposal(null)}
+                >
+                  Throw it out
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </SectionCard>
 

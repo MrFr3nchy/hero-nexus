@@ -132,6 +132,7 @@ fi
 if [[ ! -f "$ENV_FILE" ]]; then
 	log "writing $ENV_FILE"
 	AUTH_SECRET="$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')"
+	AI_KEY_SECRET="$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')"
 	cat >"$ENV_FILE" <<ENV
 # Written by deploy/bootstrap.sh. See .env.example for what each line means.
 AUTH_SECRET=${AUTH_SECRET}
@@ -143,6 +144,8 @@ HERO_NEXUS_DB_PATH=${DATA_DIR}/hero-nexus.db
 HERO_NEXUS_UPLOADS_DIR=${DATA_DIR}/uploads
 # Whoever runs this box gets /admin. Comma-separated; blank for nobody.
 ADMIN_EMAILS=${ADMIN_EMAILS:-}
+# Locks users' own AI keys at rest. Changing it makes every saved key unreadable.
+AI_KEY_SECRET=${AI_KEY_SECRET}
 ENV
 	chown hero:hero "$ENV_FILE"
 	chmod 600 "$ENV_FILE"

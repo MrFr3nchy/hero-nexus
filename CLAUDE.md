@@ -3,8 +3,8 @@
 A self-hosted D&D 2024 campaign tool: players build characters and forge homebrew, DMs
 run tables and rule on what is allowed at theirs. Next.js 15 App Router, React 19,
 HeroUI + Tailwind v4, Auth.js credentials, and a SQLite file that ships with the repo.
-No external service is needed to run it. Three outbound calls exist, each one opt-in or
-one-off, and no fourth is added without a line here:
+No external service is needed to run it. Four outbound calls exist, each one opt-in or
+one-off, and no fifth is added without a line here:
 
 - **The SRD seed** (`npm run db:seed`) fetches from api.open5e.com once, at setup;
   `npm run db:sync` repeats it by hand. The running app never calls it.
@@ -14,6 +14,12 @@ one-off, and no fourth is added without a line here:
   their campaign, fire-and-forget after the write, five-second timeout. Only Discord's
   own hosts and webhook path are accepted (`validateWebhookUrl`), which is the SSRF
   guard.
+- **AI drafting** (`src/server/ai/providers.ts`) POSTs to OpenAI, Anthropic or Google
+  with a key a DM saved on their account page, only when they press "Draft with AI"
+  (and lists that key's models when it is saved). The three hosts are constants; no
+  user-entered URL is ever fetched. Keys are sealed with `AI_KEY_SECRET`; unset, the
+  feature is off. The AI drafts and the DM saves — nothing it returns is written
+  until it goes through the same form and action as typed content.
 
 Backups are not the app's calls. Litestream (`deploy/litestream.yml`) and the uploads
 mirror (`deploy/backup-uploads.sh`) are separate processes an operator installs from
