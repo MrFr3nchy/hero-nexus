@@ -10,6 +10,8 @@ import {
 } from '@heroui/react';
 import { useState } from 'react';
 
+import { draftNpcAction } from '@/@creator/ai/actions';
+import { DraftWithAi } from '@/@creator/ai/components';
 import { ControlRow, Glyph } from '@/@shared/components/ui';
 import { createCanonAction } from '../../canon-actions';
 import type { RandomTableRow } from '../../lib/random-tables';
@@ -53,6 +55,10 @@ export function QuickNpc({
   const [role, setRole] = useState('');
   const [personality, setPersonality] = useState('');
   const [voice, setVoice] = useState('');
+  // Filled only by an AI draft: the rest of what the draft knew — looks,
+  // faction, status — and the DM-only half. Saved with the rest.
+  const [extra, setExtra] = useState<Record<string, string>>({});
+  const [dmBody, setDmBody] = useState('');
   const [busy, setBusy] = useState(false);
 
   const [fillFrom, setFillFrom] = useState<string | null>(null);
@@ -64,6 +70,8 @@ export function QuickNpc({
     setRole('');
     setPersonality('');
     setVoice('');
+    setExtra({});
+    setDmBody('');
   };
 
   const save = async () => {
@@ -72,10 +80,10 @@ export function QuickNpc({
     const res = await createCanonAction(campaignId, {
       kind: 'npc',
       title: name.trim(),
-      dmBody: '',
+      dmBody,
       partyBody: '',
       placeId,
-      fields: { role, personality, voice },
+      fields: { ...extra, role, personality, voice },
     });
     if (!res.ok) {
       setBusy(false);
@@ -114,6 +122,28 @@ export function QuickNpc({
 
   return (
     <div className="space-y-3 rounded-md border border-arcane/40 bg-surface-2/50 p-3">
+      <DraftWithAi
+        label="Draft them with AI"
+        placeholder="The harbourmaster: owes the smugglers money and is scared of the new magistrate…"
+        onDraft={async prompt => {
+          const res = await draftNpcAction(campaignId, placeId, prompt);
+          if (!res.ok) return res.error;
+          const {
+            role: r,
+            personality: p,
+            voice: v,
+            ...rest
+          } = res.data.fields;
+          setDrawn(null);
+          setName(res.data.name);
+          setRole(r ?? '');
+          setPersonality(p ?? '');
+          setVoice(v ?? '');
+          setExtra(rest);
+          setDmBody(res.data.dmBody);
+          return null;
+        }}
+      />
       <form
         className="space-y-2"
         onSubmit={e => {
@@ -192,6 +222,21 @@ export function QuickNpc({
             onDrawn={d => setVoice(d.text)}
           />
         </div>
+        {(dmBody || Object.keys(extra).length > 0) && (
+          <Textarea
+            size="sm"
+            minRows={2}
+            label="DM notes (private)"
+            labelPlacement="outside"
+            description={
+              Object.keys(extra).length > 0
+                ? 'Their looks, faction and status from the draft are kept on the card too.'
+                : undefined
+            }
+            value={dmBody}
+            onValueChange={setDmBody}
+          />
+        )}
         <ControlRow size="sm">
           <Button
             color="primary"

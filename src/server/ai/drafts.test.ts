@@ -15,7 +15,7 @@ vi.mock('@/auth', () => ({
 process.env.AI_KEY_SECRET = 'a-test-secret-long-enough';
 
 const { getAiSettings, saveAiKey, removeAiKey } = await import('./keys');
-const { draftHomebrew } = await import('./drafts');
+const { draftEncounter, draftHomebrew, draftNpc } = await import('./drafts');
 
 let dm = '';
 let player = '';
@@ -42,6 +42,17 @@ beforeAll(() => {
     dm,
     'Saltmere'
   );
+  db.prepare(
+    "INSERT INTO homebrew (id, owner_id, type, name, data) VALUES (?, ?, 'creature', ?, ?)"
+  ).run(
+    'hb-eel',
+    dm,
+    'Reed Eel',
+    JSON.stringify({ challenge_rating: 2, armor_class: 13, hit_points: 30 })
+  );
+  db.prepare(
+    "INSERT INTO canon_entries (id, campaign_id, kind, title, dm_body) VALUES (?, ?, 'location', ?, ?)"
+  ).run('place-1', 'camp-1', 'The Drowned Lantern', 'A smugglers’ tavern.');
   db.close();
 });
 
@@ -130,5 +141,77 @@ describe('draftHomebrew', () => {
     signedIn = dm;
     await removeAiKey();
     await expect(draftHomebrew('item', 'a cloak')).rejects.toThrow('AI_NO_KEY');
+  });
+});
+
+/** Save a working key for the DM, so the drafts below have one to use. */
+async function dmKey() {
+  signedIn = dm;
+  fetchMock.mockImplementationOnce(() =>
+    reply({ data: [{ id: 'claude-sonnet-5-5' }] })
+  );
+  await saveAiKey('anthropic', 'sk-ant-secret-9876');
+  fetchMock.mockReset();
+}
+
+function says(text: unknown) {
+  fetchMock.mockImplementationOnce(() =>
+    reply({ content: [{ type: 'text', text: JSON.stringify(text) }] })
+  );
+}
+
+describe('draftEncounter', () => {
+  it('keeps only creatures the table can use, by key, with counts clamped', async () => {
+    await dmKey();
+    says({
+      name: 'Reeds at dusk',
+      notes: 'They come up out of the water.',
+      lines: [
+        { key: 'homebrew:creature:hb-eel', count: 400 },
+        { key: 'srd:creature:tarrasque', count: 1 },
+        { key: 'homebrew:creature:hb-eel', count: 2 },
+      ],
+    });
+    const out = await draftEncounter('camp-1', 'eels in the reeds');
+    expect(out.name).toBe('Reeds at dusk');
+    expect(out.lines).toHaveLength(1);
+    expect(out.lines[0]).toMatchObject({
+      name: 'Reed Eel',
+      ref: { source: 'homebrew', type: 'creature', key: 'hb-eel' },
+    });
+    expect(out.lines[0].count).toBeLessThanOrEqual(50);
+
+    const prompt = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(prompt.system).toContain('homebrew:creature:hb-eel | Reed Eel');
+  });
+
+  it('is staff-only', async () => {
+    signedIn = player;
+    await expect(draftEncounter('camp-1', 'eels')).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('draftNpc', () => {
+  it('gives the place to the model and keeps only the card’s own fields', async () => {
+    await dmKey();
+    says({
+      name: 'Mags Tull',
+      role: 'Harbourmaster',
+      personality: 'Brisk, frightened of the magistrate',
+      shoeSize: '11',
+      dmBody: 'Owes the smugglers.',
+    });
+    const out = await draftNpc('camp-1', 'place-1', 'the harbourmaster');
+    expect(out).toEqual({
+      name: 'Mags Tull',
+      fields: {
+        role: 'Harbourmaster',
+        personality: 'Brisk, frightened of the magistrate',
+      },
+      dmBody: 'Owes the smugglers.',
+    });
+    const prompt = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(prompt.system).toContain('The Drowned Lantern');
   });
 });

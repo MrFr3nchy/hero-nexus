@@ -7,9 +7,11 @@ import { CONTENT_TYPES } from '@/@shared/content';
 import {
   draftEncounter,
   draftHomebrew,
+  draftNpc,
   MAX_PROMPT,
   type EncounterDraft,
   type HomebrewDraft,
+  type NpcDraft,
 } from '@/server/ai/drafts';
 import {
   getAiSettings,
@@ -125,5 +127,21 @@ export async function draftEncounterAction(
     return { ok: true, data: await draftEncounter(campaignId, p.data) };
   } catch (err) {
     return fail(err, 'Failed to draft the fight.');
+  }
+}
+
+export async function draftNpcAction(
+  campaignId: string,
+  placeId: string | null,
+  prompt: unknown
+): Promise<Result<NpcDraft>> {
+  const p = promptSchema.safeParse(prompt);
+  if (!p.success) {
+    return { ok: false, error: p.error.issues[0]?.message ?? 'Invalid.' };
+  }
+  try {
+    return { ok: true, data: await draftNpc(campaignId, placeId, p.data) };
+  } catch (err) {
+    return fail(err, 'Failed to draft them.');
   }
 }

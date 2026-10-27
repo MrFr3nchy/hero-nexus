@@ -9,6 +9,12 @@ import {
   type ContentType,
 } from '@/@shared/content';
 
+import { and, eq } from 'drizzle-orm';
+
+import { CANON_KIND_FIELDS } from '@/@creator/campaign/lib/canon';
+import { db } from '@/db';
+import { canonEntries } from '@/db/schema';
+
 import { requireCampaignRole } from '../campaigns';
 import { listCombatantChoices } from '../content';
 import { partyFacts } from '../encounter-plans';
@@ -193,4 +199,65 @@ export async function draftEncounter(
     notes: asText(out.notes, 8000),
     lines,
   };
+}
+
+/* --- NPCs --------------------------------------------------------------- */
+
+export interface NpcDraft {
+  name: string;
+  /** The card's facts, by `CANON_KIND_FIELDS.npc` key. Empty ones left out. */
+  fields: Record<string, string>;
+  /** What only the DM knows: motive, secret, what they want from the party. */
+  dmBody: string;
+}
+
+/**
+ * Somebody who lives in a place, drafted. The place's name and the DM's own
+ * notes on it go in, so the innkeeper of a drowned-coast tavern sounds like
+ * one; nothing about the party or other NPCs does.
+ */
+export async function draftNpc(
+  campaignId: string,
+  placeId: string | null,
+  prompt: string
+): Promise<NpcDraft> {
+  const { userId } = await requireCampaignRole(campaignId, ['gm', 'co-gm']);
+
+  const place = placeId
+    ? await db.query.canonEntries.findFirst({
+        where: and(
+          eq(canonEntries.id, placeId),
+          eq(canonEntries.campaignId, campaignId)
+        ),
+        columns: { title: true, dmBody: true },
+      })
+    : null;
+
+  const defs = CANON_KIND_FIELDS.npc;
+  const system = [
+    'You write non-player characters for a Dungeons & Dragons 2024 DM.',
+    place
+      ? `They live in ${place.title}.${place.dmBody ? ` The DM's notes on it: ${place.dmBody.slice(0, 1200)}` : ''}`
+      : '',
+    'Reply with one JSON object and nothing else, of this form:',
+    JSON.stringify({
+      name: 'string',
+      ...Object.fromEntries(defs.map(d => [d.key, d.label])),
+      dmBody: 'string',
+    }),
+    'Every value is a string. Personality, voice and looks are what the party would notice, a sentence each. `status` is usually "Alive".',
+    '`dmBody` is for the DM only: what they want, what they hide, and a hook for the party — under 120 words.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const out = (await draft(userId, system, prompt)) as Record<string, unknown>;
+  const fields: Record<string, string> = {};
+  for (const def of defs) {
+    const text = asText(out[def.key], def.long ? 400 : 120);
+    if (text) fields[def.key] = text;
+  }
+  const name = asText(out.name, 120);
+  if (!name) throw new Error('AI_BAD_REPLY');
+  return { name, fields, dmBody: asText(out.dmBody, 8000) };
 }
