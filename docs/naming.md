@@ -127,7 +127,7 @@ names, they are different things; if they share a name, they are the same thing.
 | Answering the DM's invitation to a tavern game                               | **Sit down** / **Not this time** | "join", "accept", "decline"                               |
 | Closing a tavern game, mid-round or not                                      | **End the tavern game**          | "close the game", "quit", "cash out"                      |
 | Sending a moment to the campaign's Discord channel                           | **Post to Discord**              | "notify", "announce", "send to Discord"                   |
-| Asking the DM's own AI key for a homebrew or encounter draft                 | **Draft with AI**                | "generate", "ask the assistant", "magic", "auto-create"   |
+| Asking the DM's own AI key for a draft (homebrew, encounter, NPC, hero)      | **Draft with AI**                | "generate", "ask the assistant", "magic", "auto-create"   |
 
 "Show the party" is one verb because it is one act, and one act gets one glyph
 (`candle`), one keyboard shortcut and one line in Revealed.

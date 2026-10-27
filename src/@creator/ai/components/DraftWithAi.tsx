@@ -23,10 +23,13 @@ export function DraftWithAi({
   label,
   placeholder,
   onDraft,
+  whenOff = null,
 }: {
   label: string;
   placeholder: string;
   onDraft: (prompt: string) => Promise<string | null>;
+  /** For a page that is only this box: what to say instead of nothing. */
+  whenOff?: React.ReactNode;
 }) {
   const [state, setState] = useState<'loading' | 'off' | 'no-key' | 'ready'>(
     'loading'
@@ -49,7 +52,8 @@ export function DraftWithAi({
     });
   }, []);
 
-  if (state === 'loading' || state === 'off') return null;
+  if (state === 'loading') return null;
+  if (state === 'off') return whenOff;
 
   if (state === 'no-key') {
     return (

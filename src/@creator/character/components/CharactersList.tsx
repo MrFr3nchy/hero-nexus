@@ -15,6 +15,7 @@ import {
   Ribbon,
   useConfirm,
 } from '@/@shared/components/ui';
+import { DraftHeroLink } from '@/@creator/ai/components/DraftHeroLink';
 import type { CharacterRow } from '@/server/characters';
 import { deleteCharacterAction, listCharactersAction } from '../actions';
 
@@ -101,6 +102,7 @@ export function CharactersList() {
             >
               Import from D&amp;D Beyond
             </Button>
+            <DraftHeroLink />
             <Button
               as={Link}
               href="/creator/character"

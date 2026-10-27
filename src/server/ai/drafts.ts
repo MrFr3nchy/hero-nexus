@@ -12,11 +12,14 @@ import {
 import { and, eq } from 'drizzle-orm';
 
 import { CANON_KIND_FIELDS } from '@/@creator/campaign/lib/canon';
+import type { DdbFacts } from '@/@creator/character/lib/ddb-import';
+import { ABILITY_KEYS } from '@/@creator/character/schema';
 import { db } from '@/db';
 import { canonEntries } from '@/db/schema';
 
 import { requireCampaignRole } from '../campaigns';
-import { listCombatantChoices } from '../content';
+import { listCombatantChoices, listPickableContent } from '../content';
+import { previewDdbImport, type DdbPreview } from '../ddb-import';
 import { partyFacts } from '../encounter-plans';
 import { statChoices } from '../npcs';
 import { rateLimit } from '../rate-limit';
@@ -288,5 +291,170 @@ export async function draftNpc(
           challengeRating: pick.challengeRating,
         }
       : null,
+  };
+}
+
+/* --- heroes ------------------------------------------------------------- */
+
+/**
+ * A whole hero, drafted into the facts a D&D Beyond import carries.
+ *
+ * Deliberately the import's shape and the import's path: the preview it
+ * returns is `previewDdbImport`'s, matching gear and spells to the SRD by
+ * name, and the draft only becomes a character through
+ * `importDdbCharacterAction` when the DM presses for it — then it opens in
+ * the builder, where the rules check every pick. One road in for a sheet
+ * that was not built in the builder, not two.
+ */
+export async function draftCharacter(prompt: string): Promise<DdbPreview> {
+  const userId = await requireUserId();
+  if (!(await runsATable(userId))) throw new Error('FORBIDDEN');
+
+  const [classes, species, backgrounds] = await Promise.all([
+    listPickableContent('class'),
+    listPickableContent('species'),
+    listPickableContent('background'),
+  ]);
+  const names = (list: { name: string }[]) => list.map(e => e.name).join(', ');
+
+  const system = [
+    'You build player characters for the Dungeons & Dragons 2024 rules, as a DM would for a pregenerated hero or an adventuring NPC.',
+    `Class must be one of: ${names(classes)}.`,
+    `Species must be one of: ${names(species)}.`,
+    `Background must be one of: ${names(backgrounds)}.`,
+    'Use the 2024 rules: ability scores by standard array or point buy before background increases, hit points by the class hit die averaged, gear and spells a character of that class and level would really have. Name gear and spells exactly as the 2024 System Reference Document does.',
+    'Reply with one JSON object and nothing else, of this form:',
+    JSON.stringify({
+      name: 'string',
+      class: 'string',
+      subclass: 'string ("" below the level it is chosen)',
+      level: 'number 1-20',
+      species: 'string',
+      background: 'string',
+      alignment: 'string',
+      abilities: Object.fromEntries(ABILITY_KEYS.map(k => [k, 'number'])),
+      hitPointsMax: 'number',
+      items: [{ name: 'string', quantity: 'number', equipped: 'boolean' }],
+      spells: [{ name: 'string', level: 'number', prepared: 'boolean' }],
+      currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
+      notes: {
+        backstory: 'string, under 150 words',
+        personality: 'string: traits, ideal, bond, flaw',
+        appearance: 'string',
+      },
+    }),
+  ].join('\n');
+
+  const out = (await draft(userId, system, prompt)) as Record<string, unknown>;
+  return previewDdbImport(heroFacts(out, classes, species, backgrounds));
+}
+
+const int = (v: unknown, min: number, max: number, fallback: number) => {
+  const n = Math.trunc(Number(v));
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+};
+
+const obj = (v: unknown): Record<string, unknown> =>
+  v && typeof v === 'object' && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : {};
+
+/** The name as the catalog spells it, or as the model did when nothing matched. */
+function canonical(name: string, list: { name: string }[]): string {
+  const lower = name.toLowerCase();
+  return list.find(e => e.name.toLowerCase() === lower)?.name ?? name;
+}
+
+/**
+ * The model's reply, held to what the import's own schema accepts. Every
+ * field is clamped or defaulted rather than refused: a hero with a missing
+ * backstory is still a hero to finish in the builder.
+ */
+export function heroFacts(
+  out: Record<string, unknown>,
+  classes: { name: string; data: unknown }[],
+  species: { name: string }[],
+  backgrounds: { name: string }[]
+): DdbFacts {
+  const name = asText(out.name, 80);
+  if (!name) throw new Error('AI_BAD_REPLY');
+
+  const className = canonical(asText(out.class, 60), classes);
+  const classData = obj(classes.find(c => c.name === className)?.data);
+  const hitDie = int(classData.hitDie, 4, 12, 8);
+  const level = int(out.level, 1, 20, 1);
+
+  const abilitiesIn = obj(out.abilities);
+  const abilities = Object.fromEntries(
+    ABILITY_KEYS.map(k => [k, int(abilitiesIn[k], 3, 20, 10)])
+  ) as DdbFacts['abilities'];
+
+  const items = (Array.isArray(out.items) ? out.items : [])
+    .slice(0, 40)
+    .map(raw => {
+      const i = obj(raw);
+      return {
+        name: asText(i.name, 160),
+        quantity: int(i.quantity, 1, 999, 1),
+        equipped: i.equipped === true,
+      };
+    })
+    .filter(i => i.name);
+
+  const spells = (Array.isArray(out.spells) ? out.spells : [])
+    .slice(0, 60)
+    .map(raw => {
+      const sp = obj(raw);
+      return {
+        name: asText(sp.name, 120),
+        level: Number.isFinite(Number(sp.level))
+          ? int(sp.level, 0, 9, 0)
+          : null,
+        prepared: sp.prepared !== false,
+      };
+    })
+    .filter(sp => sp.name);
+
+  const coin = obj(out.currency);
+  const notes = obj(out.notes);
+  const hp = Number(out.hitPointsMax);
+
+  return {
+    name,
+    classes: className
+      ? [
+          {
+            name: className,
+            subclass: asText(out.subclass, 60),
+            level,
+            hitDie,
+          },
+        ]
+      : [],
+    level,
+    species: canonical(asText(out.species, 80), species),
+    background: canonical(asText(out.background, 80), backgrounds),
+    alignment: asText(out.alignment, 40),
+    xp: 0,
+    abilities,
+    hitPointsMax: Number.isFinite(hp) && hp >= 1 ? int(hp, 1, 999, 1) : null,
+    items,
+    spells,
+    currency: {
+      cp: int(coin.cp, 0, 100_000, 0),
+      sp: int(coin.sp, 0, 100_000, 0),
+      ep: int(coin.ep, 0, 100_000, 0),
+      gp: int(coin.gp, 0, 100_000, 0),
+      pp: int(coin.pp, 0, 100_000, 0),
+    },
+    notes: {
+      backstory: asText(notes.backstory, 4000),
+      personality: asText(notes.personality, 4000),
+      appearance: asText(notes.appearance, 2000),
+      other: '',
+    },
+    warnings: [
+      'Drafted with AI. Check every pick in the builder before this hero plays — the rules check runs there, not here.',
+    ],
   };
 }

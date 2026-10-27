@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { CONTENT_TYPES } from '@/@shared/content';
 
 import {
+  draftCharacter,
   draftEncounter,
   draftHomebrew,
   draftNpc,
@@ -13,6 +14,7 @@ import {
   type HomebrewDraft,
   type NpcDraft,
 } from '@/server/ai/drafts';
+import type { DdbPreview } from '@/server/ddb-import';
 import {
   getAiSettings,
   listAiModels,
@@ -143,5 +145,19 @@ export async function draftNpcAction(
     return { ok: true, data: await draftNpc(campaignId, placeId, p.data) };
   } catch (err) {
     return fail(err, 'Failed to draft them.');
+  }
+}
+
+export async function draftCharacterAction(
+  prompt: unknown
+): Promise<Result<DdbPreview>> {
+  const p = promptSchema.safeParse(prompt);
+  if (!p.success) {
+    return { ok: false, error: p.error.issues[0]?.message ?? 'Invalid.' };
+  }
+  try {
+    return { ok: true, data: await draftCharacter(p.data) };
+  } catch (err) {
+    return fail(err, 'Failed to draft the hero.');
   }
 }

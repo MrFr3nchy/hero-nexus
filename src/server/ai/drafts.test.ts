@@ -15,7 +15,9 @@ vi.mock('@/auth', () => ({
 process.env.AI_KEY_SECRET = 'a-test-secret-long-enough';
 
 const { getAiSettings, saveAiKey, removeAiKey } = await import('./keys');
-const { draftEncounter, draftHomebrew, draftNpc } = await import('./drafts');
+const { draftEncounter, draftHomebrew, draftNpc, heroFacts } = await import(
+  './drafts'
+);
 
 let dm = '';
 let player = '';
@@ -229,5 +231,54 @@ describe('draftNpc', () => {
     says({ name: 'Old Wick', statBlock: 'srd:creature:tarrasque' });
     const out = await draftNpc('camp-1', null, 'a lamplighter');
     expect(out.statBlock).toBeNull();
+  });
+});
+
+describe('heroFacts', () => {
+  const classes = [{ name: 'Bard', data: { hitDie: 8 } }];
+  const species = [{ name: 'Halfling' }];
+  const backgrounds = [{ name: 'Entertainer' }];
+
+  it('holds a reply to what the import accepts', () => {
+    const facts = heroFacts(
+      {
+        name: 'Pip Underbough',
+        class: 'bard',
+        level: 99,
+        species: 'halfling',
+        background: 'Entertainer',
+        abilities: { charisma: 40, dexterity: '14' },
+        hitPointsMax: -3,
+        items: [{ name: 'Lute', quantity: 0 }, { name: '' }],
+        spells: [{ name: 'Vicious Mockery', level: 0 }],
+        currency: { gp: -10, sp: 12 },
+      },
+      classes,
+      species,
+      backgrounds
+    );
+    expect(facts.classes).toEqual([
+      { name: 'Bard', subclass: '', level: 20, hitDie: 8 },
+    ]);
+    expect(facts.species).toBe('Halfling');
+    expect(facts.abilities.charisma).toBe(20);
+    expect(facts.abilities.dexterity).toBe(14);
+    expect(facts.abilities.strength).toBe(10);
+    expect(facts.hitPointsMax).toBeNull();
+    expect(facts.items).toEqual([
+      { name: 'Lute', quantity: 1, equipped: false },
+    ]);
+    expect(facts.spells[0]).toEqual({
+      name: 'Vicious Mockery',
+      level: 0,
+      prepared: true,
+    });
+    expect(facts.currency).toMatchObject({ gp: 0, sp: 12 });
+  });
+
+  it('needs a name', () => {
+    expect(() => heroFacts({}, classes, species, backgrounds)).toThrow(
+      'AI_BAD_REPLY'
+    );
   });
 });
