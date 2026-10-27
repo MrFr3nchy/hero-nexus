@@ -5,6 +5,8 @@
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { emptyTerrain, MATERIALS } from '@/@shared/battlemap/types';
+
 import { migrateTestDb, rawDb, seedUser } from '../../../test/db';
 
 let signedIn: string | null = null;
@@ -15,9 +17,8 @@ vi.mock('@/auth', () => ({
 process.env.AI_KEY_SECRET = 'a-test-secret-long-enough';
 
 const { getAiSettings, saveAiKey, removeAiKey } = await import('./keys');
-const { draftEncounter, draftHomebrew, draftNpc, heroFacts } = await import(
-  './drafts'
-);
+const { draftEncounter, draftHomebrew, draftNpc, draftPlacement, heroFacts } =
+  await import('./drafts');
 
 let dm = '';
 let player = '';
@@ -55,6 +56,22 @@ beforeAll(() => {
   db.prepare(
     'INSERT INTO campaign_homebrew (id, campaign_id, homebrew_id) VALUES (?, ?, ?)'
   ).run('ch-1', 'camp-1', 'hb-eel');
+  // A 4×3 floor of stone with a void tile at 0,0 — somewhere a creature
+  // cannot be put.
+  const floor = MATERIALS.findIndex(
+    m => m.key !== 'void' && !m.difficult && !m.impassable
+  );
+  const terrain = emptyTerrain(4, 3, floor);
+  terrain.material[0] = 0;
+  db.prepare(
+    'INSERT INTO battle_maps (id, campaign_id, name, terrain) VALUES (?, ?, ?, ?)'
+  ).run('map-1', 'camp-1', 'The docks', JSON.stringify(terrain));
+  db.prepare(
+    'INSERT INTO encounter_plans (id, campaign_id, name) VALUES (?, ?, ?)'
+  ).run('plan-1', 'camp-1', 'Reeds');
+  db.prepare(
+    "INSERT INTO encounter_plan_lines (id, plan_id, content_source, content_key, name, count) VALUES (?, ?, 'homebrew', 'hb-eel', 'Reed Eel', 2)"
+  ).run('line-1', 'plan-1');
   db.prepare(
     "INSERT INTO canon_entries (id, campaign_id, kind, title, dm_body) VALUES (?, ?, 'location', ?, ?)"
   ).run('place-1', 'camp-1', 'The Drowned Lantern', 'A smugglers’ tavern.');
@@ -280,5 +297,50 @@ describe('heroFacts', () => {
     expect(() => heroFacts({}, classes, species, backgrounds)).toThrow(
       'AI_BAD_REPLY'
     );
+  });
+});
+
+describe('draftPlacement', () => {
+  it('keeps only tiles a creature can stand on, one each, up to the count', async () => {
+    await dmKey();
+    says({
+      lines: [
+        {
+          line: 1,
+          spots: [
+            [0, 0],
+            [1, 1],
+            [1, 1],
+            [9, 9],
+            [2, 2],
+            [3, 2],
+          ],
+        },
+      ],
+      notes: 'In the reeds.',
+    });
+    const out = await draftPlacement('plan-1', 'map-1', null, 'in the reeds');
+    expect(out.lines).toEqual([
+      {
+        lineId: 'line-1',
+        name: 'Reed Eel',
+        count: 2,
+        spots: [
+          { mapId: 'map-1', x: 1, y: 1 },
+          { mapId: 'map-1', x: 2, y: 2 },
+        ],
+      },
+    ]);
+    const prompt = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(prompt.system).toContain('   0 #...');
+    expect(prompt.system).toContain('1. 2 × Reed Eel');
+  });
+
+  it('is staff-only', async () => {
+    signedIn = player;
+    await expect(
+      draftPlacement('plan-1', 'map-1', null, 'anywhere')
+    ).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

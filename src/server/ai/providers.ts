@@ -207,16 +207,43 @@ export async function generateJson(req: DraftCall): Promise<string> {
 }
 
 /**
- * The first JSON object in a model's reply. A model asked for bare JSON
- * still sometimes fences it or says a sentence first.
+ * The JSON object in a model's reply. A model asked for bare JSON still
+ * sometimes fences it, says a sentence first, or writes one object, thinks
+ * better of it and writes a corrected one after — so every complete
+ * top-level object is found, braces inside strings ignored, and the last one
+ * that parses is the answer.
  */
 export function extractJson(text: string): unknown {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end <= start) throw new Error('AI_BAD_REPLY');
-  try {
-    return JSON.parse(text.slice(start, end + 1));
-  } catch {
+  let found: unknown = undefined;
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"' && depth > 0) inString = true;
+    else if (c === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (c === '}' && depth > 0) {
+      depth--;
+      if (depth === 0) {
+        try {
+          found = JSON.parse(text.slice(start, i + 1));
+        } catch {
+          // Not an object after all; keep looking.
+        }
+      }
+    }
+  }
+  if (found === undefined || found === null || typeof found !== 'object') {
     throw new Error('AI_BAD_REPLY');
   }
+  return found;
 }

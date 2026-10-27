@@ -9,14 +9,23 @@ import {
   type ContentType,
 } from '@/@shared/content';
 
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 
+import {
+  canStand,
+  sketchLevel,
+  takenTiles,
+} from '@/@creator/campaign/lib/board-sketch';
 import { CANON_KIND_FIELDS } from '@/@creator/campaign/lib/canon';
+import type { PlanSpot } from '@/@creator/campaign/lib/plan-spots';
+import { defaultLevelId, levelOf } from '@/@shared/battlemap/types';
 import type { DdbFacts } from '@/@creator/character/lib/ddb-import';
 import { ABILITY_KEYS } from '@/@creator/character/schema';
 import { db } from '@/db';
-import { canonEntries } from '@/db/schema';
+import { canonEntries, encounterPlanLines, encounterPlans } from '@/db/schema';
 
+import { getBoardTerrain } from '../battlemap';
+import { staffForMap } from '../battlemap/shared';
 import { requireCampaignRole } from '../campaigns';
 import { listCombatantChoices, listPickableContent } from '../content';
 import { previewDdbImport, type DdbPreview } from '../ddb-import';
@@ -457,4 +466,101 @@ export function heroFacts(
       'Drafted with AI. Check every pick in the builder before this hero plays — the rules check runs there, not here.',
     ],
   };
+}
+
+/* --- placing an encounter on a battle board ------------------------------ */
+
+export interface PlacementDraft {
+  mapId: string;
+  /** Which line stands where. A line may come back with fewer spots than copies. */
+  lines: { lineId: string; name: string; count: number; spots: PlanSpot[] }[];
+  /** How the model set them out, for the DM to read before keeping it. */
+  notes: string;
+}
+
+/** A floor larger than this is more grid than a prompt should carry. */
+const MAX_TILES = 64 * 64;
+
+/**
+ * Where a planned fight's creatures stand on one floor of a board.
+ *
+ * The model is shown the floor as text — tiles, walls, rooms, who is
+ * already there — and answers with tiles per line. Every tile is checked
+ * against the floor with `canStand` and the rest dropped; the result is
+ * only ever kept through `setPlanLineSpotsAction`, the same as tapping the
+ * tiles in by hand.
+ */
+export async function draftPlacement(
+  planId: string,
+  mapId: string,
+  levelId: string | null,
+  prompt: string
+): Promise<PlacementDraft> {
+  const plan = await db.query.encounterPlans.findFirst({
+    where: eq(encounterPlans.id, planId),
+  });
+  if (!plan) throw new Error('NOT_FOUND');
+  const { userId } = await requireCampaignRole(plan.campaignId, [
+    'gm',
+    'co-gm',
+  ]);
+  const { map } = await staffForMap(mapId);
+  if (map.campaignId !== plan.campaignId) throw new Error('NOT_FOUND');
+
+  const lines = await db
+    .select()
+    .from(encounterPlanLines)
+    .where(eq(encounterPlanLines.planId, planId))
+    .orderBy(asc(encounterPlanLines.sortOrder));
+  if (lines.length === 0) throw new Error('AI_NOTHING_TO_PLACE');
+
+  const { terrain, taken } = await getBoardTerrain(mapId);
+  const level = levelOf(terrain, levelId);
+  if (level.w * level.h > MAX_TILES) throw new Error('AI_BOARD_TOO_BIG');
+  const blocked = takenTiles(taken.filter(t => t.level === level.id));
+
+  const system = [
+    'You set out a Dungeons & Dragons fight on a battle board for the DM, before the party arrives.',
+    sketchLevel(level, blocked),
+    'The creatures, by line number:',
+    ...lines.map((l, i) => `${i + 1}. ${l.count} × ${l.name}`),
+    'Put each copy on its own tile marked . ~ or p. Use the walls, rooms and cover the way these creatures would fight.',
+    'Reply with one JSON object and nothing else:',
+    '{"lines": [{"line": number, "spots": [[x, y]]}], "notes": string}',
+    '`notes` is one or two sentences for the DM on the set-up.',
+  ].join('\n');
+
+  const out = (await draft(userId, system, prompt)) as Record<string, unknown>;
+
+  const used = new Set(blocked);
+  const floor = level.id === defaultLevelId(terrain) ? {} : { level: level.id };
+  const byLine = new Map<number, unknown[]>();
+  for (const raw of Array.isArray(out.lines) ? out.lines : []) {
+    const entry = raw as Record<string, unknown>;
+    const n = Math.trunc(Number(entry.line));
+    if (Array.isArray(entry.spots)) byLine.set(n, entry.spots);
+  }
+
+  const placed = lines.map((line, i) => {
+    const spots: PlanSpot[] = [];
+    for (const raw of byLine.get(i + 1) ?? []) {
+      if (spots.length >= line.count) break;
+      const pair = Array.isArray(raw)
+        ? raw
+        : [
+            (raw as Record<string, unknown>)?.x,
+            (raw as Record<string, unknown>)?.y,
+          ];
+      const x = Number(pair[0]);
+      const y = Number(pair[1]);
+      if (!Number.isInteger(x) || !Number.isInteger(y)) continue;
+      if (!canStand(level, used, x, y)) continue;
+      used.add(`${x},${y}`);
+      spots.push({ mapId, x, y, ...floor });
+    }
+    return { lineId: line.id, name: line.name, count: line.count, spots };
+  });
+  if (placed.every(l => l.spots.length === 0)) throw new Error('AI_BAD_REPLY');
+
+  return { mapId, lines: placed, notes: asText(out.notes, 1000) };
 }

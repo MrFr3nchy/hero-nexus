@@ -29,6 +29,7 @@ import type { PlanRow } from '@/server/encounter-plans';
 import { listCanonAction } from '../canon-actions';
 import { listCombatantChoicesAction } from '../content-actions';
 import type { CanonEntryRow } from '../lib/canon';
+import { PlaceWithAi } from './PlaceWithAi';
 import { PlanSpots } from './PlanSpots';
 import { PlacePicker } from './world/PlacePicker';
 import {
@@ -232,6 +233,15 @@ function Plan({
               </li>
             ))}
           </ul>
+        )}
+
+        {plan.lines.length > 0 && (
+          <PlaceWithAi
+            campaignId={campaignId}
+            planId={plan.id}
+            onKept={refresh}
+            onError={onError}
+          />
         )}
 
         <div className="flex flex-wrap items-end gap-2">

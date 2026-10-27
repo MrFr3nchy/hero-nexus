@@ -44,6 +44,9 @@ export const AI_ERRORS: Record<string, string> = {
   AI_UNREACHABLE: 'The provider could not be reached.',
   AI_BAD_REPLY: 'The draft came back unreadable. Try again, or reword it.',
   AI_NO_CREATURES: 'There are no creatures in the bestiary to choose from.',
+  AI_NOTHING_TO_PLACE: 'Put a creature in the fight first.',
+  AI_BOARD_TOO_BIG:
+    'That floor is too big to send whole. Place them by hand, or on a smaller floor.',
   AI_SLOW_DOWN:
     'That is a lot of drafting for one hour. Give it a little while.',
   AI_FAILED: 'The provider could not write that draft.',

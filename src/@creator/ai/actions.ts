@@ -9,10 +9,12 @@ import {
   draftEncounter,
   draftHomebrew,
   draftNpc,
+  draftPlacement,
   MAX_PROMPT,
   type EncounterDraft,
   type HomebrewDraft,
   type NpcDraft,
+  type PlacementDraft,
 } from '@/server/ai/drafts';
 import type { DdbPreview } from '@/server/ddb-import';
 import {
@@ -159,5 +161,25 @@ export async function draftCharacterAction(
     return { ok: true, data: await draftCharacter(p.data) };
   } catch (err) {
     return fail(err, 'Failed to draft the hero.');
+  }
+}
+
+export async function draftPlacementAction(
+  planId: string,
+  mapId: string,
+  levelId: string | null,
+  prompt: unknown
+): Promise<Result<PlacementDraft>> {
+  const p = promptSchema.safeParse(prompt);
+  if (!p.success) {
+    return { ok: false, error: p.error.issues[0]?.message ?? 'Invalid.' };
+  }
+  try {
+    return {
+      ok: true,
+      data: await draftPlacement(planId, mapId, levelId, p.data),
+    };
+  } catch (err) {
+    return fail(err, 'Failed to place them.');
   }
 }
