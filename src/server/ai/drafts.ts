@@ -18,6 +18,7 @@ import { canonEntries } from '@/db/schema';
 import { requireCampaignRole } from '../campaigns';
 import { listCombatantChoices } from '../content';
 import { partyFacts } from '../encounter-plans';
+import { statChoices } from '../npcs';
 import { rateLimit } from '../rate-limit';
 import { MAX_CREATURE_COPIES } from '../session';
 import { requireUserId } from '../session-user';
@@ -209,6 +210,12 @@ export interface NpcDraft {
   fields: Record<string, string>;
   /** What only the DM knows: motive, secret, what they want from the party. */
   dmBody: string;
+  /**
+   * The creature they fight as, picked from what this table may use — the
+   * same list the card's own stat-block picker offers. Null for somebody who
+   * would never pick up a sword.
+   */
+  statBlock: { ref: ContentRef; name: string; challengeRating: number } | null;
 }
 
 /**
@@ -233,6 +240,13 @@ export async function draftNpc(
       })
     : null;
 
+  const choices = await statChoices(campaignId);
+  const byKey = new Map(choices.map(c => [c.key, c]));
+  const roster = choices
+    .slice(0, MAX_CANDIDATES)
+    .map(c => `${c.key} | ${c.name} | CR ${formatChallenge(c.challengeRating)}`)
+    .join('\n');
+
   const defs = CANON_KIND_FIELDS.npc;
   const system = [
     'You write non-player characters for a Dungeons & Dragons 2024 DM.',
@@ -244,9 +258,12 @@ export async function draftNpc(
       name: 'string',
       ...Object.fromEntries(defs.map(d => [d.key, d.label])),
       dmBody: 'string',
+      statBlock: 'string',
     }),
     'Every value is a string. Personality, voice and looks are what the party would notice, a sentence each. `status` is usually "Alive".',
     '`dmBody` is for the DM only: what they want, what they hide, and a hook for the party — under 120 words.',
+    '`statBlock` is the creature they would fight as, named by its key (the text before the first "|") from this list, or "" if they would not fight:',
+    roster,
   ]
     .filter(Boolean)
     .join('\n');
@@ -259,5 +276,17 @@ export async function draftNpc(
   }
   const name = asText(out.name, 120);
   if (!name) throw new Error('AI_BAD_REPLY');
-  return { name, fields, dmBody: asText(out.dmBody, 8000) };
+  const pick = byKey.get(asText(out.statBlock, 200));
+  return {
+    name,
+    fields,
+    dmBody: asText(out.dmBody, 8000),
+    statBlock: pick
+      ? {
+          ref: pick.ref,
+          name: pick.name,
+          challengeRating: pick.challengeRating,
+        }
+      : null,
+  };
 }

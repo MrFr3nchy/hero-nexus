@@ -324,7 +324,7 @@ export function HomebrewCreator({
             {draft.id === null && (
               <DraftWithAi
                 key={draft.type}
-                label={`Draft a ${meta.label.toLowerCase()} with AI`}
+                label={`Draft ${/^[aeiou]/i.test(meta.label) ? 'an' : 'a'} ${meta.label.toLowerCase()} with AI`}
                 placeholder={DRAFT_PROMPTS[draft.type]}
                 onDraft={async prompt => {
                   const res = await draftHomebrewAction(draft.type, prompt);

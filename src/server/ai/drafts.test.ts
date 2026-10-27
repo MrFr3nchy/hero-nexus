@@ -51,6 +51,9 @@ beforeAll(() => {
     JSON.stringify({ challenge_rating: 2, armor_class: 13, hit_points: 30 })
   );
   db.prepare(
+    'INSERT INTO campaign_homebrew (id, campaign_id, homebrew_id) VALUES (?, ?, ?)'
+  ).run('ch-1', 'camp-1', 'hb-eel');
+  db.prepare(
     "INSERT INTO canon_entries (id, campaign_id, kind, title, dm_body) VALUES (?, ?, 'location', ?, ?)"
   ).run('place-1', 'camp-1', 'The Drowned Lantern', 'A smugglers’ tavern.');
   db.close();
@@ -201,6 +204,7 @@ describe('draftNpc', () => {
       personality: 'Brisk, frightened of the magistrate',
       shoeSize: '11',
       dmBody: 'Owes the smugglers.',
+      statBlock: 'homebrew:creature:hb-eel',
     });
     const out = await draftNpc('camp-1', 'place-1', 'the harbourmaster');
     expect(out).toEqual({
@@ -210,8 +214,20 @@ describe('draftNpc', () => {
         personality: 'Brisk, frightened of the magistrate',
       },
       dmBody: 'Owes the smugglers.',
+      statBlock: {
+        ref: { source: 'homebrew', type: 'creature', key: 'hb-eel' },
+        name: 'Reed Eel',
+        challengeRating: 2,
+      },
     });
     const prompt = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(prompt.system).toContain('The Drowned Lantern');
+  });
+
+  it('drops a stat block the table cannot use', async () => {
+    await dmKey();
+    says({ name: 'Old Wick', statBlock: 'srd:creature:tarrasque' });
+    const out = await draftNpc('camp-1', null, 'a lamplighter');
+    expect(out.statBlock).toBeNull();
   });
 });

@@ -11,9 +11,12 @@ import {
 import { useState } from 'react';
 
 import { draftNpcAction } from '@/@creator/ai/actions';
+import { formatChallenge } from '@/@shared/content';
+import type { NpcDraft } from '@/server/ai/drafts';
 import { DraftWithAi } from '@/@creator/ai/components';
 import { ControlRow, Glyph } from '@/@shared/components/ui';
 import { createCanonAction } from '../../canon-actions';
+import { setStatBlockAction } from '../../npc-actions';
 import type { RandomTableRow } from '../../lib/random-tables';
 import {
   pluckIntoPlaceAction,
@@ -59,6 +62,7 @@ export function QuickNpc({
   // faction, status — and the DM-only half. Saved with the rest.
   const [extra, setExtra] = useState<Record<string, string>>({});
   const [dmBody, setDmBody] = useState('');
+  const [statBlock, setStatBlock] = useState<NpcDraft['statBlock']>(null);
   const [busy, setBusy] = useState(false);
 
   const [fillFrom, setFillFrom] = useState<string | null>(null);
@@ -72,6 +76,7 @@ export function QuickNpc({
     setVoice('');
     setExtra({});
     setDmBody('');
+    setStatBlock(null);
   };
 
   const save = async () => {
@@ -89,6 +94,12 @@ export function QuickNpc({
       setBusy(false);
       onError(res.error);
       return;
+    }
+    // The drafted stat block is linked through the card's own action, so it
+    // is checked against what this table may use exactly as a pick would be.
+    if (statBlock) {
+      const linked = await setStatBlockAction(res.data.id, statBlock.ref);
+      if (!linked.ok) onError(linked.error);
     }
     // Kept as rolled: strike it, so the table does not offer it again.
     if (drawn && drawn.text === name.trim()) {
@@ -141,6 +152,7 @@ export function QuickNpc({
           setVoice(v ?? '');
           setExtra(rest);
           setDmBody(res.data.dmBody);
+          setStatBlock(res.data.statBlock);
           return null;
         }}
       />
@@ -236,6 +248,27 @@ export function QuickNpc({
             value={dmBody}
             onValueChange={setDmBody}
           />
+        )}
+        {statBlock && (
+          <p className="flex items-center gap-2 text-sm text-ink-muted">
+            <Glyph
+              name="crossed-swords"
+              size={14}
+              className="text-ink-subtle"
+            />
+            <span>
+              Fights as <span className="text-ink">{statBlock.name}</span> (CR{' '}
+              {formatChallenge(statBlock.challengeRating)})
+            </span>
+            <Button
+              size="sm"
+              variant="light"
+              className="ml-auto text-ink-muted"
+              onPress={() => setStatBlock(null)}
+            >
+              No stat block
+            </Button>
+          </p>
         )}
         <ControlRow size="sm">
           <Button
